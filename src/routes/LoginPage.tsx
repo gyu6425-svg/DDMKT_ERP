@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { sendOtp, verifyEmailOtp } from '../api/auth';
 import Button from '../components/Button';
 import { getAuthErrorMessage } from '../lib/authErrors';
+import { hasSupabaseConfig } from '../lib/supabase';
 
 type LoginStep = 'email' | 'otp';
 
@@ -70,7 +71,11 @@ function LoginPage() {
                             value={email}
                         />
                         <div className="mt-3.5 flex justify-center gap-3 max-[800px]:flex-col max-[800px]:items-center">
-                            <Button disabled={loading} type="submit" className="w-full">
+                            <Button
+                                disabled={loading || !hasSupabaseConfig}
+                                type="submit"
+                                className="w-full"
+                            >
                                 {loading ? '발송 중' : 'OTP 받기'}
                             </Button>
                             {/* <Button disabled type="button" variant="secondary">
@@ -93,7 +98,7 @@ function LoginPage() {
                             value={otp}
                         />
                         <div className="mt-3.5 flex justify-center gap-3 max-[800px]:flex-col max-[800px]:items-center">
-                            <Button disabled={loading} type="submit">
+                            <Button disabled={loading || !hasSupabaseConfig} type="submit">
                                 {loading ? '확인 중' : '로그인'}
                             </Button>
                             <Button
@@ -112,6 +117,12 @@ function LoginPage() {
                     </form>
                 )}
 
+                {!hasSupabaseConfig ? (
+                    <p className="mt-4 text-sm leading-6 text-[#b91c1c]">
+                        Supabase 연결값이 없습니다. .env 파일에 VITE_SUPABASE_URL,
+                        VITE_SUPABASE_PUBLISHABLE_KEY를 입력한 뒤 dev 서버를 다시 시작하세요.
+                    </p>
+                ) : null}
                 {errorMessage ? <p className="mt-4 text-[#b91c1c]">{errorMessage}</p> : null}
             </section>
         </main>

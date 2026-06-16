@@ -4,6 +4,7 @@ import CalendarPage from './routes/CalendarPage';
 import ClientsPage from './routes/ClientsPage';
 import ContractsPage from './routes/ContractsPage';
 import DashboardPage from './routes/DashboardPage';
+import BannerGeneratorPage from './routes/BannerGeneratorPage';
 import LoginPage from './routes/LoginPage';
 import MyPage from './routes/MyPage';
 import ReportsPage from './routes/ReportsPage';
@@ -14,6 +15,7 @@ const routes = [
     { path: '/contracts', element: <ContractsPage /> },
     { path: '/calendar', element: <CalendarPage /> },
     { path: '/reports', element: <ReportsPage /> },
+    { path: '/banner-generator', element: <BannerGeneratorPage /> },
     { path: '/mypage', element: <MyPage /> },
 ];
 

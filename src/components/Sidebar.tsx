@@ -7,6 +7,7 @@ const navigationItems = [
     { path: '/contracts', label: '계약 관리' },
     { path: '/calendar', label: '캘린더' },
     { path: '/reports', label: '리포트' },
+    { path: '/banner-generator', label: '배너 생성기' },
     { path: '/mypage', label: '내 페이지' },
 ];
 
@@ -16,11 +17,11 @@ function Sidebar() {
 
     return (
         <aside
-            className="flex min-h-svh flex-col border-r border-[#e5e7eb] p-6 max-[800px]:min-h-0 max-[800px]:border-r-0 max-[800px]:border-b"
+            className="sticky top-0 flex h-svh flex-col border-r border-[#e5e7eb] p-6 max-[800px]:static max-[800px]:h-auto max-[800px]:border-r-0 max-[800px]:border-b"
             aria-label="주요 메뉴"
         >
             <div className="mb-8">
-                <strong className="text-base">Marketing ERP</strong>
+                <strong className="text-base">DDMKT ERP</strong>
             </div>
 
             <nav className="grid gap-3 max-[800px]:grid-cols-2">

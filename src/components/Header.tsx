@@ -4,6 +4,7 @@ const pageTitles: Record<string, string> = {
     '/contracts': '계약 관리',
     '/calendar': '캘린더',
     '/reports': '리포트',
+    '/banner-generator': '배너 생성기',
     '/mypage': '내 페이지',
 };
 

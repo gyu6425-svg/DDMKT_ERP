@@ -3,7 +3,7 @@ import Button from '../components/Button'
 
 function ReportsPage() {
   return (
-    <section className="min-h-[320px] rounded-[50px] border border-[#e5e7eb] p-12">
+    <section className="min-h-[320px] rounded-[40px] border border-[#e5e7eb] bg-white p-12">
       <div className="flex items-center justify-between gap-4">
         <h1 className="m-0 text-[28px]">리포트</h1>
         <AdminOnly>

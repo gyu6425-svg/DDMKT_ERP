@@ -20,7 +20,7 @@ function ContractsPage() {
   }, [])
 
   return (
-    <section className="min-h-[320px] rounded-[50px] border border-[#e5e7eb] p-12">
+    <section className="min-h-[320px] rounded-[40px] border border-[#e5e7eb] bg-white p-12">
       {loading ? <p>불러오는 중...</p> : null}
       {errorMessage ? <p className="text-[#b91c1c]">{errorMessage}</p> : null}
       {!loading && !errorMessage ? (
