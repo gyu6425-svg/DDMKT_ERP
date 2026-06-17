@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "api:dev": "node scripts/openai-card-image-api.mjs",
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "api:dev": "node --use-system-ca scripts/openai-card-image-api.mjs",
+    "dev": "vite --configLoader native",
+    "build": "tsc -b && vite build --configLoader native",
     "lint": "eslint .",
     "preview": "vite preview"
   },

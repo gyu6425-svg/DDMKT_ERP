@@ -5,6 +5,7 @@ export type GenerateAiCardImageInput = {
     imageDataUrls?: string[];
     provider: 'gemini' | 'openai';
     rawText: string;
+    seriesStyleReferenceImageDataUrls?: string[];
     templateDirection?: string;
     templateName?: string;
 };
@@ -15,10 +16,6 @@ export type GenerateAiCardImageResult = {
 };
 
 function getGenerateCardImageUrl() {
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        return 'http://127.0.0.1:8787/api/generate-card-image';
-    }
-
     return '/api/generate-card-image';
 }
 
@@ -27,6 +24,7 @@ export async function generateAiCardImage({
     imageDataUrls,
     provider,
     rawText,
+    seriesStyleReferenceImageDataUrls,
     templateDirection,
     templateName,
 }: GenerateAiCardImageInput): Promise<GenerateAiCardImageResult> {
@@ -42,6 +40,7 @@ export async function generateAiCardImage({
                 imageDataUrls,
                 provider,
                 rawText,
+                seriesStyleReferenceImageDataUrls,
                 templateDirection,
                 templateName,
             }),

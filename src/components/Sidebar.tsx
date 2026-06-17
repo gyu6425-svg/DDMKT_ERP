@@ -1,5 +1,6 @@
 import AdminOnly from './AdminOnly';
 import { useAuth } from '../hooks/useAuth';
+import type { MouseEvent } from 'react';
 
 const navigationItems = [
     { path: '/dashboard', label: '대시보드' },
@@ -14,33 +15,62 @@ const navigationItems = [
 function Sidebar() {
     const currentPath = window.location.pathname;
     const { signOut } = useAuth();
+    const navigate = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
+        if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.shiftKey
+        ) {
+            return;
+        }
+
+        event.preventDefault();
+
+        if (window.location.pathname !== path) {
+            window.history.pushState(null, '', path);
+            window.dispatchEvent(new Event('app:navigate'));
+        }
+    };
 
     return (
         <aside
             className="sticky top-0 flex h-svh flex-col border-r border-[#e5e7eb] p-6 max-[800px]:static max-[800px]:h-auto max-[800px]:border-r-0 max-[800px]:border-b"
             aria-label="주요 메뉴"
         >
-            <div className="mb-8">
+            <div className="mb-16">
                 <strong className="text-base">DDMKT ERP</strong>
             </div>
 
-            <nav className="grid gap-3 max-[800px]:grid-cols-2">
+            <nav className="grid gap-[18px] max-[800px]:grid-cols-2">
                 {navigationItems.map((item) => (
                     <a
                         aria-current={item.path === currentPath ? 'page' : undefined}
                         className={
                             item.path === currentPath
-                                ? 'font-bold text-inherit no-underline'
-                                : 'text-inherit no-underline'
+                                ? 'text-[16px] font-semibold text-[#444444] no-underline'
+                                : 'text-[16px] font-medium text-[#555555] no-underline hover:font-semibold hover:text-[#444444]'
                         }
                         href={item.path}
                         key={item.path}
+                        onClick={(event) => navigate(event, item.path)}
                     >
                         {item.label}
                     </a>
                 ))}
                 <AdminOnly>
-                    <a className="text-inherit no-underline" href="/reports">
+                    <a
+                        aria-current={currentPath === '/reports' ? 'page' : undefined}
+                        className={
+                            currentPath === '/reports'
+                                ? 'text-[22px] font-semibold text-[#111111] no-underline'
+                                : 'text-[22px] font-normal text-[#555555] no-underline hover:font-semibold hover:text-[#111111]'
+                        }
+                        href="/reports"
+                        onClick={(event) => navigate(event, '/reports')}
+                    >
                         관리자 리포트
                     </a>
                 </AdminOnly>

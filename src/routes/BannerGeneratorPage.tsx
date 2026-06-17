@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+﻿import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { generateAiCardImage } from '../api/aiCardImage';
 
 const CANVAS_SIZE = 1254;
@@ -9,6 +9,7 @@ type LayoutVariant = 'education' | 'product' | 'photo' | 'compact' | 'chalkboard
 
 type BannerTemplate = {
     aiDirection: string;
+    disabled?: boolean;
     id: TemplateId;
     layoutVariant?: LayoutVariant;
     name: string;
@@ -65,7 +66,7 @@ const templates: BannerTemplate[] = [
         id: 'template-1',
         name: '템플릿 1',
         category: '기본 카드형',
-        description: '이미지와 원고를 분석해 내부 레이아웃을 자동으로 바꿉니다.',
+        description: '이미지와 원고를 분석해 가장 적절한 레이아웃을 자동으로 구성합니다.',
     },
     {
         aiDirection:
@@ -78,21 +79,21 @@ const templates: BannerTemplate[] = [
     },
     {
         aiDirection:
-            'Template 3: Use a realistic photo-based advertising style. Prefer clean lifestyle, clinic, education, product, or service photography aesthetics with natural lighting, editorial cropping, and professional SNS banner composition. Avoid cartoon or 3D toy-like visuals.',
+            'Template 3: Use a polished 3D visual style. Create soft 3D objects, dimensional icons, rounded forms, studio lighting, subtle shadows, and modern product-card composition. Avoid flat vector illustration and raw photography.',
         id: 'template-3',
-        layoutVariant: 'photo',
+        layoutVariant: 'product',
         name: '템플릿 3',
-        category: '실사형',
-        description: '실사 광고 이미지처럼 사진 중심의 현실감 있는 카드뉴스로 구성합니다.',
+        category: '3D 오브젝트형',
+        description: '입체 오브젝트와 부드러운 조명 중심의 3D 카드뉴스 스타일로 구성합니다.',
     },
     {
-        aiDirection:
-            'Template 4: Use a polished 3D visual style. Create soft 3D objects, dimensional icons, rounded forms, studio lighting, subtle shadows, and modern product-card composition. Avoid flat vector illustration and raw photography.',
+        aiDirection: '',
+        disabled: true,
         id: 'template-4',
         layoutVariant: 'product',
         name: '템플릿 4',
-        category: '3D 오브젝트형',
-        description: '입체 오브젝트와 부드러운 조명 중심의 3D 카드뉴스 스타일로 구성합니다.',
+        category: '기존 작업형',
+        description: '제작했던 작업물을 저장할 공간입니다. 추후 활성화 예정입니다.',
     },
 ];
 
@@ -172,9 +173,9 @@ const layoutLabels: Record<LayoutVariant, string> = {
     education: '교육/브랜드형',
     product: '제품 홍보형',
     photo: '사진 중심형',
-    compact: '간결 강조형',
+    compact: '간격 강조형',
     chalkboard: '칠판 교육형',
-    playful: '키즈/상담형',
+    playful: '퀴즈/상담형',
 };
 
 const colorPresets = [
@@ -243,7 +244,7 @@ function splitCopySegments(text: string) {
         }
 
         return normalizedBlock
-            .split(/(?<=[.!?。！？])\s+|[|]/)
+            .split(/(?<=[.!?])\s+|[|]/)
             .map((segment) => segment.trim())
             .filter(Boolean);
     });
@@ -259,11 +260,11 @@ function scoreTitleSegment(segment: string, index: number) {
         score += 6;
     }
 
-    if (/선택|기준|이유|방법|소개|추천|필수|핵심|왜|무엇|차이/.test(segment)) {
+    if (/선택|기준|이유|방법|소개|추천|필수|상담|왜|무엇|차이/.test(segment)) {
         score += 4;
     }
 
-    if (/무료|할인|특가|이벤트|선착순|한정|문의|상담|예약|신청/.test(segment)) {
+    if (/무료|할인|혜택|이벤트|한정|문의|상담|예약|신청/.test(segment)) {
         score -= 3;
     }
 
@@ -278,18 +279,18 @@ function scoreEmphasisSegment(segment: string, index: number, total: number) {
     let score = index === total - 1 ? 3 : 0;
 
     if (
-        /무료|할인|특가|이벤트|선착순|한정|혜택|증정|쿠폰|최대|마감|기간|오늘|이번|상담|예약|신청|문의/.test(
+        /무료|할인|혜택|이벤트|한정|특전|증정|쿠폰|최대|마감|기간|오늘|이번|상담|예약|신청|문의/.test(
             segment,
         )
     ) {
         score += 8;
     }
 
-    if (/\d+\s*(%|원|만원|명|회|개월|주|일)|[0-9]+/.test(segment)) {
+    if (/\d+\s*(%|만\s*원|명|개월|주|일)/.test(segment)) {
         score += 5;
     }
 
-    if (/결과|차이|입증|전문|1등|상위|검증|보장|후기|만족|성공/.test(segment)) {
+    if (/결과|차이|인증|전문|1등|상위|검증|보장|후기|만족|성공/.test(segment)) {
         score += 4;
     }
 
@@ -321,7 +322,7 @@ function pickBestSegment(
 }
 
 function isQuestionSegment(segment: string) {
-    return /[?？]$|까$|나요$|있을까$|무엇일까$/.test(segment.trim());
+    return /[?？]$|까$|나요$|을까$|무엇일까$/.test(segment.trim());
 }
 
 function isNumberedListSegment(segment: string) {
@@ -357,8 +358,7 @@ function analyzeClinicalTrialCopy(text: string) {
     const introSegment =
         segments.find(
             (segment) =>
-                !isQuestionSegment(segment) &&
-                /진행 중|진행중|모집|참여|대상|임상시험|연구/.test(segment),
+                !isQuestionSegment(segment) && /진행 중|진행중|모집|참여|대상|임상시험|연구/.test(segment),
         ) || '';
     const eligibilitySegment =
         segments.find(
@@ -430,7 +430,7 @@ function inferCta(text: string) {
         return '상담 문의';
     }
 
-    if (/구매|제품|장비|설치|견적|냉장고|오븐|믹서|기계/.test(text)) {
+    if (/구매|제품|서비스|설치|견적|냉장고|오븐|믹서|기계/.test(text)) {
         return '제품 문의';
     }
 
@@ -438,7 +438,7 @@ function inferCta(text: string) {
         return '수업 상담';
     }
 
-    return '자세히 보기';
+    return '';
 }
 
 function inferLayoutVariant(text: string, imageMeta: ImageMeta | null): LayoutVariant {
@@ -446,15 +446,15 @@ function inferLayoutVariant(text: string, imageMeta: ImageMeta | null): LayoutVa
     const lineCount = normalizedText.split('\n').filter(Boolean).length;
     const imageRatio = imageMeta ? imageMeta.width / imageMeta.height : 1;
 
-    if (/엄마|부모|아이|언어|육아|감정|상담|발달|놀이|어린이/.test(normalizedText)) {
+    if (/엄마|부모|아이|영어|육아|감정|상담|발달|대상|어린이/.test(normalizedText)) {
         return 'playful';
     }
 
-    if (/교육|전문가|지점|소개|시스템|학원 전 지점|입증/.test(normalizedText)) {
+    if (/교육|전문가|지도|소개|시스템|학원|인증/.test(normalizedText)) {
         return 'chalkboard';
     }
 
-    if (/제품|장비|전화|견적|구매|냉장고|오븐|믹서|기계|설치/.test(normalizedText)) {
+    if (/제품|서비스|전화|견적|구매|냉장고|오븐|믹서|기계|설치/.test(normalizedText)) {
         return 'product';
     }
 
@@ -1199,6 +1199,10 @@ function BannerGeneratorPage() {
     const selectTemplate = (templateId: TemplateId) => {
         const nextTemplate = templates.find((template) => template.id === templateId);
 
+        if (!nextTemplate || nextTemplate.disabled) {
+            return;
+        }
+
         setSelectedTemplateId(templateId);
         setPages((currentPages) => applyTemplateLayout(currentPages, nextTemplate));
     };
@@ -1310,6 +1314,7 @@ function BannerGeneratorPage() {
         }
 
         setAiLoading(true);
+        const seriesStyleReferenceImageDataUrls: string[] = [];
 
         for (const [index, page] of targetPages.entries()) {
             const requestId = `${page.id}-${Date.now()}`;
@@ -1351,9 +1356,14 @@ function BannerGeneratorPage() {
                     imageDataUrls: page.imageDataUrls.filter(Boolean),
                     provider: imageProvider,
                     rawText: page.rawText,
+                    seriesStyleReferenceImageDataUrls,
                     templateDirection: selectedTemplate?.aiDirection,
                     templateName: selectedTemplate?.name,
                 });
+
+                if (!seriesStyleReferenceImageDataUrls.includes(result.imageDataUrl)) {
+                    seriesStyleReferenceImageDataUrls.push(result.imageDataUrl);
+                }
 
                 setAiGeneratedImageUrl(result.imageDataUrl);
                 setPages((currentPages) =>
@@ -1393,7 +1403,7 @@ function BannerGeneratorPage() {
                         : '';
 
                 if (fallbackImageUrl) {
-                    const fallbackMessage = `Gemini 호출 실패: ${message} 내부 미리보기 이미지로 대체했습니다.`;
+                    const fallbackMessage = `Gemini 호출 실패: ${message} 앱 미리보기 이미지로 대체했습니다.`;
 
                     setAiGeneratedImageUrl(fallbackImageUrl);
                     setAiErrorMessage(fallbackMessage);
@@ -1404,7 +1414,7 @@ function BannerGeneratorPage() {
                                       ...currentPage,
                                       resultImageUrl: fallbackImageUrl,
                                       status: 'success',
-                                      statusMessage: '내부 미리보기로 대체',
+                                      statusMessage: '앱 미리보기로 대체',
                                   }
                                 : currentPage,
                         ),
@@ -1471,7 +1481,7 @@ function BannerGeneratorPage() {
                 <div className="mb-6">
                     <h2 className="m-0 text-[22px] font-semibold">썸네일 배너 생성기</h2>
                     <p className="mt-2 mb-0 text-sm text-[#6b7280]">
-                        원고만 입력해도 AI 카드배너를 생성할 수 있고, 이미지는 선택 사항입니다.
+                        원고만 입력해도 AI 카드 배너를 생성할 수 있고, 이미지는 선택 사항입니다.
                     </p>
                 </div>
 
@@ -1480,14 +1490,18 @@ function BannerGeneratorPage() {
                     <div className="grid grid-cols-2 gap-2">
                         {templates.map((template) => {
                             const selected = template.id === selectedTemplateId;
+                            const disabled = Boolean(template.disabled);
 
                             return (
                                 <button
                                     className={`rounded-md border px-3 py-3 text-left text-sm ${
-                                        selected
-                                            ? 'border-[#ff5a00] bg-[#fff4ed] text-[#111827]'
-                                            : 'border-[#d1d5db] bg-white text-[#4b5563]'
+                                        disabled
+                                            ? 'cursor-not-allowed border-[#e5e7eb] bg-[#f9fafb] text-[#9ca3af] opacity-70'
+                                            : selected
+                                              ? 'border-[#ff5a00] bg-[#fff4ed] text-[#111827]'
+                                              : 'border-[#d1d5db] bg-white text-[#4b5563]'
                                     }`}
+                                    disabled={disabled}
                                     key={template.id}
                                     onClick={() => selectTemplate(template.id)}
                                     type="button"
@@ -1558,11 +1572,10 @@ function BannerGeneratorPage() {
                             }
                             placeholder={`분당 영어학원 선택,
 기준은 하나입니다
-
 누가 가르치느냐
 어떻게 가르치느냐
 
-이 차이가 결과입니다`}
+그 차이가 결과입니다`}
                             value={activePage?.rawText || ''}
                         />
                     </label>
@@ -1672,7 +1685,7 @@ function BannerGeneratorPage() {
                             })}
                         </div>
                         <p className="m-0 text-xs leading-5 text-[#6b7280]">
-                            선택한 API의 키와 사용량만 적용됩니다.
+                            선택한 API는 다음 생성부터 적용됩니다.
                         </p>
                     </div>
 
@@ -1687,7 +1700,7 @@ function BannerGeneratorPage() {
                         {imageLoading
                             ? '이미지 읽는 중...'
                             : aiLoading
-                              ? 'AI 순차 생성 중...'
+                              ? 'AI 카드 생성 중...'
                               : `AI로 ${pages.length}장 생성`}
                     </button>
 
@@ -1741,13 +1754,13 @@ function BannerGeneratorPage() {
                     <div className="mx-auto flex aspect-square w-full max-w-[720px] items-center justify-center overflow-hidden rounded-[40px] border border-[#e5e7eb] bg-[#f3f4f6]">
                         {activeResultImageUrl ? (
                             <img
-                                alt="AI 생성 카드배너"
+                                alt="AI 생성 카드 배너"
                                 className="h-full w-full object-contain"
                                 src={activeResultImageUrl}
                             />
                         ) : (
                             <p className="m-0 px-6 text-center text-sm leading-6 text-[#6b7280]">
-                                왼쪽에서 카드 원고를 입력한 뒤 AI 생성 버튼을 누르면 결과가 여기에 표시됩니다.
+                                왼쪽에서 카드 원고를 입력하고 AI 생성 버튼을 누르면 결과가 여기에 표시됩니다.
                             </p>
                         )}
                     </div>
@@ -1885,7 +1898,7 @@ function BannerGeneratorPage() {
                             </div>
                         ) : (
                             <p className="m-0 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-3 py-3 text-sm leading-6 text-[#6b7280]">
-                                AI 생성 버튼을 누르면 진행 중, 완료, 실패 기록이 여기에 남습니다.
+                                AI 생성 버튼을 누르면 진행 중, 완료, 실패 기록이 여기에 표시됩니다.
                             </p>
                         )}
                     </div>

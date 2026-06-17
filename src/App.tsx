@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import CalendarPage from './routes/CalendarPage';
@@ -20,17 +21,37 @@ const routes = [
 ];
 
 function App() {
-    const currentPath = window.location.pathname;
+    const [currentPath, setCurrentPath] = useState(window.location.pathname);
+
+    useEffect(() => {
+        const syncPath = () => {
+            setCurrentPath(window.location.pathname);
+        };
+
+        window.addEventListener('popstate', syncPath);
+        window.addEventListener('app:navigate', syncPath);
+
+        return () => {
+            window.removeEventListener('popstate', syncPath);
+            window.removeEventListener('app:navigate', syncPath);
+        };
+    }, []);
 
     if (currentPath === '/login') {
         return <LoginPage />;
     }
 
     const currentRoute = routes.find((route) => route.path === currentPath) ?? routes[0];
+    const isBannerGeneratorActive = currentPath === '/banner-generator';
 
     return (
         <ProtectedRoute>
-            <Layout>{currentRoute.element}</Layout>
+            <Layout>
+                <div hidden={!isBannerGeneratorActive}>
+                    <BannerGeneratorPage />
+                </div>
+                {!isBannerGeneratorActive ? currentRoute.element : null}
+            </Layout>
         </ProtectedRoute>
     );
 }
