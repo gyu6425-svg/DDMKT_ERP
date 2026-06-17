@@ -9,7 +9,6 @@ const navigationItems = [
     { path: '/calendar', label: '캘린더' },
     { path: '/reports', label: '리포트' },
     { path: '/banner-generator', label: '배너 생성기' },
-    { path: '/mypage', label: '내 페이지' },
 ];
 
 function Sidebar() {
@@ -35,6 +34,11 @@ function Sidebar() {
         }
     };
 
+    const linkClassName = (path: string) =>
+        path === currentPath
+            ? 'text-[16px] font-semibold text-[#444444] no-underline'
+            : 'text-[16px] font-medium text-[#555555] no-underline hover:font-semibold hover:text-[#444444]';
+
     return (
         <aside
             className="sticky top-0 flex h-svh flex-col border-r border-[#e5e7eb] p-6 max-[800px]:static max-[800px]:h-auto max-[800px]:border-r-0 max-[800px]:border-b"
@@ -48,11 +52,7 @@ function Sidebar() {
                 {navigationItems.map((item) => (
                     <a
                         aria-current={item.path === currentPath ? 'page' : undefined}
-                        className={
-                            item.path === currentPath
-                                ? 'text-[16px] font-semibold text-[#444444] no-underline'
-                                : 'text-[16px] font-medium text-[#555555] no-underline hover:font-semibold hover:text-[#444444]'
-                        }
+                        className={linkClassName(item.path)}
                         href={item.path}
                         key={item.path}
                         onClick={(event) => navigate(event, item.path)}
@@ -62,16 +62,12 @@ function Sidebar() {
                 ))}
                 <AdminOnly>
                     <a
-                        aria-current={currentPath === '/reports' ? 'page' : undefined}
-                        className={
-                            currentPath === '/reports'
-                                ? 'text-[22px] font-semibold text-[#111111] no-underline'
-                                : 'text-[22px] font-normal text-[#555555] no-underline hover:font-semibold hover:text-[#111111]'
-                        }
-                        href="/reports"
-                        onClick={(event) => navigate(event, '/reports')}
+                        aria-current={currentPath === '/admin' ? 'page' : undefined}
+                        className={linkClassName('/admin')}
+                        href="/admin"
+                        onClick={(event) => navigate(event, '/admin')}
                     >
-                        관리자 리포트
+                        관리자 페이지
                     </a>
                 </AdminOnly>
             </nav>

@@ -6,6 +6,7 @@ const pageTitles: Record<string, string> = {
     '/reports': '리포트',
     '/banner-generator': '배너 생성기',
     '/mypage': '내 페이지',
+    '/admin': '관리자 페이지',
 };
 
 function Header() {

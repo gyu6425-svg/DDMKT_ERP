@@ -6,6 +6,20 @@ const fontFamily = 'Montserrat, "Malgun Gothic", Arial, sans-serif';
 
 type TemplateId = 'template-1' | 'template-2' | 'template-3' | 'template-4';
 type LayoutVariant = 'education' | 'product' | 'photo' | 'compact' | 'chalkboard' | 'playful';
+type BannerSizeId = 'square' | 'bottom';
+
+export type BannerSize = {
+    height: number;
+    id: BannerSizeId;
+    label: string;
+    name: string;
+    width: number;
+};
+
+const bannerSizes: BannerSize[] = [
+    { height: 1254, id: 'square', label: '1254 x 1254', name: '정사각형', width: 1254 },
+    { height: 941, id: 'bottom', label: '1672 x 941', name: '하단배너', width: 1672 },
+];
 
 type BannerTemplate = {
     aiDirection: string;
@@ -34,6 +48,12 @@ type ImageMeta = {
     height: number;
 };
 
+type LogoAsset = {
+    dataUrl: string;
+    image: HTMLImageElement;
+    name: string;
+};
+
 type AiGenerationHistoryItem = {
     id: string;
     badge: string;
@@ -46,6 +66,7 @@ type AiGenerationHistoryItem = {
 };
 
 type CardNewsPage = {
+    bannerSizeId: BannerSizeId;
     form: BannerForm;
     id: string;
     imageDataUrls: string[];
@@ -109,8 +130,13 @@ const defaultForm: BannerForm = {
     layoutVariant: 'education',
 };
 
-function createCardNewsPage(index: number, baseForm: BannerForm = defaultForm): CardNewsPage {
+function createCardNewsPage(
+    index: number,
+    baseForm: BannerForm = defaultForm,
+    bannerSizeId: BannerSizeId = 'square',
+): CardNewsPage {
     return {
+        bannerSizeId,
         form: {
             ...baseForm,
             title: '',
@@ -1029,28 +1055,219 @@ function drawTemplateOne(
     drawEducationLayout(context, form, image);
 }
 
+function drawBottomBannerLayout(
+    context: CanvasRenderingContext2D,
+    form: BannerForm,
+    image: HTMLImageElement | null,
+    bannerSize: BannerSize,
+) {
+    const { height, width } = bannerSize;
+
+    fillRoundedRect(context, 0, 0, width, height, 0, form.backgroundColor || '#ffffff');
+    fillRoundedRect(context, 56, 56, width - 112, height - 112, 42, '#ffffff');
+
+    context.fillStyle = form.accentColor;
+    context.globalAlpha = 0.1;
+    context.beginPath();
+    context.arc(width - 210, 170, 190, 0, Math.PI * 2);
+    context.arc(width - 90, height - 70, 260, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 1;
+
+    if (form.badge) {
+        fillRoundedRect(context, 96, 92, 220, 54, 16, '#f3f4f6');
+        context.fillStyle = form.textColor;
+        context.font = `700 24px ${fontFamily}`;
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(form.badge, 206, 119);
+    }
+
+    context.textAlign = 'left';
+    context.textBaseline = 'alphabetic';
+    context.fillStyle = form.accentColor;
+    context.font = `800 42px ${fontFamily}`;
+    drawWrappedText(context, form.subtitle, 104, 238, 720, 58, 2);
+
+    context.fillStyle = form.textColor;
+    context.font = `900 86px ${fontFamily}`;
+    drawWrappedText(context, form.title, 104, 360, 840, 98, 3);
+
+    context.fillStyle = '#374151';
+    context.font = `700 38px ${fontFamily}`;
+    drawWrappedText(context, form.emphasis, 108, 700, 760, 52, 2);
+
+    if (form.cta) {
+        drawCta(context, form, 108, 760, 300, 72);
+    }
+
+    drawImageArea(context, image, 1030, 150, 500, 640, 36, '#f3f4f6');
+
+    context.strokeStyle = form.accentColor;
+    context.globalAlpha = 0.75;
+    context.lineWidth = 8;
+    context.lineCap = 'round';
+    context.beginPath();
+    context.moveTo(108, 626);
+    context.quadraticCurveTo(360, 604, 620, 626);
+    context.stroke();
+    context.globalAlpha = 1;
+}
+
 function drawBanner(
     context: CanvasRenderingContext2D,
     form: BannerForm,
     image: HTMLImageElement | null,
+    bannerSize: BannerSize = bannerSizes[0],
+    logo?: HTMLImageElement | null,
 ) {
-    context.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    context.clearRect(0, 0, bannerSize.width, bannerSize.height);
+
+    if (bannerSize.id === 'bottom') {
+        drawBottomBannerLayout(context, form, image, bannerSize);
+        if (logo) {
+            drawLogoOverlay(context, logo, bannerSize);
+        }
+        return;
+    }
+
     drawTemplateOne(context, form, image);
+    if (logo) {
+        drawLogoOverlay(context, logo, bannerSize);
+    }
 }
 
-function createLocalBannerDataUrl(form: BannerForm, image: HTMLImageElement | null) {
+function loadImageFromDataUrl(dataUrl: string) {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('생성된 이미지를 읽지 못했습니다.'));
+        image.src = dataUrl;
+    });
+}
+
+function getLogoOverlayBox(bannerSize: BannerSize) {
+    if (bannerSize.id === 'bottom') {
+        return {
+            height: 76,
+            width: 220,
+            x: 92,
+            y: 76,
+        };
+    }
+
+    return {
+        height: 92,
+        width: 220,
+        x: 84,
+        y: 84,
+    };
+}
+
+function drawLogoOverlay(
+    context: CanvasRenderingContext2D,
+    logo: HTMLImageElement,
+    bannerSize: BannerSize,
+) {
+    const box = getLogoOverlayBox(bannerSize);
+    const scale = Math.min(box.width / logo.width, box.height / logo.height);
+    const width = logo.width * scale;
+    const height = logo.height * scale;
+    const x = box.x + (box.width - width) / 2;
+    const y = box.y + (box.height - height) / 2;
+
+    context.save();
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(logo, x, y, width, height);
+    context.restore();
+}
+
+function coverTopLeftBrandArea(
+    context: CanvasRenderingContext2D,
+    bannerSize: BannerSize,
+    fillColor = '#ffffff',
+) {
+    const box = getLogoOverlayBox(bannerSize);
+    const width = bannerSize.id === 'bottom' ? box.x + box.width + 90 : box.x + box.width + 110;
+    const height = bannerSize.id === 'bottom' ? box.y + box.height + 54 : box.y + box.height + 70;
+
+    context.fillStyle = fillColor;
+    context.fillRect(0, 0, width, height);
+}
+
+async function normalizeImageDataUrlToBannerSize(
+    dataUrl: string,
+    bannerSize: BannerSize,
+    logo?: HTMLImageElement | null,
+    fillColor = '#ffffff',
+) {
+    const image = await loadImageFromDataUrl(dataUrl);
+
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
 
-    canvas.width = CANVAS_SIZE;
-    canvas.height = CANVAS_SIZE;
+    canvas.width = bannerSize.width;
+    canvas.height = bannerSize.height;
 
     if (!context) {
-        return '';
+        return dataUrl;
     }
 
-    drawBanner(context, form, image);
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, bannerSize.width, bannerSize.height);
+    drawCoverImage(context, image, 0, 0, bannerSize.width, bannerSize.height);
+    coverTopLeftBrandArea(context, bannerSize, fillColor);
+    if (logo) {
+        drawLogoOverlay(context, logo, bannerSize);
+    }
+
     return canvas.toDataURL('image/png');
+}
+
+async function maskBrandAreaForAiReference(
+    dataUrl: string,
+    bannerSize: BannerSize,
+    fillColor = '#ffffff',
+) {
+    const image = await loadImageFromDataUrl(dataUrl);
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    canvas.width = bannerSize.width;
+    canvas.height = bannerSize.height;
+
+    if (!context) {
+        return dataUrl;
+    }
+
+    context.fillStyle = fillColor;
+    context.fillRect(0, 0, bannerSize.width, bannerSize.height);
+    drawCoverImage(context, image, 0, 0, bannerSize.width, bannerSize.height);
+
+    coverTopLeftBrandArea(context, bannerSize, fillColor);
+
+    return canvas.toDataURL('image/png');
+}
+
+const CARD_GENERATION_CONCURRENCY = 2;
+
+async function runWithConcurrency<T>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T) => Promise<void>,
+) {
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+        while (cursor < items.length) {
+            const item = items[cursor];
+            cursor += 1;
+            await worker(item);
+        }
+    });
+
+    await Promise.all(workers);
 }
 
 function BannerGeneratorPage() {
@@ -1062,6 +1279,8 @@ function BannerGeneratorPage() {
     const [aiLoading, setAiLoading] = useState(false);
     const [imageLoading, setImageLoading] = useState(false);
     const [imageProvider, setImageProvider] = useState<ImageProvider>('openai');
+    const [logoAsset, setLogoAsset] = useState<LogoAsset | null>(null);
+    const [logoLoading, setLogoLoading] = useState(false);
     const [pages, setPages] = useState<CardNewsPage[]>(() => [createCardNewsPage(1)]);
     const [activePageId, setActivePageId] = useState(() => pages[0]?.id || '');
     const [selectedTemplateId, setSelectedTemplateId] = useState<TemplateId>('template-1');
@@ -1069,6 +1288,9 @@ function BannerGeneratorPage() {
     const activePage = pages.find((page) => page.id === activePageId) || pages[0];
     const form = activePage?.form || defaultForm;
     const activeResultImageUrl = activePage?.resultImageUrl || aiGeneratedImageUrl;
+    const selectedBannerSize =
+        bannerSizes.find((bannerSize) => bannerSize.id === activePage?.bannerSizeId) ||
+        bannerSizes[0];
     const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
 
     useEffect(() => {
@@ -1095,8 +1317,14 @@ function BannerGeneratorPage() {
             return;
         }
 
-        drawBanner(context, form, imageRefs.current[activePage?.id || '']?.[0] || null);
-    }, [activePage?.id, activePage?.imageUrls, form]);
+        drawBanner(
+            context,
+            logoAsset ? { ...form, badge: '' } : form,
+            imageRefs.current[activePage?.id || '']?.[0] || null,
+            selectedBannerSize,
+            logoAsset?.image || null,
+        );
+    }, [activePage?.id, activePage?.imageUrls, form, logoAsset, selectedBannerSize]);
 
     const updateForm = (field: keyof BannerForm, value: string) => {
         const sharedFields: Array<keyof BannerForm> = [
@@ -1121,6 +1349,46 @@ function BannerGeneratorPage() {
                     },
                 };
             }),
+        );
+    };
+
+    const updatePageTextField = (
+        pageId: string,
+        field: Extract<keyof BannerForm, 'emphasis' | 'subtitle' | 'title'>,
+        value: string,
+    ) => {
+        setPages((currentPages) =>
+            currentPages.map((page) => {
+                if (page.id !== pageId) {
+                    return page;
+                }
+
+                const nextForm = {
+                    ...page.form,
+                    [field]: value,
+                };
+
+                return {
+                    ...page,
+                    form: nextForm,
+                    rawText: [nextForm.title, nextForm.subtitle, nextForm.emphasis]
+                        .filter((text) => text.trim())
+                        .join('\n\n'),
+                };
+            }),
+        );
+    };
+
+    const updateActivePageBannerSize = (bannerSizeId: BannerSizeId) => {
+        setPages((currentPages) =>
+            currentPages.map((page) =>
+                page.id === activePageId
+                    ? {
+                          ...page,
+                          bannerSizeId,
+                      }
+                    : page,
+            ),
         );
     };
 
@@ -1154,7 +1422,7 @@ function BannerGeneratorPage() {
             return;
         }
 
-        const nextPage = createCardNewsPage(pages.length + 1, form);
+        const nextPage = createCardNewsPage(pages.length + 1, form, activePage?.bannerSizeId);
         setPages((currentPages) =>
             applyTemplateLayout(normalizeSeriesLayout([...currentPages, nextPage]), selectedTemplate),
         );
@@ -1291,6 +1559,52 @@ function BannerGeneratorPage() {
         image.src = nextImageUrl;
     };
 
+    const handleLogoChange = (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+
+        if (!file) {
+            setLogoAsset(null);
+            setLogoLoading(false);
+            return;
+        }
+
+        setLogoAsset(null);
+        setLogoLoading(true);
+        const reader = new FileReader();
+
+        reader.onload = () => {
+            const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+
+            if (!dataUrl) {
+                setLogoLoading(false);
+                setAiErrorMessage('로고 파일을 읽지 못했습니다. 다른 이미지로 다시 시도하세요.');
+                return;
+            }
+
+            const image = new Image();
+            image.onload = () => {
+                setLogoAsset({
+                    dataUrl,
+                    image,
+                    name: file.name,
+                });
+                setLogoLoading(false);
+            };
+            image.onerror = () => {
+                setLogoLoading(false);
+                setAiErrorMessage('로고 이미지를 읽지 못했습니다. 다른 파일로 다시 시도하세요.');
+            };
+            image.src = dataUrl;
+        };
+
+        reader.onerror = () => {
+            setLogoLoading(false);
+            setAiErrorMessage('로고 파일을 읽지 못했습니다. 다른 이미지로 다시 시도하세요.');
+        };
+
+        reader.readAsDataURL(file);
+    };
+
     const generateAiImages = async () => {
         setAiErrorMessage('');
 
@@ -1300,6 +1614,11 @@ function BannerGeneratorPage() {
 
         if (imageLoading) {
             setAiErrorMessage('이미지 파일을 읽는 중입니다. 잠시 후 다시 시도하세요.');
+            return;
+        }
+
+        if (logoLoading) {
+            setAiErrorMessage('로고 이미지를 읽는 중입니다. 잠시 후 다시 시도하세요.');
             return;
         }
 
@@ -1314,10 +1633,11 @@ function BannerGeneratorPage() {
         }
 
         setAiLoading(true);
-        const seriesStyleReferenceImageDataUrls: string[] = [];
-
-        for (const [index, page] of targetPages.entries()) {
-            const requestId = `${page.id}-${Date.now()}`;
+        const generationTargets = targetPages.map((page, index) => {
+            const pageBannerSize =
+                bannerSizes.find((bannerSize) => bannerSize.id === page.bannerSizeId) ||
+                bannerSizes[0];
+            const requestId = `${page.id}-${Date.now()}-${index}`;
             const createdAt = new Date().toLocaleString('ko-KR', {
                 day: '2-digit',
                 hour: '2-digit',
@@ -1326,6 +1646,49 @@ function BannerGeneratorPage() {
             });
             const title = page.form.title.split('\n').filter(Boolean)[0] || `카드 ${index + 1}`;
 
+            return {
+                createdAt,
+                index,
+                page,
+                pageBannerSize,
+                requestId,
+                title,
+            };
+        });
+
+        setPages((currentPages) =>
+            currentPages.map((currentPage) =>
+                targetPages.some((page) => page.id === currentPage.id)
+                    ? {
+                          ...currentPage,
+                          status: 'loading',
+                          statusMessage: '생성 대기 중',
+                      }
+                    : currentPage,
+            ),
+        );
+        setAiHistory((currentHistory) => [
+            ...generationTargets.map((target) => ({
+                badge: target.page.form.badge || '브랜드 없음',
+                createdAt: target.createdAt,
+                id: target.requestId,
+                message: `카드 ${target.index + 1} AI 이미지 생성을 준비 중입니다.`,
+                status: 'loading' as const,
+                title: target.title,
+            })),
+            ...currentHistory,
+        ]);
+
+        const generateOneCard = async (
+            target: (typeof generationTargets)[number],
+            options: {
+                campaignStyleReferenceImageDataUrls: string[];
+                includeReferenceLibrary: boolean;
+                statusMessage: string;
+            },
+        ) => {
+            const { index, page, pageBannerSize, requestId } = target;
+
             setActivePageId(page.id);
             setPages((currentPages) =>
                 currentPages.map((currentPage) =>
@@ -1333,45 +1696,62 @@ function BannerGeneratorPage() {
                         ? {
                               ...currentPage,
                               status: 'loading',
-                              statusMessage: 'AI 이미지 생성 중',
+                              statusMessage: options.statusMessage,
                           }
                         : currentPage,
                 ),
             );
-            setAiHistory((currentHistory) => [
-                {
-                    badge: page.form.badge || '배지 없음',
-                    createdAt,
-                    id: requestId,
-                    message: `카드 ${index + 1} AI 이미지 생성을 요청했습니다.`,
-                    status: 'loading',
-                    title,
-                },
-                ...currentHistory,
-            ]);
+            setAiHistory((currentHistory) =>
+                currentHistory.map((item) =>
+                    item.id === requestId
+                        ? {
+                              ...item,
+                              message: `카드 ${index + 1} ${options.statusMessage}`,
+                          }
+                        : item,
+                ),
+            );
 
             try {
+                const maskedImageDataUrls = await Promise.all(
+                    page.imageDataUrls
+                        .filter(Boolean)
+                        .slice(0, 1)
+                        .map((imageDataUrl) =>
+                            maskBrandAreaForAiReference(
+                                imageDataUrl,
+                                pageBannerSize,
+                                page.form.backgroundColor || '#ffffff',
+                            ),
+                        ),
+                );
                 const result = await generateAiCardImage({
+                    bannerSize: pageBannerSize,
+                    campaignStyleReferenceImageDataUrls:
+                        options.campaignStyleReferenceImageDataUrls.slice(0, 1),
                     form: page.form,
-                    imageDataUrls: page.imageDataUrls.filter(Boolean),
+                    imageDataUrls: maskedImageDataUrls,
+                    logoDataUrl: logoAsset?.dataUrl,
                     provider: imageProvider,
                     rawText: page.rawText,
-                    seriesStyleReferenceImageDataUrls,
+                    referenceLibraryImageDataUrls: [],
                     templateDirection: selectedTemplate?.aiDirection,
                     templateName: selectedTemplate?.name,
                 });
+                const normalizedImageDataUrl = await normalizeImageDataUrlToBannerSize(
+                    result.imageDataUrl,
+                    pageBannerSize,
+                    logoAsset?.image || null,
+                    page.form.backgroundColor || '#ffffff',
+                );
 
-                if (!seriesStyleReferenceImageDataUrls.includes(result.imageDataUrl)) {
-                    seriesStyleReferenceImageDataUrls.push(result.imageDataUrl);
-                }
-
-                setAiGeneratedImageUrl(result.imageDataUrl);
+                setAiGeneratedImageUrl(normalizedImageDataUrl);
                 setPages((currentPages) =>
                     currentPages.map((currentPage) =>
                         currentPage.id === page.id
                             ? {
                                   ...currentPage,
-                                  resultImageUrl: result.imageDataUrl,
+                                  resultImageUrl: normalizedImageDataUrl,
                                   status: 'success',
                                   statusMessage: 'AI 이미지 생성 완료',
                               }
@@ -1383,7 +1763,7 @@ function BannerGeneratorPage() {
                         item.id === requestId
                             ? {
                                   ...item,
-                                  imageDataUrl: result.imageDataUrl,
+                                  imageDataUrl: normalizedImageDataUrl,
                                   message: `카드 ${index + 1} AI 이미지 생성이 완료되었습니다.`,
                                   prompt: result.prompt,
                                   status: 'success',
@@ -1391,48 +1771,11 @@ function BannerGeneratorPage() {
                             : item,
                     ),
                 );
+
+                return normalizedImageDataUrl;
             } catch (error) {
                 const message =
                     error instanceof Error ? error.message : 'AI 이미지 생성에 실패했습니다.';
-                const fallbackImageUrl =
-                    imageProvider === 'gemini'
-                        ? createLocalBannerDataUrl(
-                              page.form,
-                              imageRefs.current[page.id]?.[0] || null,
-                          )
-                        : '';
-
-                if (fallbackImageUrl) {
-                    const fallbackMessage = `Gemini 호출 실패: ${message} 앱 미리보기 이미지로 대체했습니다.`;
-
-                    setAiGeneratedImageUrl(fallbackImageUrl);
-                    setAiErrorMessage(fallbackMessage);
-                    setPages((currentPages) =>
-                        currentPages.map((currentPage) =>
-                            currentPage.id === page.id
-                                ? {
-                                      ...currentPage,
-                                      resultImageUrl: fallbackImageUrl,
-                                      status: 'success',
-                                      statusMessage: '앱 미리보기로 대체',
-                                  }
-                                : currentPage,
-                        ),
-                    );
-                    setAiHistory((currentHistory) =>
-                        currentHistory.map((item) =>
-                            item.id === requestId
-                                ? {
-                                      ...item,
-                                      imageDataUrl: fallbackImageUrl,
-                                      message: fallbackMessage,
-                                      status: 'success',
-                                  }
-                                : item,
-                        ),
-                    );
-                    continue;
-                }
 
                 setAiErrorMessage(message);
                 setPages((currentPages) =>
@@ -1457,11 +1800,48 @@ function BannerGeneratorPage() {
                             : item,
                     ),
                 );
-                break;
-            }
-        }
 
-        setAiLoading(false);
+                return '';
+            }
+        };
+
+        const generateCardsSequentialWithMaster = async () => {
+            const [masterTarget, ...remainingTargets] = generationTargets;
+            const masterImageDataUrl = await generateOneCard(masterTarget, {
+                campaignStyleReferenceImageDataUrls: [],
+                includeReferenceLibrary: true,
+                statusMessage: '1번 카드 생성 중',
+            });
+            const campaignStyleReferenceImageDataUrls = masterImageDataUrl
+                ? [
+                      await maskBrandAreaForAiReference(
+                          masterImageDataUrl,
+                          masterTarget.pageBannerSize,
+                          masterTarget.page.form.backgroundColor || '#ffffff',
+                      ),
+                  ]
+                : [];
+
+            await runWithConcurrency(
+                remainingTargets,
+                CARD_GENERATION_CONCURRENCY,
+                async (target) => {
+                    await generateOneCard(target, {
+                        campaignStyleReferenceImageDataUrls,
+                        includeReferenceLibrary: false,
+                        statusMessage: campaignStyleReferenceImageDataUrls.length
+                            ? '마스터 참고로 생성 중'
+                            : 'AI 이미지 생성 중',
+                    });
+                },
+            );
+        };
+
+        try {
+            await generateCardsSequentialWithMaster();
+        } finally {
+            setAiLoading(false);
+        }
     };
 
     const downloadAiImage = () => {
@@ -1479,14 +1859,14 @@ function BannerGeneratorPage() {
         <section className="grid gap-6 xl:grid-cols-[minmax(320px,440px)_minmax(0,1fr)]">
             <div className="rounded-[40px] border border-[#e5e7eb] bg-white p-6">
                 <div className="mb-6">
-                    <h2 className="m-0 text-[22px] font-semibold">썸네일 배너 생성기</h2>
+                    {/* <h2 className="m-0 text-[22px] font-semibold">썸네일 배너 생성기</h2> */}
                     <p className="mt-2 mb-0 text-sm text-[#6b7280]">
-                        원고만 입력해도 AI 카드 배너를 생성할 수 있고, 이미지는 선택 사항입니다.
+                        간단한 원고를 입력하시고, 이미지는 선택입니다.
                     </p>
                 </div>
 
                 <div className="mb-5 grid gap-3">
-                    <strong className="text-sm">템플릿 필터</strong>
+                    <strong className="text-m text-[#111111]">템플릿 필터</strong>
                     <div className="grid grid-cols-2 gap-2">
                         {templates.map((template) => {
                             const selected = template.id === selectedTemplateId;
@@ -1520,9 +1900,34 @@ function BannerGeneratorPage() {
                 </div>
 
                 <div className="grid gap-4">
+                    <div className="grid gap-2">
+                        <strong className="text-m text-[#111111]">배너 사이즈</strong>
+                        <div className="grid grid-cols-2 gap-2">
+                            {bannerSizes.map((bannerSize) => {
+                                const selected = bannerSize.id === activePage?.bannerSizeId;
+
+                                return (
+                                    <button
+                                        className={`rounded-md border px-3 py-3 text-left text-sm ${
+                                            selected
+                                                ? 'border-[#1457ff] bg-[#eff6ff] text-[#111827]'
+                                                : 'border-[#d1d5db] bg-white text-[#4b5563]'
+                                        }`}
+                                        key={bannerSize.id}
+                                        onClick={() => updateActivePageBannerSize(bannerSize.id)}
+                                        type="button"
+                                    >
+                                        <span className="block font-semibold">{bannerSize.name}</span>
+                                        <span className="mt-1 block text-xs">{bannerSize.label}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                     <div className="grid gap-3">
                         <div className="flex items-center justify-between gap-3">
-                            <strong className="text-sm">카드 페이지</strong>
+                            <strong className="text-m text-[#111111]">카드 페이지</strong>
                             <button
                                 className="inline-flex h-9 items-center justify-center rounded-md border border-[#d1d5db] bg-white px-3 text-xs font-semibold text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
                                 disabled={pages.length >= 3 || aiLoading}
@@ -1542,7 +1947,11 @@ function BannerGeneratorPage() {
                                           ? '완료'
                                           : page.status === 'error'
                                             ? '실패'
-                                            : '대기';
+                                          : '대기';
+                                const pageBannerSize =
+                                    bannerSizes.find(
+                                        (bannerSize) => bannerSize.id === page.bannerSizeId,
+                                    ) || bannerSizes[0];
 
                                 return (
                                     <button
@@ -1556,17 +1965,71 @@ function BannerGeneratorPage() {
                                         type="button"
                                     >
                                         <span className="block font-semibold">카드 {index + 1}</span>
-                                        <span className="mt-1 block">{statusLabel}</span>
+                                        <span className="mt-1 block">
+                                            {statusLabel} · {pageBannerSize.name}
+                                        </span>
                                     </button>
                                 );
                             })}
                         </div>
                     </div>
 
-                    <label className="grid gap-2 text-sm font-semibold">
-                        카드뉴스 원고 {pages.findIndex((page) => page.id === activePage?.id) + 1}
+                    <div className="grid gap-3">
+                        <strong className="text-m font-semibold text-[#111111]">
+                            카드뉴스 원고 {pages.findIndex((page) => page.id === activePage?.id) + 1}
+                        </strong>
+                        <label className="grid gap-2 text-sm font-semibold text-[#111111]">
+                            제목
+                            <textarea
+                                className="min-h-[84px] resize-y rounded-md border border-[#d1d5db] px-3 py-3 text-sm leading-6 font-normal placeholder:text-[#b7bdc8]"
+                                onChange={(event) =>
+                                    activePage &&
+                                    updatePageTextField(activePage.id, 'title', event.target.value)
+                                }
+                                placeholder="분당 영어학원 선택, 기준은 하나입니다"
+                                value={form.title}
+                            />
+                        </label>
+                        <label className="grid gap-2 text-sm font-semibold text-[#111111]">
+                            내용
+                            <textarea
+                                className="min-h-[132px] resize-y rounded-md border border-[#d1d5db] px-3 py-3 text-sm leading-6 font-normal placeholder:text-[#b7bdc8]"
+                                onChange={(event) =>
+                                    activePage &&
+                                    updatePageTextField(
+                                        activePage.id,
+                                        'subtitle',
+                                        event.target.value,
+                                    )
+                                }
+                                placeholder={`학원 끝나고
+집에 혼자 있는 아이
+괜찮을까요?`}
+                                value={form.subtitle}
+                            />
+                        </label>
+                        <label className="grid gap-2 text-sm font-semibold text-[#111111]">
+                            강조 문구
+                            <textarea
+                                className="min-h-[72px] resize-y rounded-md border border-[#d1d5db] px-3 py-3 text-sm leading-6 font-normal placeholder:text-[#b7bdc8]"
+                                onChange={(event) =>
+                                    activePage &&
+                                    updatePageTextField(
+                                        activePage.id,
+                                        'emphasis',
+                                        event.target.value,
+                                    )
+                                }
+                                placeholder="메디 25케어가 도와드리겠습니다."
+                                value={form.emphasis}
+                            />
+                        </label>
+                    </div>
+
+                    <label className="grid gap-2 text-sm font-semibold text-[#111111]">
+                        통원고 붙여넣기 / 자동 분리
                         <textarea
-                            className="min-h-[180px] resize-y rounded-md border border-[#d1d5db] px-3 py-3 text-sm leading-6 font-normal placeholder:text-[#b7bdc8]"
+                            className="min-h-[96px] resize-y rounded-md border border-[#d1d5db] px-3 py-3 text-sm leading-6 font-normal placeholder:text-[#b7bdc8]"
                             onChange={(event) =>
                                 activePage && updatePageRawText(activePage.id, event.target.value)
                             }
@@ -1581,7 +2044,7 @@ function BannerGeneratorPage() {
                     </label>
 
                     <div className="grid gap-2">
-                        <strong className="text-sm">참고 이미지 (선택, 최대 2장)</strong>
+                        <strong className="text-m text-[#111111]">참고 이미지</strong>
                         {[0, 1].map((imageIndex) => (
                             <label className="grid gap-2 text-xs font-semibold" key={imageIndex}>
                                 참고 이미지 {imageIndex + 1}
@@ -1606,8 +2069,8 @@ function BannerGeneratorPage() {
                         </button>
                     ) : null}
 
-                    <label className="grid gap-2 text-sm font-semibold">
-                        배지
+                    <label className="grid gap-2 text-m font-semibold text-[#111111]">
+                        브랜드명 (선택)
                         <input
                             className="rounded-md border border-[#d1d5db] px-3 py-2 text-sm font-normal placeholder:text-[#b7bdc8]"
                             onChange={(event) => updateForm('badge', event.target.value)}
@@ -1616,8 +2079,27 @@ function BannerGeneratorPage() {
                         />
                     </label>
 
+                    <label className="grid gap-2 text-sm font-semibold text-[#111111]">
+                        브랜드 로고 이미지
+                        <input
+                            accept="image/*"
+                            className="rounded-md border border-[#d1d5db] bg-white px-3 py-2 text-sm font-normal text-[#9ca3af] file:mr-3 file:rounded-md file:border-0 file:bg-[#f3f4f6] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-[#6b7280]"
+                            onChange={handleLogoChange}
+                            type="file"
+                        />
+                        {logoAsset ? (
+                            <span className="text-xs font-normal text-[#6b7280]">
+                                {logoAsset.name} · 모든 카드에 동일 위치로 적용
+                            </span>
+                        ) : logoLoading ? (
+                            <span className="text-xs font-normal text-[#6b7280]">
+                                로고 이미지를 읽는 중입니다.
+                            </span>
+                        ) : null}
+                    </label>
+
                     <div className="flex items-center justify-between gap-3">
-                        <strong className="text-sm">컬러</strong>
+                        <strong className="text-m text-[#111111]">컬러</strong>
                         <button
                             className="inline-flex h-9 items-center justify-center rounded-md border border-[#d1d5db] bg-white px-3 text-xs font-semibold text-[#111827]"
                             onClick={applyRandomColors}
@@ -1660,7 +2142,7 @@ function BannerGeneratorPage() {
                     </div>
 
                     <div className="grid gap-2">
-                        <strong className="text-sm">이미지 생성 API</strong>
+                        <strong className="text-sm text-[#111111]">이미지 생성 API</strong>
                         <div className="grid grid-cols-2 gap-2">
                             {[
                                 ['openai', 'GPT'],
@@ -1691,7 +2173,7 @@ function BannerGeneratorPage() {
 
                     <button
                         className="inline-flex h-12 items-center justify-center rounded-md bg-[#1457ff] px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={aiLoading || imageLoading}
+                        disabled={aiLoading || imageLoading || logoLoading}
                         onClick={() => {
                             void generateAiImages();
                         }}
@@ -1699,6 +2181,8 @@ function BannerGeneratorPage() {
                     >
                         {imageLoading
                             ? '이미지 읽는 중...'
+                            : logoLoading
+                              ? '로고 읽는 중...'
                             : aiLoading
                               ? 'AI 카드 생성 중...'
                               : `AI로 ${pages.length}장 생성`}
@@ -1721,14 +2205,21 @@ function BannerGeneratorPage() {
                                 {selectedTemplate?.name} · {layoutLabels[form.layoutVariant]}
                             </p>
                         </div>
-                        <span className="text-sm text-[#6b7280]">1254 x 1254 PNG</span>
+                        <span className="text-sm text-[#6b7280]">
+                            {selectedBannerSize.label} PNG
+                        </span>
                     </div>
-                    <div className="mx-auto w-full max-w-[720px] overflow-hidden rounded-[40px] border border-[#e5e7eb] bg-[#f3f4f6]">
+                    <div
+                        className="mx-auto w-full max-w-[720px] overflow-hidden rounded-[40px] border border-[#e5e7eb] bg-[#f3f4f6]"
+                        style={{
+                            aspectRatio: `${selectedBannerSize.width} / ${selectedBannerSize.height}`,
+                        }}
+                    >
                         <canvas
-                            className="block aspect-square h-auto w-full"
-                            height={CANVAS_SIZE}
+                            className="block h-auto w-full"
+                            height={selectedBannerSize.height}
                             ref={canvasRef}
-                            width={CANVAS_SIZE}
+                            width={selectedBannerSize.width}
                         />
                     </div>
                 </div>
@@ -1751,7 +2242,12 @@ function BannerGeneratorPage() {
                         </button>
                     </div>
 
-                    <div className="mx-auto flex aspect-square w-full max-w-[720px] items-center justify-center overflow-hidden rounded-[40px] border border-[#e5e7eb] bg-[#f3f4f6]">
+                    <div
+                        className="mx-auto flex w-full max-w-[720px] items-center justify-center overflow-hidden rounded-[40px] border border-[#e5e7eb] bg-[#f3f4f6]"
+                        style={{
+                            aspectRatio: `${selectedBannerSize.width} / ${selectedBannerSize.height}`,
+                        }}
+                    >
                         {activeResultImageUrl ? (
                             <img
                                 alt="AI 생성 카드 배너"
@@ -1770,6 +2266,10 @@ function BannerGeneratorPage() {
                         <div className="grid gap-3 sm:grid-cols-3">
                             {pages.map((page, index) => {
                                 const selected = page.id === activePage?.id;
+                                const pageBannerSize =
+                                    bannerSizes.find(
+                                        (bannerSize) => bannerSize.id === page.bannerSizeId,
+                                    ) || bannerSizes[0];
                                 const statusClass =
                                     page.status === 'loading'
                                         ? 'text-[#1457ff]'
@@ -1796,7 +2296,12 @@ function BannerGeneratorPage() {
                                                 {page.statusMessage}
                                             </span>
                                         </div>
-                                        <div className="flex aspect-square items-center justify-center overflow-hidden rounded border border-[#e5e7eb] bg-[#f9fafb]">
+                                        <div
+                                            className="flex items-center justify-center overflow-hidden rounded border border-[#e5e7eb] bg-[#f9fafb]"
+                                            style={{
+                                                aspectRatio: `${pageBannerSize.width} / ${pageBannerSize.height}`,
+                                            }}
+                                        >
                                             {page.resultImageUrl ? (
                                                 <img
                                                     alt={`카드 ${index + 1} AI 생성 결과`}

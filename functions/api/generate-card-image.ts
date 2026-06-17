@@ -1,4 +1,13 @@
 type GenerateCardImagePayload = {
+    bannerSize?: {
+        height?: number;
+        id?: string;
+        label?: string;
+        name?: string;
+        width?: number;
+    };
+    brandText?: string;
+    campaignStyleReferenceImageDataUrls?: string[];
     form?: {
         title?: string;
         subtitle?: string;
@@ -11,8 +20,11 @@ type GenerateCardImagePayload = {
     };
     imageDataUrl?: string;
     imageDataUrls?: string[];
+    logoDataUrl?: string;
     provider?: 'gemini' | 'openai';
     rawText?: string;
+    referenceLibraryImageDataUrls?: string[];
+    skipServerLogoOverlay?: boolean;
     seriesStyleReferenceImageDataUrls?: string[];
     templateDirection?: string;
     templateName?: string;
@@ -55,18 +67,289 @@ async function readJsonResponse(response: Response) {
     }
 }
 
+function getBannerDimensions(bannerSize: GenerateCardImagePayload['bannerSize']) {
+    return {
+        height: bannerSize?.height || 1254,
+        width: bannerSize?.width || 1254,
+    };
+}
+
+function getLogoOverlayBox(bannerSize: GenerateCardImagePayload['bannerSize']) {
+    if (bannerSize?.id === 'bottom') {
+        return { height: 76, width: 220, x: 92, y: 76 };
+    }
+
+    return { height: 92, width: 220, x: 84, y: 84 };
+}
+
+function escapeXml(value: string) {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+}
+
+function encodeSvgDataUrl(svg: string) {
+    const bytes = new TextEncoder().encode(svg);
+    let binary = '';
+
+    bytes.forEach((byte) => {
+        binary += String.fromCharCode(byte);
+    });
+
+    return `data:image/svg+xml;base64,${btoa(binary)}`;
+}
+
+function wrapImageWithSvg(
+    imageDataUrl: string,
+    bannerSize: GenerateCardImagePayload['bannerSize'],
+    overlayMarkup = '',
+) {
+    const { height, width } = getBannerDimensions(bannerSize);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+<rect width="${width}" height="${height}" fill="#ffffff"/>
+<image href="${escapeXml(imageDataUrl)}" x="0" y="0" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice"/>
+${overlayMarkup}
+</svg>`;
+
+    return encodeSvgDataUrl(svg);
+}
+
+function getCoverOverlayBox(bannerSize: GenerateCardImagePayload['bannerSize']) {
+    const box = getLogoOverlayBox(bannerSize);
+
+    return {
+        height: bannerSize?.id === 'bottom' ? box.y + box.height + 54 : box.y + box.height + 70,
+        width: bannerSize?.id === 'bottom' ? box.x + box.width + 90 : box.x + box.width + 110,
+        x: 0,
+        y: 0,
+    };
+}
+
+function overlayTopLeftCoverOnImage(
+    imageDataUrl: string,
+    payload: GenerateCardImagePayload,
+) {
+    const box = getCoverOverlayBox(payload.bannerSize);
+    const fillColor = payload.form?.backgroundColor || '#ffffff';
+    const overlayMarkup = `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" fill="${escapeXml(fillColor)}"/>`;
+
+    return wrapImageWithSvg(imageDataUrl, payload.bannerSize, overlayMarkup);
+}
+
+function overlayLogoOnImage(
+    imageDataUrl: string,
+    logoDataUrl: string,
+    bannerSize: GenerateCardImagePayload['bannerSize'],
+) {
+    const box = getLogoOverlayBox(bannerSize);
+    const overlayMarkup = `<image href="${escapeXml(logoDataUrl)}" x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" preserveAspectRatio="xMidYMid meet"/>`;
+
+    return wrapImageWithSvg(imageDataUrl, bannerSize, overlayMarkup);
+}
+
+function overlayBrandMarkOnImage(imageDataUrl: string, payload: GenerateCardImagePayload) {
+    const coveredImageDataUrl = overlayTopLeftCoverOnImage(imageDataUrl, payload);
+
+    if (payload.logoDataUrl) {
+        if (payload.skipServerLogoOverlay) {
+            return coveredImageDataUrl;
+        }
+
+        return overlayLogoOnImage(coveredImageDataUrl, payload.logoDataUrl, payload.bannerSize);
+    }
+
+    return coveredImageDataUrl;
+}
+
+function dataUrlToBuffer(dataUrl: string) {
+    const imagePart = splitDataUrl(dataUrl);
+
+    if (!imagePart) {
+        return null;
+    }
+
+    return Buffer.from(imagePart.data, 'base64');
+}
+
+async function getSharp() {
+    try {
+        const sharpModule = await import('sharp');
+
+        return sharpModule.default;
+    } catch {
+        return null;
+    }
+}
+
+async function makeLogoOverlayBuffer(logoDataUrl: string, maxWidth: number, maxHeight: number) {
+    const sharp = await getSharp();
+    const logoBuffer = dataUrlToBuffer(logoDataUrl);
+
+    if (!sharp || !logoBuffer) {
+        return null;
+    }
+
+    const rawLogo = await sharp(logoBuffer)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+    const pixels = rawLogo.data;
+    const { height, width } = rawLogo.info;
+    const samplePoints = [
+        [0, 0],
+        [Math.max(0, width - 1), 0],
+        [0, Math.max(0, height - 1)],
+        [Math.max(0, width - 1), Math.max(0, height - 1)],
+    ];
+    const sampledColors = samplePoints.map(([x, y]) => {
+        const index = (y * width + x) * 4;
+
+        return {
+            blue: pixels[index + 2],
+            green: pixels[index + 1],
+            red: pixels[index],
+        };
+    });
+    const backgroundColor = sampledColors.reduce(
+        (color, sample) => ({
+            blue: color.blue + sample.blue / sampledColors.length,
+            green: color.green + sample.green / sampledColors.length,
+            red: color.red + sample.red / sampledColors.length,
+        }),
+        { blue: 0, green: 0, red: 0 },
+    );
+
+    for (let index = 0; index < pixels.length; index += 4) {
+        const red = pixels[index];
+        const green = pixels[index + 1];
+        const blue = pixels[index + 2];
+        const max = Math.max(red, green, blue);
+        const min = Math.min(red, green, blue);
+        const backgroundDistance = Math.hypot(
+            red - backgroundColor.red,
+            green - backgroundColor.green,
+            blue - backgroundColor.blue,
+        );
+
+        if (backgroundDistance < 26 || (red > 245 && green > 245 && blue > 245 && max - min < 12)) {
+            pixels[index + 3] = 0;
+        } else if (
+            backgroundDistance < 48 ||
+            (red > 235 && green > 235 && blue > 235 && max - min < 18)
+        ) {
+            pixels[index + 3] = Math.min(
+                pixels[index + 3],
+                Math.max(20, Math.round((backgroundDistance - 26) * 5)),
+            );
+        }
+    }
+
+    return sharp(pixels, { raw: rawLogo.info })
+        .trim({
+            background: {
+                alpha: 0,
+                b: Math.round(backgroundColor.blue),
+                g: Math.round(backgroundColor.green),
+                r: Math.round(backgroundColor.red),
+            },
+            threshold: 18,
+        })
+        .resize({
+            fit: 'inside',
+            height: maxHeight,
+            withoutEnlargement: true,
+            width: maxWidth,
+        })
+        .png()
+        .toBuffer();
+}
+
+function makeCoverOverlaySvg(
+    bannerSize: GenerateCardImagePayload['bannerSize'],
+    fillColor = '#ffffff',
+) {
+    const box = getLogoOverlayBox(bannerSize);
+    const width = bannerSize?.id === 'bottom' ? box.x + box.width + 90 : box.x + box.width + 110;
+    const height = bannerSize?.id === 'bottom' ? box.y + box.height + 54 : box.y + box.height + 70;
+
+    return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+<rect x="0" y="0" width="${width}" height="${height}" fill="${escapeXml(fillColor)}"/>
+</svg>`);
+}
+
+async function finalizeImageDataUrl(imageDataUrl: string, payload: GenerateCardImagePayload) {
+    const sharp = await getSharp();
+
+    if (!sharp) {
+        return overlayBrandMarkOnImage(imageDataUrl, payload);
+    }
+
+    const imageBuffer = dataUrlToBuffer(imageDataUrl);
+
+    if (!imageBuffer) {
+        return overlayBrandMarkOnImage(imageDataUrl, payload);
+    }
+
+    const { height, width } = getBannerDimensions(payload.bannerSize);
+    const composites: Array<{ input: Buffer; left: number; top: number }> = [];
+    composites.push({
+        input: makeCoverOverlaySvg(payload.bannerSize, payload.form?.backgroundColor || '#ffffff'),
+        left: 0,
+        top: 0,
+    });
+
+    if (payload.logoDataUrl) {
+        const box = getLogoOverlayBox(payload.bannerSize);
+        const logoBuffer = await makeLogoOverlayBuffer(payload.logoDataUrl, box.width, box.height);
+
+        if (logoBuffer) {
+            const metadata = await sharp(logoBuffer).metadata();
+
+            composites.push({
+                input: logoBuffer,
+                left: Math.round(box.x + (box.width - (metadata.width || box.width)) / 2),
+                top: Math.round(box.y + (box.height - (metadata.height || box.height)) / 2),
+            });
+        }
+    }
+
+    const outputBuffer = await sharp(imageBuffer)
+        .resize(width, height, { fit: 'cover', position: 'center' })
+        .composite(composites)
+        .png()
+        .toBuffer();
+
+    return `data:image/png;base64,${outputBuffer.toString('base64')}`;
+}
+
 function buildPrompt({
     form = {},
     imageDataUrl,
     imageDataUrls,
     rawText = '',
+    referenceLibraryImageDataUrls,
+    campaignStyleReferenceImageDataUrls,
     seriesStyleReferenceImageDataUrls,
     templateDirection,
     templateName,
+    bannerSize,
 }: GenerateCardImagePayload) {
+    const width = bannerSize?.width || 1254;
+    const height = bannerSize?.height || 1254;
+    const isSquare = width === height;
+    const formatName = bannerSize?.name || (isSquare ? 'square card banner' : 'bottom banner');
     const referenceImages = getReferenceImages({ imageDataUrl, imageDataUrls });
-    const seriesStyleReferenceImages = getSeriesStyleReferenceImages({
+    const legacySeriesStyleReferenceImages = getSeriesStyleReferenceImages({
         seriesStyleReferenceImageDataUrls,
+    });
+    const campaignStyleReferenceImages = getCampaignStyleReferenceImages({
+        campaignStyleReferenceImageDataUrls,
+    });
+    const referenceLibraryImages = getReferenceLibraryImages({
+        referenceLibraryImageDataUrls,
     });
     const imageDirection = referenceImages.length
         ? `- ${referenceImages.length} reference image(s) were uploaded.
@@ -76,53 +359,62 @@ function buildPrompt({
 - Recompose the visual naturally; remove or simplify messy background if helpful.`
         : `- No source image was uploaded. Create a suitable original visual from the Korean copy.
 - Choose clean, relevant card-news imagery such as abstract medical/education/product/service visuals, icons, soft shapes, or professional scene elements.
-- Do not invent real people, logos, brands, certificates, or institution marks unless explicitly provided in the copy.
+- Do not invent real people, certificates, or institution marks unless explicitly provided in the copy.
 - Keep generated visuals secondary to readable Korean typography.`;
-    const seriesStyleDirection = seriesStyleReferenceImages.length
+    const campaignStyleDirection = campaignStyleReferenceImages.length
         ? `
-Series style reference:
-- ${seriesStyleReferenceImages.length} previously generated card image(s) are attached as style references.
-- Match the repeated visual system from the style reference exactly: brand treatment, [1장]/[2장] page labels, number label treatment, title typography, body typography, chip dimensions, chip height/width, padding, radius, color, border, shadow, alignment, and spacing.
-- Match the exact positions from the first/reference card: brand treatment must use the same x/y anchor position, bounding box size, alignment, margins from canvas edges, and baseline position on every card.
+Campaign master style:
+- ${campaignStyleReferenceImages.length} previously generated card image(s) from this run are attached first.
+- Treat the first generated card from this run as the campaign master design system even when this request uses a different canvas size or aspect ratio.
+- Design token lock is mandatory: the first generated card defines the exact campaign design tokens for all later cards.
+- For all later cards, reuse the exact same design tokens from the first card. Only replace the content. Do not redesign the system.
+- All later cards must look like responsive variants of the campaign master, not like new unrelated designs.
+- Match the campaign master before matching the reference library.
+- Preserve the campaign master's typography hierarchy, color mood, decorative language, image treatment, spacing rhythm, and component styling.
+- If the current canvas size differs from the campaign master, adapt only layout geometry to the new aspect ratio.
+- Do not copy the campaign master's words or content. Only copy the design system and repeated component treatment.`
+        : `
+Campaign master style:
+- This is the first generated card in this run. Establish a reusable campaign design system for later cards.
+- This first card will define the locked design tokens for title, body, emphasis, page labels, dividers, text boxes, spacing, and decorative components.`;
+    const referenceLibraryDirection = referenceLibraryImages.length || legacySeriesStyleReferenceImages.length
+        ? `
+Reference library:
+- ${referenceLibraryImages.length + legacySeriesStyleReferenceImages.length} reference image(s) are attached after any campaign master images.
+- Use the references as a design-method guide, not as exact images to copy. Extract the composition logic, spacing system, typography hierarchy, color mood, illustration/photo treatment, and decorative language, then create a new original banner for the user's copy.
+- Do not reuse the exact same scene, exact text layout, exact object placement, exact illustration, or exact copy from a reference unless the user's input explicitly asks for it.
+- Before composing, infer the reference design method: how the headline is weighted, how support copy is grouped, how emphasis boxes are styled, how decorative dots/arcs/icons are used, and how the main visual balances with text. Apply that method to the new content.
+- If the current canvas size differs from the reference, adapt only the layout geometry to the new aspect ratio; preserve the same visual mood, color palette, typography style, border radius language, shadows, decorative motifs, image treatment, spacing rhythm, and hierarchy.
+- Cross-size consistency is mandatory: square cards, bottom banners, and any other sizes in the same series must look like one campaign family, not separate template designs.
+- Do not switch to a different design theme just because the aspect ratio changes.
+- Korean headline typography must preserve the same heavy geometric sans look from the reference. Do not switch to a softer, handwritten, serif, condensed, distorted, or uneven AI-looking Korean font on bottom banners.
+- Match the repeated visual system from the style reference for page labels, number label treatment, title typography, body typography, spacing, color, border, shadow, alignment, and spacing.
 - Page/step labels such as [1장], [2장], [3장] must use the same x/y anchor position, bounding box size, alignment, margins from canvas edges, and baseline position on every card.
 - Page/step labels are optional and must appear only when the user's Korean text explicitly includes a page/step marker.
 - Preserve the user's exact page/step marker format. If the text says "[1장]", render "[1장]"; if it says "1", render "1"; if it says "1페이지", render "1페이지"; if it says "01" or "STEP 1", preserve that exact format.
 - Do not convert "1", "1페이지", "첫 번째", or any other page marker into "[1장]" unless the user explicitly wrote "[1장]".
 - If the user's Korean text does not contain any page/step marker, do not invent or add any page number label.
-- On the 1254x1254 canvas, keep the brand area anchored around x=70, y=70 with a consistent chip/text bounding box size. Keep the page label area anchored around x=995, y=70 with a consistent chip/text bounding box size.
-- Do not copy the previous card's words or content. Only copy the style tokens and repeated component treatment.
-- If the reference uses a chip for the page label, every new page label must use the same chip shape and dimensions. If the reference uses plain text, every new page label must stay plain text.
-- If the reference uses a chip/text/underline/label treatment for the brand, use the same brand treatment on this card.`
-        : `
-Series style reference:
-- This is the first card in the series. Establish a reusable style system for brand treatment, page labels, title typography, body typography, chips, shadows, spacing, and colors. Future cards must match this card.`;
+- If the reference uses a page marker, keep only its general placement and hierarchy. If there is no page marker in the user's text, do not add one.
+`
+        : '';
 
-    return `Create one polished Korean square card banner image.
+    return `Create one polished Korean ${formatName} image.
 
 Canvas:
-- 1254x1254 square image.
-- The final image must be a full square canvas with 0px corner radius.
+- ${width}x${height} image.
+- The final image must be a full ${isSquare ? 'square' : 'landscape'} canvas with 0px corner radius.
+- ${isSquare ? 'Use a square SNS/card-news composition.' : 'Use a wide bottom-banner composition optimized for a horizontal footer or lower-page banner.'}
 - Do not create rounded outer corners, rounded side edges, card-shaped clipping, masks, frames, or transparent corner cutouts.
 - Fill the entire canvas to all four edges; the image corners and side corners must be perfectly square.
 - Premium Korean card-news / social banner style.
 - Choose a layout freely based on the content, similar to Korean academy, product, consultation, portfolio, and playful card-news references.
 ${imageDirection}
-${seriesStyleDirection}
+${campaignStyleDirection}
+${referenceLibraryDirection}
 
 Template:
 - Selected template: ${templateName || 'Template 1'}.
 ${templateDirection ? `- ${templateDirection}` : '- Follow the selected template style consistently.'}
-
-Brand:
-- Brand or badge text: ${form.badge || 'BRAND'}
-- Treat the badge as a brand name.
-- Keep the brand name visually consistent across every card in the series.
-- Use the same brand placement, color treatment, and typography style.
-- Do not translate, rename, distort, or restyle the brand name differently between cards.
-- Choose one brand treatment for the series and keep it identical on every card.
-- The brand may be plain text, a chip, a badge, a rectangular label, an underline treatment, or another simple brand treatment, but it must not change between cards.
-- If the brand is a chip/badge/label/box/underline, keep the exact same shape, corner radius, padding, fill color, border, underline thickness, shadow, text color, font size, font weight, spacing, and alignment on every card.
-- Do not render the brand as a chip on one card and plain text on another; do not switch between pill, rectangle, underline, badge, or text-only styles within the same series.
 
 Korean text to include exactly:
 Main title:
@@ -139,28 +431,47 @@ ${rawText}
 
 Design direction:
 - Make the typography large, clear, and highly readable.
+- Render only the Korean text explicitly listed above. Do not add any extra English labels, captions, marks, or decorative text.
+- Reference images are inspiration for design principles only. Do not trace, duplicate, or recreate a reference image verbatim.
+- Build a fresh layout from the user's raw copy while borrowing only high-level style rules: hierarchy, spacing rhythm, color relationship, decorative motif type, and image mood.
+- Design token lock:
+- This is a multi-card campaign series.
+- The first generated card defines the campaign design system.
+- For all later cards, reuse the exact same design tokens from the first card.
+- Only replace the content. Do not redesign the system.
+- Treat title, body, emphasis text, page labels, dividers, and text boxes as locked reusable components/text styles after the first card.
+- Typography token rules:
+- If the main title on the first card uses a specific font size, font weight, line height, letter spacing, and color, keep those exact same values on all later cards.
+- If the supporting/body text on the first card uses a specific font size, font weight, line height, letter spacing, and color, keep those exact same values on all later cards.
+- If the emphasis text on the first card uses a specific font size, font weight, line height, letter spacing, and color, keep those exact same values on all later cards.
+- The same hierarchy level must always use the same typography tokens across the whole series.
+- Example: if the main title is 15px and #000000 on the first card, all later cards must keep the main title at 15px and #000000.
+- Example: if the supporting text is 12px and #555555 on the first card, all later cards must keep that exact same style.
+- Example: if the emphasis text is 15px bold and orange on the first card, all later cards must keep that exact same emphasis style.
+- Do not introduce subtle differences in font size, weight, spacing, line height, letter spacing, or color between cards.
+- Reusable component lock:
+- Any repeated UI component such as page labels, dividers, or text boxes must be reused with identical design tokens across all cards.
+- Keep the same x/y anchor position, width, height, padding, corner radius, fill color, border, shadow, and text styling.
+- Do not restyle shared components from card to card.
 - Series consistency is mandatory: when generating multiple cards, treat shared UI elements as reusable components with fixed design tokens.
-- Do not create a bottom CTA button, CTA chip, "learn more", "자세히 보기", "문의하기", or generic call-to-action button.
-- Reuse the exact same component styles across every card for brand text/chips, numbered labels, section labels, badges, dividers, shadows, borders, and decorative containers.
-- For every repeated chip/badge component, keep the same corner radius, padding, height, fill color, border color, border width, shadow blur, shadow offset, shadow opacity, text color, font size, font weight, letter spacing, and alignment across the full series.
+- If the series contains mixed sizes such as 1254x1254 square cards and 1672x941 bottom banners, keep one unified campaign design system across all sizes.
+- For mixed-size outputs, preserve visual mood, color palette, font style, decorative motif style, image treatment, and hierarchy from the first generated card. Change only the layout proportions and element positions needed to fit the selected canvas.
+- The different sizes must look like responsive variants of the same design, not separate designs.
+- Preserve the master Korean headline font style across sizes: heavy, clean, geometric, uniform stroke width, consistent anti-aliasing, and no odd glyph deformation.
+- Do not create a bottom CTA button, "learn more", "자세히 보기", "문의하기", or generic call-to-action button.
+- Reuse the exact same component styles across every card for numbered labels, section labels, dividers, shadows, borders, and decorative containers.
 - If page/step labels such as [1장], 1, 1페이지, STEP 1, 첫 번째, etc. appear, choose one treatment for the full series and keep it identical on every card.
 - Only use page/step labels when the raw user copy explicitly includes them. Do not automatically add [1장], [2장], page numbers, slide numbers, or step labels.
 - Do not normalize page/step label text into a different format. Keep the exact punctuation, brackets, Korean words, spacing, and numeral style from the source text.
-- Page/step labels may be plain text, a chip, a badge, a circle, a rectangular label, an underline treatment, or another simple treatment, but they must not change between cards.
-- If page/step labels are chips/badges/circles/labels, keep the exact same shape, corner radius, padding, fill color, border, shadow, text color, font size, font weight, spacing, bracket style, and alignment on every card.
-- Keep brand and page/step labels in the same absolute position across the series. Do not move them to fit each card.
-- Use the first card's brand position and page-label position as fixed anchors for all later cards.
-- The brand and page/step label bounding boxes must keep the same width, height, x/y coordinates, edge margins, and text baseline across cards.
-- Use fixed top anchors for this design: brand at the upper-left, page label at the upper-right. Keep their y-position aligned across cards.
-- Do not resize a chip to fit the text differently from card to card. Use one fixed chip width and height for the same component across the series.
-- Bad example to avoid: one card has a wider/taller brand chip while another has a smaller brand chip; one card has a page label chip while another uses plain text; one card shifts the brand/page label by a few pixels; one card changes chip purple/black color slightly. Do not do any of these.
-- Brand chip/text and page label chip/text must be visually identical components across cards, with only the actual page number changing.
-- If [1장] appears inside a chip, [2장], [3장], etc. must use the same chip width, height, corner radius, padding, color, border, shadow, font size, font weight, and x/y position.
-- If the brand appears inside a chip, every card must use the same brand chip width, height, corner radius, padding, color, border, shadow, font size, font weight, and x/y position.
+- Page/step labels should be plain text unless the user explicitly typed a decorated marker in the copy.
+- Keep page/step labels in the same absolute position across the series. Do not move them to fit each card.
+- Use the first card's page-label position as a fixed anchor for all later cards.
+- Page/step label bounding boxes must keep the same width, height, x/y coordinates, edge margins, and text baseline across cards.
+- Do not change page marker styling between cards.
 - The numerals 1, 2, 3, 4, etc. must use the exact same typeface, glyph style, width, height, stroke thickness, color, font size, font weight, and baseline across the full series.
-- Do not render one page marker as a chip and another as plain text; do not switch number label styles within the same series.
+- Do not switch page marker styles within the same series.
 - If no page/step label exists in the input text, leave the top-right page label area empty.
-- Do not subtly change chip sizes, shadow values, border radii, padding, or number styles from card to card.
+- Do not subtly change marker sizes, shadow values, border radii, padding, or number styles from card to card.
 - Layout may adapt to copy length, but shared visual components must remain token-consistent across the series.
 - Use one consistent modern Korean sans-serif typeface across all Korean text.
 - Do not mix font families, handwriting styles, serif styles, outline fonts, or decorative lettering.
@@ -181,9 +492,14 @@ Design direction:
 - Preserve natural Korean spacing exactly. Do not insert spaces inside Korean words or split syllables/particles awkwardly.
 - Keep line breaks at natural phrase boundaries. Do not create awkward spacing, broken words, or uneven character-by-character layout.
 - Do not stretch a Korean word by adding spaces between letters. If text is too long, wrap by phrase, not by individual syllable.
-- Use strong hierarchy only between brand, main title, supporting copy, and emphasis.
+- Use strong hierarchy only between main title, supporting copy, and emphasis.
 - Use a refined advertising-card layout with enough margins.
-- Main colors: ${form.textColor || '#111827'}, ${form.accentColor || '#1457ff'}, ${form.backgroundColor || '#ffffff'}.
+- Required color roles:
+- Background fill color must be exactly ${form.backgroundColor || '#ffffff'}.
+- Main text color must be exactly ${form.textColor || '#111827'}.
+- Accent/highlight color must be exactly ${form.accentColor || '#1457ff'}.
+- Do not swap background and text colors. Do not use the text color as the full background unless it is also explicitly selected as the background color.
+- White may be used only for small contrast areas when needed; do not make the main text white unless the selected text color is white.
 - Avoid clutter. Make it look ready for a professional SNS/card-news banner.`;
 }
 
@@ -208,20 +524,37 @@ function getReferenceImages(
     payload: Pick<GenerateCardImagePayload, 'imageDataUrl' | 'imageDataUrls'>,
 ): string[] {
     return Array.isArray(payload.imageDataUrls)
-        ? payload.imageDataUrls.filter(isNonEmptyString)
-        : [payload.imageDataUrl].filter(isNonEmptyString);
+        ? payload.imageDataUrls.filter(isNonEmptyString).slice(0, 1)
+        : [payload.imageDataUrl].filter(isNonEmptyString).slice(0, 1);
 }
 
 function getSeriesStyleReferenceImages(
     payload: Pick<GenerateCardImagePayload, 'seriesStyleReferenceImageDataUrls'>,
 ): string[] {
     return Array.isArray(payload.seriesStyleReferenceImageDataUrls)
-        ? payload.seriesStyleReferenceImageDataUrls.filter(isNonEmptyString)
+        ? payload.seriesStyleReferenceImageDataUrls.filter(isNonEmptyString).slice(0, 1)
+        : [];
+}
+
+function getCampaignStyleReferenceImages(
+    payload: Pick<GenerateCardImagePayload, 'campaignStyleReferenceImageDataUrls'>,
+): string[] {
+    return Array.isArray(payload.campaignStyleReferenceImageDataUrls)
+        ? payload.campaignStyleReferenceImageDataUrls.filter(isNonEmptyString).slice(0, 1)
+        : [];
+}
+
+function getReferenceLibraryImages(
+    payload: Pick<GenerateCardImagePayload, 'referenceLibraryImageDataUrls'>,
+): string[] {
+    return Array.isArray(payload.referenceLibraryImageDataUrls)
+        ? payload.referenceLibraryImageDataUrls.filter(isNonEmptyString).slice(0, 3)
         : [];
 }
 
 async function generateOpenAiCardImage(payload: GenerateCardImagePayload, env: FunctionContext['env']) {
     const apiKey = env.OPENAI_API_KEY;
+    const outputSize = payload.bannerSize?.id === 'bottom' ? '1536x1024' : '1024x1024';
 
     if (!apiKey) {
         return jsonResponse(
@@ -250,7 +583,12 @@ async function generateOpenAiCardImage(payload: GenerateCardImagePayload, env: F
         },
     ];
 
-    [...getReferenceImages(payload), ...getSeriesStyleReferenceImages(payload)].forEach((imageDataUrl) => {
+    [
+        ...getReferenceImages(payload),
+        ...getCampaignStyleReferenceImages(payload),
+        ...getReferenceLibraryImages(payload),
+        ...getSeriesStyleReferenceImages(payload),
+    ].forEach((imageDataUrl) => {
         content.push({
             image_url: imageDataUrl,
             type: 'input_image',
@@ -268,7 +606,7 @@ async function generateOpenAiCardImage(payload: GenerateCardImagePayload, env: F
             model,
             tools: [
                 {
-                    size: '1024x1024',
+                    size: outputSize,
                     type: 'image_generation',
                 },
             ],
@@ -314,8 +652,10 @@ async function generateOpenAiCardImage(payload: GenerateCardImagePayload, env: F
         );
     }
 
+    const imageDataUrl = await finalizeImageDataUrl(`data:image/png;base64,${imageBase64}`, payload);
+
     return jsonResponse({
-        imageDataUrl: `data:image/png;base64,${imageBase64}`,
+        imageDataUrl,
         prompt,
     });
 }
@@ -350,7 +690,12 @@ async function generateGeminiCardImage(payload: GenerateCardImagePayload, env: F
         },
     ];
 
-    [...getReferenceImages(payload), ...getSeriesStyleReferenceImages(payload)].forEach((imageDataUrl) => {
+    [
+        ...getReferenceImages(payload),
+        ...getCampaignStyleReferenceImages(payload),
+        ...getReferenceLibraryImages(payload),
+        ...getSeriesStyleReferenceImages(payload),
+    ].forEach((imageDataUrl) => {
         const imagePart = splitDataUrl(imageDataUrl);
 
         if (imagePart) {
@@ -423,10 +768,15 @@ async function generateGeminiCardImage(payload: GenerateCardImagePayload, env: F
         );
     }
 
-    return jsonResponse({
-        imageDataUrl: `data:${inlineData.mimeType || inlineData.mime_type || 'image/png'};base64,${
+    const imageDataUrl = await finalizeImageDataUrl(
+        `data:${inlineData.mimeType || inlineData.mime_type || 'image/png'};base64,${
             inlineData.data
         }`,
+        payload,
+    );
+
+    return jsonResponse({
+        imageDataUrl,
         prompt,
     });
 }

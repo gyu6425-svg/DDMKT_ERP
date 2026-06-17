@@ -1,10 +1,15 @@
-import type { BannerForm } from '../routes/BannerGeneratorPage';
+﻿import type { BannerForm, BannerSize } from '../routes/BannerGeneratorPage';
 
 export type GenerateAiCardImageInput = {
+    bannerSize: BannerSize;
+    brandText?: string;
+    campaignStyleReferenceImageDataUrls?: string[];
     form: BannerForm;
     imageDataUrls?: string[];
+    logoDataUrl?: string;
     provider: 'gemini' | 'openai';
     rawText: string;
+    referenceLibraryImageDataUrls?: string[];
     seriesStyleReferenceImageDataUrls?: string[];
     templateDirection?: string;
     templateName?: string;
@@ -20,10 +25,15 @@ function getGenerateCardImageUrl() {
 }
 
 export async function generateAiCardImage({
+    bannerSize,
+    brandText,
+    campaignStyleReferenceImageDataUrls,
     form,
     imageDataUrls,
+    logoDataUrl,
     provider,
     rawText,
+    referenceLibraryImageDataUrls,
     seriesStyleReferenceImageDataUrls,
     templateDirection,
     templateName,
@@ -36,10 +46,15 @@ export async function generateAiCardImage({
     try {
         const response = await fetch(getGenerateCardImageUrl(), {
             body: JSON.stringify({
+                bannerSize,
+                brandText,
+                campaignStyleReferenceImageDataUrls,
                 form,
                 imageDataUrls,
+                logoDataUrl,
                 provider,
                 rawText,
+                referenceLibraryImageDataUrls,
                 seriesStyleReferenceImageDataUrls,
                 templateDirection,
                 templateName,
@@ -61,24 +76,26 @@ export async function generateAiCardImage({
             } catch {
                 throw new Error(
                     response.ok
-                        ? 'AI 이미지 생성 응답을 해석하지 못했습니다.'
-                        : 'AI 이미지 생성 API 응답을 해석하지 못했습니다. 로컬 API 서버가 실행 중인지 확인하세요.',
+                        ? 'AI ?대?吏 ?앹꽦 ?묐떟???댁꽍?섏? 紐삵뻽?듬땲??'
+                        : 'AI ?대?吏 ?앹꽦 API ?묐떟???댁꽍?섏? 紐삵뻽?듬땲?? 濡쒖뺄 API ?쒕쾭媛 ?ㅽ뻾 以묒씤吏 ?뺤씤?섏꽭??',
                 );
             }
         }
 
         if (!response.ok) {
-            throw new Error(result?.message || 'AI 이미지 생성에 실패했습니다.');
+            throw new Error(result?.message || 'AI ?대?吏 ?앹꽦???ㅽ뙣?덉뒿?덈떎.');
         }
 
         if (!result.imageDataUrl || !result.prompt) {
-            throw new Error('AI 이미지 생성 API 응답에 이미지 데이터가 없습니다.');
+            throw new Error('AI ?대?吏 ?앹꽦 API ?묐떟???대?吏 ?곗씠?곌? ?놁뒿?덈떎.');
         }
 
         return result as GenerateAiCardImageResult;
     } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
-            throw new Error('AI 이미지 생성 시간이 8분을 초과했습니다. 원고를 줄이거나 다시 시도하세요.');
+            throw new Error('AI image generation timed out after 8 minutes. Reduce the copy or try again.', {
+                cause: error,
+            });
         }
 
         throw error;
@@ -86,3 +103,4 @@ export async function generateAiCardImage({
         window.clearTimeout(timeoutId);
     }
 }
+

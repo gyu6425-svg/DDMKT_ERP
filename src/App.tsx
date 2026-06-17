@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
+import AdminPage from './routes/AdminPage';
 import CalendarPage from './routes/CalendarPage';
 import ClientsPage from './routes/ClientsPage';
 import ContractsPage from './routes/ContractsPage';
@@ -18,6 +19,7 @@ const routes = [
     { path: '/reports', element: <ReportsPage /> },
     { path: '/banner-generator', element: <BannerGeneratorPage /> },
     { path: '/mypage', element: <MyPage /> },
+    { path: '/admin', element: <AdminPage /> },
 ];
 
 function App() {
