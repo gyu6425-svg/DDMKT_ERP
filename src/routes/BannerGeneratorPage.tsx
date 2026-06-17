@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { removeBackground } from '@imgly/background-removal';
 import { generateAiCardImage } from '../api/aiCardImage';
 
 const CANVAS_SIZE = 1254;
@@ -1137,6 +1138,28 @@ function drawBanner(
     }
 }
 
+// img2img 하이브리드용 베이스 합성: 로컬 캔버스로 텍스트+레이아웃을 결정적으로 배치한 이미지를 만든다.
+// 로고는 AI 처리 후 로컬에서 다시 선명하게 덮으므로 여기선 그리지 않는다.
+function renderBaseCompositionDataUrl(
+    form: BannerForm,
+    image: HTMLImageElement | null,
+    bannerSize: BannerSize,
+): string {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    canvas.width = bannerSize.width;
+    canvas.height = bannerSize.height;
+
+    if (!context) {
+        return '';
+    }
+
+    drawBanner(context, form, image, bannerSize, null);
+
+    return canvas.toDataURL('image/png');
+}
+
 function loadImageFromDataUrl(dataUrl: string) {
     return new Promise<HTMLImageElement>((resolve, reject) => {
         const image = new Image();
@@ -1145,6 +1168,180 @@ function loadImageFromDataUrl(dataUrl: string) {
         image.onerror = () => reject(new Error('생성된 이미지를 읽지 못했습니다.'));
         image.src = dataUrl;
     });
+}
+
+// 브라우저 Canvas로 로고 배경 제거(누끼) + 투명 여백 트림.
+// 서버 sharp 기반 makeLogoOverlayBuffer 알고리즘을 포팅해 Cloudflare/로컬 어디서나 동일하게 동작.
+function removeLogoBackground(image: HTMLImageElement): string | null {
+    if (!image.width || !image.height) {
+        return null;
+    }
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+
+    if (!context) {
+        return null;
+    }
+
+    canvas.width = image.width;
+    canvas.height = image.height;
+    context.drawImage(image, 0, 0);
+
+    let imageData: ImageData;
+
+    try {
+        imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    } catch {
+        // 교차 출처 이미지 등으로 캔버스가 오염된 경우 원본 유지.
+        return null;
+    }
+
+    const { data, height, width } = imageData;
+    const cornerPoints = [
+        [0, 0],
+        [width - 1, 0],
+        [0, height - 1],
+        [width - 1, height - 1],
+    ];
+    const background = cornerPoints.reduce(
+        (color, [x, y]) => {
+            const index = (y * width + x) * 4;
+
+            return {
+                blue: color.blue + data[index + 2] / cornerPoints.length,
+                green: color.green + data[index + 1] / cornerPoints.length,
+                red: color.red + data[index] / cornerPoints.length,
+            };
+        },
+        { blue: 0, green: 0, red: 0 },
+    );
+
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let index = 0; index < data.length; index += 4) {
+        const red = data[index];
+        const green = data[index + 1];
+        const blue = data[index + 2];
+        const max = Math.max(red, green, blue);
+        const min = Math.min(red, green, blue);
+        const backgroundDistance = Math.hypot(
+            red - background.red,
+            green - background.green,
+            blue - background.blue,
+        );
+
+        if (backgroundDistance < 26 || (red > 245 && green > 245 && blue > 245 && max - min < 12)) {
+            data[index + 3] = 0;
+        } else if (
+            backgroundDistance < 48 ||
+            (red > 235 && green > 235 && blue > 235 && max - min < 18)
+        ) {
+            data[index + 3] = Math.min(
+                data[index + 3],
+                Math.max(20, Math.round((backgroundDistance - 26) * 5)),
+            );
+        }
+
+        if (data[index + 3] > 8) {
+            const pixelIndex = index / 4;
+            const x = pixelIndex % width;
+            const y = Math.floor(pixelIndex / width);
+
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y);
+            maxY = Math.max(maxY, y);
+        }
+    }
+
+    context.putImageData(imageData, 0, 0);
+
+    if (maxX < minX || maxY < minY) {
+        // 불투명 픽셀이 없으면 트림 없이 반환.
+        return canvas.toDataURL('image/png');
+    }
+
+    const trimmedWidth = maxX - minX + 1;
+    const trimmedHeight = maxY - minY + 1;
+
+    if (trimmedWidth === width && trimmedHeight === height) {
+        return canvas.toDataURL('image/png');
+    }
+
+    const trimmedCanvas = document.createElement('canvas');
+    const trimmedContext = trimmedCanvas.getContext('2d');
+
+    if (!trimmedContext) {
+        return canvas.toDataURL('image/png');
+    }
+
+    trimmedCanvas.width = trimmedWidth;
+    trimmedCanvas.height = trimmedHeight;
+    trimmedContext.drawImage(
+        canvas,
+        minX,
+        minY,
+        trimmedWidth,
+        trimmedHeight,
+        0,
+        0,
+        trimmedWidth,
+        trimmedHeight,
+    );
+
+    return trimmedCanvas.toDataURL('image/png');
+}
+
+function blobToDataUrl(blob: Blob) {
+    return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => reject(new Error('처리된 로고를 읽지 못했습니다.'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+// 단색 코너 샘플링 폴백(ML 누끼 실패 시).
+async function processLogoBySolidColor(
+    image: HTMLImageElement,
+    fallbackDataUrl: string,
+): Promise<{ dataUrl: string; image: HTMLImageElement }> {
+    const processedDataUrl = removeLogoBackground(image) || fallbackDataUrl;
+
+    if (processedDataUrl === fallbackDataUrl) {
+        return { dataUrl: fallbackDataUrl, image };
+    }
+
+    const processedImage = await loadImageFromDataUrl(processedDataUrl);
+
+    return { dataUrl: processedDataUrl, image: processedImage };
+}
+
+async function processLogoImage(
+    image: HTMLImageElement,
+    fallbackDataUrl: string,
+): Promise<{ dataUrl: string; image: HTMLImageElement }> {
+    try {
+        // 브라우저 내 ML 모델로 배경 제거(복잡/그라데이션 배경도 처리).
+        const blob = await removeBackground(fallbackDataUrl);
+        const dataUrl = await blobToDataUrl(blob);
+
+        if (!dataUrl) {
+            return processLogoBySolidColor(image, fallbackDataUrl);
+        }
+
+        const processedImage = await loadImageFromDataUrl(dataUrl);
+
+        return { dataUrl, image: processedImage };
+    } catch {
+        // ML 누끼 실패 시 단색 누끼로 폴백.
+        return processLogoBySolidColor(image, fallbackDataUrl);
+    }
 }
 
 function getLogoOverlayBox(bannerSize: BannerSize) {
@@ -1178,6 +1375,7 @@ function drawLogoOverlay(
     const y = box.y + (box.height - height) / 2;
 
     context.save();
+    // 칩/플레이트 없이 누끼 처리된 로고만 그대로 합성.
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
     context.drawImage(logo, x, y, width, height);
@@ -1251,7 +1449,8 @@ async function maskBrandAreaForAiReference(
     return canvas.toDataURL('image/png');
 }
 
-const CARD_GENERATION_CONCURRENCY = 2;
+// 카드는 마스터 의존 없이 전부 동시 생성한다(카드 최대 3장이라 사실상 풀 병렬).
+const CARD_GENERATION_CONCURRENCY = 3;
 
 async function runWithConcurrency<T>(
     items: T[],
@@ -1277,6 +1476,11 @@ function BannerGeneratorPage() {
     const [aiGeneratedImageUrl, setAiGeneratedImageUrl] = useState('');
     const [aiHistory, setAiHistory] = useState<AiGenerationHistoryItem[]>([]);
     const [aiLoading, setAiLoading] = useState(false);
+    const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
+    const [runCardIds, setRunCardIds] = useState<string[]>([]);
+    const generationStartRef = useRef(0);
+    const runAbortRef = useRef<AbortController | null>(null);
+    const cancelledRef = useRef(false);
     const [imageLoading, setImageLoading] = useState(false);
     const [imageProvider, setImageProvider] = useState<ImageProvider>('openai');
     const [logoAsset, setLogoAsset] = useState<LogoAsset | null>(null);
@@ -1325,6 +1529,28 @@ function BannerGeneratorPage() {
             logoAsset?.image || null,
         );
     }, [activePage?.id, activePage?.imageUrls, form, logoAsset, selectedBannerSize]);
+
+    useEffect(() => {
+        if (!aiLoading) {
+            return;
+        }
+
+        const intervalId = window.setInterval(() => {
+            setGenerationElapsedSeconds(
+                Math.floor((Date.now() - generationStartRef.current) / 1000),
+            );
+        }, 1000);
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, [aiLoading]);
+
+    const runDoneCount = pages.filter(
+        (page) =>
+            runCardIds.includes(page.id) &&
+            (page.status === 'success' || page.status === 'error'),
+    ).length;
 
     const updateForm = (field: keyof BannerForm, value: string) => {
         const sharedFields: Array<keyof BannerForm> = [
@@ -1583,12 +1809,25 @@ function BannerGeneratorPage() {
 
             const image = new Image();
             image.onload = () => {
-                setLogoAsset({
-                    dataUrl,
-                    image,
-                    name: file.name,
-                });
-                setLogoLoading(false);
+                void processLogoImage(image, dataUrl)
+                    .then((processed) => {
+                        setLogoAsset({
+                            dataUrl: processed.dataUrl,
+                            image: processed.image,
+                            name: file.name,
+                        });
+                    })
+                    .catch(() => {
+                        // 누끼 처리 실패 시 원본 로고로 폴백.
+                        setLogoAsset({
+                            dataUrl,
+                            image,
+                            name: file.name,
+                        });
+                    })
+                    .finally(() => {
+                        setLogoLoading(false);
+                    });
             };
             image.onerror = () => {
                 setLogoLoading(false);
@@ -1633,6 +1872,11 @@ function BannerGeneratorPage() {
         }
 
         setAiLoading(true);
+        cancelledRef.current = false;
+        runAbortRef.current = new AbortController();
+        generationStartRef.current = Date.now();
+        setGenerationElapsedSeconds(0);
+        setRunCardIds(targetPages.map((page) => page.id));
         const generationTargets = targetPages.map((page, index) => {
             const pageBannerSize =
                 bannerSizes.find((bannerSize) => bannerSize.id === page.bannerSizeId) ||
@@ -1689,7 +1933,6 @@ function BannerGeneratorPage() {
         ) => {
             const { index, page, pageBannerSize, requestId } = target;
 
-            setActivePageId(page.id);
             setPages((currentPages) =>
                 currentPages.map((currentPage) =>
                     currentPage.id === page.id
@@ -1713,20 +1956,32 @@ function BannerGeneratorPage() {
             );
 
             try {
-                const maskedImageDataUrls = await Promise.all(
-                    page.imageDataUrls
-                        .filter(Boolean)
-                        .slice(0, 1)
-                        .map((imageDataUrl) =>
-                            maskBrandAreaForAiReference(
-                                imageDataUrl,
-                                pageBannerSize,
-                                page.form.backgroundColor || '#ffffff',
-                            ),
-                        ),
+                // 로컬 캔버스로 텍스트+레이아웃이 결정적으로 배치된 베이스를 만든다(img2img 하이브리드).
+                const baseImage = imageRefs.current[page.id]?.[0] || null;
+                const baseCompositionDataUrl = renderBaseCompositionDataUrl(
+                    logoAsset ? { ...page.form, badge: '' } : page.form,
+                    baseImage,
+                    pageBannerSize,
                 );
+
+                // 베이스 생성 실패 시에만 기존 방식(업로드 참고이미지 마스킹)으로 폴백.
+                const maskedImageDataUrls = baseCompositionDataUrl
+                    ? []
+                    : await Promise.all(
+                          page.imageDataUrls
+                              .filter(Boolean)
+                              .slice(0, 1)
+                              .map((imageDataUrl) =>
+                                  maskBrandAreaForAiReference(
+                                      imageDataUrl,
+                                      pageBannerSize,
+                                      page.form.backgroundColor || '#ffffff',
+                                  ),
+                              ),
+                      );
                 const result = await generateAiCardImage({
                     bannerSize: pageBannerSize,
+                    baseCompositionDataUrl: baseCompositionDataUrl || undefined,
                     campaignStyleReferenceImageDataUrls:
                         options.campaignStyleReferenceImageDataUrls.slice(0, 1),
                     form: page.form,
@@ -1735,6 +1990,9 @@ function BannerGeneratorPage() {
                     provider: imageProvider,
                     rawText: page.rawText,
                     referenceLibraryImageDataUrls: [],
+                    signal: runAbortRef.current?.signal,
+                    // 로고는 클라이언트 Canvas에서 누끼 처리 후 단일 합성하므로 서버 합성은 끈다.
+                    skipServerLogoOverlay: true,
                     templateDirection: selectedTemplate?.aiDirection,
                     templateName: selectedTemplate?.name,
                 });
@@ -1774,10 +2032,16 @@ function BannerGeneratorPage() {
 
                 return normalizedImageDataUrl;
             } catch (error) {
-                const message =
-                    error instanceof Error ? error.message : 'AI 이미지 생성에 실패했습니다.';
+                const wasCancelled = cancelledRef.current;
+                const message = wasCancelled
+                    ? '생성을 취소했습니다.'
+                    : error instanceof Error
+                      ? error.message
+                      : 'AI 이미지 생성에 실패했습니다.';
 
-                setAiErrorMessage(message);
+                if (!wasCancelled) {
+                    setAiErrorMessage(message);
+                }
                 setPages((currentPages) =>
                     currentPages.map((currentPage) =>
                         currentPage.id === page.id
@@ -1805,43 +2069,32 @@ function BannerGeneratorPage() {
             }
         };
 
-        const generateCardsSequentialWithMaster = async () => {
-            const [masterTarget, ...remainingTargets] = generationTargets;
-            const masterImageDataUrl = await generateOneCard(masterTarget, {
-                campaignStyleReferenceImageDataUrls: [],
-                includeReferenceLibrary: true,
-                statusMessage: '1번 카드 생성 중',
-            });
-            const campaignStyleReferenceImageDataUrls = masterImageDataUrl
-                ? [
-                      await maskBrandAreaForAiReference(
-                          masterImageDataUrl,
-                          masterTarget.pageBannerSize,
-                          masterTarget.page.form.backgroundColor || '#ffffff',
-                      ),
-                  ]
-                : [];
-
+        const generateAllCardsInParallel = async () => {
             await runWithConcurrency(
-                remainingTargets,
-                CARD_GENERATION_CONCURRENCY,
+                generationTargets,
+                Math.min(CARD_GENERATION_CONCURRENCY, generationTargets.length),
                 async (target) => {
                     await generateOneCard(target, {
-                        campaignStyleReferenceImageDataUrls,
-                        includeReferenceLibrary: false,
-                        statusMessage: campaignStyleReferenceImageDataUrls.length
-                            ? '마스터 참고로 생성 중'
-                            : 'AI 이미지 생성 중',
+                        campaignStyleReferenceImageDataUrls: [],
+                        includeReferenceLibrary: true,
+                        statusMessage: 'AI 이미지 생성 중',
                     });
                 },
             );
         };
 
         try {
-            await generateCardsSequentialWithMaster();
+            await generateAllCardsInParallel();
         } finally {
             setAiLoading(false);
+            runAbortRef.current = null;
         }
+    };
+
+    const cancelGeneration = () => {
+        cancelledRef.current = true;
+        runAbortRef.current?.abort();
+        setAiLoading(false);
     };
 
     const downloadAiImage = () => {
@@ -2093,7 +2346,7 @@ function BannerGeneratorPage() {
                             </span>
                         ) : logoLoading ? (
                             <span className="text-xs font-normal text-[#6b7280]">
-                                로고 이미지를 읽는 중입니다.
+                                로고 배경을 제거하는 중입니다. (최초 1회 모델 다운로드로 다소 걸릴 수 있어요)
                             </span>
                         ) : null}
                     </label>
@@ -2182,11 +2435,21 @@ function BannerGeneratorPage() {
                         {imageLoading
                             ? '이미지 읽는 중...'
                             : logoLoading
-                              ? '로고 읽는 중...'
+                              ? '로고 배경 제거 중...'
                             : aiLoading
-                              ? 'AI 카드 생성 중...'
+                              ? `AI 카드 생성 중... ${generationElapsedSeconds}초 (${runDoneCount}/${runCardIds.length} 완료)`
                               : `AI로 ${pages.length}장 생성`}
                     </button>
+
+                    {aiLoading ? (
+                        <button
+                            className="inline-flex h-11 items-center justify-center rounded-md border border-[#fca5a5] bg-white px-5 text-sm font-semibold text-[#b91c1c]"
+                            onClick={cancelGeneration}
+                            type="button"
+                        >
+                            생성 중단
+                        </button>
+                    ) : null}
 
                     {aiErrorMessage ? (
                         <p className="m-0 rounded-md bg-[#fef2f2] px-3 py-2 text-sm leading-6 text-[#b91c1c]">
@@ -2229,7 +2492,7 @@ function BannerGeneratorPage() {
                         <div>
                             <h2 className="m-0 text-[18px] font-semibold">AI 생성 결과</h2>
                             <p className="mt-1 mb-0 text-sm text-[#6b7280]">
-                                선택한 카드 결과를 표시하며, 전체 생성은 카드 순서대로 진행됩니다.
+                                선택한 카드 결과를 표시하며, 전체 생성은 동시에 진행됩니다.
                             </p>
                         </div>
                         <button

@@ -108,6 +108,10 @@ async function readJsonResponse(response) {
     }
 }
 
+function getBaseCompositionImages(payload) {
+    return payload.baseCompositionDataUrl ? [payload.baseCompositionDataUrl] : [];
+}
+
 function getReferenceImages(payload) {
     return Array.isArray(payload.imageDataUrls)
         ? payload.imageDataUrls.filter((imageDataUrl) => Boolean(imageDataUrl)).slice(0, 1)
@@ -357,8 +361,35 @@ async function finalizeImageDataUrl(imageDataUrl, payload) {
     return `data:image/png;base64,${outputBuffer.toString('base64')}`;
 }
 
+function buildRefinePrompt(form = {}, width, height, formatName) {
+    return `Refine an existing, fully-composed Korean ${formatName}.
+The FIRST attached image is the BASE design: it already has the correct layout, Korean text, colors, and image placement.
+
+Hard rules:
+- Keep the EXACT same layout, composition, text wording, text position, size hierarchy, and color scheme as the base.
+- Do NOT move, rewrite, translate, re-typeset, restyle, add, or remove any Korean text. Every character must stay identical and in the same place.
+- Do NOT change the overall composition or element positions.
+- Keep the top-left brand/logo area clean and empty; it will be replaced by an overlay afterward.
+
+Enhance ONLY:
+- Background quality: subtle gradients, depth, soft lighting, and gentle decorative shapes consistent with the base palette.
+- The main photo/image area: make it realistic, clean, and well integrated.
+- Overall polish so it looks like a premium version of the SAME design.
+
+Canvas:
+- ${width}x${height}, 0px corner radius, fill all four edges, perfectly square corners.
+
+Required colors (must match the base exactly):
+- Background ${form.backgroundColor || '#ffffff'}
+- Main text ${form.textColor || '#111827'}
+- Accent ${form.accentColor || '#1457ff'}
+
+Output one polished image. Do not add extra English text, captions, or watermarks.`;
+}
+
 function buildPrompt({
     bannerSize,
+    baseCompositionDataUrl,
     campaignStyleReferenceImageDataUrls,
     form,
     imageDataUrl,
@@ -373,6 +404,10 @@ function buildPrompt({
     const height = bannerSize?.height || 1254;
     const isSquare = width === height;
     const formatName = bannerSize?.name || (isSquare ? 'square card banner' : 'bottom banner');
+
+    if (baseCompositionDataUrl) {
+        return buildRefinePrompt(form, width, height, formatName);
+    }
     const referenceImages = getReferenceImages({ imageDataUrl, imageDataUrls });
     const legacySeriesStyleReferenceImages = getSeriesStyleReferenceImages({
         seriesStyleReferenceImageDataUrls,
@@ -586,6 +621,7 @@ async function generateOpenAiCardImage(payload) {
     ];
 
     [
+        ...getBaseCompositionImages(payload),
         ...getReferenceImages(payload),
         ...getCampaignStyleReferenceImages(payload),
         ...getReferenceLibraryImages(payload),
@@ -725,6 +761,7 @@ async function generateGeminiCardImage(payload) {
     ];
 
     [
+        ...getBaseCompositionImages(payload),
         ...getReferenceImages(payload),
         ...getCampaignStyleReferenceImages(payload),
         ...getReferenceLibraryImages(payload),
