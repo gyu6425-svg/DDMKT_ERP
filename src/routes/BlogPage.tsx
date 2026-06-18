@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
+﻿import { useRef, useState } from 'react';
 import { generateBlog, type GenerateBlogInput } from '../api/aiBlog';
 import { logApiUsage } from '../api/apiUsage';
 import { useAuth } from '../hooks/useAuth';
+import Button from '../components/Button';
 
 const TONES: Array<{ value: NonNullable<GenerateBlogInput['tone']>; label: string }> = [
     { label: '정보형', value: 'info' },
@@ -94,15 +95,14 @@ function BlogPage() {
     return (
         <section className="grid gap-4">
             <div>
-                <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">블로그 글 작성기</h2>
-                <p className="mt-1 mb-0 text-sm text-[#64748b]">
+                <p className="m-0 text-sm text-[#64748b]">
                     AI로 네이버 블로그용 SEO 글을 생성합니다
                 </p>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
                 {/* 입력 */}
-                <div className="grid h-fit gap-3 rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <div className="grid h-fit gap-3 rounded-[8px] border border-[#e2e8f0] bg-white p-4">
                     <Field label="주제 / 키워드 *">
                         <input
                             className="erp-input"
@@ -140,7 +140,7 @@ function BlogPage() {
                     <Field label="톤">
                         <div className="flex flex-wrap gap-1.5">
                             {TONES.map((option) => (
-                                <button
+                                <Button
                                     className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
                                         tone === option.value
                                             ? 'bg-[#1e40af] text-white'
@@ -151,14 +151,14 @@ function BlogPage() {
                                     type="button"
                                 >
                                     {option.label}
-                                </button>
+                                </Button>
                             ))}
                         </div>
                     </Field>
                     <Field label="분량">
                         <div className="flex gap-1.5">
                             {LENGTHS.map((option) => (
-                                <button
+                                <Button
                                     className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold ${
                                         length === option.value
                                             ? 'bg-[#1e40af] text-white'
@@ -169,7 +169,7 @@ function BlogPage() {
                                     type="button"
                                 >
                                     {option.label}
-                                </button>
+                                </Button>
                             ))}
                         </div>
                     </Field>
@@ -189,38 +189,38 @@ function BlogPage() {
                     ) : null}
 
                     <div className="flex gap-2">
-                        <button
+                        <Button
                             className="flex-1 rounded-md bg-[#1e40af] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
                             disabled={loading}
                             onClick={() => void run()}
                             type="button"
                         >
                             {loading ? '생성 중...' : '✨ 글 생성'}
-                        </button>
+                        </Button>
                         {loading ? (
-                            <button
+                            <Button
                                 className="rounded-md border border-[#cbd5e1] px-4 py-2.5 text-sm font-semibold text-[#64748b]"
                                 onClick={stop}
                                 type="button"
                             >
                                 중단
-                            </button>
+                            </Button>
                         ) : null}
                     </div>
                 </div>
 
                 {/* 결과 */}
-                <div className="grid h-fit gap-2 rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <div className="grid h-fit gap-2 rounded-[8px] border border-[#e2e8f0] bg-white p-4">
                     <div className="flex items-center justify-between">
                         <h3 className="m-0 text-sm font-bold text-[#0f172a]">결과</h3>
                         {result ? (
-                            <button
+                            <Button
                                 className="rounded-md border border-[#cbd5e1] px-3 py-1.5 text-xs font-semibold"
                                 onClick={() => void copy()}
                                 type="button"
                             >
                                 {copied ? '복사됨 ✓' : '복사'}
-                            </button>
+                            </Button>
                         ) : null}
                     </div>
                     {loading && !result ? (

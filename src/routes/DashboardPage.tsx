@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import { useErpData } from '../context/ErpDataContext';
 import { calcContract, formatAmount, STATUS_BADGE } from '../lib/erpUtils';
+import Button from '../components/Button';
 
 function go(path: string) {
     window.history.pushState({}, '', path);
@@ -83,8 +84,7 @@ function DashboardPage() {
     return (
         <section className="grid gap-4">
             <div>
-                <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">홈 대시보드</h2>
-                <p className="mt-1 mb-0 text-sm text-[#64748b]">
+                <p className="m-0 text-sm text-[#64748b]">
                     {canSeeAll ? '전체 현황' : `${myName} 님의 담당 현황`}
                     {loading ? ' · 불러오는 중...' : ''}
                 </p>
@@ -199,7 +199,7 @@ function Kpi({
     accent?: string;
 }) {
     return (
-        <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+        <div className="rounded-[8px] border border-[#e2e8f0] bg-white p-4">
             <p className="m-0 text-xs text-[#64748b]">{label}</p>
             <p className="m-0 mt-1 text-2xl font-bold" style={{ color: accent ?? '#0f172a' }}>
                 {value}
@@ -221,19 +221,19 @@ function Panel({
     children: React.ReactNode;
 }) {
     return (
-        <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+        <div className="rounded-[8px] border border-[#e2e8f0] bg-white p-4">
             <div className="mb-2 flex items-center justify-between">
                 <h3 className="m-0 text-sm font-bold text-[#0f172a]">
                     {title} <span className="text-[#94a3b8]">({count})</span>
                 </h3>
                 {onMore ? (
-                    <button
+                    <Button
                         className="text-xs font-semibold text-[#1e40af]"
                         onClick={onMore}
                         type="button"
                     >
                         전체보기 →
-                    </button>
+                    </Button>
                 ) : null}
             </div>
             <div className="grid gap-1">{children}</div>
@@ -243,13 +243,13 @@ function Panel({
 
 function Row({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
     return (
-        <button
+        <Button
             className="flex items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-[#f8fafc]"
             onClick={onClick}
             type="button"
         >
             {children}
-        </button>
+        </Button>
     );
 }
 

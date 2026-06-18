@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import AdminOnly from '../components/AdminOnly';
+import Button from '../components/Button';
 import { useErpData } from '../context/ErpDataContext';
 import {
     calcContract,
@@ -86,26 +87,25 @@ function ReportsPage() {
         <section className="grid gap-4">
             <div className="flex items-center justify-between gap-3">
                 <div>
-                    <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">리포트</h2>
-                    <p className="mt-1 mb-0 text-sm text-[#64748b]">
+                    <p className="m-0 text-sm text-[#64748b]">
                         {canSeeAll ? '전체' : `${myName} 담당`} · 순수익 합계{' '}
                         <strong className="text-[#059669]">{formatAmount(totalNet)}</strong>
                         {loading ? ' · 불러오는 중...' : ''}
                     </p>
                 </div>
                 <AdminOnly>
-                    <button
+                    <Button
                         className="rounded-md border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold"
                         onClick={exportCsv}
                         type="button"
                     >
                         CSV 다운로드
-                    </button>
+                    </Button>
                 </AdminOnly>
             </div>
 
             {/* 월별 추이 */}
-            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+            <div className="rounded-[8px] border border-[#e2e8f0] bg-white p-4">
                 <h3 className="m-0 mb-3 text-sm font-bold text-[#0f172a]">월별 청구·수금 추이</h3>
                 {monthly.length ? (
                     <div className="grid gap-2">
@@ -139,7 +139,7 @@ function ReportsPage() {
 
             <div className="grid gap-4 lg:grid-cols-2">
                 {/* 경로별 */}
-                <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <div className="rounded-[8px] border border-[#e2e8f0] bg-white p-4">
                     <h3 className="m-0 mb-3 text-sm font-bold text-[#0f172a]">문의 경로별 분포</h3>
                     <div className="grid gap-2">
                         {bySource.length ? (
@@ -162,7 +162,7 @@ function ReportsPage() {
                 </div>
 
                 {/* 상태 퍼널 */}
-                <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <div className="rounded-[8px] border border-[#e2e8f0] bg-white p-4">
                     <h3 className="m-0 mb-3 text-sm font-bold text-[#0f172a]">영업 단계별 현황</h3>
                     <div className="grid gap-2">
                         {byStatus.map(({ status, count }) => (

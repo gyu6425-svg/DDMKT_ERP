@@ -38,8 +38,8 @@ function Sidebar() {
 
     const linkClassName = (path: string) =>
         path === currentPath
-            ? 'text-[16px] font-semibold text-[#444444] no-underline'
-            : 'text-[16px] font-medium text-[#555555] no-underline hover:font-semibold hover:text-[#444444]';
+            ? 'text-[16px] font-semibold text-[#111111] no-underline'
+            : 'text-[16px] font-medium text-[#999999] no-underline hover:font-semibold hover:text-[#111111]';
 
     return (
         <aside

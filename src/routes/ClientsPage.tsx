@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
+﻿import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
     deleteClient,
     insertClient,
@@ -6,6 +6,7 @@ import {
     type ClientHistory,
     type ErpClient,
 } from '../api/erp';
+import Button from '../components/Button';
 import { useErpData } from '../context/ErpDataContext';
 import {
     SOURCE_BADGE,
@@ -318,18 +319,17 @@ function ClientsPage() {
         <section className="grid gap-4">
             <div className="flex items-center justify-between gap-3">
                 <div>
-                    <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">고객 DB</h2>
-                    <p className="mt-1 mb-0 text-sm text-[#64748b]">
+                    <p className="m-0 text-sm text-[#64748b]">
                         문의·고객을 관리합니다. {loading ? '불러오는 중...' : `총 ${clients.length}건`}
                     </p>
                 </div>
-                <button
+                <Button
                     className="inline-flex h-10 items-center justify-center rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white"
                     onClick={openAdd}
                     type="button"
                 >
                     + 문의 추가
-                </button>
+                </Button>
             </div>
 
             {error ? (
@@ -339,7 +339,7 @@ function ClientsPage() {
                 </p>
             ) : null}
 
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#e2e8f0] bg-[#f1f5f9] p-3">
+            <div className="flex flex-wrap items-center gap-2 rounded-[8px] border border-[#e2e8f0] bg-[#f1f5f9] p-3">
                 <input
                     className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
                     onChange={(event) => setSearch(event.target.value)}
@@ -375,23 +375,23 @@ function ClientsPage() {
                     ⭐ 즐겨찾기만
                 </label>
                 <span className="ml-auto text-xs font-medium text-[#64748b]">{filtered.length}건</span>
-                <button
+                <Button
                     className="inline-flex h-8 items-center rounded-md border border-[#cbd5e1] bg-white px-3 text-xs font-semibold"
                     onClick={exportCsv}
                     type="button"
                 >
                     CSV
-                </button>
-                <button
+                </Button>
+                <Button
                     className="inline-flex h-8 items-center rounded-md border border-[#cbd5e1] bg-white px-3 text-xs font-semibold"
                     onClick={() => void refresh()}
                     type="button"
                 >
                     새로고침
-                </button>
+                </Button>
             </div>
 
-            <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
+            <div className="overflow-x-auto rounded-[8px] border border-[#e2e8f0] bg-white">
                 <table className="w-full border-collapse text-left text-sm">
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
@@ -476,14 +476,14 @@ function ClientsPage() {
                                         <td className="px-3 py-2 text-xs text-[#64748b]">{dt}</td>
                                         <td className="px-3 py-2">
                                             <div className="flex gap-1 whitespace-nowrap">
-                                                <button
+                                                <Button
                                                     className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] text-[#64748b]"
                                                     onClick={() => openEdit(c)}
                                                     type="button"
                                                 >
                                                     수정
-                                                </button>
-                                                <button
+                                                </Button>
+                                                <Button
                                                     className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] text-[#64748b]"
                                                     onClick={() => {
                                                         setHistClient(c);
@@ -493,14 +493,14 @@ function ClientsPage() {
                                                 >
                                                     히스토리(
                                                     {Array.isArray(c.history) ? c.history.length : 0})
-                                                </button>
-                                                <button
+                                                </Button>
+                                                <Button
                                                     className="rounded border border-[#fca5a5] px-2 py-1 text-[11px] text-[#dc2626]"
                                                     onClick={() => setDelId(c.id)}
                                                     type="button"
                                                 >
                                                     삭제
-                                                </button>
+                                                </Button>
                                             </div>
                                         </td>
                                     </tr>
@@ -525,7 +525,7 @@ function ClientsPage() {
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
                     onClick={(event) => event.target === event.currentTarget && setModalOpen(false)}
                 >
-                    <div className="max-h-[92vh] w-[min(620px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
+                    <div className="max-h-[92vh] w-[min(620px,94vw)] overflow-y-auto rounded-[8px] bg-white p-6">
                         <h3 className="m-0 text-lg font-bold">{editId ? '문의 수정' : '+ 문의 추가'}</h3>
                         <p className="mt-1 mb-4 text-sm text-[#64748b]">
                             카카오·메일 내용을 붙여넣으면 자동으로 채워집니다
@@ -674,21 +674,21 @@ function ClientsPage() {
                         </div>
 
                         <div className="mt-5 flex justify-end gap-2">
-                            <button
+                            <Button
                                 className="rounded-md border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold"
                                 onClick={() => setModalOpen(false)}
                                 type="button"
                             >
                                 취소
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                                 className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                                 disabled={saving}
                                 onClick={() => void saveClient()}
                                 type="button"
                             >
                                 {saving ? '저장 중...' : '저장하기'}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -699,7 +699,7 @@ function ClientsPage() {
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
                     onClick={(event) => event.target === event.currentTarget && setHistClient(null)}
                 >
-                    <div className="max-h-[92vh] w-[min(480px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
+                    <div className="max-h-[92vh] w-[min(480px,94vw)] overflow-y-auto rounded-[8px] bg-white p-6">
                         <h3 className="m-0 text-lg font-bold">
                             {histClient.company || histClient.manager} 히스토리
                         </h3>
@@ -710,20 +710,20 @@ function ClientsPage() {
                             {(Array.isArray(histClient.history) ? histClient.history : []).length ? (
                                 (histClient.history || []).map((h, index) => (
                                     <div
-                                        className="flex items-start justify-between gap-2 rounded-md border border-[#e2e8f0] bg-[#f1f5f9] px-3 py-2"
+                                        className="flex items-start justify-between gap-2 rounded-[8px] border border-[#e2e8f0] bg-[#f1f5f9] px-3 py-2"
                                         key={index}
                                     >
                                         <span className="font-mono text-[10px] text-[#64748b]">
                                             {h.date}
                                         </span>
                                         <span className="flex-1 text-sm">{h.text}</span>
-                                        <button
+                                        <Button
                                             className="text-[10px] text-[#dc2626]"
                                             onClick={() => void removeHistory(index)}
                                             type="button"
                                         >
                                             ✕
-                                        </button>
+                                        </Button>
                                     </div>
                                 ))
                             ) : (
@@ -742,22 +742,22 @@ function ClientsPage() {
                                 placeholder="내용 입력 후 Enter"
                                 value={histInput}
                             />
-                            <button
+                            <Button
                                 className="rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white"
                                 onClick={() => void addHistory()}
                                 type="button"
                             >
                                 추가
-                            </button>
+                            </Button>
                         </div>
                         <div className="mt-4 flex justify-end">
-                            <button
+                            <Button
                                 className="rounded-md border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold"
                                 onClick={() => setHistClient(null)}
                                 type="button"
                             >
                                 닫기
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -765,24 +765,24 @@ function ClientsPage() {
 
             {delId ? (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-                    <div className="w-[min(360px,94vw)] rounded-2xl bg-white p-6">
+                    <div className="w-[min(360px,94vw)] rounded-[8px] bg-white p-6">
                         <h3 className="m-0 text-lg font-bold">정말 삭제하시겠어요?</h3>
                         <p className="mt-2 mb-5 text-sm text-[#64748b]">되돌릴 수 없습니다.</p>
                         <div className="flex justify-end gap-2">
-                            <button
+                            <Button
                                 className="rounded-md border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold"
                                 onClick={() => setDelId(null)}
                                 type="button"
                             >
                                 취소
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                                 className="rounded-md bg-[#dc2626] px-4 py-2 text-sm font-semibold text-white"
                                 onClick={() => void confirmDelete()}
                                 type="button"
                             >
                                 삭제
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>

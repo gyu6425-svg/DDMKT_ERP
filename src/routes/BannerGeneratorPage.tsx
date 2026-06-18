@@ -4,9 +4,10 @@ import { generateAiCardImage } from '../api/aiCardImage';
 import { logApiUsage } from '../api/apiUsage';
 import { computeActualCostUsd } from '../lib/apiPricing';
 import { useAuth } from '../hooks/useAuth';
+import Button from '../components/Button';
 
 const CANVAS_SIZE = 1254;
-const fontFamily = 'Montserrat, "Malgun Gothic", Arial, sans-serif';
+const fontFamily = 'Pretendard, "Malgun Gothic", Arial, sans-serif';
 
 type TemplateId = 'template-1' | 'template-2' | 'template-3' | 'template-4';
 type LayoutVariant = 'education' | 'product' | 'photo' | 'compact' | 'chalkboard' | 'playful';
@@ -2198,7 +2199,7 @@ function BannerGeneratorPage() {
 
     return (
         <section className="grid gap-6 xl:grid-cols-[minmax(320px,440px)_minmax(0,1fr)]">
-            <div className="rounded-[40px] border border-[#e5e7eb] bg-white p-6">
+            <div className="rounded-[8px] border border-[#e5e7eb] bg-white p-6">
                 <div className="mb-6">
                     {/* <h2 className="m-0 text-[22px] font-semibold">썸네일 배너 생성기</h2> */}
                     <p className="mt-2 mb-0 text-sm text-[#6b7280]">
@@ -2214,7 +2215,7 @@ function BannerGeneratorPage() {
                             const disabled = Boolean(template.disabled);
 
                             return (
-                                <button
+                                <Button
                                     className={`rounded-md border px-3 py-3 text-left text-sm ${
                                         disabled
                                             ? 'cursor-not-allowed border-[#e5e7eb] bg-[#f9fafb] text-[#9ca3af] opacity-70'
@@ -2229,7 +2230,7 @@ function BannerGeneratorPage() {
                                 >
                                     <span className="block font-semibold">{template.name}</span>
                                     <span className="mt-1 block text-xs">{template.category}</span>
-                                </button>
+                                </Button>
                             );
                         })}
                     </div>
@@ -2248,7 +2249,7 @@ function BannerGeneratorPage() {
                                 const selected = bannerSize.id === activePage?.bannerSizeId;
 
                                 return (
-                                    <button
+                                    <Button
                                         className={`rounded-md border px-3 py-3 text-left text-sm ${
                                             selected
                                                 ? 'border-[#1457ff] bg-[#eff6ff] text-[#111827]'
@@ -2260,7 +2261,7 @@ function BannerGeneratorPage() {
                                     >
                                         <span className="block font-semibold">{bannerSize.name}</span>
                                         <span className="mt-1 block text-xs">{bannerSize.label}</span>
-                                    </button>
+                                    </Button>
                                 );
                             })}
                         </div>
@@ -2269,17 +2270,17 @@ function BannerGeneratorPage() {
                     <div className="grid gap-3">
                         <div className="flex items-center justify-between gap-3">
                             <strong className="text-m text-[#111111]">카드 페이지</strong>
-                            <button
+                            <Button
                                 className="inline-flex h-9 items-center justify-center rounded-md border border-[#d1d5db] bg-white px-3 text-xs font-semibold text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
                                 disabled={pages.length >= 3 || aiLoading}
                                 onClick={addPage}
                                 type="button"
                             >
                                 + 카드 추가
-                            </button>
+                            </Button>
                         </div>
                         <div className="grid grid-cols-3 gap-2">
-                            {pages.map((page, index) => {
+                            {pages.map((page) => {
                                 const selected = page.id === activePage?.id;
                                 const statusLabel =
                                     page.status === 'loading'
@@ -2295,7 +2296,7 @@ function BannerGeneratorPage() {
                                     ) || bannerSizes[0];
 
                                 return (
-                                    <button
+                                    <Button
                                         className={`rounded-md border px-3 py-2 text-left text-xs ${
                                             selected
                                                 ? 'border-[#1457ff] bg-[#eff6ff] text-[#111827]'
@@ -2305,11 +2306,10 @@ function BannerGeneratorPage() {
                                         onClick={() => setActivePageId(page.id)}
                                         type="button"
                                     >
-                                        <span className="block font-semibold">카드 {index + 1}</span>
-                                        <span className="mt-1 block">
+                                        <span className="block font-semibold">
                                             {statusLabel} · {pageBannerSize.name}
                                         </span>
-                                    </button>
+                                    </Button>
                                 );
                             })}
                         </div>
@@ -2400,14 +2400,14 @@ function BannerGeneratorPage() {
                     </div>
 
                     {pages.length > 1 ? (
-                        <button
+                        <Button
                             className="inline-flex h-10 items-center justify-center rounded-md border border-[#fca5a5] bg-white px-3 text-sm font-semibold text-[#b91c1c] disabled:cursor-not-allowed disabled:opacity-50"
                             disabled={aiLoading}
                             onClick={() => activePage && removePage(activePage.id)}
                             type="button"
                         >
                             현재 카드 삭제
-                        </button>
+                        </Button>
                     ) : null}
 
                     <label className="grid gap-2 text-m font-semibold text-[#111111]">
@@ -2441,13 +2441,13 @@ function BannerGeneratorPage() {
 
                     <div className="flex items-center justify-between gap-3">
                         <strong className="text-m text-[#111111]">컬러</strong>
-                        <button
+                        <Button
                             className="inline-flex h-9 items-center justify-center rounded-md border border-[#d1d5db] bg-white px-3 text-xs font-semibold text-[#111827]"
                             onClick={applyRandomColors}
                             type="button"
                         >
                             랜덤 컬러
-                        </button>
+                        </Button>
                     </div>
 
                     <div className="grid grid-cols-3 gap-3">
@@ -2484,7 +2484,7 @@ function BannerGeneratorPage() {
 
                     <div className="grid gap-2">
                         <strong className="text-m text-[#111111]">디자인 다양성</strong>
-                        <button
+                        <Button
                             className={`h-11 rounded-md border px-3 text-sm font-semibold ${
                                 diverseStyle
                                     ? 'border-[#1457ff] bg-[#eff6ff] text-[#111827]'
@@ -2496,7 +2496,7 @@ function BannerGeneratorPage() {
                             {diverseStyle
                                 ? '랜덤 다양 ON · 생성마다 다른 레이아웃'
                                 : '랜덤 다양 OFF · 기본 레이아웃'}
-                        </button>
+                        </Button>
                         <p className="m-0 text-xs leading-5 text-[#6b7280]">
                             켜면 생성할 때마다 레이아웃·구성을 랜덤으로 다양하게 만듭니다. (색상·문구는
                             입력값 유지)
@@ -2513,7 +2513,7 @@ function BannerGeneratorPage() {
                                 const selected = imageProvider === provider;
 
                                 return (
-                                    <button
+                                    <Button
                                         className={`h-11 rounded-md border px-3 text-sm font-semibold ${
                                             selected
                                                 ? 'border-[#1457ff] bg-[#eff6ff] text-[#111827]'
@@ -2524,7 +2524,7 @@ function BannerGeneratorPage() {
                                         type="button"
                                     >
                                         {label}
-                                    </button>
+                                    </Button>
                                 );
                             })}
                         </div>
@@ -2546,7 +2546,7 @@ function BannerGeneratorPage() {
                                 const selected = imageQuality === value;
 
                                 return (
-                                    <button
+                                    <Button
                                         className={`h-11 rounded-md border px-2 text-xs font-semibold ${
                                             selected
                                                 ? 'border-[#1457ff] bg-[#eff6ff] text-[#111827]'
@@ -2557,7 +2557,7 @@ function BannerGeneratorPage() {
                                         type="button"
                                     >
                                         {label}
-                                    </button>
+                                    </Button>
                                 );
                             })}
                         </div>
@@ -2566,7 +2566,7 @@ function BannerGeneratorPage() {
                         </p>
                     </div>
 
-                    <button
+                    <Button
                         className="inline-flex h-12 items-center justify-center rounded-md bg-[#1457ff] px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                         disabled={aiLoading || imageLoading || logoLoading}
                         onClick={() => {
@@ -2581,16 +2581,16 @@ function BannerGeneratorPage() {
                             : aiLoading
                               ? `AI 카드 생성 중... ${generationElapsedSeconds}초 (${runDoneCount}/${runCardIds.length} 완료)`
                               : `AI로 ${pages.length}장 생성`}
-                    </button>
+                    </Button>
 
                     {aiLoading ? (
-                        <button
+                        <Button
                             className="inline-flex h-11 items-center justify-center rounded-md border border-[#fca5a5] bg-white px-5 text-sm font-semibold text-[#b91c1c]"
                             onClick={cancelGeneration}
                             type="button"
                         >
                             생성 중단
-                        </button>
+                        </Button>
                     ) : null}
 
                     {aiErrorMessage ? (
@@ -2602,7 +2602,7 @@ function BannerGeneratorPage() {
             </div>
 
             <div>
-                <div className="rounded-[40px] border border-[#e5e7eb] bg-white p-6">
+                <div className="rounded-[8px] border border-[#e5e7eb] bg-white p-6">
                     <div className="mb-4 flex items-center justify-between gap-4">
                         <div>
                             <h2 className="m-0 text-[18px] font-semibold">미리보기</h2>
@@ -2615,7 +2615,7 @@ function BannerGeneratorPage() {
                         </span>
                     </div>
                     <div
-                        className="mx-auto w-full max-w-[720px] overflow-hidden rounded-[40px] border border-[#e5e7eb] bg-[#f3f4f6]"
+                        className="mx-auto w-full max-w-[720px] overflow-hidden rounded-[8px] border border-[#e5e7eb] bg-[#f3f4f6]"
                         style={{
                             aspectRatio: `${selectedBannerSize.width} / ${selectedBannerSize.height}`,
                         }}
@@ -2629,7 +2629,7 @@ function BannerGeneratorPage() {
                     </div>
                 </div>
 
-                <div className="mt-6 rounded-[40px] border border-[#e5e7eb] bg-white p-6">
+                <div className="mt-6 rounded-[8px] border border-[#e5e7eb] bg-white p-6">
                     <div className="mb-4 flex items-center justify-between gap-4">
                         <div>
                             <h2 className="m-0 text-[18px] font-semibold">AI 생성 결과</h2>
@@ -2637,18 +2637,18 @@ function BannerGeneratorPage() {
                                 선택한 카드 결과를 표시하며, 전체 생성은 동시에 진행됩니다.
                             </p>
                         </div>
-                        <button
+                        <Button
                             className="inline-flex h-10 items-center justify-center rounded-md border border-[#d1d5db] bg-white px-4 text-sm font-semibold text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
                             disabled={!activeResultImageUrl}
                             onClick={downloadAiImage}
                             type="button"
                         >
                             AI 결과 다운로드
-                        </button>
+                        </Button>
                     </div>
 
                     <div
-                        className="mx-auto flex w-full max-w-[720px] items-center justify-center overflow-hidden rounded-[40px] border border-[#e5e7eb] bg-[#f3f4f6]"
+                        className="mx-auto flex w-full max-w-[720px] items-center justify-center overflow-hidden rounded-[8px] border border-[#e5e7eb] bg-[#f3f4f6]"
                         style={{
                             aspectRatio: `${selectedBannerSize.width} / ${selectedBannerSize.height}`,
                         }}
@@ -2686,7 +2686,7 @@ function BannerGeneratorPage() {
 
                                 return (
                                     <button
-                                        className={`rounded-md border bg-white p-2 text-left ${
+                                        className={`rounded-[8px] border bg-white p-2 text-left ${
                                             selected ? 'border-[#1457ff]' : 'border-[#e5e7eb]'
                                         }`}
                                         key={page.id}
@@ -2751,7 +2751,7 @@ function BannerGeneratorPage() {
 
                                     return (
                                         <div
-                                            className="grid gap-3 rounded-md border border-[#e5e7eb] bg-[#f9fafb] p-3 sm:grid-cols-[88px_minmax(0,1fr)]"
+                                            className="grid gap-3 rounded-[8px] border border-[#e5e7eb] bg-[#f9fafb] p-3 sm:grid-cols-[88px_minmax(0,1fr)]"
                                             key={item.id}
                                         >
                                             <div className="flex h-[88px] w-[88px] items-center justify-center overflow-hidden rounded-md border border-[#e5e7eb] bg-white">
@@ -2789,7 +2789,7 @@ function BannerGeneratorPage() {
                                                     {item.message}
                                                 </p>
                                                 {item.imageDataUrl ? (
-                                                    <button
+                                                    <Button
                                                         className="mt-3 inline-flex h-8 items-center justify-center rounded-md border border-[#d1d5db] bg-white px-3 text-xs font-semibold text-[#111827]"
                                                         onClick={() =>
                                                             setAiGeneratedImageUrl(
@@ -2799,7 +2799,7 @@ function BannerGeneratorPage() {
                                                         type="button"
                                                     >
                                                         결과 다시 보기
-                                                    </button>
+                                                    </Button>
                                                 ) : null}
                                             </div>
                                         </div>
@@ -2807,7 +2807,7 @@ function BannerGeneratorPage() {
                                 })}
                             </div>
                         ) : (
-                            <p className="m-0 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-3 py-3 text-sm leading-6 text-[#6b7280]">
+                            <p className="m-0 rounded-[8px] border border-[#e5e7eb] bg-[#f9fafb] px-3 py-3 text-sm leading-6 text-[#6b7280]">
                                 AI 생성 버튼을 누르면 진행 중, 완료, 실패 기록이 여기에 표시됩니다.
                             </p>
                         )}

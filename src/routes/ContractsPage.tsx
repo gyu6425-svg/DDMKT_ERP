@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import {
     emptyContractData,
     upsertContractData,
@@ -9,6 +9,7 @@ import {
 } from '../api/erp';
 import { useErpData } from '../context/ErpDataContext';
 import { calcContract, formatAmount, todayStr, ym } from '../lib/erpUtils';
+import Button from '../components/Button';
 
 const PAY_METHODS: Record<string, string> = {
     card: '카드',
@@ -226,8 +227,7 @@ function ContractsPage() {
         <section className="grid gap-4">
             <div className="flex items-center justify-between gap-3">
                 <div>
-                    <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">계약 관리</h2>
-                    <p className="mt-1 mb-0 text-sm text-[#64748b]">
+                    <p className="m-0 text-sm text-[#64748b]">
                         '계약완료' 고객의 상품·청구·수금·순수익·인센티브를 관리합니다.{' '}
                         {loading ? '불러오는 중...' : `총 ${rows.length}건`}
                     </p>
@@ -247,7 +247,7 @@ function ContractsPage() {
                 <KpiCard label="인센티브 합계" value={formatAmount(totals.incentive)} accent="#7c3aed" />
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#e2e8f0] bg-[#f1f5f9] p-3">
+            <div className="flex flex-wrap items-center gap-2 rounded-[8px] border border-[#e2e8f0] bg-[#f1f5f9] p-3">
                 <input
                     className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
                     onChange={(event) => setSearch(event.target.value)}
@@ -262,16 +262,16 @@ function ContractsPage() {
                     />
                     미수금만
                 </label>
-                <button
+                <Button
                     className="inline-flex h-8 items-center rounded-md border border-[#cbd5e1] bg-white px-3 text-xs font-semibold"
                     onClick={() => void refresh()}
                     type="button"
                 >
                     새로고침
-                </button>
+                </Button>
             </div>
 
-            <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
+            <div className="overflow-x-auto rounded-[8px] border border-[#e2e8f0] bg-white">
                 <table className="w-full border-collapse text-left text-sm">
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
@@ -327,13 +327,13 @@ function ContractsPage() {
                                             {formatAmount(fin.unpaid)}
                                         </td>
                                         <td className="px-3 py-2">
-                                            <button
+                                            <Button
                                                 className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] text-[#334155]"
                                                 onClick={() => openEdit(client)}
                                                 type="button"
                                             >
                                                 {hasContract ? '상세/수정' : '계약 작성'}
-                                            </button>
+                                            </Button>
                                         </td>
                                     </tr>
                                 );
@@ -356,7 +356,7 @@ function ContractsPage() {
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
                     onClick={(event) => event.target === event.currentTarget && closeEdit()}
                 >
-                    <div className="max-h-[92vh] w-[min(820px,96vw)] overflow-y-auto rounded-2xl bg-white p-6">
+                    <div className="max-h-[92vh] w-[min(820px,96vw)] overflow-y-auto rounded-[8px] bg-white p-6">
                         <div className="flex items-start justify-between">
                             <div>
                                 <h3 className="m-0 text-lg font-bold">
@@ -366,18 +366,18 @@ function ContractsPage() {
                                     담당자 {editClient.manager || '--'}
                                 </p>
                             </div>
-                            <button
+                            <Button
                                 className="text-2xl leading-none text-[#94a3b8]"
                                 onClick={closeEdit}
                                 type="button"
                             >
                                 ×
-                            </button>
+                            </Button>
                         </div>
 
                         {/* 요약 */}
                         {draftFin ? (
-                            <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg bg-[#f8fafc] p-3 text-center sm:grid-cols-4">
+                            <div className="mt-4 grid grid-cols-2 gap-2 rounded-[8px] bg-[#f8fafc] p-3 text-center sm:grid-cols-4">
                                 <Summary label="매출" value={formatAmount(draftFin.revenue)} />
                                 <Summary label="공급가" value={formatAmount(draftFin.supply)} />
                                 <Summary label="순수익" value={formatAmount(draftFin.net)} color="#059669" />
@@ -478,7 +478,7 @@ function ContractsPage() {
                                     ['schedule', '작업 일정'],
                                 ] as const
                             ).map(([key, label]) => (
-                                <button
+                                <Button
                                     className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${
                                         tab === key
                                             ? 'border-[#1e40af] text-[#1e40af]'
@@ -489,7 +489,7 @@ function ContractsPage() {
                                     type="button"
                                 >
                                     {label}
-                                </button>
+                                </Button>
                             ))}
                         </div>
 
@@ -498,7 +498,7 @@ function ContractsPage() {
                             <div className="mt-4 grid gap-2">
                                 {draft.contract_products.map((product, index) => (
                                     <div
-                                        className="grid grid-cols-[1.4fr_1fr_0.7fr_1fr_0.7fr_auto] items-center gap-2 rounded-md border border-[#e2e8f0] p-2"
+                                        className="grid grid-cols-[1.4fr_1fr_0.7fr_1fr_0.7fr_auto] items-center gap-2 rounded-[8px] border border-[#e2e8f0] p-2"
                                         key={index}
                                     >
                                         <input
@@ -547,22 +547,22 @@ function ContractsPage() {
                                                 (product.unit_price || 0) * (product.quantity || 0),
                                             )}
                                         </span>
-                                        <button
+                                        <Button
                                             className="rounded border border-[#fca5a5] px-2 py-1 text-[11px] text-[#dc2626]"
                                             onClick={() => removeProduct(index)}
                                             type="button"
                                         >
                                             삭제
-                                        </button>
+                                        </Button>
                                     </div>
                                 ))}
-                                <button
+                                <Button
                                     className="rounded-md border border-dashed border-[#cbd5e1] py-2 text-sm font-semibold text-[#64748b]"
                                     onClick={addProduct}
                                     type="button"
                                 >
                                     + 상품 추가
-                                </button>
+                                </Button>
                                 {draft.manual_revenue > 0 || draft.manual_outsource > 0 ? (
                                     <p className="m-0 text-xs text-[#d97706]">
                                         ⚠ 수동 매출/외주비가 입력되어 있어 상품 합계 대신 수동값이
@@ -583,18 +583,18 @@ function ContractsPage() {
                                             {formatAmount(draftFin?.unpaid ?? 0)}
                                         </strong>
                                     </span>
-                                    <button
+                                    <Button
                                         className="rounded-md bg-[#1e40af] px-3 py-1.5 text-xs font-semibold text-white"
                                         onClick={addBillingMonth}
                                         type="button"
                                     >
                                         + 이번 달 청구 생성
-                                    </button>
+                                    </Button>
                                 </div>
                                 {draft.billing_records.length ? (
                                     draft.billing_records.map((record, index) => (
                                         <div
-                                            className="grid grid-cols-[1fr_1.2fr_auto_auto] items-center gap-2 rounded-md border border-[#e2e8f0] p-2"
+                                            className="grid grid-cols-[1fr_1.2fr_auto_auto] items-center gap-2 rounded-[8px] border border-[#e2e8f0] p-2"
                                             key={record.ym + index}
                                         >
                                             <input
@@ -614,7 +614,7 @@ function ContractsPage() {
                                                 type="number"
                                                 value={record.amount || ''}
                                             />
-                                            <button
+                                            <Button
                                                 className={`rounded px-3 py-1.5 text-xs font-semibold ${
                                                     record.paid
                                                         ? 'bg-[#d1fae5] text-[#059669]'
@@ -624,14 +624,14 @@ function ContractsPage() {
                                                 type="button"
                                             >
                                                 {record.paid ? `수금완료 ${record.paid_date ?? ''}` : '미수금'}
-                                            </button>
-                                            <button
+                                            </Button>
+                                            <Button
                                                 className="rounded border border-[#fca5a5] px-2 py-1 text-[11px] text-[#dc2626]"
                                                 onClick={() => removeBilling(index)}
                                                 type="button"
                                             >
                                                 삭제
-                                            </button>
+                                            </Button>
                                         </div>
                                     ))
                                 ) : (
@@ -647,7 +647,7 @@ function ContractsPage() {
                             <div className="mt-4 grid gap-2">
                                 {draft.schedule.map((item, index) => (
                                     <div
-                                        className="grid grid-cols-[1fr_1.4fr_1fr_1fr_auto] items-center gap-2 rounded-md border border-[#e2e8f0] p-2"
+                                        className="grid grid-cols-[1fr_1.4fr_1fr_1fr_auto] items-center gap-2 rounded-[8px] border border-[#e2e8f0] p-2"
                                         key={item.id}
                                     >
                                         <input
@@ -685,41 +685,41 @@ function ContractsPage() {
                                                 <option key={s}>{s}</option>
                                             ))}
                                         </select>
-                                        <button
+                                        <Button
                                             className="rounded border border-[#fca5a5] px-2 py-1 text-[11px] text-[#dc2626]"
                                             onClick={() => removeSchedule(index)}
                                             type="button"
                                         >
                                             삭제
-                                        </button>
+                                        </Button>
                                     </div>
                                 ))}
-                                <button
+                                <Button
                                     className="rounded-md border border-dashed border-[#cbd5e1] py-2 text-sm font-semibold text-[#64748b]"
                                     onClick={addSchedule}
                                     type="button"
                                 >
                                     + 일정 추가
-                                </button>
+                                </Button>
                             </div>
                         ) : null}
 
                         <div className="mt-6 flex justify-end gap-2">
-                            <button
+                            <Button
                                 className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
                                 onClick={closeEdit}
                                 type="button"
                             >
                                 취소
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                                 className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                                 disabled={saving}
                                 onClick={() => void save()}
                                 type="button"
                             >
                                 {saving ? '저장 중...' : '저장'}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -736,7 +736,7 @@ function ContractsPage() {
 
 function KpiCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
     return (
-        <div className="rounded-lg border border-[#e2e8f0] bg-white p-3">
+        <div className="rounded-[8px] border border-[#e2e8f0] bg-white p-3">
             <p className="m-0 text-xs text-[#64748b]">{label}</p>
             <p className="m-0 mt-1 text-lg font-bold" style={{ color: accent ?? '#0f172a' }}>
                 {value}

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+﻿import { useState, type FormEvent } from 'react';
 import { sendOtp, verifyEmailOtp } from '../api/auth';
 import Button from '../components/Button';
 import { getAuthErrorMessage } from '../lib/authErrors';
@@ -56,7 +56,7 @@ function LoginPage() {
                 든든한마케팅
             </h1>
 
-            <section className="grid min-h-[228px] w-full max-w-[560px] items-center rounded-[26px] bg-white px-20 py-[46px] max-[800px]:px-5 max-[800px]:py-9">
+            <section className="grid min-h-[228px] w-full max-w-[560px] items-center rounded-[8px] bg-white px-20 py-[46px] max-[800px]:px-5 max-[800px]:py-9">
                 {step === 'email' ? (
                     <form className="grid gap-3.5" onSubmit={handleSendOtp}>
                         <input

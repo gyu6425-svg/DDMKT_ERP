@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import {
     getApiUsageRecent,
     getApiUsageStats,
@@ -6,6 +6,7 @@ import {
     type ApiUsageStats,
 } from '../api/apiUsage';
 import { formatKrw, formatUsd } from '../lib/apiPricing';
+import Button from './Button';
 
 function formatDateTime(value: string) {
     const date = new Date(value);
@@ -92,7 +93,7 @@ function ApiUsagePanel() {
                         AI 카드 이미지 생성 호출 기록입니다.
                     </p>
                 </div>
-                <button
+                <Button
                     className="inline-flex h-10 items-center justify-center rounded-md border border-[#d1d5db] bg-white px-4 text-sm font-semibold text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={loading}
                     onClick={() => {
@@ -101,11 +102,11 @@ function ApiUsagePanel() {
                     type="button"
                 >
                     {loading ? '불러오는 중...' : '새로고침'}
-                </button>
+                </Button>
             </div>
 
             {errorMessage ? (
-                <p className="m-0 rounded-md bg-[#fef2f2] px-4 py-3 text-sm leading-6 text-[#b91c1c]">
+                <p className="m-0 rounded-[8px] bg-[#fef2f2] px-4 py-3 text-sm leading-6 text-[#b91c1c]">
                     {errorMessage}
                 </p>
             ) : null}
@@ -113,7 +114,7 @@ function ApiUsagePanel() {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
                 {summaryCards.map((card) => (
                     <div
-                        className="rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-4 py-3"
+                        className="rounded-[8px] border border-[#e5e7eb] bg-[#f9fafb] px-4 py-3"
                         key={card.label}
                     >
                         <span className="block text-xs font-medium text-[#6b7280]">
@@ -134,7 +135,7 @@ function ApiUsagePanel() {
                 TOKEN_PRICE_USD_PER_M) 기준입니다. 정확한 금액은 단가를 실제 OpenAI 요금으로 맞추세요.
             </p>
 
-            <div className="overflow-x-auto rounded-md border border-[#e5e7eb]">
+            <div className="overflow-x-auto rounded-[8px] border border-[#e5e7eb]">
                 <table className="w-full border-collapse text-left text-sm">
                     <thead>
                         <tr className="border-b border-[#e5e7eb] bg-[#f9fafb] text-xs text-[#6b7280]">
