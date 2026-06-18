@@ -1,12 +1,15 @@
 import type { BannerForm, BannerSize } from '../routes/BannerGeneratorPage';
 
 export type GenerateAiCardImageInput = {
+    backgroundOnly?: boolean;
     bannerSize: BannerSize;
     baseCompositionDataUrl?: string;
+    brandCorner?: string;
     brandText?: string;
     campaignStyleReferenceImageDataUrls?: string[];
     form: BannerForm;
     imageDataUrls?: string[];
+    imageQuality?: 'low' | 'medium' | 'high';
     logoDataUrl?: string;
     provider: 'gemini' | 'openai';
     rawText: string;
@@ -14,26 +17,43 @@ export type GenerateAiCardImageInput = {
     seriesStyleReferenceImageDataUrls?: string[];
     signal?: AbortSignal;
     skipServerLogoOverlay?: boolean;
+    styleDirective?: string;
     templateDirection?: string;
     templateName?: string;
+};
+
+export type TokenUsage = {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
 };
 
 export type GenerateAiCardImageResult = {
     imageDataUrl: string;
     prompt: string;
+    usage?: TokenUsage | null;
 };
 
 function getGenerateCardImageUrl() {
+    // 개발 모드에선 Vite 프록시(큰 응답에서 ECONNRESET 발생)를 우회해 로컬 API 서버를 직접 호출.
+    // 프로덕션(Cloudflare)에선 같은 출처의 /api 함수로.
+    if (import.meta.env.DEV) {
+        return 'http://127.0.0.1:8787/api/generate-card-image';
+    }
+
     return '/api/generate-card-image';
 }
 
 export async function generateAiCardImage({
+    backgroundOnly,
     bannerSize,
     baseCompositionDataUrl,
+    brandCorner,
     brandText,
     campaignStyleReferenceImageDataUrls,
     form,
     imageDataUrls,
+    imageQuality,
     logoDataUrl,
     provider,
     rawText,
@@ -41,6 +61,7 @@ export async function generateAiCardImage({
     seriesStyleReferenceImageDataUrls,
     signal,
     skipServerLogoOverlay,
+    styleDirective,
     templateDirection,
     templateName,
 }: GenerateAiCardImageInput): Promise<GenerateAiCardImageResult> {
@@ -61,18 +82,22 @@ export async function generateAiCardImage({
     try {
         const response = await fetch(getGenerateCardImageUrl(), {
             body: JSON.stringify({
+                backgroundOnly,
                 bannerSize,
                 baseCompositionDataUrl,
+                brandCorner,
                 brandText,
                 campaignStyleReferenceImageDataUrls,
                 form,
                 imageDataUrls,
+                imageQuality,
                 logoDataUrl,
                 provider,
                 rawText,
                 referenceLibraryImageDataUrls,
                 seriesStyleReferenceImageDataUrls,
                 skipServerLogoOverlay,
+                styleDirective,
                 templateDirection,
                 templateName,
             }),

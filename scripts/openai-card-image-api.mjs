@@ -5,6 +5,7 @@ import sharp from 'sharp';
 
 const PORT = Number(process.env.OPENAI_LOCAL_API_PORT || 8787);
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
+const OPENAI_IMAGES_URL = 'https://api.openai.com/v1/images/generations';
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const recentRequests = [];
 
@@ -314,8 +315,9 @@ async function makeLogoOverlayBuffer(logoDataUrl, maxWidth, maxHeight) {
 
 function makeCoverOverlaySvg(bannerSize, fillColor = '#ffffff') {
     const box = getLogoOverlayBox(bannerSize);
-    const width = bannerSize?.id === 'bottom' ? box.x + box.width + 90 : box.x + box.width + 110;
-    const height = bannerSize?.id === 'bottom' ? box.y + box.height + 54 : box.y + box.height + 70;
+    const padding = 24;
+    const width = box.x + box.width + padding;
+    const height = box.y + box.height + padding;
 
     return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
 <rect x="0" y="0" width="${width}" height="${height}" fill="${escapeXml(fillColor)}"/>
@@ -323,6 +325,11 @@ function makeCoverOverlaySvg(bannerSize, fillColor = '#ffffff') {
 }
 
 async function finalizeImageDataUrl(imageDataUrl, payload) {
+    // 클라이언트가 리사이즈/커버/로고를 모두 합성하므로 서버 후처리(sharp)를 건너뛴다(지연·끊김 방지).
+    if (payload.backgroundOnly || payload.skipServerLogoOverlay) {
+        return imageDataUrl;
+    }
+
     const imageBuffer = dataUrlToBuffer(imageDataUrl);
 
     if (!imageBuffer) {
@@ -361,6 +368,21 @@ async function finalizeImageDataUrl(imageDataUrl, payload) {
     return `data:image/png;base64,${outputBuffer.toString('base64')}`;
 }
 
+function buildBackgroundPrompt(form = {}, width, height, formatName, templateName, templateDirection) {
+    const backgroundColor = form.backgroundColor || '#ffffff';
+    const accentColor = form.accentColor || '#1457ff';
+
+    return `Create a clean Korean ${formatName} BACKGROUND image (no text). ${width}x${height}px, fill all four edges, perfectly square corners, no frame or border.
+
+ABSOLUTELY NO text, letters, words, numbers, hangul, captions, labels, or typography anywhere — this is a background only. If unsure, leave it empty.
+
+- Render only decorative visuals: soft shapes, gentle gradients, simple icons/illustrations or 3D objects, subtle texture.
+- Keep the LEFT ~60% calm, simple, and low-detail (mostly the background color) so text can be placed there later and stay readable. Put any richer visuals toward the RIGHT side.
+- Dominant fill color exactly ${backgroundColor}. Accent details in ${accentColor}. Clean, uncluttered, premium.
+- Selected style: ${templateName || 'Template 1'}.${templateDirection ? ` ${templateDirection}` : ''}
+- Vary the composition and decoration so each background looks distinct.`;
+}
+
 function buildRefinePrompt(form = {}, width, height, formatName) {
     return `Refine an existing, fully-composed Korean ${formatName}.
 The FIRST attached image is the BASE design: it already has the correct layout, Korean text, colors, and image placement.
@@ -388,15 +410,20 @@ Output one polished image. Do not add extra English text, captions, or watermark
 }
 
 function buildPrompt({
+    backgroundOnly,
     bannerSize,
     baseCompositionDataUrl,
+    brandCorner,
+    customPrompt,
     campaignStyleReferenceImageDataUrls,
     form,
     imageDataUrl,
     imageDataUrls,
+    logoDataUrl,
     rawText,
     referenceLibraryImageDataUrls,
     seriesStyleReferenceImageDataUrls,
+    styleDirective,
     templateDirection,
     templateName,
 }) {
@@ -404,6 +431,10 @@ function buildPrompt({
     const height = bannerSize?.height || 1254;
     const isSquare = width === height;
     const formatName = bannerSize?.name || (isSquare ? 'square card banner' : 'bottom banner');
+
+    if (backgroundOnly) {
+        return buildBackgroundPrompt(form, width, height, formatName, templateName, templateDirection);
+    }
 
     if (baseCompositionDataUrl) {
         return buildRefinePrompt(form, width, height, formatName);
@@ -465,109 +496,63 @@ Reference library:
 `
         : '';
 
-    return `Create one polished Korean ${formatName} image.
+    const styleDirection = styleDirective
+        ? `
+PRIMARY LAYOUT DIRECTION (must follow):
+- ${styleDirective}
+- Build the whole composition around this layout archetype instead of defaulting to a generic centered card template.
+- Vary the composition, spacing, decorative motifs, and visual arrangement to match this direction. Keep the Korean text exact and the required colors as specified.`
+        : '';
 
-Canvas:
-- ${width}x${height} image.
-- The final image must be a full ${isSquare ? 'square' : 'landscape'} canvas with 0px corner radius.
-- ${isSquare ? 'Use a square SNS/card-news composition.' : 'Use a wide bottom-banner composition optimized for a horizontal footer or lower-page banner.'}
-- Do not create rounded outer corners, rounded side edges, card-shaped clipping, masks, frames, or transparent corner cutouts.
-- Fill the entire canvas to all four edges; the image corners and side corners must be perfectly square.
-- Premium Korean card-news / social banner style.
-- Choose a layout freely based on the content, similar to Korean academy, product, consultation, portfolio, and playful card-news references.
-${imageDirection}
-${campaignStyleDirection}
-${referenceLibraryDirection}
+    const logoBox = getLogoOverlayBox(bannerSize);
+    const reserveWidth = logoBox.x + logoBox.width + 60;
+    const reserveHeight = logoBox.y + logoBox.height + 16;
+    const logoReservationDirection = logoDataUrl
+        ? `\n- A small brand logo will be overlaid on the TOP-LEFT corner after generation. Keep only that small top-left area (about the left ${reserveWidth}px and top ${reserveHeight}px) clear of text, filled with the background color. Do not put any title, body text, icon, number, or important graphic inside that small logo area.
+- Start the title immediately below the logo area with a normal, tight top margin. Do NOT leave a large empty gap or wide blank band above the title. Keep the vertical spacing balanced and fill the canvas naturally, as if the logo area is just a small header.`
+        : '';
 
-Template:
-- Selected template: ${templateName || 'Template 1'}.
-${templateDirection ? `- ${templateDirection}` : '- Follow the selected template style consistently.'}
+    const usageLabel = isSquare ? '광고 썸네일' : '가로형 배너';
+    const cornerKo =
+        brandCorner === 'top-right'
+            ? '우측 상단'
+            : brandCorner === 'top-center'
+              ? '상단 중앙'
+              : '좌측 상단';
+    const brandLine = logoDataUrl
+        ? `${cornerKo} 모서리에 로고가 들어갈 작은 빈 자리만 비워두기 (그 자리엔 글자·그림을 넣지 말 것 — 로고는 나중에 합성). 메인 제목과 본문은 그 아래·왼쪽 영역에 배치.`
+        : form.badge
+          ? `${cornerKo} 모서리에 '${form.badge}' 브랜드명을 작게 고정 배치:
+- 위치 고정: 오른쪽 가장자리에서 약 5%, 위쪽에서 약 5% 안쪽. 모든 카드에서 정확히 같은 위치·같은 크기·같은 굵기·같은 색으로.
+- 메인 제목 글씨의 1/3 이하로 작게, 단정한 굵은 고딕체, 색은 ${form.textColor || '#111827'}.
+- 브랜드명은 그 자리에만 한 번. 다른 곳엔 절대 넣지 말 것. 메인 제목/본문은 그 아래·왼쪽 영역에.`
+          : `${cornerKo} 모서리는 단정하게 비우기`;
+    const subtitleLine = form.subtitle ? `\n· 본문: ${form.subtitle}` : '';
+    const emphasisLine = form.emphasis
+        ? `\n· 강조 문구(포인트 컬러로 가장 눈에 띄게, 필요하면 박스나 배지 안에): ${form.emphasis}`
+        : '';
+    const ctaLine = form.cta ? `\n· 하단 CTA: 검정색 바 안에 흰 글씨로 '${form.cta}'` : '';
+    const templateLine = templateDirection ? `\n- 스타일: ${templateDirection}` : '';
+    const styleLine = styleDirective ? `\n- 레이아웃 방향: ${styleDirective}` : '';
 
-Korean text to include exactly:
-Main title:
-${form.title}
+    return `한국어 ${usageLabel}을(를) 만들어줘. 깔끔하고 신뢰감 있는 마케팅 디자인, 광고 클릭을 유도하는 구조.
 
-Supporting copy:
-${form.subtitle}
+[색상]
+배경은 ${form.backgroundColor || '#ffffff'} 계열, 강조(포인트) 색은 ${form.accentColor || '#1457ff'}, 본문 글자색은 ${form.textColor || '#111827'}. 강한 대비로 핵심이 한눈에 들어오게.
 
-Emphasis:
-${form.emphasis}
+[브랜드]
+${brandLine}.
 
-Raw user copy:
-${rawText}
+[들어갈 한글 텍스트 — 아래 문구를 철자와 띄어쓰기 그대로, 글자 깨짐 없이 정확히 렌더]
+· 메인 제목(가장 크고 굵게): ${form.title || ''}${subtitleLine}${emphasisLine}${ctaLine}
 
-Design direction:
-- Make the typography large, clear, and highly readable.
-- Render only the Korean text explicitly listed above. Do not add any extra English labels, captions, marks, or decorative text.
-- Reference images are inspiration for design principles only. Do not trace, duplicate, or recreate a reference image verbatim.
-- Build a fresh layout from the user's raw copy while borrowing only high-level style rules: hierarchy, spacing rhythm, color relationship, decorative motif type, and image mood.
-- Design token lock:
-- This is a multi-card campaign series.
-- The first generated card defines the campaign design system.
-- For all later cards, reuse the exact same design tokens from the first card.
-- Only replace the content. Do not redesign the system.
-- Treat title, body, emphasis text, page labels, dividers, and text boxes as locked reusable components/text styles after the first card.
-- Typography token rules:
-- If the main title on the first card uses a specific font size, font weight, line height, letter spacing, and color, keep those exact same values on all later cards.
-- If the supporting/body text on the first card uses a specific font size, font weight, line height, letter spacing, and color, keep those exact same values on all later cards.
-- If the emphasis text on the first card uses a specific font size, font weight, line height, letter spacing, and color, keep those exact same values on all later cards.
-- The same hierarchy level must always use the same typography tokens across the whole series.
-- Example: if the main title is 15px and #000000 on the first card, all later cards must keep the main title at 15px and #000000.
-- Example: if the supporting text is 12px and #555555 on the first card, all later cards must keep that exact same style.
-- Example: if the emphasis text is 15px bold and orange on the first card, all later cards must keep that exact same emphasis style.
-- Do not introduce subtle differences in font size, weight, spacing, line height, letter spacing, or color between cards.
-- Reusable component lock:
-- Any repeated UI component such as page labels, dividers, or text boxes must be reused with identical design tokens across all cards.
-- Keep the same x/y anchor position, width, height, padding, corner radius, fill color, border, shadow, and text styling.
-- Do not restyle shared components from card to card.
-- Series consistency is mandatory: when generating multiple cards, treat shared UI elements as reusable components with fixed design tokens.
-- If the series contains mixed sizes such as 1254x1254 square cards and 1672x941 bottom banners, keep one unified campaign design system across all sizes.
-- For mixed-size outputs, preserve visual mood, color palette, font style, decorative motif style, image treatment, and hierarchy from the first generated card. Change only the layout proportions and element positions needed to fit the selected canvas.
-- The different sizes must look like responsive variants of the same design, not separate designs.
-- Preserve the master Korean headline font style across sizes: heavy, clean, geometric, uniform stroke width, consistent anti-aliasing, and no odd glyph deformation.
-- Do not create a bottom CTA button, "learn more", "자세히 보기", "문의하기", or generic call-to-action button.
-- Reuse the exact same component styles across every card for numbered labels, section labels, dividers, shadows, borders, and decorative containers.
-- If page/step labels such as [1장], 1, 1페이지, STEP 1, 첫 번째, etc. appear, choose one treatment for the full series and keep it identical on every card.
-- Only use page/step labels when the raw user copy explicitly includes them. Do not automatically add [1장], [2장], page numbers, slide numbers, or step labels.
-- Do not normalize page/step label text into a different format. Keep the exact punctuation, brackets, Korean words, spacing, and numeral style from the source text.
-- Page/step labels should be plain text unless the user explicitly typed a decorated marker in the copy.
-- Keep page/step labels in the same absolute position across the series. Do not move them to fit each card.
-- Use the first card's page-label position as a fixed anchor for all later cards.
-- Page/step label bounding boxes must keep the same width, height, x/y coordinates, edge margins, and text baseline across cards.
-- Do not change page marker styling between cards.
-- The numerals 1, 2, 3, 4, etc. must use the exact same typeface, glyph style, width, height, stroke thickness, color, font size, font weight, and baseline across the full series.
-- Do not switch page marker styles within the same series.
-- If no page/step label exists in the input text, leave the top-right page label area empty.
-- Do not subtly change marker sizes, shadow values, border radii, padding, or number styles from card to card.
-- Layout may adapt to copy length, but shared visual components must remain token-consistent across the series.
-- Use one consistent modern Korean sans-serif typeface across all Korean text.
-- Do not mix font families, handwriting styles, serif styles, outline fonts, or decorative lettering.
-- Main title typography must be locked: every title line and every title block across the series uses the exact same font family, font weight, font size, color, letter spacing, line height, stroke thickness, shadow treatment, and baseline style.
-- If the main title wraps into multiple lines, keep the first line and second line visually identical except for the actual words.
-- Supporting copy/body typography must be locked separately: every supporting/body text line across the series uses the exact same font family, font weight, font size, color, letter spacing, line height, stroke thickness, and shadow treatment.
-- Emphasis text may have its own hierarchy level, but every emphasis text line across the series must use identical color, size, and weight.
-- Avoid per-word or per-line font variation. Do not make one Korean sentence subtly bolder, narrower, taller, rounder, or smaller than another sentence in the same title block.
-- Color-linked typography rule: any text rendered in the same color must use the exact same font family, font weight, font size, letter spacing, line height, stroke thickness, antialiasing appearance, and shadow treatment unless it is explicitly a different hierarchy level with a different color.
-- If two Korean text lines share the same text color, they must look like duplicates of the same text style with only the words changed.
-- Do not use same-colored text to imply hierarchy through subtle weight, width, height, or px-size changes. Hierarchy changes must use clearly different placement or color, not hidden font variation.
-- Keep all same-colored title text perfectly uniform across every generated card in the series.
-- Within a single text line, every Korean character and word must have the same font weight, stroke thickness, width, height, antialiasing, and optical density unless the word is explicitly rendered in a different color.
-- Do not bold, enlarge, compress, stretch, outline, shadow, or sharpen only part of a same-colored sentence.
-- Same-colored words inside one line must look like they were typed with one continuous text layer, not manually drawn word by word.
-- Use clean geometric Korean sans typography similar to Pretendard/Noto Sans KR, with uniform glyph rendering.
-- Use Korean text accurately without changing the meaning.
-- Preserve natural Korean spacing exactly. Do not insert spaces inside Korean words or split syllables/particles awkwardly.
-- Keep line breaks at natural phrase boundaries. Do not create awkward spacing, broken words, or uneven character-by-character layout.
-- Do not stretch a Korean word by adding spaces between letters. If text is too long, wrap by phrase, not by individual syllable.
-- Use strong hierarchy only between main title, supporting copy, and emphasis.
-- Use a refined advertising-card layout with enough margins.
-- Required color roles:
-- Background fill color must be exactly ${form.backgroundColor || '#ffffff'}.
-- Main text color must be exactly ${form.textColor || '#111827'}.
-- Accent/highlight color must be exactly ${form.accentColor || '#1457ff'}.
-- Do not swap background and text colors. Do not use the text color as the full background unless it is also explicitly selected as the background color.
-- White may be used only for small contrast areas when needed; do not make the main text white unless the selected text color is white.
-- Avoid clutter. Make it look ready for a professional SNS/card-news banner.`;
+[디자인 규칙]
+- 굵고 가독성 높은 한글 타이포그래피. 핵심 문구가 한눈에 보이게.
+- 위에 적은 한글만 정확히 넣고, 그 외 영어 라벨·캡션·워터마크는 넣지 마.
+- 과하게 복잡하지 않게, 여백과 대비로 깔끔하게.${templateLine}${styleLine}
+
+[캔버스]
+${width}x${height}px. 가장자리까지 꽉 채우고 네 모서리는 완전한 직각(둥근 모서리·테두리·여백 금지). ${isSquare ? '정사각형 구성.' : '가로로 넓은 배너 구성.'}`;
 }
 
 function splitDataUrl(dataUrl) {
@@ -605,14 +590,20 @@ async function generateOpenAiCardImage(payload) {
 
     const prompt = buildPrompt(payload);
     const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
+    const requestedQuality = payload.imageQuality || process.env.OPENAI_IMAGE_QUALITY || 'medium';
+    const quality = ['low', 'medium', 'high'].includes(requestedQuality)
+        ? requestedQuality
+        : 'medium';
     rememberRequest({
         hasImage: getReferenceImages(payload).length > 0,
         id: requestId,
         model,
         provider: 'openai',
+        quality,
         rawTextLength: payload.rawText?.length || 0,
         status: 'started',
     });
+
     const content = [
         {
             text: prompt,
@@ -636,6 +627,7 @@ async function generateOpenAiCardImage(payload) {
     let openaiResponse;
 
     try {
+        // GPT-5.5(추론 모델) + image_generation 툴 경로 — 한글 렌더 품질이 직접 호출보다 좋다.
         openaiResponse = await fetch(OPENAI_API_URL, {
             body: JSON.stringify({
                 input: [
@@ -647,6 +639,7 @@ async function generateOpenAiCardImage(payload) {
                 model,
                 tools: [
                     {
+                        quality,
                         size: outputSize,
                         type: 'image_generation',
                     },
@@ -693,21 +686,17 @@ async function generateOpenAiCardImage(payload) {
     const imageBase64 = imageOutput?.result;
 
     if (!imageBase64) {
-        const outputTypes = Array.isArray(result.output)
-            ? result.output.map((item) => item.type).filter(Boolean).join(', ')
-            : 'none';
         rememberRequest({
             elapsedMs,
             id: requestId,
-            message: `No image output. output: ${outputTypes}`,
+            message: 'No image in response',
             status: 'error',
         });
 
         return {
             body: {
                 message:
-                    result.output_text ||
-                    `OpenAI 응답에서 생성 이미지를 찾지 못했습니다. output: ${outputTypes}`,
+                    result?.error?.message || 'OpenAI 응답에서 생성 이미지를 찾지 못했습니다.',
             },
             statusCode: 502,
         };
@@ -727,6 +716,7 @@ async function generateOpenAiCardImage(payload) {
                 payload,
             ),
             prompt,
+            usage: result.usage || null,
         },
         statusCode: 200,
     };
@@ -975,6 +965,12 @@ const server = createServer(async (request, response) => {
         message: 'Not found',
     });
 });
+
+// 이미지 생성은 1~2분 이상 걸릴 수 있으므로 긴 요청 중 소켓이 끊기지 않도록 타임아웃을 해제한다.
+server.requestTimeout = 0;
+server.headersTimeout = 0;
+server.timeout = 0;
+server.keepAliveTimeout = 620000;
 
 server.listen(PORT, '127.0.0.1', () => {
     console.log(`OpenAI card image API listening on http://127.0.0.1:${PORT}`);

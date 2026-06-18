@@ -1,6 +1,9 @@
 ﻿import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { removeBackground } from '@imgly/background-removal';
 import { generateAiCardImage } from '../api/aiCardImage';
+import { logApiUsage } from '../api/apiUsage';
+import { computeActualCostUsd } from '../lib/apiPricing';
+import { useAuth } from '../hooks/useAuth';
 
 const CANVAS_SIZE = 1254;
 const fontFamily = 'Montserrat, "Malgun Gothic", Arial, sans-serif';
@@ -80,6 +83,7 @@ type CardNewsPage = {
 };
 
 type ImageProvider = 'gemini' | 'openai';
+type ImageQuality = 'low' | 'medium' | 'high';
 
 const templates: BannerTemplate[] = [
     {
@@ -232,6 +236,27 @@ const colorPresets = [
         textColor: '#222222',
     },
 ];
+
+// 생성할 때마다 랜덤으로 하나를 골라 프롬프트에 주입하는 레이아웃 아키타입 풀.
+// 다양성은 레이아웃/구성/장식에만 적용하고 색상·문구는 입력값을 유지한다.
+const STYLE_PRESETS: string[] = [
+    'Bold centered hero: a very large centered Korean headline stacked in the upper-middle, supporting copy centered below it, with symmetric soft decorative shapes in the corners.',
+    'Left editorial: a strong left-aligned headline block on the left side, a clear visual or icon cluster balanced on the right side, with a generous left margin.',
+    'Diagonal split: divide the canvas with a soft diagonal band or shape; put the headline on one side and the main visual or emphasis on the other side.',
+    'Top headline, bottom info: a large headline across the top, a middle row of icon-and-label items, and a highlighted emphasis bar near the bottom.',
+    'Numbered step cards: present the supporting points as 2 to 4 stacked rounded cards, each with a number badge and a short label.',
+    'Big visual focus: one dominant central illustration or object, with the headline placed above or wrapping near it and minimal supporting text.',
+    'Color block sections: split the layout into 2 to 3 horizontal blocks using shades of the chosen palette, each block holding one piece of copy.',
+    'Question and answer: pose the title as a prominent question at the top, then answer it with an emphasized highlight box below.',
+    'Side accent panel: a vertical accent panel along the left or right edge holding a short label, with the main content filling the rest.',
+    'Airy minimal: a very spacious composition with a small but bold headline, lots of clean negative space, and a single small decorative motif.',
+    'Playful badges: rounded sticker-like elements and circular badges arranged in a lively, slightly asymmetric composition.',
+    'Magazine grid: a structured grid with a header zone, a content zone, and a footer emphasis zone separated by thin dividers.',
+];
+
+function pickRandomStylePreset() {
+    return STYLE_PRESETS[Math.floor(Math.random() * STYLE_PRESETS.length)];
+}
 
 function normalizeCopyText(text: string) {
     return text
@@ -1138,28 +1163,6 @@ function drawBanner(
     }
 }
 
-// img2img 하이브리드용 베이스 합성: 로컬 캔버스로 텍스트+레이아웃을 결정적으로 배치한 이미지를 만든다.
-// 로고는 AI 처리 후 로컬에서 다시 선명하게 덮으므로 여기선 그리지 않는다.
-function renderBaseCompositionDataUrl(
-    form: BannerForm,
-    image: HTMLImageElement | null,
-    bannerSize: BannerSize,
-): string {
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-
-    canvas.width = bannerSize.width;
-    canvas.height = bannerSize.height;
-
-    if (!context) {
-        return '';
-    }
-
-    drawBanner(context, form, image, bannerSize, null);
-
-    return canvas.toDataURL('image/png');
-}
-
 function loadImageFromDataUrl(dataUrl: string) {
     return new Promise<HTMLImageElement>((resolve, reject) => {
         const image = new Image();
@@ -1388,40 +1391,11 @@ function coverTopLeftBrandArea(
     fillColor = '#ffffff',
 ) {
     const box = getLogoOverlayBox(bannerSize);
-    const width = bannerSize.id === 'bottom' ? box.x + box.width + 90 : box.x + box.width + 110;
-    const height = bannerSize.id === 'bottom' ? box.y + box.height + 54 : box.y + box.height + 70;
+    const padding = 24;
 
+    // 로고 자리에 딱 맞게만 덮어 제목/본문이 가려지지 않게 한다.
     context.fillStyle = fillColor;
-    context.fillRect(0, 0, width, height);
-}
-
-async function normalizeImageDataUrlToBannerSize(
-    dataUrl: string,
-    bannerSize: BannerSize,
-    logo?: HTMLImageElement | null,
-    fillColor = '#ffffff',
-) {
-    const image = await loadImageFromDataUrl(dataUrl);
-
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-
-    canvas.width = bannerSize.width;
-    canvas.height = bannerSize.height;
-
-    if (!context) {
-        return dataUrl;
-    }
-
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, bannerSize.width, bannerSize.height);
-    drawCoverImage(context, image, 0, 0, bannerSize.width, bannerSize.height);
-    coverTopLeftBrandArea(context, bannerSize, fillColor);
-    if (logo) {
-        drawLogoOverlay(context, logo, bannerSize);
-    }
-
-    return canvas.toDataURL('image/png');
+    context.fillRect(0, 0, box.x + box.width + padding, box.y + box.height + padding);
 }
 
 async function maskBrandAreaForAiReference(
@@ -1449,6 +1423,102 @@ async function maskBrandAreaForAiReference(
     return canvas.toDataURL('image/png');
 }
 
+type BrandCorner = 'top-left' | 'top-right' | 'top-center';
+
+type BrandPreset = {
+    corner: BrandCorner;
+    accent: boolean;
+};
+
+// 제목은 항상 좌측에 오므로, 브랜드는 우측 상단 고정(제목과 절대 겹치지 않음). 색만 run마다 변화.
+const BRAND_PRESETS: BrandPreset[] = [
+    { accent: false, corner: 'top-right' },
+    { accent: true, corner: 'top-right' },
+];
+
+function pickRandomBrandPreset() {
+    return BRAND_PRESETS[Math.floor(Math.random() * BRAND_PRESETS.length)];
+}
+
+type BrandBox = { x: number; y: number; width: number; height: number };
+
+// 브랜드/로고는 MASSIV 예시처럼 상단에 작게. 제목을 가리지 않도록 작고 높게 배치.
+function getBrandBox(bannerSize: BannerSize, corner: BrandCorner): BrandBox {
+    const isBottom = bannerSize.id === 'bottom';
+    const width = isBottom ? 190 : 230;
+    const height = isBottom ? 48 : 54;
+    const margin = isBottom ? 56 : 70;
+    const y = isBottom ? 40 : 48;
+
+    let x = margin;
+
+    if (corner === 'top-right') {
+        x = bannerSize.width - margin - width;
+    } else if (corner === 'top-center') {
+        x = (bannerSize.width - width) / 2;
+    }
+
+    return { height, width, x, y };
+}
+
+// 로고 자리만 타이트하게 덮는다(가로 띠 X) → 본문 제목을 가리지 않는다.
+function coverBrandBox(context: CanvasRenderingContext2D, box: BrandBox, fillColor: string) {
+    const padding = 12;
+
+    context.fillStyle = fillColor;
+    context.fillRect(box.x - padding, box.y - padding, box.width + padding * 2, box.height + padding * 2);
+}
+
+function drawLogoInBox(context: CanvasRenderingContext2D, logo: HTMLImageElement, box: BrandBox) {
+    const scale = Math.min(box.width / logo.width, box.height / logo.height);
+    const width = logo.width * scale;
+    const height = logo.height * scale;
+    const x = box.x + (box.width - width) / 2;
+    const y = box.y + (box.height - height) / 2;
+
+    context.save();
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(logo, x, y, width, height);
+    context.restore();
+}
+
+// 최종 합성: AI가 그린 카드 이미지를 배너 크기에 맞추고, 로고/브랜드명을 로컬에서 또렷하게 덮는다.
+// (본문 텍스트/디자인은 AI가 생성, 좌상단 브랜드만 고정 합성으로 일관성 보장)
+async function composeFinalCardImage(
+    aiImageDataUrl: string,
+    form: BannerForm,
+    bannerSize: BannerSize,
+    brandPreset: BrandPreset,
+    logo?: HTMLImageElement | null,
+): Promise<string> {
+    const image = await loadImageFromDataUrl(aiImageDataUrl);
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    canvas.width = bannerSize.width;
+    canvas.height = bannerSize.height;
+
+    if (!context) {
+        return aiImageDataUrl;
+    }
+
+    const backgroundColor = form.backgroundColor || '#ffffff';
+
+    context.fillStyle = backgroundColor;
+    context.fillRect(0, 0, bannerSize.width, bannerSize.height);
+    drawCoverImage(context, image, 0, 0, bannerSize.width, bannerSize.height);
+
+    // 로고 파일만 코드가 우측 상단에 고정 합성(픽셀 동일). 브랜드명(파일 없음)은 AI가 프롬프트 지정 위치에 그린다.
+    if (logo) {
+        const brandBox = getBrandBox(bannerSize, brandPreset.corner);
+        coverBrandBox(context, brandBox, backgroundColor);
+        drawLogoInBox(context, logo, brandBox);
+    }
+
+    return canvas.toDataURL('image/png');
+}
+
 // 카드는 마스터 의존 없이 전부 동시 생성한다(카드 최대 3장이라 사실상 풀 병렬).
 const CARD_GENERATION_CONCURRENCY = 3;
 
@@ -1470,12 +1540,14 @@ async function runWithConcurrency<T>(
 }
 
 function BannerGeneratorPage() {
+    const { user } = useAuth();
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const imageRefs = useRef<Record<string, Array<HTMLImageElement | null>>>({});
     const [aiErrorMessage, setAiErrorMessage] = useState('');
     const [aiGeneratedImageUrl, setAiGeneratedImageUrl] = useState('');
     const [aiHistory, setAiHistory] = useState<AiGenerationHistoryItem[]>([]);
     const [aiLoading, setAiLoading] = useState(false);
+    const [diverseStyle, setDiverseStyle] = useState(true);
     const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
     const [runCardIds, setRunCardIds] = useState<string[]>([]);
     const generationStartRef = useRef(0);
@@ -1483,6 +1555,7 @@ function BannerGeneratorPage() {
     const cancelledRef = useRef(false);
     const [imageLoading, setImageLoading] = useState(false);
     const [imageProvider, setImageProvider] = useState<ImageProvider>('openai');
+    const [imageQuality, setImageQuality] = useState<ImageQuality>('medium');
     const [logoAsset, setLogoAsset] = useState<LogoAsset | null>(null);
     const [logoLoading, setLogoLoading] = useState(false);
     const [pages, setPages] = useState<CardNewsPage[]>(() => [createCardNewsPage(1)]);
@@ -1877,6 +1950,10 @@ function BannerGeneratorPage() {
         generationStartRef.current = Date.now();
         setGenerationElapsedSeconds(0);
         setRunCardIds(targetPages.map((page) => page.id));
+        // 이번 생성 run에 적용할 랜덤 레이아웃 스타일(다양성 ON일 때). 한 run 내 카드는 동일 스타일로 통일.
+        const runStyleDirective = diverseStyle ? pickRandomStylePreset() : undefined;
+        // 브랜드 위치/스타일은 생성마다 랜덤, 단 이번 run의 모든 카드는 동일(첫 장 위치 고정).
+        const runBrandPreset = pickRandomBrandPreset();
         const generationTargets = targetPages.map((page, index) => {
             const pageBannerSize =
                 bannerSizes.find((bannerSize) => bannerSize.id === page.bannerSizeId) ||
@@ -1932,6 +2009,7 @@ function BannerGeneratorPage() {
             },
         ) => {
             const { index, page, pageBannerSize, requestId } = target;
+            const cardStartedAt = Date.now();
 
             setPages((currentPages) =>
                 currentPages.map((currentPage) =>
@@ -1956,36 +2034,26 @@ function BannerGeneratorPage() {
             );
 
             try {
-                // 로컬 캔버스로 텍스트+레이아웃이 결정적으로 배치된 베이스를 만든다(img2img 하이브리드).
-                const baseImage = imageRefs.current[page.id]?.[0] || null;
-                const baseCompositionDataUrl = renderBaseCompositionDataUrl(
-                    logoAsset ? { ...page.form, badge: '' } : page.form,
-                    baseImage,
-                    pageBannerSize,
+                const maskedImageDataUrls = await Promise.all(
+                    page.imageDataUrls
+                        .filter(Boolean)
+                        .slice(0, 1)
+                        .map((imageDataUrl) =>
+                            maskBrandAreaForAiReference(
+                                imageDataUrl,
+                                pageBannerSize,
+                                page.form.backgroundColor || '#ffffff',
+                            ),
+                        ),
                 );
-
-                // 베이스 생성 실패 시에만 기존 방식(업로드 참고이미지 마스킹)으로 폴백.
-                const maskedImageDataUrls = baseCompositionDataUrl
-                    ? []
-                    : await Promise.all(
-                          page.imageDataUrls
-                              .filter(Boolean)
-                              .slice(0, 1)
-                              .map((imageDataUrl) =>
-                                  maskBrandAreaForAiReference(
-                                      imageDataUrl,
-                                      pageBannerSize,
-                                      page.form.backgroundColor || '#ffffff',
-                                  ),
-                              ),
-                      );
                 const result = await generateAiCardImage({
                     bannerSize: pageBannerSize,
-                    baseCompositionDataUrl: baseCompositionDataUrl || undefined,
+                    brandCorner: runBrandPreset.corner,
                     campaignStyleReferenceImageDataUrls:
                         options.campaignStyleReferenceImageDataUrls.slice(0, 1),
                     form: page.form,
                     imageDataUrls: maskedImageDataUrls,
+                    imageQuality,
                     logoDataUrl: logoAsset?.dataUrl,
                     provider: imageProvider,
                     rawText: page.rawText,
@@ -1993,14 +2061,16 @@ function BannerGeneratorPage() {
                     signal: runAbortRef.current?.signal,
                     // 로고는 클라이언트 Canvas에서 누끼 처리 후 단일 합성하므로 서버 합성은 끈다.
                     skipServerLogoOverlay: true,
+                    styleDirective: runStyleDirective,
                     templateDirection: selectedTemplate?.aiDirection,
                     templateName: selectedTemplate?.name,
                 });
-                const normalizedImageDataUrl = await normalizeImageDataUrlToBannerSize(
+                const normalizedImageDataUrl = await composeFinalCardImage(
                     result.imageDataUrl,
+                    page.form,
                     pageBannerSize,
+                    runBrandPreset,
                     logoAsset?.image || null,
-                    page.form.backgroundColor || '#ffffff',
                 );
 
                 setAiGeneratedImageUrl(normalizedImageDataUrl);
@@ -2030,6 +2100,16 @@ function BannerGeneratorPage() {
                     ),
                 );
 
+                void logApiUsage({
+                    banner_size: pageBannerSize.id,
+                    cost_usd: result.usage ? computeActualCostUsd(result.usage) : null,
+                    elapsed_ms: Date.now() - cardStartedAt,
+                    provider: imageProvider,
+                    status: 'success',
+                    total_tokens: result.usage?.total_tokens ?? null,
+                    user_email: user?.email ?? null,
+                });
+
                 return normalizedImageDataUrl;
             } catch (error) {
                 const wasCancelled = cancelledRef.current;
@@ -2041,6 +2121,14 @@ function BannerGeneratorPage() {
 
                 if (!wasCancelled) {
                     setAiErrorMessage(message);
+                    void logApiUsage({
+                        banner_size: pageBannerSize.id,
+                        elapsed_ms: Date.now() - cardStartedAt,
+                        error_message: message,
+                        provider: imageProvider,
+                        status: 'error',
+                        user_email: user?.email ?? null,
+                    });
                 }
                 setPages((currentPages) =>
                     currentPages.map((currentPage) =>
@@ -2395,6 +2483,27 @@ function BannerGeneratorPage() {
                     </div>
 
                     <div className="grid gap-2">
+                        <strong className="text-m text-[#111111]">디자인 다양성</strong>
+                        <button
+                            className={`h-11 rounded-md border px-3 text-sm font-semibold ${
+                                diverseStyle
+                                    ? 'border-[#1457ff] bg-[#eff6ff] text-[#111827]'
+                                    : 'border-[#d1d5db] bg-white text-[#4b5563]'
+                            }`}
+                            onClick={() => setDiverseStyle((value) => !value)}
+                            type="button"
+                        >
+                            {diverseStyle
+                                ? '랜덤 다양 ON · 생성마다 다른 레이아웃'
+                                : '랜덤 다양 OFF · 기본 레이아웃'}
+                        </button>
+                        <p className="m-0 text-xs leading-5 text-[#6b7280]">
+                            켜면 생성할 때마다 레이아웃·구성을 랜덤으로 다양하게 만듭니다. (색상·문구는
+                            입력값 유지)
+                        </p>
+                    </div>
+
+                    <div className="grid gap-2">
                         <strong className="text-sm text-[#111111]">이미지 생성 API</strong>
                         <div className="grid grid-cols-2 gap-2">
                             {[
@@ -2421,6 +2530,39 @@ function BannerGeneratorPage() {
                         </div>
                         <p className="m-0 text-xs leading-5 text-[#6b7280]">
                             선택한 API는 다음 생성부터 적용됩니다.
+                        </p>
+                    </div>
+
+                    <div className="grid gap-2">
+                        <strong className="text-sm text-[#111111]">이미지 품질</strong>
+                        <div className="grid grid-cols-3 gap-2">
+                            {(
+                                [
+                                    ['low', '낮음 · 빠름/저렴'],
+                                    ['medium', '보통 · 권장'],
+                                    ['high', '높음 · 느림/비쌈'],
+                                ] as Array<[ImageQuality, string]>
+                            ).map(([value, label]) => {
+                                const selected = imageQuality === value;
+
+                                return (
+                                    <button
+                                        className={`h-11 rounded-md border px-2 text-xs font-semibold ${
+                                            selected
+                                                ? 'border-[#1457ff] bg-[#eff6ff] text-[#111827]'
+                                                : 'border-[#d1d5db] bg-white text-[#4b5563]'
+                                        }`}
+                                        key={value}
+                                        onClick={() => setImageQuality(value)}
+                                        type="button"
+                                    >
+                                        {label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <p className="m-0 text-xs leading-5 text-[#6b7280]">
+                            품질이 높을수록 글자·디테일이 선명하지만 생성 시간과 비용이 늘어납니다.
                         </p>
                     </div>
 

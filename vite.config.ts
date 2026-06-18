@@ -12,7 +12,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8787',
+      '/api': {
+        changeOrigin: true,
+        // 이미지 생성은 1~2분 이상 걸릴 수 있어 프록시가 중간에 연결을 끊지 않도록 넉넉히.
+        proxyTimeout: 600000,
+        target: 'http://127.0.0.1:8787',
+        timeout: 600000,
+      },
     },
   },
 })
