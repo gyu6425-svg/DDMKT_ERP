@@ -181,14 +181,10 @@ function dataUrlToBuffer(dataUrl: string) {
     return Buffer.from(imagePart.data, 'base64');
 }
 
-async function getSharp() {
-    try {
-        const sharpModule = await import('sharp');
-
-        return sharpModule.default;
-    } catch {
-        return null;
-    }
+// Cloudflare Workers 런타임은 네이티브 sharp를 지원하지 않고, 합성은 모두 클라이언트가 처리하므로
+// 서버에서는 sharp를 사용하지 않는다(빌드 시 sharp 번들링 회피).
+async function getSharp(): Promise<null> {
+    return null;
 }
 
 async function makeLogoOverlayBuffer(logoDataUrl: string, maxWidth: number, maxHeight: number) {
