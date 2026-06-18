@@ -913,6 +913,105 @@ async function checkTls() {
     };
 }
 
+const BLOG_LENGTH_GUIDE = {
+    long: '2000~2800자 분량으로 깊이 있게',
+    medium: '1200~1800자 분량으로',
+    short: '600~900자 분량으로 간결하게',
+};
+const BLOG_TONE_GUIDE = {
+    info: '정보 전달 중심의 전문적이고 신뢰감 있는',
+    promo: '구매·문의를 유도하는 설득력 있는 홍보',
+    review: '실제 사용 후기처럼 생생하고 친근한',
+    story: '스토리텔링으로 몰입감 있게 풀어가는',
+};
+
+function buildBlogPrompt(payload) {
+    const topic = (payload.topic || '').trim();
+    const industry = (payload.industry || '').trim();
+    const audience = (payload.audience || '').trim();
+    const keywords = (payload.keywords || '').trim();
+    const lengthGuide = BLOG_LENGTH_GUIDE[payload.length || 'medium'] || BLOG_LENGTH_GUIDE.medium;
+    const toneGuide = BLOG_TONE_GUIDE[payload.tone || 'info'] || BLOG_TONE_GUIDE.info;
+
+    return [
+        '너는 한국어 블로그/SEO 카피라이터다. 아래 조건으로 네이버 블로그에 올릴 한국어 글을 작성해줘.',
+        '',
+        `[주제] ${topic}`,
+        industry ? `[업종] ${industry}` : '',
+        audience ? `[타깃 독자] ${audience}` : '',
+        keywords ? `[반드시 자연스럽게 포함할 키워드] ${keywords}` : '',
+        `[톤] ${toneGuide} 어조`,
+        `[분량] ${lengthGuide}`,
+        '',
+        '요구사항:',
+        '- 첫 줄에 클릭을 부르는 제목을 "제목: ..." 형식으로 작성',
+        '- 본문은 2~4개의 소제목(■ 로 시작)으로 구조화',
+        '- 핵심 키워드를 제목과 본문 앞부분에 자연스럽게 배치(SEO)',
+        '- 과장·허위 표현은 피하고 신뢰감 있게',
+        '- 마지막에 문의/방문을 유도하는 한 문장 CTA',
+        payload.includeHashtags === false ? '' : '- 글 맨 끝에 관련 해시태그 8~12개(#로 시작, 한 줄)',
+        '',
+        '마크다운 기호(**, ## 등)는 쓰지 말고 순수 텍스트로 출력해줘.',
+    ]
+        .filter((line) => line !== '')
+        .join('\n');
+}
+
+function extractOutputText(result) {
+    if (typeof result.output_text === 'string' && result.output_text.trim()) {
+        return result.output_text.trim();
+    }
+    const parts = [];
+    (result.output || []).forEach((item) => {
+        (item.content || []).forEach((content) => {
+            if (content.type === 'output_text' && typeof content.text === 'string') {
+                parts.push(content.text);
+            }
+        });
+    });
+    return parts.join('').trim();
+}
+
+async function generateBlog(payload) {
+    if (!payload.topic || !payload.topic.trim()) {
+        return { body: { message: '주제를 입력해주세요.' }, statusCode: 400 };
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        return { body: { message: '.env 의 OPENAI_API_KEY 가 필요합니다.' }, statusCode: 500 };
+    }
+
+    const model = process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
+    const prompt = buildBlogPrompt(payload);
+
+    const apiResponse = await fetch(OPENAI_API_URL, {
+        body: JSON.stringify({ input: prompt, model }),
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+        },
+        method: 'POST',
+    });
+
+    const result = await readJsonResponse(apiResponse);
+    rememberRequest({ ok: apiResponse.ok, route: 'generate-blog', status: apiResponse.status });
+
+    if (!apiResponse.ok) {
+        return {
+            body: { message: result?.error?.message || '블로그 생성에 실패했습니다.' },
+            statusCode: apiResponse.status,
+        };
+    }
+
+    const text = extractOutputText(result);
+    if (!text) {
+        return { body: { message: '생성된 글이 비어 있습니다.' }, statusCode: 502 };
+    }
+
+    return { body: { prompt, text, usage: result.usage ?? null }, statusCode: 200 };
+}
+
 loadDotEnv();
 
 const server = createServer(async (request, response) => {
@@ -940,6 +1039,23 @@ const server = createServer(async (request, response) => {
             sendJson(response, 200, await checkTls());
         } catch (error) {
             sendJson(response, 500, describeError(error));
+        }
+        return;
+    }
+
+    if (request.method === 'POST' && request.url === '/api/generate-blog') {
+        try {
+            const payload = await readJsonBody(request);
+            const result = await generateBlog(payload);
+            sendJson(response, result.statusCode, result.body);
+        } catch (error) {
+            const cause = error?.cause?.code || error?.cause?.message;
+            sendJson(response, 500, {
+                message:
+                    error instanceof Error
+                        ? [error.message, cause].filter(Boolean).join(': ')
+                        : '서버 오류가 발생했습니다.',
+            });
         }
         return;
     }
