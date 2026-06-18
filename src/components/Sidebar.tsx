@@ -38,8 +38,8 @@ function Sidebar() {
 
     const linkClassName = (path: string) =>
         path === currentPath
-            ? 'text-[16px] font-semibold text-[#111111] no-underline'
-            : 'text-[16px] font-medium text-[#999999] no-underline hover:font-semibold hover:text-[#111111]';
+            ? 'text-[16px] font-semibold text-[#000000] no-underline'
+            : 'text-[16px] font-normal text-[#777777] no-underline hover:font-normal hover:text-[#000000]';
 
     return (
         <aside
@@ -63,6 +63,14 @@ function Sidebar() {
                     </a>
                 ))}
                 <AdminOnly>
+                    <a
+                        aria-current={currentPath === '/blog-rank' ? 'page' : undefined}
+                        className={linkClassName('/blog-rank')}
+                        href="/blog-rank"
+                        onClick={(event) => navigate(event, '/blog-rank')}
+                    >
+                        블로그 대시보드
+                    </a>
                     <a
                         aria-current={currentPath === '/admin' ? 'page' : undefined}
                         className={linkClassName('/admin')}

@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { ErpDataProvider } from './context/ErpDataContext';
 import AdminPage from './routes/AdminPage';
 import BlogPage from './routes/BlogPage';
+import BlogRankPage from './routes/BlogRankPage';
 import CalendarPage from './routes/CalendarPage';
 import ClientsPage from './routes/ClientsPage';
 import ContractsPage from './routes/ContractsPage';
@@ -22,6 +23,7 @@ const routes = [
     { path: '/reports', element: <ReportsPage /> },
     { path: '/memos', element: <MemosPage /> },
     { path: '/blog', element: <BlogPage /> },
+    { path: '/blog-rank', element: <BlogRankPage /> },
     { path: '/banner-generator', element: <BannerGeneratorPage /> },
     { path: '/mypage', element: <MyPage /> },
     { path: '/admin', element: <AdminPage /> },
