@@ -6,20 +6,75 @@
 //   - blogtab.ssc 에 'm_blog' 포함 & htmlLen 수백KB         → 블로그탭 정상 (블록은 1개가 정상)
 //   - htmlLen 이 수KB거나 ssc=null 이면 → 차단 (서버리스 즉시검색 불가 → 사무실 PC 폴백)
 
+// @ts-expect-error — .mjs 단일소스 파서(node 테스트와 공유). 타입 없이 import.
+import { rankInPopular, rankInBlogtab, TI_URL, BL_URL, MOBILE_UA, OUT_OF_RANK } from '../lib/naverRank.mjs';
+
 type FunctionContext = {
     request: Request;
     env: Record<string, string | undefined>;
 };
 
-const UA =
-    'Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 ' +
-    '(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36';
+const UA = MOBILE_UA;
 
 function jsonResponse(body: unknown, status = 200) {
     return new Response(JSON.stringify(body), {
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
         status,
     });
+}
+
+async function fetchText(url: string): Promise<string | null> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+        const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: ctrl.signal });
+        if (res.status !== 200) return null;
+        return await res.text();
+    } catch {
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+// 같은 blogId|keyword 단기 메모이즈(네이버 호출/차단 완화). isolate 수명 동안만 유지.
+const cache = new Map<string, { at: number; data: unknown }>();
+const CACHE_TTL = 90_000;
+
+// 측정: POST /api/rank  { keyword, blogId, logNo? } → { ti, bl, ti_status, bl_status }
+export async function onRequestPost({ request }: FunctionContext) {
+    let body: { keyword?: string; blogId?: string; logNo?: string };
+    try {
+        body = (await request.json()) as typeof body;
+    } catch {
+        return jsonResponse({ error: 'invalid json' }, 400);
+    }
+    const keyword = (body.keyword || '').trim();
+    const blogId = (body.blogId || '').trim();
+    const logNo = (body.logNo || '').trim();
+    if (!keyword || !blogId) {
+        return jsonResponse({ error: 'keyword, blogId 가 필요합니다' }, 400);
+    }
+
+    const key = `${blogId}|${keyword}`;
+    const hit = cache.get(key);
+    if (hit && Date.now() - hit.at < CACHE_TTL) {
+        return jsonResponse(hit.data);
+    }
+
+    const [tiHtml, blHtml] = await Promise.all([fetchText(TI_URL(keyword)), fetchText(BL_URL(keyword))]);
+    const ti = tiHtml ? rankInPopular(tiHtml, blogId) : { rank: OUT_OF_RANK, status: 'fail' };
+    const bl = blHtml ? rankInBlogtab(blHtml, blogId, logNo) : { rank: OUT_OF_RANK, status: 'fail' };
+    const data = {
+        keyword,
+        blogId,
+        ti: ti.rank,
+        ti_status: ti.status,
+        bl: bl.rank,
+        bl_status: bl.status,
+    };
+    cache.set(key, { at: Date.now(), data });
+    return jsonResponse(data);
 }
 
 async function probe(url: string) {

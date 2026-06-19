@@ -2,6 +2,31 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import sharp from 'sharp';
+// 순위 즉시검색 파서(단일소스 — Cloudflare 함수와 동일 파일 공유).
+import { rankInPopular, rankInBlogtab, TI_URL, BL_URL, MOBILE_UA, OUT_OF_RANK } from '../functions/lib/naverRank.mjs';
+
+async function measureRankLocal({ keyword, blogId, logNo = '' }) {
+    keyword = (keyword || '').trim();
+    blogId = (blogId || '').trim();
+    if (!keyword || !blogId) {
+        return { statusCode: 400, body: { error: 'keyword, blogId 가 필요합니다' } };
+    }
+    const get = async (url) => {
+        try {
+            const r = await fetch(url, { headers: { 'User-Agent': MOBILE_UA } });
+            return r.status === 200 ? await r.text() : null;
+        } catch {
+            return null;
+        }
+    };
+    const [tiHtml, blHtml] = await Promise.all([get(TI_URL(keyword)), get(BL_URL(keyword))]);
+    const ti = tiHtml ? rankInPopular(tiHtml, blogId) : { rank: OUT_OF_RANK, status: 'fail' };
+    const bl = blHtml ? rankInBlogtab(blHtml, blogId, logNo) : { rank: OUT_OF_RANK, status: 'fail' };
+    return {
+        statusCode: 200,
+        body: { keyword, blogId, ti: ti.rank, ti_status: ti.status, bl: bl.rank, bl_status: bl.status },
+    };
+}
 
 const PORT = Number(process.env.OPENAI_LOCAL_API_PORT || 8787);
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
@@ -1055,6 +1080,19 @@ const server = createServer(async (request, response) => {
                     error instanceof Error
                         ? [error.message, cause].filter(Boolean).join(': ')
                         : '서버 오류가 발생했습니다.',
+            });
+        }
+        return;
+    }
+
+    if (request.method === 'POST' && request.url === '/api/rank') {
+        try {
+            const payload = await readJsonBody(request);
+            const result = await measureRankLocal(payload);
+            sendJson(response, result.statusCode, result.body);
+        } catch (error) {
+            sendJson(response, 500, {
+                error: error instanceof Error ? error.message : '순위 측정 오류',
             });
         }
         return;

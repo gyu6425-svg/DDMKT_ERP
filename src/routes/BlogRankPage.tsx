@@ -15,6 +15,7 @@ import {
     type BlogPost,
     type WebMeasurement,
 } from '../api/blogRank';
+import { searchRank, type RankSearchResult } from '../api/rankSearch';
 import { useAuth } from '../hooks/useAuth';
 
 type Tab = 'dashboard' | 'sheet' | 'tracker';
@@ -941,6 +942,7 @@ function TrackerTab({
                             <th className="px-3 py-2 font-semibold">발행</th>
                             <th className="px-3 py-2 font-semibold">블로그</th>
                             <th className="px-3 py-2 font-semibold">제목 · 자동 키워드</th>
+                            <th className="px-3 py-2 font-semibold">키워드 검색</th>
                             <th className="px-3 py-2 text-center font-semibold">통합탭</th>
                             <th className="px-3 py-2 text-center font-semibold">블로그탭</th>
                             <th className="px-3 py-2 text-center font-semibold">웹사이트</th>
@@ -976,6 +978,9 @@ function TrackerTab({
                                             </span>
                                         ) : null}
                                     </td>
+                                    <td className="px-3 py-2">
+                                        <PostSearchCell account={acc} />
+                                    </td>
                                     <td className="px-3 py-2 text-center">
                                         <RankCell post={p} keyName="ti" />
                                     </td>
@@ -1005,7 +1010,7 @@ function TrackerTab({
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={9}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={10}>
                                     아직 수집된 글이 없습니다 · 파이썬 크롤러 실행 후 표시됩니다
                                 </td>
                             </tr>
@@ -1143,6 +1148,77 @@ function KwRankCell({ measurements, keyName }: { measurements: BlogMeasurement[]
             </span>
             {delta}
         </span>
+    );
+}
+
+// 인라인 즉시검색 — 키워드 입력 → 서버리스가 네이버 측정 → 그 블로그의 통합/블로그탭 순위 즉시 표시.
+// 자동키워드 순위(기본, RankCell)와 별개. 'blog_id 매칭'이라 '글'이 아니라 '블로그 노출 순위'.
+function fmtRank(rank: number, status: string): string {
+    if (status === 'fail') return '실패';
+    if (status === 'out' || rank > 30) return '권외';
+    return `${rank}위`;
+}
+
+function PostSearchCell({ account }: { account: BlogAccount | null }) {
+    const [kw, setKw] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [res, setRes] = useState<RankSearchResult | null>(null);
+    const [err, setErr] = useState('');
+
+    if (!account) {
+        return <span className="text-xs text-[#94a3b8]">—</span>;
+    }
+    const blogId = account.blog_id || extractBlogId(account.blog_url);
+
+    const run = async () => {
+        const q = kw.trim();
+        if (!q || !blogId) {
+            return;
+        }
+        setBusy(true);
+        setErr('');
+        try {
+            setRes(await searchRank(q, blogId));
+        } catch (e) {
+            setErr(e instanceof Error ? e.message : '검색 실패');
+            setRes(null);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="min-w-[150px]">
+            <div className="flex gap-1">
+                <input
+                    className="h-7 w-full rounded border border-[#cbd5e1] bg-white px-2 text-xs"
+                    onChange={(e) => setKw(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && void run()}
+                    placeholder="키워드 직접 검색"
+                    value={kw}
+                />
+                <button
+                    className="rounded bg-[#1e40af] px-2 text-xs font-semibold text-white disabled:opacity-50"
+                    disabled={busy || !kw.trim()}
+                    onClick={() => void run()}
+                    title="이 블로그가 입력 키워드로 몇 위인지 즉시 검색"
+                    type="button"
+                >
+                    {busy ? '…' : '검색'}
+                </button>
+            </div>
+            {res ? (
+                <div className="mt-1 text-[11px] font-semibold text-[#0f172a]">
+                    <span className="text-[#94a3b8]">#{res.keyword}</span> · 통합{' '}
+                    <span className="text-[#059669]">{fmtRank(res.ti, res.ti_status)}</span> · 블로그{' '}
+                    <span className="text-[#1e40af]">{fmtRank(res.bl, res.bl_status)}</span>
+                </div>
+            ) : err ? (
+                <div className="mt-1 text-[10px] text-[#dc2626]">{err}</div>
+            ) : (
+                <div className="mt-1 text-[10px] text-[#94a3b8]">블로그 노출 순위(글 아님)</div>
+            )}
+        </div>
     );
 }
 
