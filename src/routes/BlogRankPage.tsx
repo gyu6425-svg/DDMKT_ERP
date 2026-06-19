@@ -74,8 +74,23 @@ function BlogRankPage() {
     const [keywords, setKeywords] = useState<BlogKeyword[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [tab, setTab] = useState<Tab>('dashboard');
+    // 탭을 URL 쿼리(?tab=)에 저장 → 새로고침해도 현재 탭 유지.
+    const [tab, setTab] = useState<Tab>(() => {
+        const t = new URLSearchParams(window.location.search).get('tab');
+        return t === 'sheet' || t === 'tracker' ? t : 'dashboard';
+    });
     const [toast, setToast] = useState('');
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (tab === 'dashboard') {
+            params.delete('tab');
+        } else {
+            params.set('tab', tab);
+        }
+        const qs = params.toString();
+        window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
+    }, [tab]);
 
     const showToast = (message: string) => {
         setToast(message);
