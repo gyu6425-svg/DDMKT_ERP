@@ -24,7 +24,7 @@ import time
 import html
 import json
 import datetime
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
 
 import requests
 
@@ -270,6 +270,54 @@ def _rank_from_permalinks(html_text, blog_id, log_no):
 USE_API = bool(NAVER_CLIENT_ID and NAVER_CLIENT_SECRET)
 
 
+# ── 웹사이트 순위: 네이버 웹문서 검색 API (webkr) ─────────
+# 통합검색 '웹사이트' 섹션의 회사 홈페이지(블로그 아님) 순위. 블로그탭과 동일 인증키 재사용.
+# 주의: webkr 은 sort 미지원이고, API 순서가 실제 화면 노출순과 다를 수 있어 신뢰도가 ti/bl 보다 낮다.
+def naver_web_search(keyword, display=100):
+    url = "https://openapi.naver.com/v1/search/webkr.json"
+    headers = {"X-Naver-Client-Id": NAVER_CLIENT_ID, "X-Naver-Client-Secret": NAVER_CLIENT_SECRET}
+    params = {"query": keyword, "display": min(100, display), "start": 1}  # sort 미지원
+    r = requests.get(url, headers=headers, params=params, timeout=20)
+    if r.status_code != 200:
+        raise RuntimeError(f"Naver webkr API {r.status_code}: {r.text[:160]}")
+    return r.json().get("items", [])
+
+
+def norm_host(u: str) -> str:
+    """URL/도메인 → 비교용 호스트(scheme/www/경로/쿼리/포트 제거, 소문자)."""
+    if not u:
+        return ""
+    s = u.strip()
+    m = _U_PARAM.search(s)            # 검색 리다이렉트 래퍼(u/url/cru) 풀기
+    if m:
+        s = unquote(m.group(1))
+    if "://" not in s:
+        s = "http://" + s
+    host = urlparse(s).netloc.lower().split(":", 1)[0]
+    return host[4:] if host.startswith("www.") else host
+
+
+def host_match(link: str, website_host: str) -> bool:
+    """경로 무시, 호스트 동일성만 비교(가장 안전한 매칭)."""
+    a, b = norm_host(link), norm_host(website_host)
+    return bool(a) and a == b
+
+
+def measure_web_rank(keyword, website_host):
+    """(rank, status) 반환. status: ok=노출, out=권외, fail=API/네트워크 실패."""
+    if not USE_API:
+        return OUT_OF_RANK, "fail"      # 키 없으면 측정 불가(권외와 구분)
+    try:
+        items = naver_web_search(keyword, display=max(30, MAX_RANK_SCAN))
+    except Exception as exc:
+        print(f"    [웹사이트 실패] {keyword}: {exc}")
+        return OUT_OF_RANK, "fail"
+    for i, it in enumerate(items[:MAX_RANK_SCAN], start=1):
+        if host_match(it.get("link", ""), website_host):
+            return i, "ok"
+    return OUT_OF_RANK, "out"
+
+
 def measure_rank(keyword, blog_id, post_url):
     log_no = extract_log_no(post_url)
 
@@ -294,7 +342,7 @@ def measure_rank(keyword, blog_id, post_url):
 
 
 # ── 디버그: 키워드 하나로 실제 순위 검증 ────────────────
-def debug_keyword(keyword, blog_id, post_url=""):
+def debug_keyword(keyword, blog_id, post_url="", website_host=""):
     log_no = extract_log_no(post_url)
     print(f"[디버그] 키워드: {keyword} / 블로그ID: {blog_id} / logNo: {log_no or '(없음)'}")
     print(f"API 사용: {'예' if USE_API else '아니오(HTML 폴백)'}")
@@ -305,6 +353,9 @@ def debug_keyword(keyword, blog_id, post_url=""):
         bl = measure_blog_rank_html(keyword, blog_id, log_no)
     ti = measure_integrated_rank(keyword, blog_id, log_no)
     print(f"\n결과 → 블로그탭: {bl if bl < OUT_OF_RANK else '권외'} / 통합검색: {ti if ti < OUT_OF_RANK else '권외'}")
+    if website_host:
+        we, status = measure_web_rank(keyword, website_host)
+        print(f"웹사이트({norm_host(website_host)}): {we if status == 'ok' else status}")
 
 
 # ── 메인 ─────────────────────────────────────────────────
@@ -355,7 +406,25 @@ def run():
         measured += 1
         print(f"    측정 [{acc['name']}] {keyword}: 통합 {ti} / 블로그 {bl}")
 
-    print(f"=== 완료: 글 {measured}건 측정 ===")
+    # ── 웹사이트(회사 단위) 순위 측정 ──
+    # 글 단위가 아니라 업체 단위 1회 측정 → blog_accounts.website_measurements 에 patch.
+    # website_url/rep_keyword 미설정 업체는 건너뜀('해당없음').
+    web_measured = 0
+    for acc in accounts:
+        host = (acc.get("website_url") or "").strip()
+        kw = (acc.get("rep_keyword") or "").strip()
+        if not host or not kw:
+            continue
+        we, status = measure_web_rank(kw, host)
+        recs = [r for r in (acc.get("website_measurements") or []) if r.get("date") != TODAY]
+        recs.append({"date": TODAY, "we": we, "status": status})
+        # 부분 patch — website_measurements 키만 보내 다른 컬럼 불변.
+        sb_patch("blog_accounts", {"id": f"eq.{acc['id']}"}, {"website_measurements": recs})
+        web_measured += 1
+        print(f"    웹사이트 [{acc['name']}] {kw}: {we if status == 'ok' else status}")
+        time.sleep(REQUEST_DELAY)
+
+    print(f"=== 완료: 글 {measured}건 측정 / 웹사이트 {web_measured}건 측정 ===")
 
 
 if __name__ == "__main__":
@@ -364,13 +433,16 @@ if __name__ == "__main__":
         kw = args[1] if len(args) > 1 else ""
         blog_id = ""
         post_url = ""
+        website_host = ""
         if "--blog-id" in args:
             blog_id = args[args.index("--blog-id") + 1]
         if "--post-url" in args:
             post_url = args[args.index("--post-url") + 1]
+        if "--website-host" in args:
+            website_host = args[args.index("--website-host") + 1]
         if not kw:
-            print('사용법: python blog_rank_crawler.py --debug "키워드" --blog-id 블로그아이디 [--post-url 글URL]')
+            print('사용법: python blog_rank_crawler.py --debug "키워드" --blog-id 블로그아이디 [--post-url 글URL] [--website-host 도메인]')
             sys.exit(1)
-        debug_keyword(kw, blog_id, post_url)
+        debug_keyword(kw, blog_id, post_url, website_host)
     else:
         run()

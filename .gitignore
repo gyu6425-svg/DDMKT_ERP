@@ -26,3 +26,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Claude Code prompt logs
+logs/
+
+# Python crawler cache
+__pycache__/
+
+# Claude Code local settings (machine-specific permissions)
+.claude/settings.local.json

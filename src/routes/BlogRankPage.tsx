@@ -4,8 +4,10 @@ import {
     getBlogAccounts,
     getBlogPosts,
     insertBlogAccounts,
+    updateBlogAccount,
     type BlogAccount,
     type BlogPost,
+    type WebMeasurement,
 } from '../api/blogRank';
 import { useAuth } from '../hooks/useAuth';
 
@@ -34,6 +36,28 @@ function dayN(post: BlogPost): number {
     }
     const diff = Date.now() - new Date(post.published_date).getTime();
     return Math.max(0, Math.floor(diff / 86400000));
+}
+
+// ── 웹사이트(회사 단위) 헬퍼 ──
+// 입력 URL/도메인을 비교용 호스트로 정규화(scheme/www/경로/포트 제거). 크롤러 norm_host 와 동일 규칙.
+function normHost(input: string): string {
+    let s = (input || '').trim();
+    if (!s) {
+        return '';
+    }
+    s = s.replace(/^https?:\/\//i, '');
+    s = s.split(/[/?#]/)[0];
+    s = s.split(':')[0];
+    s = s.replace(/^www\./i, '');
+    return s.toLowerCase();
+}
+function lastWe(account: BlogAccount): WebMeasurement | null {
+    const w = account.website_measurements;
+    return w && w.length ? w[w.length - 1] : null;
+}
+function prevWe(account: BlogAccount): WebMeasurement | null {
+    const w = account.website_measurements;
+    return w && w.length >= 2 ? w[w.length - 2] : null;
 }
 
 function BlogRankPage() {
@@ -186,6 +210,15 @@ function DashboardTab({
         .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
         .slice(0, 6);
 
+    // 웹사이트(업체 기준) 지표 — 글 단위 KPI 와 모수가 다르므로 별도 섹션으로 분리.
+    const webTracked = accounts.filter((a) => a.website_url && a.rep_keyword);
+    const webMeasured = webTracked.filter((a) => lastWe(a));
+    const webExposed = webMeasured.filter((a) => lastWe(a)?.status === 'ok').length;
+    const webIn10 = webMeasured.filter((a) => {
+        const m = lastWe(a);
+        return m?.status === 'ok' && m.we <= 10;
+    }).length;
+
     return (
         <div className="grid gap-4">
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -209,6 +242,33 @@ function DashboardTab({
                     sub="재계약 영업 타이밍"
                 />
             </div>
+
+            {webTracked.length ? (
+                <Panel
+                    title="웹사이트 노출 (업체 기준)"
+                    sub="통합검색 '웹사이트' 섹션 · webkr API 추정값이라 신뢰도 낮음"
+                >
+                    <div className="grid grid-cols-3 gap-3">
+                        <Kpi
+                            label="추적 업체"
+                            value={`${webTracked.length}`}
+                            sub={`측정 ${webMeasured.length}개`}
+                        />
+                        <Kpi
+                            label="노출 중"
+                            value={`${webExposed}`}
+                            accent="#7c3aed"
+                            sub="웹사이트 섹션 내 노출"
+                        />
+                        <Kpi
+                            label="10위 이내"
+                            value={`${webIn10}`}
+                            accent="#7c3aed"
+                            sub="업체 기준"
+                        />
+                    </div>
+                </Panel>
+            ) : null}
 
             <div className="grid gap-4 lg:grid-cols-2">
                 <Panel title="오늘 챙겨야 할 블로그" sub="잔여 임박 · 진행 중단">
@@ -288,6 +348,7 @@ function SheetTab({
     const [sortDir, setSortDir] = useState(1);
     const [page, setPage] = useState(1);
     const [importOpen, setImportOpen] = useState(false);
+    const [editAcc, setEditAcc] = useState<BlogAccount | null>(null);
 
     const managers = useMemo(
         () => [...new Set(accounts.map((a) => a.manager).filter(Boolean))] as string[],
@@ -385,8 +446,10 @@ function SheetTab({
                             <th className="px-3 py-2 text-center font-semibold">주 발행</th>
                             <th className="px-3 py-2 text-center font-semibold">추적 글</th>
                             <th className="px-3 py-2 text-center font-semibold">통합 10위↓</th>
+                            <th className="px-3 py-2 text-center font-semibold">웹사이트</th>
                             <th className="px-3 py-2 text-center font-semibold">상태</th>
                             <th className="px-3 py-2 font-semibold">비고</th>
+                            <th className="px-3 py-2 text-center font-semibold">관리</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -466,6 +529,9 @@ function SheetTab({
                                             )}
                                         </td>
                                         <td className="px-3 py-2 text-center">
+                                            <WebRankCell account={a} />
+                                        </td>
+                                        <td className="px-3 py-2 text-center">
                                             {!a.is_active ? (
                                                 <Tag kind="stop">중단</Tag>
                                             ) : a.remain_count != null && a.remain_count <= 3 ? (
@@ -484,12 +550,22 @@ function SheetTab({
                                                 {a.note || ''}
                                             </span>
                                         </td>
+                                        <td className="px-3 py-2 text-center">
+                                            <button
+                                                className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                                                onClick={() => setEditAcc(a)}
+                                                title="웹사이트·대표키워드 설정"
+                                                type="button"
+                                            >
+                                                편집
+                                            </button>
+                                        </td>
                                     </tr>
                                 );
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={9}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={11}>
                                     등록된 블로그가 없습니다 · '시트 붙여넣기 등록'으로 추가하세요
                                 </td>
                             </tr>
@@ -507,6 +583,109 @@ function SheetTab({
                     onToast={onToast}
                 />
             ) : null}
+
+            {editAcc ? (
+                <AccountEditModal
+                    account={editAcc}
+                    onClose={() => setEditAcc(null)}
+                    onReload={onReload}
+                    onToast={onToast}
+                />
+            ) : null}
+        </div>
+    );
+}
+
+// ───────────────────────── 업체 편집(웹사이트·대표키워드) ─────────────────────────
+function AccountEditModal({
+    account,
+    onClose,
+    onReload,
+    onToast,
+}: {
+    account: BlogAccount;
+    onClose: () => void;
+    onReload: () => Promise<void>;
+    onToast: (message: string) => void;
+}) {
+    const [websiteUrl, setWebsiteUrl] = useState(account.website_url ?? '');
+    const [repKeyword, setRepKeyword] = useState(account.rep_keyword ?? '');
+    const [saving, setSaving] = useState(false);
+
+    const save = async () => {
+        setSaving(true);
+        // website_url 은 저장 직전 호스트로 정규화(DB엔 항상 호스트만). 빈 값은 NULL.
+        const { error } = await updateBlogAccount(account.id, {
+            website_url: normHost(websiteUrl) || null,
+            rep_keyword: repKeyword.trim() || null,
+        });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        await onReload();
+        onToast('웹사이트 정보 저장 완료');
+        onClose();
+    };
+
+    const previewHost = normHost(websiteUrl);
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            onClick={(e) => e.target === e.currentTarget && onClose()}
+        >
+            <div className="w-[min(520px,94vw)] rounded-2xl bg-white p-6">
+                <h3 className="m-0 text-lg font-bold">{account.name} · 웹사이트 추적 설정</h3>
+                <p className="mt-1 mb-4 text-sm text-[#64748b]">
+                    통합검색 '웹사이트' 섹션에서 회사 홈페이지 순위를 추적합니다. 둘 다 입력해야 측정됩니다.
+                    <br />
+                    <span className="text-[#7c3aed]">순위는 webkr API 추정값이라 신뢰도가 통합·블로그탭보다 낮습니다.</span>
+                </p>
+
+                <label className="mb-1 block text-xs font-semibold text-[#334155]">회사 홈페이지 (블로그 아님)</label>
+                <input
+                    className="h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                    onChange={(e) => setWebsiteUrl(e.target.value)}
+                    placeholder="예: momo-cleaning.com 또는 https://www.momo-cleaning.com"
+                    value={websiteUrl}
+                />
+                <p className="mt-1 mb-3 text-[11px] text-[#94a3b8]">
+                    저장 시 호스트만 보관:{' '}
+                    {previewHost ? (
+                        <span className="font-mono text-[#475569]">{previewHost}</span>
+                    ) : (
+                        <span className="text-[#94a3b8]">(미설정 → 해당없음)</span>
+                    )}
+                </p>
+
+                <label className="mb-1 block text-xs font-semibold text-[#334155]">대표키워드</label>
+                <input
+                    className="h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                    onChange={(e) => setRepKeyword(e.target.value)}
+                    placeholder="예: 과천 입주청소"
+                    value={repKeyword}
+                />
+
+                <div className="mt-5 flex justify-end gap-2">
+                    <button
+                        className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                        onClick={onClose}
+                        type="button"
+                    >
+                        닫기
+                    </button>
+                    <button
+                        className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                        disabled={saving}
+                        onClick={() => void save()}
+                        type="button"
+                    >
+                        {saving ? '저장 중...' : '저장'}
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }
@@ -665,6 +844,52 @@ function RankCell({ post, keyName }: { post: BlogPost; keyName: 'ti' | 'bl' }) {
             <span className="text-sm font-bold" style={{ color }}>
                 {cur > 30 ? '권외' : `${cur}위`}
             </span>
+            {delta}
+        </span>
+    );
+}
+
+// 웹사이트(회사 단위) 순위 셀. 글 단위 RankCell 과 별개 — SheetTab(업체 표)에서만 사용.
+// 신뢰도가 ti/bl 보다 낮아(webkr API 추정) 색상을 보라(#7c3aed)로 구분하고 배지를 단다.
+function WebRankCell({ account }: { account: BlogAccount }) {
+    if (!account.website_url || !account.rep_keyword) {
+        return <span className="text-xs text-[#94a3b8]">해당없음</span>;
+    }
+    const last = lastWe(account);
+    if (!last) {
+        return <span className="text-[11px] font-semibold text-[#d97706]">측정 대기</span>;
+    }
+    if (last.status === 'fail') {
+        return (
+            <span className="text-[11px] text-[#94a3b8]" title="측정 실패(API/네트워크). 진짜 권외와 다름.">
+                측정 실패
+            </span>
+        );
+    }
+    if (last.status !== 'ok' || last.we > 30) {
+        return (
+            <span title="웹사이트 섹션 미노출 또는 권외 · webkr API 추정">
+                <span className="text-sm font-bold text-[#94a3b8]">권외</span>
+                <span className="block text-[10px] text-[#94a3b8]">미노출 포함</span>
+            </span>
+        );
+    }
+    const prev = prevWe(account);
+    let delta = <span className="block text-[10px] text-[#94a3b8]">첫 측정</span>;
+    if (prev && prev.status === 'ok') {
+        const diff = prev.we - last.we;
+        delta =
+            diff > 0 ? (
+                <span className="block text-[10px] font-bold text-[#dc2626]">▲{diff}</span>
+            ) : diff < 0 ? (
+                <span className="block text-[10px] font-bold text-[#1e40af]">▼{Math.abs(diff)}</span>
+            ) : (
+                <span className="block text-[10px] text-[#94a3b8]">—</span>
+            );
+    }
+    return (
+        <span title="webkr API 추정 · 화면 순위와 다를 수 있음(신뢰도 낮음)">
+            <span className="text-sm font-bold text-[#7c3aed]">{last.we}위</span>
             {delta}
         </span>
     );
