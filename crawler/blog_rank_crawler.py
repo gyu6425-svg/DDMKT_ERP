@@ -84,7 +84,19 @@ def extract_keyword(title: str) -> str:
     t = re.sub(r"<[^>]+>", "", t)
     t = re.sub(r"[\[\]\(\)·,.!?~\-_/|]", " ", t)
     words = [w for w in t.split() if w and w not in TAILS]
-    return " ".join(words[:2]) if words else t[:12]
+    if not words:
+        return t[:12]
+    has_nusu = any("누수" in w for w in words)
+    # 모든 지역을 "~동 누수탐지" 로 통일: 제목 어디에 있든 '동'으로 끝나는 동네 단어(3자+,
+    # 이동/활동 같은 2자 오탐 제외)를 찾으면 그걸 우선. "인천 석남동 누수탐지 욕조" → "석남동 누수탐지".
+    dong = next((w for w in words if len(w) >= 3 and w.endswith("동")), None)
+    if dong and has_nusu:
+        return f"{dong} 누수탐지"
+    # 동이 없으면(남양주/용인 등 시 단위): '누수' 든 첫 단어까지(뒤 세부어 제외).
+    j = next((i for i, w in enumerate(words) if "누수" in w), None)
+    if j is not None:
+        return " ".join(words[: j + 1])
+    return " ".join(words[:2])  # '누수' 없으면 앞 2단어(폴백)
 
 
 # ── Supabase REST ────────────────────────────────────────
