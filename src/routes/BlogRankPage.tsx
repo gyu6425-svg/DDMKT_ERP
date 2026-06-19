@@ -15,6 +15,7 @@ import {
     type BlogPost,
     type WebMeasurement,
 } from '../api/blogRank';
+import { crawlBlog } from '../api/crawlBlog';
 import { searchRank, type RankSearchResult } from '../api/rankSearch';
 import { useAuth } from '../hooks/useAuth';
 
@@ -389,6 +390,23 @@ function SheetTab({
     const [page, setPage] = useState(1);
     const [importOpen, setImportOpen] = useState(false);
     const [editAcc, setEditAcc] = useState<BlogAccount | null>(null);
+    const [crawlingId, setCrawlingId] = useState<string | null>(null);
+
+    // 서버리스 즉시 크롤 — 터미널 없이 이 블로그의 RSS+순위 측정·기록.
+    const doCrawl = async (a: BlogAccount) => {
+        setCrawlingId(a.id);
+        onToast(`${a.name} 측정 중...`);
+        try {
+            const r = await crawlBlog(a.id);
+            await onReload();
+            const errNote = r.errors?.length ? ` (${r.errors.join(', ')})` : '';
+            onToast(`${a.name} 측정 완료 · 글 ${r.postsMeasured} · 키워드 ${r.keywordsMeasured}${errNote}`);
+        } catch (e) {
+            onToast(`측정 실패: ${e instanceof Error ? e.message : ''}`);
+        } finally {
+            setCrawlingId(null);
+        }
+    };
 
     const managers = useMemo(
         () => [...new Set(accounts.map((a) => a.manager).filter(Boolean))] as string[],
@@ -488,7 +506,7 @@ function SheetTab({
                             <th className="px-3 py-2 text-center font-semibold">통합 10위↓</th>
                             <th className="px-3 py-2 text-center font-semibold">상태</th>
                             <th className="px-3 py-2 font-semibold">비고</th>
-                            <th className="px-3 py-2 text-center font-semibold">웹사이트 설정</th>
+                            <th className="px-3 py-2 text-center font-semibold">관리</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -587,14 +605,25 @@ function SheetTab({
                                             </span>
                                         </td>
                                         <td className="px-3 py-2 text-center">
-                                            <button
-                                                className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
-                                                onClick={() => setEditAcc(a)}
-                                                title="웹사이트·대표키워드 설정"
-                                                type="button"
-                                            >
-                                                편집
-                                            </button>
+                                            <div className="flex justify-center gap-1">
+                                                <button
+                                                    className="rounded bg-[#059669] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#047857] disabled:opacity-50"
+                                                    disabled={crawlingId === a.id}
+                                                    onClick={() => void doCrawl(a)}
+                                                    title="터미널 없이 이 블로그 RSS+순위를 지금 측정"
+                                                    type="button"
+                                                >
+                                                    {crawlingId === a.id ? '측정 중…' : '지금 측정'}
+                                                </button>
+                                                <button
+                                                    className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                                                    onClick={() => setEditAcc(a)}
+                                                    title="웹사이트·대표키워드 설정"
+                                                    type="button"
+                                                >
+                                                    편집
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 );

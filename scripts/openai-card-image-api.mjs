@@ -4,6 +4,83 @@ import { resolve } from 'node:path';
 import sharp from 'sharp';
 // 순위 즉시검색 파서(단일소스 — Cloudflare 함수와 동일 파일 공유).
 import { rankInPopular, rankInBlogtab, TI_URL, BL_URL, MOBILE_UA, OUT_OF_RANK } from '../functions/lib/naverRank.mjs';
+import {
+    parseRss,
+    extractKeyword,
+    parseBlogUrl,
+    extractLogNo,
+    todayKST,
+    upsertToday,
+    sbGet,
+    sbInsert,
+    sbPatch,
+} from '../functions/lib/crawlLib.mjs';
+
+// dev 용 crawl-blog — Cloudflare crawl-blog.ts 와 동일 로직(헬퍼 공유). env 는 process.env(.env 로드됨).
+async function crawlBlogLocal({ blogAccountId }) {
+    const env = { SUPABASE_URL: process.env.SUPABASE_URL, SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY };
+    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) {
+        return { statusCode: 500, body: { error: '.env 에 SUPABASE_URL / SUPABASE_SERVICE_KEY 필요' } };
+    }
+    blogAccountId = (blogAccountId || '').trim();
+    if (!blogAccountId) return { statusCode: 400, body: { error: 'blogAccountId 필요' } };
+    const today = todayKST();
+    const errors = [];
+    const get = async (url) => {
+        try {
+            const r = await fetch(url, { headers: { 'User-Agent': MOBILE_UA } });
+            return r.status === 200 ? await r.text() : null;
+        } catch {
+            return null;
+        }
+    };
+    const measure = async (kw, blogId, logNo) => {
+        const [ti, bl] = await Promise.all([get(TI_URL(kw)), get(BL_URL(kw))]);
+        const tp = ti ? rankInPopular(ti, blogId) : { rank: OUT_OF_RANK, status: 'fail' };
+        const bp = bl ? rankInBlogtab(bl, blogId, logNo) : { rank: OUT_OF_RANK, status: 'fail' };
+        return { ti: tp.rank, ti_status: tp.status, bl: bp.rank, bl_status: bp.status };
+    };
+    try {
+        const accs = await sbGet(env, 'blog_accounts', { id: `eq.${blogAccountId}`, select: '*' });
+        if (!accs.length) return { statusCode: 404, body: { error: '블로그 없음' } };
+        const acc = accs[0];
+        const blogId = acc.blog_id || parseBlogUrl(acc.blog_url || '')[0];
+        if (!blogId) return { statusCode: 400, body: { error: 'blog_id 없음' } };
+        let postsMeasured = 0;
+        const rss = await get(`https://rss.blog.naver.com/${blogId}.xml`);
+        if (!rss) errors.push('RSS 실패');
+        else {
+            const items = parseRss(rss, 5).filter((p) => p.url);
+            const rows = items.map((p) => ({
+                blog_account_id: blogAccountId,
+                post_url: p.url,
+                title: p.title,
+                keyword: extractKeyword(p.title),
+                published_date: p.published_date,
+            }));
+            const up = rows.length ? await sbInsert(env, 'blog_posts', rows, 'blog_account_id,post_url') : [];
+            for (const post of up) {
+                const kw = (post.keyword || '').trim();
+                if (!kw) continue;
+                const r = await measure(kw, blogId, extractLogNo(post.post_url || ''));
+                await sbPatch(env, 'blog_posts', { id: `eq.${post.id}` }, { measurements: upsertToday(post.measurements, { date: today, ...r }, today) });
+                postsMeasured++;
+            }
+        }
+        let keywordsMeasured = 0;
+        const kws = await sbGet(env, 'blog_keywords', { blog_account_id: `eq.${blogAccountId}`, select: '*' });
+        for (const row of kws.slice(0, 3)) {
+            const kw = (row.keyword || '').trim();
+            if (!kw) continue;
+            const r = await measure(kw, blogId, '');
+            await sbPatch(env, 'blog_keywords', { id: `eq.${row.id}` }, { measurements: upsertToday(row.measurements, { date: today, ...r }, today) });
+            keywordsMeasured++;
+        }
+        return { statusCode: 200, body: { blogAccountId, blogId, postsMeasured, keywordsMeasured, errors } };
+    } catch (e) {
+        return { statusCode: 500, body: { error: e instanceof Error ? e.message : '크롤 오류', errors } };
+    }
+}
 
 async function measureRankLocal({ keyword, blogId, logNo = '' }) {
     keyword = (keyword || '').trim();
@@ -1081,6 +1158,17 @@ const server = createServer(async (request, response) => {
                         ? [error.message, cause].filter(Boolean).join(': ')
                         : '서버 오류가 발생했습니다.',
             });
+        }
+        return;
+    }
+
+    if (request.method === 'POST' && request.url === '/api/crawl-blog') {
+        try {
+            const payload = await readJsonBody(request);
+            const result = await crawlBlogLocal(payload);
+            sendJson(response, result.statusCode, result.body);
+        } catch (error) {
+            sendJson(response, 500, { error: error instanceof Error ? error.message : '크롤 오류' });
         }
         return;
     }
