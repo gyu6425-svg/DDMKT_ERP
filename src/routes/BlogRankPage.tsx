@@ -749,7 +749,7 @@ function TrackerTab({
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">발행</th>
-                            <th className="px-3 py-2 font-semibold">업체</th>
+                            <th className="px-3 py-2 font-semibold">블로그</th>
                             <th className="px-3 py-2 font-semibold">제목 · 자동 키워드</th>
                             <th className="px-3 py-2 text-center font-semibold">통합탭</th>
                             <th className="px-3 py-2 text-center font-semibold">블로그탭</th>

@@ -326,13 +326,37 @@ def measure_web_rank(keyword, website_host):
     return OUT_OF_RANK, "out"
 
 
-# ── 통합탭(ti): 통합검색 '블로그 묶음(인기글)' 섹션, 광고 제외 화면순위 ──
-# 네이버가 결과를 script 내 entry.bootstrap JSON 으로 클라이언트 렌더하므로, JSON 을 파싱해
-# 'review_blog' 모듈(블로그 묶음)만 격리하고, clickLog.content.r(화면 절대순위)로 정렬한 뒤
-# 우리 글의 1-based 위치를 반환한다. 광고(ader.naver.com)는 web 블록에 있어 자연 제외됨.
-# 실측 검증: dumps/ HTML 로 "인천 석남동 누수탐지" → ti=1 확인.
+# ── 공용: entry.bootstrap JSON 파싱 도우미 ───────────────
+# 네이버 m.search 는 결과를 script 내 entry.bootstrap({...JSON}) 으로 클라이언트 렌더한다.
+# 각 JSON 블록 = 한 모듈/글. meta.area 로 섹션을 구분하고 clickLog...r 이 화면 절대순위.
+# 실측 검증(dumps/): 석남동 ti=3·bl=순위밖, 인천석남동 ti=1.
+_BLOG_RE = re.compile(r"blog\.naver\.com/([^/?#\"\\]+)")
+
+
+def _block_min_r(node):
+    """블록 안 clickLog(content/title/image).r 중 최솟값(=그 모듈의 화면 순위)."""
+    rs = []
+
+    def w(o):
+        if isinstance(o, dict):
+            cl = o.get("clickLog")
+            if isinstance(cl, dict):
+                for key in ("content", "title", "image"):
+                    ct = cl.get(key)
+                    if isinstance(ct, dict) and isinstance(ct.get("r"), int):
+                        rs.append(ct["r"])
+            for v in o.values():
+                w(v)
+        elif isinstance(o, list):
+            for x in o:
+                w(x)
+
+    w(node)
+    return min(rs) if rs else 999
+
+
 def _iter_blog_posts(node):
-    """블록 JSON 트리에서 (r, blog_id, log_no) 수집(contentHref 의 blog.naver.com 글)."""
+    """블록 트리에서 (r, blog_id, log_no) 수집(contentHref 의 blog.naver.com 글)."""
     out = []
 
     def walk(o):
@@ -355,8 +379,37 @@ def _iter_blog_posts(node):
     return out
 
 
+# ── 통합탭(ti): 인기글(urB_coR) 섹션, blog+cafe 글만 r순 카운트(당근/광고 제외) ──
+# 파싱(_rank_in_popular)과 fetch(measure_integrated_popular)를 분리 — 덤프로 오프라인 회귀테스트 가능.
+def _rank_in_popular(html_text, blog_id, log_no=""):
+    """통합검색 HTML → (rank, status). urB_coR 섹션의 blog/cafe 글만 r순, 당근/광고 제외."""
+    blocks = extract_bootstrap_json(html_text)
+    if not blocks:
+        return OUT_OF_RANK, "fail"      # JSON 없음 = 차단/구조변경 → 권외와 구분
+
+    items = []   # (r, blog_id)  — 인기글 섹션의 blog/cafe 글만(당근/플레이스/광고 제외)
+    for b in blocks:
+        try:
+            j = json.loads(b)
+        except Exception:
+            continue
+        if (j.get("meta") or {}).get("area", "") != "urB_coR":   # 인기글(상단) 섹션만
+            continue
+        r = _block_min_r(j)
+        mb = _BLOG_RE.search(b)
+        if mb:
+            items.append((r, mb.group(1)))      # 블로그 글
+        elif "cafe.naver.com" in b:
+            items.append((r, "(cafe)"))         # 카페 글(순위 차지하지만 우리 아님)
+        # 그 외(당근 daangn.com, 플레이스, 광고)는 카운트 제외
+    items.sort(key=lambda x: x[0])
+    for idx, (r, pid) in enumerate(items, start=1):
+        if pid == blog_id:
+            return idx, "ok"
+    return OUT_OF_RANK, "out"
+
+
 def measure_integrated_popular(keyword, blog_id, log_no=""):
-    """(rank, status) 반환. status: ok=노출, out=섹션 내 권외, fail=구조 파싱 실패(권외와 구분)."""
     url = f"https://m.search.naver.com/search.naver?query={quote(keyword)}"
     try:
         code, html_text = _fetch_html(url)
@@ -365,10 +418,17 @@ def measure_integrated_popular(keyword, blog_id, log_no=""):
     except Exception as exc:
         print(f"    [통합탭 실패] {keyword}: {exc}")
         return OUT_OF_RANK, "fail"
+    return _rank_in_popular(html_text, blog_id, log_no)
 
+
+# ── 블로그탭(bl): 진짜 블로그탭(ssc=tab.m_blog.all) HTML 파싱 ──
+# 봇 GET 으로 where=m_blog 은 통합검색을 반환하지만 ssc=tab.m_blog.all 은 진짜 블로그탭(meta.ssc=tab.m_blog.*)을 준다.
+# 공식 blog.json API 는 화면 블로그탭과 순서가 달라(석남동: API #4 vs 화면 순위밖) 쓰지 않는다.
+def _rank_in_blogtab(html_text, blog_id, log_no=""):
+    """진짜 블로그탭 HTML → (rank, status). blog 블록의 글 r순."""
     blocks = extract_bootstrap_json(html_text)
     if not blocks:
-        return OUT_OF_RANK, "fail"      # JSON 구조 없음 = 차단/구조변경 → 권외와 구분
+        return OUT_OF_RANK, "fail"
 
     posts, seen = [], set()
     for b in blocks:
@@ -376,13 +436,11 @@ def measure_integrated_popular(keyword, blog_id, log_no=""):
             j = json.loads(b)
         except Exception:
             continue
-        bid = (j.get("refs") or {}).get("blockId", "") if isinstance(j, dict) else ""
-        if "review" not in bid or "blog" not in bid:   # 블로그 묶음 모듈만(웹/광고/카페 제외)
+        if "blog" not in (j.get("refs") or {}).get("blockId", ""):
             continue
         for r, pid, plog in _iter_blog_posts(j):
-            key = (pid, plog)
-            if key not in seen:
-                seen.add(key)
+            if (pid, plog) not in seen:
+                seen.add((pid, plog))
                 posts.append((r, pid, plog))
 
     posts.sort(key=lambda x: x[0])
@@ -392,38 +450,41 @@ def measure_integrated_popular(keyword, blog_id, log_no=""):
     return OUT_OF_RANK, "out"
 
 
+def measure_blogtab_real(keyword, blog_id, log_no=""):
+    url = f"https://m.search.naver.com/search.naver?ssc=tab.m_blog.all&query={quote(keyword)}"
+    try:
+        code, html_text = _fetch_html(url)
+        if code != 200:
+            return OUT_OF_RANK, "fail"
+    except Exception as exc:
+        print(f"    [블로그탭 실패] {keyword}: {exc}")
+        return OUT_OF_RANK, "fail"
+    return _rank_in_blogtab(html_text, blog_id, log_no)
+
+
 def measure_rank(keyword, blog_id, post_url):
     log_no = extract_log_no(post_url)
 
-    # 블로그탭(bl): 공식 API 유지 — 봇 GET 으로는 진짜 블로그탭을 못 가져옴(통합검색만 반환).
-    try:
-        bl = measure_blog_rank_api(keyword, blog_id, log_no) if USE_API \
-            else measure_blog_rank_html(keyword, blog_id, log_no)
-    except Exception as exc:
-        print(f"    [블로그탭 실패] {keyword}: {exc}")
-        bl = OUT_OF_RANK
+    # 블로그탭(bl): 진짜 블로그탭 HTML 파싱
+    bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
     time.sleep(REQUEST_DELAY)
 
-    # 통합탭(ti): 통합검색 블로그 묶음 화면순위(JSON 파싱)
+    # 통합탭(ti): 인기글 섹션 화면순위
     ti, ti_status = measure_integrated_popular(keyword, blog_id, log_no)
     time.sleep(REQUEST_DELAY)
 
-    return ti, bl, ti_status
+    return ti, bl, ti_status, bl_status
 
 
 # ── 디버그: 키워드 하나로 실제 순위 검증 ────────────────
 def debug_keyword(keyword, blog_id, post_url="", website_host=""):
     log_no = extract_log_no(post_url)
     print(f"[디버그] 키워드: {keyword} / 블로그ID: {blog_id} / logNo: {log_no or '(없음)'}")
-    print(f"API 사용: {'예' if USE_API else '아니오(HTML 폴백)'}")
-    if USE_API:
-        print("── 블로그탭(공식 API) 상위 결과 ──")
-        bl = measure_blog_rank_api(keyword, blog_id, log_no, debug=True)
-    else:
-        bl = measure_blog_rank_html(keyword, blog_id, log_no)
+    bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
     ti, ti_status = measure_integrated_popular(keyword, blog_id, log_no)
     ti_disp = ti if ti_status == "ok" else ti_status
-    print(f"\n결과 → 블로그탭: {bl if bl < OUT_OF_RANK else '권외'} / 통합탭(블로그묶음): {ti_disp}")
+    bl_disp = bl if bl_status == "ok" else bl_status
+    print(f"\n결과 → 통합탭(인기글): {ti_disp} / 블로그탭: {bl_disp}")
     if website_host:
         we, status = measure_web_rank(keyword, website_host)
         print(f"웹사이트({norm_host(website_host)}): {we if status == 'ok' else status}")
@@ -617,13 +678,13 @@ def run():
         if not keyword:
             continue
         blog_id = acc.get("blog_id") or parse_blog_url(acc.get("blog_url", ""))[0] or ""
-        ti, bl, ti_status = measure_rank(keyword, blog_id, post.get("post_url", ""))
+        ti, bl, ti_status, bl_status = measure_rank(keyword, blog_id, post.get("post_url", ""))
         records = [r for r in (post.get("measurements") or []) if r.get("date") != TODAY]
-        # ti_status 는 추가 필드(프론트는 무시해도 무방). fail=구조 파싱 실패, out=섹션 권외.
-        records.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_status})
+        # *_status 는 추가 필드(프론트는 무시해도 무방). fail=구조 파싱 실패, out=권외.
+        records.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_status, "bl_status": bl_status})
         sb_patch("blog_posts", {"id": f"eq.{post['id']}"}, {"measurements": records})
         measured += 1
-        print(f"    측정 [{acc['name']}] {keyword}: 통합 {ti}({ti_status}) / 블로그 {bl}")
+        print(f"    측정 [{acc['name']}] {keyword}: 통합 {ti}({ti_status}) / 블로그 {bl}({bl_status})")
 
     # ── 웹사이트(회사 단위) 순위 측정 ──
     # 글 단위가 아니라 업체 단위 1회 측정 → blog_accounts.website_measurements 에 patch.
