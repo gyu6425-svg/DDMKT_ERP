@@ -1,10 +1,25 @@
 import { supabase } from '../lib/supabase';
 
 // ── 타입 ────────────────────────────────────────────────
+export type RankStatus = 'ok' | 'out' | 'fail';
+
 export type BlogMeasurement = {
     date: string; // YYYY-MM-DD
-    ti: number; // 통합검색 순위
+    ti: number; // 통합탭(인기글) 순위
     bl: number; // 블로그탭 순위
+    // 크롤러가 기록. fail=구조 파싱 실패(차단/구조변경)를 권외(out)와 구분. (구버전 레코드엔 없음)
+    ti_status?: RankStatus;
+    bl_status?: RankStatus;
+};
+
+// 블로그 대표키워드(사용자 지정) — "이 블로그가 이 키워드로 통합탭/블로그탭 몇 위인지".
+export type BlogKeyword = {
+    id: string;
+    created_at: string;
+    blog_account_id: string;
+    keyword: string;
+    // measurements 는 크롤러(service_role)만 기록. 프론트 payload 에 절대 포함 말 것(그래서 optional).
+    measurements?: BlogMeasurement[];
 };
 
 // 웹사이트(통합검색 '웹사이트' 섹션) 순위 — 회사 단위 측정값.
@@ -100,4 +115,31 @@ export async function getBlogPosts() {
         .returns<BlogPost[]>();
 
     return { data: data ?? [], error };
+}
+
+// ── 대표키워드 ──────────────────────────────────────────
+// measurements 는 크롤러만 기록하므로 프론트는 행 insert/delete 만 한다(update 경로 없음).
+export async function getBlogKeywords() {
+    const { data, error } = await supabase
+        .from('blog_keywords')
+        .select('*')
+        .order('created_at', { ascending: true })
+        .returns<BlogKeyword[]>();
+
+    return { data: data ?? [], error };
+}
+
+export async function insertBlogKeyword(blogAccountId: string, keyword: string) {
+    const { data, error } = await supabase
+        .from('blog_keywords')
+        .insert({ blog_account_id: blogAccountId, keyword })
+        .select()
+        .returns<BlogKeyword[]>();
+
+    return { data: data ?? [], error };
+}
+
+export async function deleteBlogKeyword(id: string) {
+    const { error } = await supabase.from('blog_keywords').delete().eq('id', id);
+    return { error };
 }

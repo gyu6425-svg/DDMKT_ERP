@@ -47,9 +47,25 @@ create table if not exists public.blog_posts (
 create index if not exists blog_posts_account_idx on public.blog_posts (blog_account_id);
 create index if not exists blog_posts_published_idx on public.blog_posts (published_date desc);
 
+-- ── 블로그 대표키워드 추적 (사용자가 직접 지정, 블로그당 복수) ───────────
+-- 글 단위(blog_posts) 추적과 별개로, "이 블로그가 OO키워드로 통합탭/블로그탭 몇 위인지"를
+-- 사용자가 고른 키워드로 추적한다. 측정은 크롤러가 measure_rank(키워드, blog_id) 로 수행.
+create table if not exists public.blog_keywords (
+    id uuid primary key default gen_random_uuid(),
+    created_at timestamptz not null default now(),
+    blog_account_id uuid not null references public.blog_accounts(id) on delete cascade,
+    keyword text not null,
+    -- 측정 누적: [{ "date":"YYYY-MM-DD", "ti":통합탭(인기글), "bl":블로그탭, "ti_status":..., "bl_status":... }]
+    -- measurements 는 크롤러(service_role)만 기록한다. 프론트는 keyword 행 insert/delete 만.
+    measurements jsonb not null default '[]'::jsonb,
+    unique (blog_account_id, keyword)
+);
+create index if not exists blog_keywords_account_idx on public.blog_keywords (blog_account_id);
+
 -- ── RLS (로그인 사용자만) ───────────────────────────────
 alter table public.blog_accounts enable row level security;
 alter table public.blog_posts enable row level security;
+alter table public.blog_keywords enable row level security;
 
 drop policy if exists "blog_accounts auth" on public.blog_accounts;
 create policy "blog_accounts auth" on public.blog_accounts
@@ -57,4 +73,8 @@ create policy "blog_accounts auth" on public.blog_accounts
 
 drop policy if exists "blog_posts auth" on public.blog_posts;
 create policy "blog_posts auth" on public.blog_posts
+    for all to authenticated using (true) with check (true);
+
+drop policy if exists "blog_keywords auth" on public.blog_keywords;
+create policy "blog_keywords auth" on public.blog_keywords
     for all to authenticated using (true) with check (true);

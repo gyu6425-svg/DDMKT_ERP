@@ -53,6 +53,7 @@ UA = (
 )
 REQUEST_DELAY = 1.0        # 검색 요청 사이 간격(초)
 MAX_POSTS_PER_BLOG = 8     # 블로그당 RSS에서 가져올 최신 글 수
+MAX_KEYWORDS_PER_ACCOUNT = 3  # 블로그당 대표키워드 측정 상한(네이버 요청량/차단 가드)
 MAX_RANK_SCAN = 30         # 이 순위까지 탐색(넘으면 권외=99)
 OUT_OF_RANK = 99
 
@@ -704,7 +705,30 @@ def run():
         print(f"    웹사이트 [{acc['name']}] {kw}: {we if status == 'ok' else status}")
         time.sleep(REQUEST_DELAY)
 
-    print(f"=== 완료: 글 {measured}건 측정 / 웹사이트 {web_measured}건 측정 ===")
+    # ── 대표키워드(사용자 지정) 순위 측정 ──
+    # 글 단위(자동키워드)와 별개로, blog_keywords 의 (블로그×키워드)마다 measure_rank 로 ti/bl 측정.
+    # log_no 없이(post_url='') 호출 → blog_id 매칭 = "그 블로그가 이 키워드로 몇 위".
+    kw_measured = 0
+    kw_rows = sb_get("blog_keywords", {"select": "*"})
+    kw_by_acc = {}
+    for row in kw_rows:
+        kw_by_acc.setdefault(row["blog_account_id"], []).append(row)
+    for acc in accounts:
+        blog_id = acc.get("blog_id") or parse_blog_url(acc.get("blog_url", ""))[0] or ""
+        if not blog_id:
+            continue
+        for row in kw_by_acc.get(acc["id"], [])[:MAX_KEYWORDS_PER_ACCOUNT]:
+            kw = (row.get("keyword") or "").strip()
+            if not kw:
+                continue
+            ti, bl, ti_status, bl_status = measure_rank(kw, blog_id, "")
+            recs = [r for r in (row.get("measurements") or []) if r.get("date") != TODAY]
+            recs.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_status, "bl_status": bl_status})
+            sb_patch("blog_keywords", {"id": f"eq.{row['id']}"}, {"measurements": recs})
+            kw_measured += 1
+            print(f"    키워드 [{acc['name']}] {kw}: 통합 {ti}({ti_status}) / 블로그 {bl}({bl_status})")
+
+    print(f"=== 완료: 글 {measured}건 / 웹사이트 {web_measured}건 / 대표키워드 {kw_measured}건 측정 ===")
 
 
 if __name__ == "__main__":

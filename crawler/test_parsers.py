@@ -40,9 +40,9 @@ def main():
         if not ok:
             failed += 1
     if failed:
-        print(f"\n❌ {failed}건 실패 — 네이버 구조 변경 가능성. 재덤프 후 파서 점검 필요.")
+        print(f"\n[FAIL] {failed}건 실패 — 네이버 구조 변경 가능성. 재덤프 후 파서 점검 필요.")
         sys.exit(1)
-    print("\n✅ 전체 통과")
+    print("\n[OK] 전체 통과")
 
 
 if __name__ == "__main__":

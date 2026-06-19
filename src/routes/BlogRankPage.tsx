@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
     deleteBlogAccount,
+    deleteBlogKeyword,
     extractBlogId,
     getBlogAccounts,
+    getBlogKeywords,
     getBlogPosts,
     insertBlogAccounts,
+    insertBlogKeyword,
     updateBlogAccount,
     type BlogAccount,
+    type BlogKeyword,
+    type BlogMeasurement,
     type BlogPost,
     type WebMeasurement,
 } from '../api/blogRank';
@@ -65,6 +70,7 @@ function BlogRankPage() {
     const { isAdmin, loading: authLoading } = useAuth();
     const [accounts, setAccounts] = useState<BlogAccount[]>([]);
     const [posts, setPosts] = useState<BlogPost[]>([]);
+    const [keywords, setKeywords] = useState<BlogKeyword[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [tab, setTab] = useState<Tab>('dashboard');
@@ -78,10 +84,14 @@ function BlogRankPage() {
     const load = async () => {
         setLoading(true);
         setError('');
-        const [accRes, postRes] = await Promise.all([getBlogAccounts(), getBlogPosts()]);
-        if (accRes.error || postRes.error) {
+        const [accRes, postRes, kwRes] = await Promise.all([
+            getBlogAccounts(),
+            getBlogPosts(),
+            getBlogKeywords(),
+        ]);
+        if (accRes.error || postRes.error || kwRes.error) {
             setError(
-                (accRes.error || postRes.error)?.message ||
+                (accRes.error || postRes.error || kwRes.error)?.message ||
                     '데이터를 불러오지 못했습니다. blog-rank-tables.sql 실행을 확인하세요.',
             );
             setLoading(false);
@@ -89,6 +99,7 @@ function BlogRankPage() {
         }
         setAccounts(accRes.data);
         setPosts(postRes.data);
+        setKeywords(kwRes.data);
         setLoading(false);
     };
 
@@ -164,9 +175,17 @@ function BlogRankPage() {
                 <DashboardTab accounts={accounts} posts={posts} onGo={setTab} />
             ) : null}
             {tab === 'sheet' ? (
-                <SheetTab accounts={accounts} posts={posts} onReload={load} onToast={showToast} />
+                <SheetTab
+                    accounts={accounts}
+                    posts={posts}
+                    keywords={keywords}
+                    onReload={load}
+                    onToast={showToast}
+                />
             ) : null}
-            {tab === 'tracker' ? <TrackerTab accounts={accounts} posts={posts} /> : null}
+            {tab === 'tracker' ? (
+                <TrackerTab accounts={accounts} posts={posts} keywords={keywords} />
+            ) : null}
 
             {toast ? (
                 <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-medium text-white shadow-lg">
@@ -336,11 +355,13 @@ function DashboardTab({
 function SheetTab({
     accounts,
     posts,
+    keywords,
     onReload,
     onToast,
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
+    keywords: BlogKeyword[];
     onReload: () => Promise<void>;
     onToast: (message: string) => void;
 }) {
@@ -586,6 +607,7 @@ function SheetTab({
             {editAcc ? (
                 <AccountEditModal
                     account={editAcc}
+                    keywords={keywords.filter((k) => k.blog_account_id === editAcc.id)}
                     onClose={() => setEditAcc(null)}
                     onReload={onReload}
                     onToast={onToast}
@@ -596,13 +618,17 @@ function SheetTab({
 }
 
 // ───────────────────────── 업체 편집(웹사이트·대표키워드) ─────────────────────────
+const MAX_KEYWORDS = 3; // 블로그당 대표키워드 상한(크롤러 가드와 일치)
+
 function AccountEditModal({
     account,
+    keywords,
     onClose,
     onReload,
     onToast,
 }: {
     account: BlogAccount;
+    keywords: BlogKeyword[];
     onClose: () => void;
     onReload: () => Promise<void>;
     onToast: (message: string) => void;
@@ -612,6 +638,45 @@ function AccountEditModal({
     const [saving, setSaving] = useState(false);
     const [confirmDel, setConfirmDel] = useState(false);
     const [deleting, setDeleting] = useState(false);
+    const [newKw, setNewKw] = useState('');
+    const [kwBusy, setKwBusy] = useState(false);
+
+    const addKeyword = async () => {
+        const kw = newKw.trim();
+        if (!kw) {
+            return;
+        }
+        if (keywords.length >= MAX_KEYWORDS) {
+            onToast(`대표키워드는 블로그당 최대 ${MAX_KEYWORDS}개입니다`);
+            return;
+        }
+        if (keywords.some((k) => k.keyword === kw)) {
+            onToast('이미 등록된 키워드입니다');
+            return;
+        }
+        setKwBusy(true);
+        const { error } = await insertBlogKeyword(account.id, kw);
+        setKwBusy(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        setNewKw('');
+        await onReload();
+        onToast('대표키워드 추가 (다음 크롤러 실행 시 측정)');
+    };
+
+    const removeKeyword = async (id: string) => {
+        setKwBusy(true);
+        const { error } = await deleteBlogKeyword(id);
+        setKwBusy(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        await onReload();
+        onToast('대표키워드 삭제');
+    };
 
     const save = async () => {
         setSaving(true);
@@ -651,37 +716,90 @@ function AccountEditModal({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
             onClick={(e) => e.target === e.currentTarget && onClose()}
         >
-            <div className="w-[min(520px,94vw)] rounded-2xl bg-white p-6">
-                <h3 className="m-0 text-lg font-bold">{account.name} · 웹사이트 추적 설정</h3>
-                <p className="mt-1 mb-4 text-sm text-[#64748b]">
-                    통합검색 '웹사이트' 섹션에서 회사 홈페이지 순위를 추적합니다. 둘 다 입력해야 측정됩니다.
-                    <br />
-                    <span className="text-[#7c3aed]">순위는 webkr API 추정값이라 신뢰도가 통합·블로그탭보다 낮습니다.</span>
-                </p>
+            <div className="max-h-[90vh] w-[min(520px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
+                <h3 className="m-0 text-lg font-bold">{account.name} · 추적 설정</h3>
 
-                <label className="mb-1 block text-xs font-semibold text-[#334155]">회사 홈페이지 (블로그 아님)</label>
-                <input
-                    className="h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
-                    onChange={(e) => setWebsiteUrl(e.target.value)}
-                    placeholder="예: momo-cleaning.com 또는 https://www.momo-cleaning.com"
-                    value={websiteUrl}
-                />
-                <p className="mt-1 mb-3 text-[11px] text-[#94a3b8]">
-                    저장 시 호스트만 보관:{' '}
-                    {previewHost ? (
-                        <span className="font-mono text-[#475569]">{previewHost}</span>
+                {/* ── 블로그 대표키워드 (통합탭·블로그탭) ── */}
+                <div className="mt-4 rounded-lg border border-[#e2e8f0] p-3">
+                    <label className="mb-1 block text-xs font-semibold text-[#334155]">
+                        블로그 대표키워드 <span className="text-[#94a3b8]">(통합탭·블로그탭, 최대 {MAX_KEYWORDS}개)</span>
+                    </label>
+                    <p className="mb-2 text-[11px] text-[#94a3b8]">
+                        이 블로그가 해당 키워드로 통합탭(인기글)·블로그탭에서 몇 위인지 추적합니다.
+                    </p>
+                    {keywords.length ? (
+                        <div className="mb-2 flex flex-wrap gap-1.5">
+                            {keywords.map((k) => (
+                                <span
+                                    key={k.id}
+                                    className="inline-flex items-center gap-1 rounded-full bg-[#eff6ff] px-2.5 py-1 text-xs font-semibold text-[#1e40af]"
+                                >
+                                    {k.keyword}
+                                    <button
+                                        className="text-[#1e40af] hover:text-[#dc2626] disabled:opacity-50"
+                                        disabled={kwBusy}
+                                        onClick={() => void removeKeyword(k.id)}
+                                        title="삭제"
+                                        type="button"
+                                    >
+                                        ×
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
                     ) : (
-                        <span className="text-[#94a3b8]">(미설정 → 해당없음)</span>
+                        <p className="mb-2 text-xs text-[#94a3b8]">아직 없음</p>
                     )}
-                </p>
+                    {keywords.length < MAX_KEYWORDS ? (
+                        <div className="flex gap-2">
+                            <input
+                                className="h-9 flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                                onChange={(e) => setNewKw(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && void addKeyword()}
+                                placeholder="예: 남양주누수탐지"
+                                value={newKw}
+                            />
+                            <button
+                                className="rounded-md bg-[#1e40af] px-3 text-sm font-semibold text-white disabled:opacity-60"
+                                disabled={kwBusy || !newKw.trim()}
+                                onClick={() => void addKeyword()}
+                                type="button"
+                            >
+                                추가
+                            </button>
+                        </div>
+                    ) : null}
+                </div>
 
-                <label className="mb-1 block text-xs font-semibold text-[#334155]">대표키워드</label>
-                <input
-                    className="h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
-                    onChange={(e) => setRepKeyword(e.target.value)}
-                    placeholder="예: 과천 입주청소"
-                    value={repKeyword}
-                />
+                {/* ── 웹사이트(플레이스 하단) 추적 ── */}
+                <div className="mt-3 rounded-lg border border-[#e2e8f0] p-3">
+                    <p className="mb-2 text-xs font-semibold text-[#334155]">
+                        웹사이트 추적{' '}
+                        <span className="text-[#7c3aed]">(통합검색 '웹사이트' 섹션 · webkr 추정, 신뢰도 낮음)</span>
+                    </p>
+                    <label className="mb-1 block text-xs font-semibold text-[#334155]">회사 홈페이지 (블로그 아님)</label>
+                    <input
+                        className="h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                        onChange={(e) => setWebsiteUrl(e.target.value)}
+                        placeholder="예: momo-cleaning.com"
+                        value={websiteUrl}
+                    />
+                    <p className="mt-1 mb-3 text-[11px] text-[#94a3b8]">
+                        저장 시 호스트만 보관:{' '}
+                        {previewHost ? (
+                            <span className="font-mono text-[#475569]">{previewHost}</span>
+                        ) : (
+                            <span className="text-[#94a3b8]">(미설정 → 해당없음)</span>
+                        )}
+                    </p>
+                    <label className="mb-1 block text-xs font-semibold text-[#334155]">웹사이트 대표키워드</label>
+                    <input
+                        className="h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                        onChange={(e) => setRepKeyword(e.target.value)}
+                        placeholder="예: 과천 입주청소"
+                        value={repKeyword}
+                    />
+                </div>
 
                 <div className="mt-5 flex items-center gap-2">
                     {confirmDel ? (
@@ -737,13 +855,16 @@ function AccountEditModal({
 function TrackerTab({
     accounts,
     posts,
+    keywords,
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
+    keywords: BlogKeyword[];
 }) {
     const [co, setCo] = useState('');
     const [inOnly, setInOnly] = useState(false);
     const [page, setPage] = useState(1);
+    const [view, setView] = useState<'posts' | 'keywords'>('posts');
 
     const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
 
@@ -766,6 +887,30 @@ function TrackerTab({
                 ℹ️ 순위 측정은 <b>사무실 PC의 파이썬 크롤러</b>가 매일 자동 수집해 기록합니다. 이 화면은 그 결과를 표시합니다.
             </div>
 
+            <div className="inline-flex w-fit rounded-md border border-[#cbd5e1] p-0.5 text-xs font-semibold">
+                {(
+                    [
+                        ['posts', '글 단위 (자동키워드)'],
+                        ['keywords', '대표키워드'],
+                    ] as const
+                ).map(([key, label]) => (
+                    <button
+                        className={`rounded px-3 py-1.5 ${
+                            view === key ? 'bg-[#1e40af] text-white' : 'text-[#64748b]'
+                        }`}
+                        key={key}
+                        onClick={() => setView(key)}
+                        type="button"
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+
+            {view === 'keywords' ? (
+                <KeywordTrackerView accounts={accounts} keywords={keywords} co={co} setCo={setCo} />
+            ) : (
+            <>
             <div className="flex flex-wrap items-center gap-2">
                 <select
                     className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs"
@@ -869,7 +1014,135 @@ function TrackerTab({
                 </table>
                 <Pager pages={pages} current={current} onGo={setPage} />
             </div>
+            </>
+            )}
         </div>
+    );
+}
+
+// 대표키워드 뷰 — (블로그 × 대표키워드)별 통합탭/블로그탭 순위. 글 단위 테이블과 별개.
+function KeywordTrackerView({
+    accounts,
+    keywords,
+    co,
+    setCo,
+}: {
+    accounts: BlogAccount[];
+    keywords: BlogKeyword[];
+    co: string;
+    setCo: (v: string) => void;
+}) {
+    const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
+    const rows = keywords.filter((k) => co === '' || k.blog_account_id === co);
+
+    return (
+        <div className="grid gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+                <select
+                    className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs"
+                    onChange={(e) => setCo(e.target.value)}
+                    value={co}
+                >
+                    <option value="">블로그 전체</option>
+                    {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                            {a.name}
+                        </option>
+                    ))}
+                </select>
+                <span className="ml-auto text-xs text-[#64748b]">{rows.length}건</span>
+            </div>
+
+            <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
+                <table className="w-full border-collapse text-left text-sm">
+                    <thead>
+                        <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
+                            <th className="px-3 py-2 font-semibold">블로그</th>
+                            <th className="px-3 py-2 font-semibold">대표키워드</th>
+                            <th className="px-3 py-2 text-center font-semibold">통합탭(인기글)</th>
+                            <th className="px-3 py-2 text-center font-semibold">블로그탭</th>
+                            <th className="px-3 py-2 text-center font-semibold">측정</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.length ? (
+                            rows.map((k) => {
+                                const ms = k.measurements ?? [];
+                                return (
+                                    <tr key={k.id} className="border-b border-[#e2e8f0]">
+                                        <td className="px-3 py-2 text-xs font-semibold text-[#475569]">
+                                            {nameOf(k.blog_account_id)}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <span className="inline-block rounded bg-[#eff6ff] px-2 py-0.5 text-xs font-semibold text-[#1e40af]">
+                                                {k.keyword}
+                                            </span>
+                                        </td>
+                                        <td className="px-3 py-2 text-center">
+                                            <KwRankCell measurements={ms} keyName="ti" />
+                                        </td>
+                                        <td className="px-3 py-2 text-center">
+                                            <KwRankCell measurements={ms} keyName="bl" />
+                                        </td>
+                                        <td className="px-3 py-2 text-center text-xs text-[#94a3b8]">
+                                            {ms.length}회
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        ) : (
+                            <tr>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={5}>
+                                    대표키워드가 없습니다 · '블로그 관리 시트 → 편집'에서 추가하세요
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+// 대표키워드용 순위 셀 — measurements 배열을 받고 status(fail/out)를 구분(글 단위 RankCell 과 별개, 무손상).
+function KwRankCell({ measurements, keyName }: { measurements: BlogMeasurement[]; keyName: 'ti' | 'bl' }) {
+    if (!measurements.length) {
+        return <span className="text-[11px] font-semibold text-[#d97706]">측정 대기</span>;
+    }
+    const last = measurements[measurements.length - 1];
+    const prev = measurements.length >= 2 ? measurements[measurements.length - 2] : null;
+    const status = keyName === 'ti' ? last.ti_status : last.bl_status;
+    const cur = last[keyName];
+    if (status === 'fail') {
+        return (
+            <span className="text-[11px] text-[#94a3b8]" title="측정 실패(차단/구조변경). 권외와 다름.">
+                측정 실패
+            </span>
+        );
+    }
+    if (status === 'out' || cur > 30) {
+        return <span className="text-sm font-bold text-[#94a3b8]">권외</span>;
+    }
+    const color = keyName === 'ti' ? '#059669' : '#1e40af';
+    let delta = <span className="block text-[10px] text-[#94a3b8]">첫 측정</span>;
+    if (prev) {
+        const diff = prev[keyName] - cur;
+        delta =
+            diff > 0 ? (
+                <span className="block text-[10px] font-bold text-[#dc2626]">▲{diff}</span>
+            ) : diff < 0 ? (
+                <span className="block text-[10px] font-bold text-[#1e40af]">▼{Math.abs(diff)}</span>
+            ) : (
+                <span className="block text-[10px] text-[#94a3b8]">—</span>
+            );
+    }
+    return (
+        <span>
+            <span className="text-sm font-bold" style={{ color }}>
+                {cur}위
+            </span>
+            {delta}
+        </span>
     );
 }
 
