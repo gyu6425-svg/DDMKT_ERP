@@ -243,11 +243,11 @@ function DashboardTab({
                 />
             </div>
 
-            {webTracked.length ? (
-                <Panel
-                    title="웹사이트 노출 (업체 기준)"
-                    sub="통합검색 '웹사이트' 섹션 · webkr API 추정값이라 신뢰도 낮음"
-                >
+            <Panel
+                title="웹사이트 노출 (업체 기준)"
+                sub="통합검색 '웹사이트' 섹션 · webkr API 추정값이라 신뢰도 낮음"
+            >
+                {webTracked.length ? (
                     <div className="grid grid-cols-3 gap-3">
                         <Kpi
                             label="추적 업체"
@@ -267,8 +267,10 @@ function DashboardTab({
                             sub="업체 기준"
                         />
                     </div>
-                </Panel>
-            ) : null}
+                ) : (
+                    <Empty text="아직 웹사이트 추적 업체가 없습니다 · '블로그 관리 시트' 탭에서 업체 '편집' → 회사 홈페이지·대표키워드를 등록하세요" />
+                )}
+            </Panel>
 
             <div className="grid gap-4 lg:grid-cols-2">
                 <Panel title="오늘 챙겨야 할 블로그" sub="잔여 임박 · 진행 중단">
@@ -446,10 +448,9 @@ function SheetTab({
                             <th className="px-3 py-2 text-center font-semibold">주 발행</th>
                             <th className="px-3 py-2 text-center font-semibold">추적 글</th>
                             <th className="px-3 py-2 text-center font-semibold">통합 10위↓</th>
-                            <th className="px-3 py-2 text-center font-semibold">웹사이트</th>
                             <th className="px-3 py-2 text-center font-semibold">상태</th>
                             <th className="px-3 py-2 font-semibold">비고</th>
-                            <th className="px-3 py-2 text-center font-semibold">관리</th>
+                            <th className="px-3 py-2 text-center font-semibold">웹사이트 설정</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -529,9 +530,6 @@ function SheetTab({
                                             )}
                                         </td>
                                         <td className="px-3 py-2 text-center">
-                                            <WebRankCell account={a} />
-                                        </td>
-                                        <td className="px-3 py-2 text-center">
                                             {!a.is_active ? (
                                                 <Tag kind="stop">중단</Tag>
                                             ) : a.remain_count != null && a.remain_count <= 3 ? (
@@ -565,7 +563,7 @@ function SheetTab({
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={11}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={10}>
                                     등록된 블로그가 없습니다 · '시트 붙여넣기 등록'으로 추가하세요
                                 </td>
                             </tr>
@@ -755,6 +753,7 @@ function TrackerTab({
                             <th className="px-3 py-2 font-semibold">제목 · 자동 키워드</th>
                             <th className="px-3 py-2 text-center font-semibold">통합탭</th>
                             <th className="px-3 py-2 text-center font-semibold">블로그탭</th>
+                            <th className="px-3 py-2 text-center font-semibold">웹사이트</th>
                             <th className="px-3 py-2 text-center font-semibold">일별 추이</th>
                             <th className="px-3 py-2 text-center font-semibold">경과</th>
                             <th className="px-3 py-2 text-center font-semibold">측정</th>
@@ -762,7 +761,9 @@ function TrackerTab({
                     </thead>
                     <tbody>
                         {pageRows.length ? (
-                            pageRows.map((p) => (
+                            pageRows.map((p) => {
+                                const acc = accounts.find((a) => a.id === p.blog_account_id) ?? null;
+                                return (
                                 <tr key={p.id} className="border-b border-[#e2e8f0]">
                                     <td className="px-3 py-2 text-xs font-semibold text-[#475569]">
                                         {p.published_date
@@ -792,6 +793,13 @@ function TrackerTab({
                                         <RankCell post={p} keyName="bl" />
                                     </td>
                                     <td className="px-3 py-2 text-center">
+                                        {acc ? (
+                                            <WebRankCell account={acc} />
+                                        ) : (
+                                            <span className="text-xs text-[#94a3b8]">—</span>
+                                        )}
+                                    </td>
+                                    <td className="px-3 py-2 text-center">
                                         <Sparkline post={p} />
                                     </td>
                                     <td className="px-3 py-2 text-center">
@@ -803,10 +811,11 @@ function TrackerTab({
                                         {p.measurements.length}회
                                     </td>
                                 </tr>
-                            ))
+                                );
+                            })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={8}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={9}>
                                     아직 수집된 글이 없습니다 · 파이썬 크롤러 실행 후 표시됩니다
                                 </td>
                             </tr>
