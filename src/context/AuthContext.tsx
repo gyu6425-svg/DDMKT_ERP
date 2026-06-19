@@ -1,6 +1,7 @@
 import type { Session, User } from '@supabase/supabase-js'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { getSession, signOut as signOutRequest } from '../api/auth'
+import { AUTH_DISABLED } from '../lib/authConfig'
 import { supabase } from '../lib/supabase'
 import type { Profile } from '../types'
 import { AuthContext } from './authContextValue'
@@ -97,7 +98,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [])
 
   useEffect(() => {
-    getSession().then(({ data }) => {
+    getSession().then(async ({ data }) => {
+      // 임시: 인증 끔 — 세션 없으면 익명으로 자동 로그인(RLS 통과용).
+      if (AUTH_DISABLED && !data.session) {
+        const { data: anon } = await supabase.auth.signInAnonymously()
+        void syncSession(anon.session)
+        return
+      }
       void syncSession(data.session)
     })
 
@@ -114,7 +121,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const value = useMemo(
     () => ({
-      isAdmin,
+      isAdmin: AUTH_DISABLED ? true : isAdmin, // 임시: 인증 끔 — 모두 관리자 권한
       loading,
       profile,
       session,
