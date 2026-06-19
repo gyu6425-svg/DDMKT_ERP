@@ -1402,17 +1402,14 @@ function ImportModal({
         let skipped = 0;
 
         raw.split('\n').forEach((line) => {
-            const cells = line.split('\t').map((c) => c.trim());
-            if (cells.length < 2) {
+            const trimmed = line.trim();
+            if (!trimmed) {
                 return;
             }
-            const name = cells[0];
+            // 탭 또는 콤마로 구분. blog.naver.com URL 만 있으면 등록 가능(이름 없으면 blog_id 사용).
+            const cells = trimmed.split(/[\t,]/).map((c) => c.trim()).filter(Boolean);
             const url = cells.find((c) => c.includes('blog.naver.com'));
-            if (!name || !url) {
-                skipped += 1;
-                return;
-            }
-            if (existingUrls.has(url) || existingNames.has(name) || payloads.some((p) => p.blog_url === url)) {
+            if (!url) {
                 skipped += 1;
                 return;
             }
@@ -1423,11 +1420,24 @@ function ImportModal({
                 })
                 .filter((v): v is number => v !== null);
             const weekly = cells.find((c) => /주\s*\d/.test(c)) || null;
+            // 이름 = URL/숫자/주발행 아닌 첫 셀. 없으면(URL만 붙여넣음) blog_id 를 이름으로.
+            let name =
+                cells.find(
+                    (c) => c !== url && !c.includes('http') && !/^\d+\s*건?$/.test(c) && c !== weekly,
+                ) || '';
+            if (!name) {
+                name = extractBlogId(url) || '블로그';
+            }
+            if (existingUrls.has(url) || existingNames.has(name) || payloads.some((p) => p.blog_url === url)) {
+                skipped += 1;
+                return;
+            }
             const manager =
                 cells.find(
-                    (c, ci) =>
-                        ci > 0 &&
+                    (c) =>
                         c &&
+                        c !== name &&
+                        c !== url &&
                         !c.includes('http') &&
                         !/\d/.test(c) &&
                         c.length <= 4 &&
@@ -1471,9 +1481,10 @@ function ImportModal({
             <div className="w-[min(620px,94vw)] rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">시트 붙여넣기 등록</h3>
                 <p className="mt-1 mb-3 text-sm text-[#64748b]">
-                    구글 시트에서 행을 복사해 그대로 붙여넣으세요. 열 예시:{' '}
+                    한 줄에 블로그 하나. <b>블로그 URL만 붙여넣어도 등록</b>됩니다(이름은 자동). 한 줄에 여러 정보를{' '}
+                    <b>탭 또는 콤마(,)</b>로 구분:{' '}
                     <span className="rounded bg-[#f1f5f9] px-1 text-xs">
-                        업체명 · 계약건수 · 잔여건수 · 주발행 · 담당 · 블로그 URL
+                        업체명 , 계약건수 , 잔여건수 , 주발행 , 담당 , 블로그 URL
                     </span>
                     <br />
                     <b className="text-[#d97706]">아이디·비밀번호는 붙여넣지 마세요 — 계정 정보는 저장하지 않습니다.</b>
@@ -1482,7 +1493,7 @@ function ImportModal({
                     className="min-h-[160px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-xs"
                     onChange={(e) => setText(e.target.value)}
                     placeholder={
-                        '참조와이엘\t30건\t30건\t주 2회\t장지영\thttps://blog.naver.com/puleenbe\n조와이엘\t30건\t30건\t주 5회\t\thttps://blog.naver.com/puleenbe1'
+                        'https://blog.naver.com/bau_j2\n든든한누수탐지 인천, https://blog.naver.com/st7al_i_byid-\n참조와이엘, 30건, 25건, 주 5회, 장지영, https://blog.naver.com/puleenbe'
                     }
                     value={text}
                 />
