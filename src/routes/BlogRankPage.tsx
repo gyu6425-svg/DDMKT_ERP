@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+    deleteBlogAccount,
     extractBlogId,
     getBlogAccounts,
     getBlogPosts,
@@ -609,6 +610,8 @@ function AccountEditModal({
     const [websiteUrl, setWebsiteUrl] = useState(account.website_url ?? '');
     const [repKeyword, setRepKeyword] = useState(account.rep_keyword ?? '');
     const [saving, setSaving] = useState(false);
+    const [confirmDel, setConfirmDel] = useState(false);
+    const [deleting, setDeleting] = useState(false);
 
     const save = async () => {
         setSaving(true);
@@ -624,6 +627,20 @@ function AccountEditModal({
         }
         await onReload();
         onToast('웹사이트 정보 저장 완료');
+        onClose();
+    };
+
+    // blog_posts 는 ON DELETE CASCADE 로 함께 삭제됨(측정 이력 포함).
+    const remove = async () => {
+        setDeleting(true);
+        const { error } = await deleteBlogAccount(account.id);
+        setDeleting(false);
+        if (error) {
+            onToast(`삭제 오류: ${error.message}`);
+            return;
+        }
+        await onReload();
+        onToast(`'${account.name}' 삭제 완료`);
         onClose();
     };
 
@@ -666,9 +683,37 @@ function AccountEditModal({
                     value={repKeyword}
                 />
 
-                <div className="mt-5 flex justify-end gap-2">
+                <div className="mt-5 flex items-center gap-2">
+                    {confirmDel ? (
+                        <span className="flex items-center gap-2 text-xs text-[#dc2626]">
+                            측정 이력까지 삭제됩니다.
+                            <button
+                                className="rounded-md bg-[#dc2626] px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+                                disabled={deleting}
+                                onClick={() => void remove()}
+                                type="button"
+                            >
+                                {deleting ? '삭제 중...' : '정말 삭제'}
+                            </button>
+                            <button
+                                className="text-xs font-semibold text-[#64748b]"
+                                onClick={() => setConfirmDel(false)}
+                                type="button"
+                            >
+                                취소
+                            </button>
+                        </span>
+                    ) : (
+                        <button
+                            className="rounded-md border border-[#fecaca] px-3 py-2 text-sm font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
+                            onClick={() => setConfirmDel(true)}
+                            type="button"
+                        >
+                            업체 삭제
+                        </button>
+                    )}
                     <button
-                        className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                        className="ml-auto rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
                         onClick={onClose}
                         type="button"
                     >
