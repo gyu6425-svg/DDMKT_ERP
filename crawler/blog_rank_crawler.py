@@ -303,6 +303,14 @@ def host_match(link: str, website_host: str) -> bool:
     return bool(a) and a == b
 
 
+def unwrap_url(raw: str) -> str:
+    """검색 리다이렉트 래퍼(u/url/cru=)를 풀어 실제 URL 반환. 임의 도메인용(_real_blog_url 과 달리 blog 한정 아님)."""
+    if not raw:
+        return ""
+    m = _U_PARAM.search(raw)
+    return unquote(m.group(1)) if m else raw
+
+
 def measure_web_rank(keyword, website_host):
     """(rank, status) 반환. status: ok=노출, out=권외, fail=API/네트워크 실패."""
     if not USE_API:
@@ -356,6 +364,137 @@ def debug_keyword(keyword, blog_id, post_url="", website_host=""):
     if website_host:
         we, status = measure_web_rank(keyword, website_host)
         print(f"웹사이트({norm_host(website_host)}): {we if status == 'ok' else status}")
+
+
+# ── 진단 덤프 (셀렉터/구조 가정 검증용) ─────────────────
+# 목적: 파서를 짜기 전에 "봇 GET HTML에 entry.bootstrap JSON이 있는가 / '인기글'·'웹사이트' 섹션
+# 헤더와 앵커 구조 / 광고 도메인"을 사용자 PC(네이버 접속 가능)에서 한 번 떠서 확인한다.
+# Claude 개발환경은 네이버 접속이 막혀 라이브로 확인 불가 → 이 덤프 출력/파일이 셀렉터 확정의 근거.
+SECTION_HINTS = ["인기글", "웹사이트", "웹문서", "플레이스", "지도", "블로그", "카페", "파워링크", "비즈사이트", "광고", "VIEW", "인플루언서"]
+DUMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dumps")
+
+
+def extract_bootstrap_json(html_text):
+    """script 안의 ...bootstrap({...}) 호출에서 JSON 인자를 brace-counting 으로 추출(문자열/이스케이프 인지)."""
+    results = []
+    marker = "bootstrap("
+    idx = 0
+    while True:
+        p = html_text.find(marker, idx)
+        if p == -1:
+            break
+        b = html_text.find("{", p)
+        idx = p + len(marker)
+        if b == -1:
+            continue
+        depth, i, in_str, esc = 0, b, False, False
+        while i < len(html_text):
+            c = html_text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+            elif c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    results.append(html_text[b:i + 1])
+                    break
+            i += 1
+    return results
+
+
+def _fetch_html(url):
+    r = requests.get(url, headers={"User-Agent": UA}, timeout=20)
+    return r.status_code, r.text
+
+
+def _dump_one(label, url, html_text, blog_id, website_host):
+    soup = BeautifulSoup(html_text, "html.parser")
+    print(f"\n========== [{label}] {url}")
+    print(f"  HTML 길이: {len(html_text):,}")
+
+    boots = extract_bootstrap_json(html_text)
+    if boots:
+        print(f"  entry.bootstrap JSON: 발견 {len(boots)}개 (최대 길이 {max(len(b) for b in boots):,})")
+    else:
+        print("  entry.bootstrap JSON: ❌ 없음 (봇 GET 이 축약 HTML 일 수 있음 → 브라우저 저장 HTML 필요할 수도)")
+
+    present = [h for h in SECTION_HINTS if h in html_text]
+    print(f"  섹션 헤더 후보 텍스트 존재: {', '.join(present) if present else '(없음)'}")
+
+    anchors = soup.select("a[href], a[data-cr-url], a[data-url], a[data-lnk]")
+    rows, seen = [], set()
+    for a in anchors:
+        raw = a.get("data-cr-url") or a.get("data-url") or a.get("data-lnk") or a.get("href") or ""
+        real = unwrap_url(raw)
+        host = norm_host(real)
+        if not host or host in ("m.search.naver.com", "search.naver.com"):
+            continue
+        key = (host, real[:60])
+        if key in seen:
+            continue
+        seen.add(key)
+        kind = "AD" if host == "ad.search.naver.com" else (
+            "BLOG" if "blog.naver.com" in real else (
+                "CAFE" if "cafe.naver.com" in real else "WEB"))
+        mark = ""
+        if blog_id and f"blog.naver.com/{blog_id}" in real:
+            mark = "  <== 우리 블로그"
+        if website_host and host == norm_host(website_host):
+            mark = "  <== 우리 웹사이트"
+        title = re.sub(r"\s+", " ", a.get_text(" ", strip=True))[:40]
+        rows.append((len(rows) + 1, kind, host, title, mark))
+
+    print(f"  앵커(중복 제거, 등장 순서) {len(rows)}개 — 상위 50:")
+    for n, kind, host, title, mark in rows[:50]:
+        print(f"   {n:>2}. [{kind:4}] {host:30} {title}{mark}")
+
+    os.makedirs(DUMP_DIR, exist_ok=True)
+    safe = re.sub(r"[^0-9A-Za-z가-힣]+", "_", f"{label}_{TODAY}")
+    path = os.path.join(DUMP_DIR, f"{safe}.html")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html_text)
+    print(f"  원문 저장: {path}")
+
+
+def dump_keyword(keyword, blog_id="", website_host=""):
+    print(f"[덤프] 키워드: {keyword} / 블로그ID: {blog_id or '(없음)'} / 웹사이트: {website_host or '(없음)'}")
+    targets = [
+        ("통합탭", f"https://m.search.naver.com/search.naver?query={quote(keyword)}"),
+        ("블로그탭", f"https://m.search.naver.com/search.naver?where=m_blog&query={quote(keyword)}"),
+    ]
+    for label, url in targets:
+        try:
+            status, html_text = _fetch_html(url)
+            if status != 200:
+                print(f"\n[{label}] HTTP {status} — 실패")
+                continue
+            _dump_one(label, url, html_text, blog_id, website_host)
+        except Exception as exc:
+            print(f"\n[{label}] 실패: {exc}")
+        time.sleep(REQUEST_DELAY)
+
+    # 블로그탭: 공식 API 순서 vs 화면 순서 대조용(검증 후 API 1차 유지 가능)
+    if USE_API and blog_id:
+        print("\n========== [블로그탭 공식 API(blog.json) 상위 — 화면과 순서 대조용]")
+        try:
+            items = naver_blog_search(keyword, display=max(30, MAX_RANK_SCAN))
+            for i, it in enumerate(items[:MAX_RANK_SCAN], start=1):
+                lid, _ = parse_blog_url(it.get("link", ""))
+                bid, _ = parse_blog_url(it.get("bloggerlink", ""))
+                title = re.sub(r"<[^>]+>", "", it.get("title", ""))[:40]
+                mark = "  <== 우리 블로그" if (lid == blog_id or bid == blog_id) else ""
+                print(f"   {i:>2}. {(lid or bid):20} {title}{mark}")
+        except Exception as exc:
+            print(f"   [API 실패] {exc}")
+    print("\n[안내] 위 출력 + dumps/*.html 을 공유해 주시고, 화면에서 본 실제 순위(통합탭 인기글/블로그탭, 광고 개수 포함)를 알려주시면 셀렉터를 확정합니다.")
 
 
 # ── 메인 ─────────────────────────────────────────────────
@@ -429,7 +568,7 @@ def run():
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    if args and args[0] == "--debug":
+    if args and args[0] in ("--debug", "--dump"):
         kw = args[1] if len(args) > 1 else ""
         blog_id = ""
         post_url = ""
@@ -441,8 +580,12 @@ if __name__ == "__main__":
         if "--website-host" in args:
             website_host = args[args.index("--website-host") + 1]
         if not kw:
-            print('사용법: python blog_rank_crawler.py --debug "키워드" --blog-id 블로그아이디 [--post-url 글URL] [--website-host 도메인]')
+            print('사용법: python blog_rank_crawler.py --dump "키워드" [--blog-id 아이디] [--website-host 도메인]')
+            print('       python blog_rank_crawler.py --debug "키워드" --blog-id 아이디 [--post-url 글URL] [--website-host 도메인]')
             sys.exit(1)
-        debug_keyword(kw, blog_id, post_url, website_host)
+        if args[0] == "--dump":
+            dump_keyword(kw, blog_id, website_host)
+        else:
+            debug_keyword(kw, blog_id, post_url, website_host)
     else:
         run()
