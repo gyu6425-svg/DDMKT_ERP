@@ -1203,17 +1203,17 @@ function PostSearchCell({ account }: { account: BlogAccount | null }) {
     };
 
     return (
-        <div className="min-w-[150px]">
+        <div className="min-w-[160px]">
             <div className="flex gap-1">
                 <input
-                    className="h-7 w-full rounded border border-[#cbd5e1] bg-white px-2 text-xs"
+                    className="h-11 w-full rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
                     onChange={(e) => setKw(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && void run()}
                     placeholder="키워드 직접 검색"
                     value={kw}
                 />
                 <button
-                    className="rounded bg-[#1e40af] px-2 text-xs font-semibold text-white disabled:opacity-50"
+                    className="rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white disabled:opacity-50"
                     disabled={busy || !kw.trim()}
                     onClick={() => void run()}
                     title="이 블로그가 입력 키워드로 몇 위인지 즉시 검색"
@@ -1230,9 +1230,7 @@ function PostSearchCell({ account }: { account: BlogAccount | null }) {
                 </div>
             ) : err ? (
                 <div className="mt-1 text-[10px] text-[#dc2626]">{err}</div>
-            ) : (
-                <div className="mt-1 text-[10px] text-[#94a3b8]">블로그 노출 순위(글 아님)</div>
-            )}
+            ) : null}
         </div>
     );
 }
