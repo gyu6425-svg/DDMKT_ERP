@@ -613,10 +613,12 @@ PRIMARY LAYOUT DIRECTION (must follow):
             : brandCorner === 'top-center'
               ? '상단 중앙'
               : '좌측 상단';
+    const brandNameKo = form.badge ? `'${form.badge}'` : '브랜드명·회사명·로고 글자';
+    const brandNameEn = form.badge ? `"${form.badge}"` : 'the brand/company name';
     const brandLine =
         logoDataUrl || form.badge
-            ? `${cornerKo} 모서리의 작은 영역은 브랜드가 생성 후 고정 합성될 자리다. 그 자리에는 제목·본문·아이콘·중요한 그래픽을 넣지 말 것. 그리고 그 자리에 박스·테두리·프레임·플레이트·배지·사각 칸 같은 어떤 표식도 절대 그리지 말고, 배경색이 그대로 이어지게만 둘 것. (Do NOT draw any box, plate, frame, border, badge, or placeholder rectangle in that corner — just let the plain background continue there.) 메인 제목과 본문은 그 아래·왼쪽 영역에 배치.`
-            : `${cornerKo} 모서리는 단정하게 비우기`;
+            ? `${cornerKo} 모서리의 작은 영역은 브랜드가 생성 후 고정 합성될 자리다. 그 자리에는 제목·본문·아이콘·중요한 그래픽을 넣지 말고, 박스·테두리·프레임·플레이트·배지·사각 칸 같은 어떤 표식도 절대 그리지 말며, 배경색이 그대로 이어지게만 둘 것. 그리고 ${brandNameKo}은(는) 메인 디자인 영역(제목·본문 등)에 크게 또는 중복으로 절대 넣지 말 것 — 브랜드는 오직 코너에 따로 합성된다. 메인 영역에는 위 [들어갈 한글 텍스트]의 제목·본문·강조만 넣는다. (Do NOT draw any box/plate/frame/border in that corner, and do NOT render ${brandNameEn} anywhere in the main design — the brand appears ONLY in the corner, composited separately.)`
+            : '';
     const subtitleLine = form.subtitle ? `\n· 본문: ${form.subtitle}` : '';
     const emphasisLine = form.emphasis
         ? `\n· 강조 문구(포인트 컬러로 가장 눈에 띄게, 필요하면 박스나 배지 안에): ${form.emphasis}`
@@ -633,9 +635,7 @@ PRIMARY LAYOUT DIRECTION (must follow):
 [색상]
 배경은 ${form.backgroundColor || '#ffffff'} 계열, 강조(포인트) 색은 ${form.accentColor || '#1457ff'}, 본문 글자색은 ${form.textColor || '#111827'}. 강한 대비로 핵심이 한눈에 들어오게.
 
-[브랜드]
-${brandLine}.
-${categoryMoodBlock}
+${brandLine ? `[브랜드]\n${brandLine}.\n` : ''}${categoryMoodBlock}
 [들어갈 한글 텍스트 — 아래 문구를 철자와 띄어쓰기 그대로, 글자 깨짐 없이 정확히 렌더]
 · 메인 제목(가장 크고 굵게): ${form.title || ''}${subtitleLine}${emphasisLine}${ctaLine}
 
