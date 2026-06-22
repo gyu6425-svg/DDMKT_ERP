@@ -1764,11 +1764,15 @@ function getBrandBox(bannerSize: BannerSize, corner: BrandCorner): BrandBox {
 // AI 에 보내는 카피에서 브랜드명을 제거한다. 브랜드는 코너에 코드로만 합성하므로,
 // 제목/본문/강조/원문에 브랜드명이 섞여 있으면 AI 가 본문에 또 그려 '중복'이 된다 → 사전 제거.
 function stripBrandFromCopy(text: string, brand: string): string {
-    const target = (brand || '').trim();
-    if (!text || !target) return text;
-    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const compact = (brand || '').replace(/\s+/g, '');
+    if (!text || !compact) return text;
+    // 글자 사이 띄어쓰기 변형도 잡도록 각 글자 사이에 \s* 허용 ("메가 커피" ↔ "메가커피").
+    const pattern = compact
+        .split('')
+        .map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('\\s*');
     return text
-        .replace(new RegExp(escaped, 'gi'), '')
+        .replace(new RegExp(pattern, 'gi'), '')
         .replace(/[ \t]{2,}/g, ' ')
         .replace(/[ \t]*\n/g, '\n')
         .replace(/\n{2,}/g, '\n')
@@ -2429,6 +2433,7 @@ function BannerGeneratorPage() {
                           title: stripBrandFromCopy(page.form.title, brandName),
                           subtitle: stripBrandFromCopy(page.form.subtitle, brandName),
                           emphasis: stripBrandFromCopy(page.form.emphasis, brandName),
+                          cta: stripBrandFromCopy(page.form.cta, brandName),
                       }
                     : page.form;
                 const aiRawText = brandName

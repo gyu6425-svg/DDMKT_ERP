@@ -531,6 +531,7 @@ ${brandLine ? `[브랜드]\n${brandLine}.\n` : ''}${categoryMoodBlock}
 [디자인 규칙]
 - 굵고 가독성 높은 한글 타이포그래피. 핵심 문구가 한눈에 보이게.
 - 위에 적은 한글만 정확히 넣고, 그 외 영어 라벨·캡션·워터마크는 넣지 마.
+- 첨부된 참고/기준 이미지가 있어도 그 안의 글자·로고·브랜드명·회사명·간판 문구는 절대 따라 그리거나 재현하지 마. 이미지는 피사체·구도·색감·분위기 참고로만 쓰고, 화면에 들어가는 글자는 오직 위 [들어갈 한글 텍스트]뿐이다. (Do NOT copy or recreate any text, letters, logo, or brand/company name from any attached reference/master image — use it only for subject, composition, color, and mood.)
 - 과하게 복잡하지 않게, 여백과 대비로 깔끔하게.${templateLine}${styleLine}
 ${campaignStyleDirection}
 [캔버스]
