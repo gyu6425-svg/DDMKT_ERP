@@ -20,18 +20,20 @@ def _read(name):
 
 
 CASES = [
-    # (설명, 파서, 덤프파일, 기대 rank, 기대 status)
-    ("석남동 통합탭(인기글)", c._rank_in_popular, "통합탭_석남동_누수탐지_2026_06_19.html", 3, "ok"),
-    ("인천석남동 통합탭(인기글)", c._rank_in_popular, "통합탭_2026_06_19.html", 1, "ok"),
-    ("석남동 블로그탭(순위밖)", c._rank_in_blogtab, "블로그탭B_석남동_누수탐지_2026_06_19.html", c.OUT_OF_RANK, "out"),
+    # (설명, 파서, 덤프파일, blog_id, 기대 rank, 기대 status)
+    # 통합탭 = 당근/광고만 제외, 사이트+카페+블로그 전부 r순(화면 실측 일치)
+    ("석남동 통합탭", c._rank_in_popular, "통합탭_석남동_누수탐지_2026_06_19.html", OUR, 3, "ok"),
+    ("인천석남동 통합탭", c._rank_in_popular, "통합탭_2026_06_19.html", OUR, 2, "ok"),
+    ("인천연희동 통합탭(사이트 포함)", c._rank_in_popular, "통합탭_인천_연희동_누수탐지_2026_06_19.html", "rlawhddls125", 5, "ok"),
+    ("석남동 블로그탭(순위밖)", c._rank_in_blogtab, "블로그탭B_석남동_누수탐지_2026_06_19.html", OUR, c.OUT_OF_RANK, "out"),
 ]
 
 
 def main():
     failed = 0
-    for desc, fn, dump, exp_rank, exp_status in CASES:
+    for desc, fn, dump, blog_id, exp_rank, exp_status in CASES:
         try:
-            rank, status = fn(_read(dump), OUR)
+            rank, status = fn(_read(dump), blog_id)
         except FileNotFoundError:
             print(f"  SKIP  {desc}: 덤프 없음({dump})")
             continue

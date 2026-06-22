@@ -12,8 +12,10 @@ const OUR = 'st7al_i_byid-';
 const read = (name) => readFileSync(join(DUMPS, name), 'utf8');
 
 const CASES = [
-    ['석남동 통합탭(인기글)', (h) => rankInPopular(h, OUR), '통합탭_석남동_누수탐지_2026_06_19.html', 3, 'ok'],
-    ['인천석남동 통합탭(인기글)', (h) => rankInPopular(h, OUR), '통합탭_2026_06_19.html', 1, 'ok'],
+    // 통합탭 = 당근/광고만 제외, 사이트+카페+블로그 전부 r순(화면 실측 일치)
+    ['석남동 통합탭', (h) => rankInPopular(h, OUR), '통합탭_석남동_누수탐지_2026_06_19.html', 3, 'ok'],
+    ['인천석남동 통합탭', (h) => rankInPopular(h, OUR), '통합탭_2026_06_19.html', 2, 'ok'],
+    ['인천연희동 통합탭(사이트 포함)', (h) => rankInPopular(h, 'rlawhddls125'), '통합탭_인천_연희동_누수탐지_2026_06_19.html', 5, 'ok'],
     ['석남동 블로그탭(순위밖)', (h) => rankInBlogtab(h, OUR), '블로그탭B_석남동_누수탐지_2026_06_19.html', 99, 'out'],
 ];
 

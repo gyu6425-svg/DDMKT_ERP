@@ -92,7 +92,14 @@ function iterBlogPosts(node) {
     return out;
 }
 
-// 통합탭(ti): 인기글(meta.area=urB_coR) 섹션 blog+cafe 글만 r순, 당근/광고 제외 → {rank,status}
+// 외부(비네이버) 사이트 링크가 블록에 있는지 — 웹문서/사이트 항목 판별용.
+function hasExternalSite(raw) {
+    const urls = raw.match(/https?:\/\/[a-z0-9.-]+\.[a-z]{2,}/gi) || [];
+    return urls.some((u) => !/(naver\.com|pstatic\.net|nstatic\.net|w3\.org)/i.test(u));
+}
+
+// 통합탭(ti): 인기글(meta.area=urB_coR) 섹션에서 '당근(daangn)·광고(ader)만 제외'하고
+// 사이트(웹문서)+카페+블로그 전부를 r(화면순)으로 카운트. 화면 실측과 일치(석남동=3, 연희동=5).
 export function rankInPopular(html, blogId) {
     const blocks = extractBootstrapJson(html);
     if (!blocks.length) return { rank: OUT_OF_RANK, status: 'fail' };
@@ -107,8 +114,16 @@ export function rankInPopular(html, blogId) {
         if (((j.meta && j.meta.area) || '') !== 'urB_coR') continue;
         const r = blockMinR(j);
         const mb = b.match(BLOG_RE);
-        if (mb) items.push([r, mb[1]]);
-        else if (b.includes('cafe.naver.com')) items.push([r, '(cafe)']);
+        if (mb) {
+            items.push([r, mb[1]]); // 블로그(우리 포함)
+        } else if (b.includes('daangn') || b.includes('ader.naver.com')) {
+            continue; // 당근·광고 제외
+        } else if (b.includes('cafe.naver.com')) {
+            items.push([r, '(cafe)']); // 카페
+        } else if (hasExternalSite(b)) {
+            items.push([r, '(site)']); // 외부 웹문서 사이트
+        }
+        // 그 외(식별 불가) 제외
     }
     items.sort((a, b) => a[0] - b[0]);
     for (let i = 0; i < items.length; i++) {

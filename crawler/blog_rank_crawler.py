@@ -392,15 +392,26 @@ def _iter_blog_posts(node):
     return out
 
 
-# ── 통합탭(ti): 인기글(urB_coR) 섹션, blog+cafe 글만 r순 카운트(당근/광고 제외) ──
-# 파싱(_rank_in_popular)과 fetch(measure_integrated_popular)를 분리 — 덤프로 오프라인 회귀테스트 가능.
+_EXT_HOST_RE = re.compile(r"https?://[a-z0-9.-]+\.[a-z]{2,}", re.I)
+
+
+def _has_external_site(raw):
+    """외부(비네이버) 사이트 링크 존재 여부 — 웹문서/사이트 항목 판별."""
+    for u in _EXT_HOST_RE.findall(raw):
+        if not re.search(r"naver\.com|pstatic\.net|nstatic\.net|w3\.org", u, re.I):
+            return True
+    return False
+
+
+# ── 통합탭(ti): 인기글(urB_coR) 섹션, '당근·광고만 제외' 후 사이트+카페+블로그 전부 r순 카운트 ──
+# 화면 실측 일치(석남동=3, 인천연희동=5). 파싱/fetch 분리 — 덤프로 오프라인 회귀테스트 가능.
 def _rank_in_popular(html_text, blog_id, log_no=""):
-    """통합검색 HTML → (rank, status). urB_coR 섹션의 blog/cafe 글만 r순, 당근/광고 제외."""
+    """통합검색 HTML → (rank, status). urB_coR 에서 당근/광고만 빼고 사이트/카페/블로그 r순."""
     blocks = extract_bootstrap_json(html_text)
     if not blocks:
         return OUT_OF_RANK, "fail"      # JSON 없음 = 차단/구조변경 → 권외와 구분
 
-    items = []   # (r, blog_id)  — 인기글 섹션의 blog/cafe 글만(당근/플레이스/광고 제외)
+    items = []   # (r, id)  — 당근/광고 제외한 인기글 섹션 항목 전부
     for b in blocks:
         try:
             j = json.loads(b)
@@ -411,10 +422,14 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
         r = _block_min_r(j)
         mb = _BLOG_RE.search(b)
         if mb:
-            items.append((r, mb.group(1)))      # 블로그 글
+            items.append((r, mb.group(1)))          # 블로그(우리 포함)
+        elif "daangn" in b or "ader.naver.com" in b:
+            continue                                # 당근·광고 제외
         elif "cafe.naver.com" in b:
-            items.append((r, "(cafe)"))         # 카페 글(순위 차지하지만 우리 아님)
-        # 그 외(당근 daangn.com, 플레이스, 광고)는 카운트 제외
+            items.append((r, "(cafe)"))             # 카페
+        elif _has_external_site(b):
+            items.append((r, "(site)"))             # 외부 웹문서 사이트
+        # 그 외(식별 불가) 제외
     items.sort(key=lambda x: x[0])
     for idx, (r, pid) in enumerate(items, start=1):
         if pid == blog_id:
