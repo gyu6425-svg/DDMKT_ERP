@@ -11,7 +11,6 @@ import {
     updateBlogAccount,
     type BlogAccount,
     type BlogKeyword,
-    type BlogMeasurement,
     type BlogPost,
     type WebMeasurement,
 } from '../api/blogRank';
@@ -200,9 +199,7 @@ function BlogRankPage() {
                     onToast={showToast}
                 />
             ) : null}
-            {tab === 'tracker' ? (
-                <TrackerTab accounts={accounts} posts={posts} keywords={keywords} />
-            ) : null}
+            {tab === 'tracker' ? <TrackerTab accounts={accounts} posts={posts} /> : null}
 
             {toast ? (
                 <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-medium text-white shadow-lg">
@@ -900,16 +897,13 @@ function AccountEditModal({
 function TrackerTab({
     accounts,
     posts,
-    keywords,
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
-    keywords: BlogKeyword[];
 }) {
     const [co, setCo] = useState('');
     const [inOnly, setInOnly] = useState(false);
     const [page, setPage] = useState(1);
-    const [view, setView] = useState<'posts' | 'keywords'>('posts');
 
     const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
 
@@ -932,30 +926,6 @@ function TrackerTab({
                 ℹ️ 순위 측정은 <b>사무실 PC의 파이썬 크롤러</b>가 매일 자동 수집해 기록합니다. 이 화면은 그 결과를 표시합니다.
             </div>
 
-            <div className="inline-flex w-fit rounded-md border border-[#cbd5e1] p-0.5 text-xs font-semibold">
-                {(
-                    [
-                        ['posts', '글 단위 (자동키워드)'],
-                        ['keywords', '대표키워드'],
-                    ] as const
-                ).map(([key, label]) => (
-                    <button
-                        className={`rounded px-3 py-1.5 ${
-                            view === key ? 'bg-[#1e40af] text-white' : 'text-[#64748b]'
-                        }`}
-                        key={key}
-                        onClick={() => setView(key)}
-                        type="button"
-                    >
-                        {label}
-                    </button>
-                ))}
-            </div>
-
-            {view === 'keywords' ? (
-                <KeywordTrackerView accounts={accounts} keywords={keywords} co={co} setCo={setCo} />
-            ) : (
-            <>
             <div className="flex flex-wrap items-center gap-2">
                 <select
                     className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs"
@@ -1063,137 +1033,10 @@ function TrackerTab({
                 </table>
                 <Pager pages={pages} current={current} onGo={setPage} />
             </div>
-            </>
-            )}
         </div>
     );
 }
 
-// 대표키워드 뷰 — (블로그 × 대표키워드)별 통합탭/블로그탭 순위. 글 단위 테이블과 별개.
-function KeywordTrackerView({
-    accounts,
-    keywords,
-    co,
-    setCo,
-}: {
-    accounts: BlogAccount[];
-    keywords: BlogKeyword[];
-    co: string;
-    setCo: (v: string) => void;
-}) {
-    const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
-    const rows = keywords.filter((k) => co === '' || k.blog_account_id === co);
-
-    return (
-        <div className="grid gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-                <select
-                    className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs"
-                    onChange={(e) => setCo(e.target.value)}
-                    value={co}
-                >
-                    <option value="">블로그 전체</option>
-                    {accounts.map((a) => (
-                        <option key={a.id} value={a.id}>
-                            {a.name}
-                        </option>
-                    ))}
-                </select>
-                <span className="ml-auto text-xs text-[#64748b]">{rows.length}건</span>
-            </div>
-
-            <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
-                <table className="w-full border-collapse text-left text-sm">
-                    <thead>
-                        <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
-                            <th className="px-3 py-2 font-semibold">블로그</th>
-                            <th className="px-3 py-2 font-semibold">대표키워드</th>
-                            <th className="px-3 py-2 text-center font-semibold">통합탭(인기글)</th>
-                            <th className="px-3 py-2 text-center font-semibold">블로그탭</th>
-                            <th className="px-3 py-2 text-center font-semibold">측정</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.length ? (
-                            rows.map((k) => {
-                                const ms = k.measurements ?? [];
-                                return (
-                                    <tr key={k.id} className="border-b border-[#e2e8f0]">
-                                        <td className="px-3 py-2 text-xs font-semibold text-[#475569]">
-                                            {nameOf(k.blog_account_id)}
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <span className="inline-block rounded bg-[#eff6ff] px-2 py-0.5 text-xs font-semibold text-[#1e40af]">
-                                                {k.keyword}
-                                            </span>
-                                        </td>
-                                        <td className="px-3 py-2 text-center">
-                                            <KwRankCell measurements={ms} keyName="ti" />
-                                        </td>
-                                        <td className="px-3 py-2 text-center">
-                                            <KwRankCell measurements={ms} keyName="bl" />
-                                        </td>
-                                        <td className="px-3 py-2 text-center text-xs text-[#94a3b8]">
-                                            {ms.length}회
-                                        </td>
-                                    </tr>
-                                );
-                            })
-                        ) : (
-                            <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={5}>
-                                    대표키워드가 없습니다 · '블로그 관리 시트 → 편집'에서 추가하세요
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
-}
-
-// 대표키워드용 순위 셀 — measurements 배열을 받고 status(fail/out)를 구분(글 단위 RankCell 과 별개, 무손상).
-function KwRankCell({ measurements, keyName }: { measurements: BlogMeasurement[]; keyName: 'ti' | 'bl' }) {
-    if (!measurements.length) {
-        return <span className="text-[11px] font-semibold text-[#d97706]">측정 대기</span>;
-    }
-    const last = measurements[measurements.length - 1];
-    const prev = measurements.length >= 2 ? measurements[measurements.length - 2] : null;
-    const status = keyName === 'ti' ? last.ti_status : last.bl_status;
-    const cur = last[keyName];
-    if (status === 'fail') {
-        return (
-            <span className="text-[11px] text-[#94a3b8]" title="측정 실패(차단/구조변경). 권외와 다름.">
-                측정 실패
-            </span>
-        );
-    }
-    if (status === 'out' || cur > 30) {
-        return <span className="text-sm font-bold text-[#94a3b8]">권외</span>;
-    }
-    const color = keyName === 'ti' ? '#059669' : '#1e40af';
-    let delta = <span className="block text-[10px] text-[#94a3b8]">첫 측정</span>;
-    if (prev) {
-        const diff = prev[keyName] - cur;
-        delta =
-            diff > 0 ? (
-                <span className="block text-[10px] font-bold text-[#dc2626]">▲{diff}</span>
-            ) : diff < 0 ? (
-                <span className="block text-[10px] font-bold text-[#1e40af]">▼{Math.abs(diff)}</span>
-            ) : (
-                <span className="block text-[10px] text-[#94a3b8]">—</span>
-            );
-    }
-    return (
-        <span>
-            <span className="text-sm font-bold" style={{ color }}>
-                {cur}위
-            </span>
-            {delta}
-        </span>
-    );
-}
 
 // 인라인 즉시검색 — 키워드 입력 → 서버리스가 네이버 측정 → 그 블로그의 통합/블로그탭 순위 즉시 표시.
 // 자동키워드 순위(기본, RankCell)와 별개. 'blog_id 매칭'이라 '글'이 아니라 '블로그 노출 순위'.
