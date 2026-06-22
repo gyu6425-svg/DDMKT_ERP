@@ -2,6 +2,13 @@
 import { removeBackground } from '@imgly/background-removal';
 import { generateAiCardImage } from '../api/aiCardImage';
 import { logApiUsage } from '../api/apiUsage';
+import {
+    getBannerOperators,
+    getBannerOutputImage,
+    getBannerOutputs,
+    saveBannerOutput,
+    type BannerOutput,
+} from '../api/bannerOutputs';
 import { computeActualCostUsd } from '../lib/apiPricing';
 import { useAuth } from '../hooks/useAuth';
 import Button from '../components/Button';
@@ -1890,6 +1897,175 @@ async function runWithConcurrency<T>(
     await Promise.all(workers);
 }
 
+// 갤러리 저장용 작은 썸네일(JPEG) 생성 — 원본은 따로 저장하고 목록은 가볍게.
+async function makeBannerThumb(dataUrl: string, maxPx = 420): Promise<string> {
+    try {
+        const image = await loadImageFromDataUrl(dataUrl);
+        const scale = Math.min(1, maxPx / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        if (!context) return dataUrl;
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', 0.8);
+    } catch {
+        return dataUrl;
+    }
+}
+
+// 작업 기록 갤러리 — 카테고리(블로그 대시보드 동일 탭 스타일)·작업자별 필터.
+function BannerGalleryView({ refreshKey }: { refreshKey: number }) {
+    const [items, setItems] = useState<BannerOutput[]>([]);
+    const [operators, setOperators] = useState<string[]>([]);
+    const [category, setCategory] = useState('');
+    const [operator, setOperator] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        let alive = true;
+        setLoading(true);
+        setError('');
+        void getBannerOutputs({ category, operator })
+            .then(({ data, error: loadError }) => {
+                if (!alive) return;
+                if (loadError) {
+                    setError(
+                        '작업 기록을 불러오지 못했습니다. Supabase 에서 banner_outputs 테이블을 만들었는지 확인하세요.',
+                    );
+                }
+                setItems(data);
+            })
+            .finally(() => {
+                if (alive) setLoading(false);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [category, operator, refreshKey]);
+
+    useEffect(() => {
+        let alive = true;
+        void getBannerOperators().then(({ operators: ops }) => {
+            if (alive) setOperators(ops);
+        });
+        return () => {
+            alive = false;
+        };
+    }, [refreshKey]);
+
+    const download = async (item: BannerOutput) => {
+        const { dataUrl } = await getBannerOutputImage(item.id);
+        if (!dataUrl) return;
+        const link = document.createElement('a');
+        link.download = `banner-${item.category || 'card'}-${item.id.slice(0, 6)}.png`;
+        link.href = dataUrl;
+        link.click();
+    };
+
+    const categoryTabs: Array<{ id: string; name: string }> = [
+        { id: '', name: '전체' },
+        ...CATEGORY_PRESETS.map((c) => ({ id: c.id, name: c.name })),
+    ];
+
+    return (
+        <div className="rounded-[8px] border border-[#e5e7eb] bg-white p-6">
+            <div className="mb-4">
+                <strong className="text-[15px] text-[#111111]">작업 기록</strong>
+                <p className="mt-1 mb-0 text-xs text-[#6b7280]">
+                    생성한 배너가 작업자·카테고리·시간과 함께 자동 저장됩니다. (썸네일 클릭 시 원본 다운로드)
+                </p>
+            </div>
+
+            <div className="mb-3 flex flex-wrap gap-1 border-b border-[#e2e8f0]">
+                {categoryTabs.map((c) => (
+                    <button
+                        className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${
+                            category === c.id
+                                ? 'border-[#1e40af] text-[#1e40af]'
+                                : 'border-transparent text-[#94a3b8]'
+                        }`}
+                        key={c.id || 'all'}
+                        onClick={() => setCategory(c.id)}
+                        type="button"
+                    >
+                        {c.name}
+                    </button>
+                ))}
+            </div>
+
+            <div className="mb-4 flex items-center gap-2">
+                <span className="text-xs font-semibold text-[#6b7280]">작업자</span>
+                <select
+                    className="h-9 rounded-md border border-[#d1d5db] bg-white px-2 text-sm"
+                    onChange={(event) => setOperator(event.target.value)}
+                    value={operator}
+                >
+                    <option value="">전체</option>
+                    {operators.map((op) => (
+                        <option key={op} value={op}>
+                            {op}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            {error ? (
+                <p className="m-0 rounded-md bg-[#fee2e2] px-4 py-3 text-sm text-[#dc2626]">{error}</p>
+            ) : loading ? (
+                <p className="m-0 text-sm text-[#6b7280]">불러오는 중…</p>
+            ) : items.length === 0 ? (
+                <p className="m-0 text-sm text-[#94a3b8]">아직 저장된 작업물이 없습니다.</p>
+            ) : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                    {items.map((item) => (
+                        <button
+                            className="overflow-hidden rounded-md border border-[#e5e7eb] bg-[#f9fafb] text-left transition hover:border-[#1e40af]"
+                            key={item.id}
+                            onClick={() => download(item)}
+                            title="원본 다운로드"
+                            type="button"
+                        >
+                            {item.thumb_data_url ? (
+                                <img
+                                    alt=""
+                                    className="block aspect-square w-full object-cover"
+                                    src={item.thumb_data_url}
+                                />
+                            ) : (
+                                <div className="flex aspect-square w-full items-center justify-center text-xs text-[#94a3b8]">
+                                    미리보기 없음
+                                </div>
+                            )}
+                            <div className="px-2 py-1.5">
+                                <div className="flex items-center justify-between gap-1">
+                                    <span className="truncate text-xs font-semibold text-[#0f172a]">
+                                        {item.operator_name || '미지정'}
+                                    </span>
+                                    {item.category_label ? (
+                                        <span className="shrink-0 rounded bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-semibold text-[#7c3aed]">
+                                            {item.category_label}
+                                        </span>
+                                    ) : null}
+                                </div>
+                                <div className="mt-0.5 text-[10px] text-[#94a3b8]">
+                                    {new Date(item.created_at).toLocaleString('ko-KR', {
+                                        day: '2-digit',
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        month: '2-digit',
+                                    })}
+                                </div>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function BannerGeneratorPage() {
     const { user } = useAuth();
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1916,6 +2092,9 @@ function BannerGeneratorPage() {
     const [operatorName, setOperatorName] = useState(
         () => localStorage.getItem('erp_operator_name') || '',
     );
+    // 상위 탭(생성/작업 기록). 한 컴포넌트 안에서 전환하므로 탭을 바꿔도 생성기는 마운트 유지 → 계속 돌아감.
+    const [view, setView] = useState<'create' | 'gallery'>('create');
+    const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
     const pagesRef = useRef(pages);
     const activePage = pages.find((page) => page.id === activePageId) || pages[0];
     const form = activePage?.form || defaultForm;
@@ -2333,6 +2512,8 @@ function BannerGeneratorPage() {
         const runStyleDirective = diverseStyle ? pickRandomStylePreset() : undefined;
         // 브랜드 위치/스타일은 생성마다 랜덤, 단 이번 run의 모든 카드는 동일(첫 장 위치 고정).
         const runBrandPreset = pickRandomBrandPreset();
+        // 이번 run의 카테고리 고정(생성 중 탭/드롭다운을 바꿔도 이 run엔 영향 없음).
+        const runCategory = selectedCategory;
         const generationTargets = targetPages.map((page, index) => {
             const pageBannerSize =
                 bannerSizes.find((bannerSize) => bannerSize.id === page.bannerSizeId) ||
@@ -2445,7 +2626,7 @@ function BannerGeneratorPage() {
                 const result = await generateAiCardImage({
                     bannerSize: pageBannerSize,
                     brandCorner: runBrandPreset.corner,
-                    categoryDirective: selectedCategory?.directive,
+                    categoryDirective: runCategory?.directive,
                     campaignStyleReferenceImageDataUrls:
                         options.campaignStyleReferenceImageDataUrls.slice(0, 1),
                     form: aiForm,
@@ -2507,6 +2688,24 @@ function BannerGeneratorPage() {
                     total_tokens: result.usage?.total_tokens ?? null,
                     user_email: user?.email ?? null,
                 });
+
+                // 작업 기록 저장(작업자·카테고리·시간 + 썸네일/원본). 실패해도 생성엔 영향 없음.
+                void (async () => {
+                    try {
+                        const thumb = await makeBannerThumb(normalizedImageDataUrl);
+                        await saveBannerOutput({
+                            banner_size: pageBannerSize.id,
+                            category: runCategory?.id || '',
+                            category_label: runCategory?.name || '',
+                            image_data_url: normalizedImageDataUrl,
+                            operator_name: operatorName || null,
+                            thumb_data_url: thumb,
+                        });
+                        setGalleryRefreshKey((key) => key + 1);
+                    } catch {
+                        // 기록 저장 실패는 무시.
+                    }
+                })();
 
                 // 디자인 통일성용으로 '원본 AI 이미지'(로고 합성 전)를 반환 → 다음 카드들의 디자인 마스터로 사용.
                 return result.imageDataUrl;
@@ -2618,7 +2817,31 @@ function BannerGeneratorPage() {
     };
 
     return (
-        <section className="grid gap-6 xl:grid-cols-[minmax(320px,440px)_minmax(0,1fr)]">
+        <div className="grid gap-4">
+            <div className="flex gap-1 border-b border-[#e2e8f0]">
+                {([['create', '생성'], ['gallery', '작업 기록']] as const).map(([key, label]) => (
+                    <button
+                        className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
+                            view === key
+                                ? 'border-[#1e40af] text-[#1e40af]'
+                                : 'border-transparent text-[#94a3b8]'
+                        }`}
+                        key={key}
+                        onClick={() => setView(key)}
+                        type="button"
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+
+            {view === 'gallery' ? <BannerGalleryView refreshKey={galleryRefreshKey} /> : null}
+
+            <section
+                className={`grid gap-6 xl:grid-cols-[minmax(320px,440px)_minmax(0,1fr)] ${
+                    view === 'create' ? '' : 'hidden'
+                }`}
+            >
             <div className="rounded-[8px] border border-[#e5e7eb] bg-white p-6">
                 <div className="mb-6">
                     {/* <h2 className="m-0 text-[22px] font-semibold">썸네일 배너 생성기</h2> */}
@@ -3272,7 +3495,8 @@ function BannerGeneratorPage() {
                     </div>
                 </div>
             </div>
-        </section>
+            </section>
+        </div>
     );
 }
 
