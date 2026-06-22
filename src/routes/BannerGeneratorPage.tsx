@@ -1761,6 +1761,20 @@ function getBrandBox(bannerSize: BannerSize, corner: BrandCorner): BrandBox {
     return { height, width, x, y };
 }
 
+// AI 에 보내는 카피에서 브랜드명을 제거한다. 브랜드는 코너에 코드로만 합성하므로,
+// 제목/본문/강조/원문에 브랜드명이 섞여 있으면 AI 가 본문에 또 그려 '중복'이 된다 → 사전 제거.
+function stripBrandFromCopy(text: string, brand: string): string {
+    const target = (brand || '').trim();
+    if (!text || !target) return text;
+    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return text
+        .replace(new RegExp(escaped, 'gi'), '')
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/[ \t]*\n/g, '\n')
+        .replace(/\n{2,}/g, '\n')
+        .trim();
+}
+
 // 로고 이미지가 없을 때 브랜드명을 고정 박스 안에 또렷한 고딕체로 합성한다(AI 렌더 대신 고정 위치 보장).
 function drawBrandTextInBox(
     context: CanvasRenderingContext2D,
@@ -2407,18 +2421,31 @@ function BannerGeneratorPage() {
                             ),
                         ),
                 );
+                // AI 에는 브랜드명을 뺀 카피를 보낸다(코너 브랜드는 우리가 합성). 큰 브랜드명 중복 방지.
+                const brandName = page.form.badge || '';
+                const aiForm = brandName
+                    ? {
+                          ...page.form,
+                          title: stripBrandFromCopy(page.form.title, brandName),
+                          subtitle: stripBrandFromCopy(page.form.subtitle, brandName),
+                          emphasis: stripBrandFromCopy(page.form.emphasis, brandName),
+                      }
+                    : page.form;
+                const aiRawText = brandName
+                    ? stripBrandFromCopy(page.rawText, brandName)
+                    : page.rawText;
                 const result = await generateAiCardImage({
                     bannerSize: pageBannerSize,
                     brandCorner: runBrandPreset.corner,
                     categoryDirective: selectedCategory?.directive,
                     campaignStyleReferenceImageDataUrls:
                         options.campaignStyleReferenceImageDataUrls.slice(0, 1),
-                    form: page.form,
+                    form: aiForm,
                     imageDataUrls: maskedImageDataUrls,
                     imageQuality,
                     logoDataUrl: logoAsset?.dataUrl,
                     provider: imageProvider,
-                    rawText: page.rawText,
+                    rawText: aiRawText,
                     referenceLibraryImageDataUrls: [],
                     signal: runAbortRef.current?.signal,
                     // 로고는 클라이언트 Canvas에서 누끼 처리 후 단일 합성하므로 서버 합성은 끈다.
