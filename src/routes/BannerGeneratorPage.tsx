@@ -9,7 +9,7 @@ import {
     saveBannerOutput,
     type BannerOutput,
 } from '../api/bannerOutputs';
-import { computeActualCostUsd } from '../lib/apiPricing';
+import { computeRecordCostUsd, formatKrw, formatUsd } from '../lib/apiPricing';
 import { useAuth } from '../hooks/useAuth';
 import Button from '../components/Button';
 
@@ -2095,6 +2095,12 @@ function BannerGeneratorPage() {
     // 상위 탭(생성/작업 기록). 한 컴포넌트 안에서 전환하므로 탭을 바꿔도 생성기는 마운트 유지 → 계속 돌아감.
     const [view, setView] = useState<'create' | 'gallery'>('create');
     const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
+    // 이번 생성 run 의 실제 토큰/비용 누적(표시용).
+    const [runUsage, setRunUsage] = useState<{ cards: number; tokens: number; cost: number }>({
+        cards: 0,
+        cost: 0,
+        tokens: 0,
+    });
     const pagesRef = useRef(pages);
     const activePage = pages.find((page) => page.id === activePageId) || pages[0];
     const form = activePage?.form || defaultForm;
@@ -2508,6 +2514,7 @@ function BannerGeneratorPage() {
         generationStartRef.current = Date.now();
         setGenerationElapsedSeconds(0);
         setRunCardIds(targetPages.map((page) => page.id));
+        setRunUsage({ cards: 0, cost: 0, tokens: 0 });
         // 이번 생성 run에 적용할 랜덤 레이아웃 스타일(다양성 ON일 때). 한 run 내 카드는 동일 스타일로 통일.
         const runStyleDirective = diverseStyle ? pickRandomStylePreset() : undefined;
         // 브랜드 위치/스타일은 생성마다 랜덤, 단 이번 run의 모든 카드는 동일(첫 장 위치 고정).
@@ -2678,14 +2685,28 @@ function BannerGeneratorPage() {
                     ),
                 );
 
+                const cardCost = computeRecordCostUsd({
+                    banner_size: pageBannerSize.id,
+                    image_quality: imageQuality,
+                    provider: imageProvider,
+                    usage_raw: result.usage ?? null,
+                });
+                setRunUsage((prev) => ({
+                    cards: prev.cards + 1,
+                    cost: prev.cost + cardCost,
+                    tokens: prev.tokens + (result.usage?.total_tokens || 0),
+                }));
                 void logApiUsage({
                     banner_size: pageBannerSize.id,
-                    cost_usd: result.usage ? computeActualCostUsd(result.usage) : null,
+                    cost_usd: cardCost,
                     elapsed_ms: Date.now() - cardStartedAt,
+                    image_quality: imageQuality,
+                    model: 'gpt-5.5',
                     operator_name: operatorName || null,
                     provider: imageProvider,
                     status: 'success',
                     total_tokens: result.usage?.total_tokens ?? null,
+                    usage_raw: result.usage ?? null,
                     user_email: user?.email ?? null,
                 });
 
@@ -3277,6 +3298,14 @@ function BannerGeneratorPage() {
                     {aiErrorMessage ? (
                         <p className="m-0 rounded-md bg-[#fef2f2] px-3 py-2 text-sm leading-6 text-[#b91c1c]">
                             {aiErrorMessage}
+                        </p>
+                    ) : null}
+
+                    {runUsage.cards > 0 ? (
+                        <p className="m-0 rounded-md bg-[#f0f9ff] px-3 py-2 text-xs leading-5 text-[#0369a1]">
+                            이번 생성 {runUsage.cards}장 · 토큰{' '}
+                            {runUsage.tokens.toLocaleString('ko-KR')} · {formatUsd(runUsage.cost)} ·{' '}
+                            {formatKrw(runUsage.cost)}
                         </p>
                     ) : null}
                 </div>

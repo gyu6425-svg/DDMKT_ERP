@@ -27,6 +27,9 @@ export type TokenUsage = {
     input_tokens?: number;
     output_tokens?: number;
     total_tokens?: number;
+    input_tokens_details?: { cached_tokens?: number; [key: string]: unknown };
+    output_tokens_details?: { reasoning_tokens?: number; [key: string]: unknown };
+    [key: string]: unknown;
 };
 
 export type GenerateAiCardImageResult = {

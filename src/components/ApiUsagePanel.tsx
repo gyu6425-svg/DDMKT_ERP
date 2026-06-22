@@ -5,7 +5,12 @@ import {
     type ApiUsageRecord,
     type ApiUsageStats,
 } from '../api/apiUsage';
-import { formatKrw, formatUsd } from '../lib/apiPricing';
+import {
+    computeRecordCostUsd,
+    extractTokenBreakdown,
+    formatKrw,
+    formatUsd,
+} from '../lib/apiPricing';
 import Button from './Button';
 
 function formatDateTime(value: string) {
@@ -26,7 +31,6 @@ function formatDateTime(value: string) {
 
 const emptyStats: ApiUsageStats = {
     error: 0,
-    estimatedCostUsd: 0,
     gemini: 0,
     openai: 0,
     success: 0,
@@ -68,7 +72,11 @@ function ApiUsagePanel() {
         void load();
     }, []);
 
-    const recentActualCostUsd = records.reduce((sum, record) => sum + (record.cost_usd || 0), 0);
+    // 정확 비용: 저장된 usage 원본 × 현재 단가로 '읽을 때' 재계산(단가 고치면 즉시 반영).
+    const recentActualCostUsd = records.reduce(
+        (sum, record) => sum + computeRecordCostUsd(record),
+        0,
+    );
 
     const summaryCards: Array<{ label: string; value: string; note?: string }> = [
         { label: '총 호출', value: stats.total.toLocaleString('ko-KR') },
@@ -131,8 +139,9 @@ function ApiUsagePanel() {
             </div>
 
             <p className="m-0 text-xs leading-5 text-[#9ca3af]">
-                ※ 실제 비용은 API가 돌려준 실제 토큰 사용량 × 단가(src/lib/apiPricing.ts의
-                TOKEN_PRICE_USD_PER_M) 기준입니다. 정확한 금액은 단가를 실제 OpenAI 요금으로 맞추세요.
+                ※ 비용 = API가 돌려준 실제 토큰 수(입력/캐시/출력) × 단가 + 이미지 1장 단가(size·quality).
+                토큰 수는 실측값이며, 단가는 src/lib/apiPricing.ts(TOKEN_RATES_USD_PER_M / IMAGE_PRICE_USD)에서
+                실제 OpenAI 요금으로 맞추면 과거 기록까지 자동 재계산됩니다.
             </p>
 
             <div className="overflow-x-auto rounded-[8px] border border-[#e5e7eb]">
@@ -140,12 +149,15 @@ function ApiUsagePanel() {
                     <thead>
                         <tr className="border-b border-[#e5e7eb] bg-[#f9fafb] text-xs text-[#6b7280]">
                             <th className="px-3 py-2 font-semibold">시간</th>
-                            <th className="px-3 py-2 font-semibold">사용자</th>
+                            <th className="px-3 py-2 font-semibold">작업자</th>
                             <th className="px-3 py-2 font-semibold">제공자</th>
                             <th className="px-3 py-2 font-semibold">사이즈</th>
                             <th className="px-3 py-2 font-semibold">상태</th>
                             <th className="px-3 py-2 font-semibold">소요(ms)</th>
-                            <th className="px-3 py-2 font-semibold">토큰</th>
+                            <th className="px-3 py-2 font-semibold" title="입력 토큰">입력</th>
+                            <th className="px-3 py-2 font-semibold" title="캐시된 입력 토큰">캐시</th>
+                            <th className="px-3 py-2 font-semibold" title="출력 토큰">출력</th>
+                            <th className="px-3 py-2 font-semibold" title="추론 토큰(출력에 포함)">추론</th>
                             <th className="px-3 py-2 font-semibold">실제 비용</th>
                             <th className="px-3 py-2 font-semibold">오류</th>
                         </tr>
@@ -161,7 +173,7 @@ function ApiUsagePanel() {
                                         {formatDateTime(record.created_at)}
                                     </td>
                                     <td className="px-3 py-2 text-[#374151]">
-                                        {record.user_email || '-'}
+                                        {record.operator_name || record.user_email || '-'}
                                     </td>
                                     <td className="px-3 py-2 text-[#374151]">{record.provider}</td>
                                     <td className="px-3 py-2 text-[#374151]">
@@ -181,13 +193,29 @@ function ApiUsagePanel() {
                                     <td className="px-3 py-2 text-[#374151]">
                                         {record.elapsed_ms ?? '-'}
                                     </td>
-                                    <td className="px-3 py-2 text-[#374151]">
-                                        {record.total_tokens
-                                            ? record.total_tokens.toLocaleString('ko-KR')
-                                            : '-'}
-                                    </td>
-                                    <td className="px-3 py-2 text-[#374151]">
-                                        {record.cost_usd != null ? formatUsd(record.cost_usd) : '-'}
+                                    {(() => {
+                                        const b = extractTokenBreakdown(record.usage_raw);
+                                        const cell = (n: number) =>
+                                            n ? n.toLocaleString('ko-KR') : '-';
+                                        return (
+                                            <>
+                                                <td className="px-3 py-2 text-[#374151]">
+                                                    {cell(b.input)}
+                                                </td>
+                                                <td className="px-3 py-2 text-[#9ca3af]">
+                                                    {cell(b.cached)}
+                                                </td>
+                                                <td className="px-3 py-2 text-[#374151]">
+                                                    {cell(b.output)}
+                                                </td>
+                                                <td className="px-3 py-2 text-[#9ca3af]">
+                                                    {cell(b.reasoning)}
+                                                </td>
+                                            </>
+                                        );
+                                    })()}
+                                    <td className="px-3 py-2 font-semibold text-[#111827]">
+                                        {formatUsd(computeRecordCostUsd(record))}
                                     </td>
                                     <td className="max-w-[280px] truncate px-3 py-2 text-[#6b7280]">
                                         {record.error_message || '-'}
@@ -198,7 +226,7 @@ function ApiUsagePanel() {
                             <tr>
                                 <td
                                     className="px-3 py-6 text-center text-sm text-[#6b7280]"
-                                    colSpan={9}
+                                    colSpan={12}
                                 >
                                     {loading ? '불러오는 중...' : '기록이 없습니다.'}
                                 </td>

@@ -8,7 +8,7 @@ import {
     saveBlogOutput,
     type BlogOutput,
 } from '../api/blogOutputs';
-import { computeActualCostUsd } from '../lib/apiPricing';
+import { computeRecordCostUsd, extractTokenBreakdown, formatKrw, formatUsd } from '../lib/apiPricing';
 import { WORK_CATEGORIES, categoryLabel } from '../lib/categories';
 import { useAuth } from '../hooks/useAuth';
 import Button from '../components/Button';
@@ -45,6 +45,12 @@ function BlogPage() {
     const [result, setResult] = useState('');
     const [error, setError] = useState('');
     const [copied, setCopied] = useState(false);
+    const [lastUsage, setLastUsage] = useState<{
+        input: number;
+        output: number;
+        total: number;
+        cost: number;
+    } | null>(null);
     const abortRef = useRef<AbortController | null>(null);
 
     // 상위 탭(생성/작업 기록). 한 컴포넌트라 탭 전환해도 생성은 계속 진행된다.
@@ -58,6 +64,7 @@ function BlogPage() {
         }
         setError('');
         setResult('');
+        setLastUsage(null);
         setLoading(true);
 
         const controller = new AbortController();
@@ -77,14 +84,30 @@ function BlogPage() {
                 topic,
             });
             setResult(output.text);
+            const breakdown = extractTokenBreakdown(output.usage);
+            setLastUsage({
+                cost: computeRecordCostUsd({
+                    model: 'gpt-5.5',
+                    provider: 'openai',
+                    usage_raw: output.usage ?? null,
+                }),
+                input: breakdown.input,
+                output: breakdown.output,
+                total: breakdown.total,
+            });
             void logApiUsage({
-                cost_usd: output.usage ? computeActualCostUsd(output.usage) : null,
+                cost_usd: computeRecordCostUsd({
+                    model: 'gpt-5.5',
+                    provider: 'openai',
+                    usage_raw: output.usage ?? null,
+                }),
                 elapsed_ms: Date.now() - startedAt,
                 model: 'blog',
                 operator_name: operatorName || null,
                 provider: 'openai',
                 status: 'success',
                 total_tokens: output.usage?.total_tokens ?? null,
+                usage_raw: output.usage ?? null,
                 user_email: user?.email ?? null,
             });
 
@@ -301,6 +324,17 @@ function BlogPage() {
                 <div className="grid h-fit gap-2 rounded-[8px] border border-[#e2e8f0] bg-white p-4">
                     <div className="flex items-center justify-between">
                         <h3 className="m-0 text-sm font-bold text-[#0f172a]">결과</h3>
+                        {lastUsage ? (
+                            <span className="text-xs text-[#64748b]">
+                                이번 글 토큰 {lastUsage.total.toLocaleString('ko-KR')}
+                                <span className="text-[#94a3b8]">
+                                    {' '}
+                                    (입력 {lastUsage.input.toLocaleString('ko-KR')}/출력{' '}
+                                    {lastUsage.output.toLocaleString('ko-KR')})
+                                </span>{' '}
+                                · {formatUsd(lastUsage.cost)} · {formatKrw(lastUsage.cost)}
+                            </span>
+                        ) : null}
                         {result ? (
                             <Button
                                 className="rounded-md border border-[#cbd5e1] px-3 py-1.5 text-xs font-semibold"

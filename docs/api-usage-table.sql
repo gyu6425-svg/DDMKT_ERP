@@ -13,13 +13,20 @@ create table if not exists public.api_usage (
     elapsed_ms integer,
     error_message text,
     total_tokens integer,
-    cost_usd numeric
+    cost_usd numeric,
+    usage_raw jsonb,        -- OpenAI usage 원본(토큰 유형별 분해 + 정확 비용 재계산용)
+    image_quality text      -- low/medium/high (이미지 장당 단가 산정용)
 );
 
 -- 기존에 테이블을 이미 만들었다면 아래 줄만 실행해 컬럼을 추가하세요.
 alter table public.api_usage add column if not exists total_tokens integer;
 alter table public.api_usage add column if not exists cost_usd numeric;
 alter table public.api_usage add column if not exists operator_name text;
+alter table public.api_usage add column if not exists usage_raw jsonb;
+alter table public.api_usage add column if not exists image_quality text;
+
+-- 기존에 부정확한 단가로 기록되던 옛 기록을 모두 지우고 새로 시작하려면 아래 한 줄 실행:
+-- delete from public.api_usage;
 
 create index if not exists api_usage_created_at_idx on public.api_usage (created_at desc);
 create index if not exists api_usage_provider_idx on public.api_usage (provider);

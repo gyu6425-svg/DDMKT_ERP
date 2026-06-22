@@ -1,4 +1,4 @@
-import { estimateCostUsd } from '../lib/apiPricing';
+import type { TokenUsageRaw } from '../lib/apiPricing';
 import { hasSupabaseConfig, supabase } from '../lib/supabase';
 
 export type ApiUsageStatus = 'success' | 'error';
@@ -16,6 +16,8 @@ export type ApiUsageRecord = {
     error_message: string | null;
     total_tokens: number | null;
     cost_usd: number | null;
+    usage_raw: TokenUsageRaw | null;
+    image_quality: string | null;
 };
 
 export type ApiUsageInput = {
@@ -29,6 +31,8 @@ export type ApiUsageInput = {
     error_message?: string | null;
     total_tokens?: number | null;
     cost_usd?: number | null;
+    usage_raw?: TokenUsageRaw | null;
+    image_quality?: string | null;
 };
 
 export type ApiUsageStats = {
@@ -38,15 +42,7 @@ export type ApiUsageStats = {
     today: number;
     openai: number;
     gemini: number;
-    estimatedCostUsd: number;
 };
-
-const COST_COMBOS: Array<{ provider: string; size: string }> = [
-    { provider: 'openai', size: 'square' },
-    { provider: 'openai', size: 'bottom' },
-    { provider: 'gemini', size: 'square' },
-    { provider: 'gemini', size: 'bottom' },
-];
 
 // 생성 1건의 사용량을 기록. 실패해도 생성 흐름에 영향을 주지 않도록 조용히 무시한다.
 export async function logApiUsage(input: ApiUsageInput) {
@@ -60,11 +56,13 @@ export async function logApiUsage(input: ApiUsageInput) {
             cost_usd: input.cost_usd ?? null,
             elapsed_ms: input.elapsed_ms ?? null,
             error_message: input.error_message ?? null,
+            image_quality: input.image_quality ?? null,
             model: input.model ?? null,
             operator_name: input.operator_name ?? null,
             provider: input.provider,
             status: input.status,
             total_tokens: input.total_tokens ?? null,
+            usage_raw: input.usage_raw ?? null,
             user_email: input.user_email ?? null,
         });
     } catch {
@@ -113,24 +111,6 @@ export async function getApiUsageStats() {
                 .eq('provider', 'gemini'),
         ]);
 
-    // 성공 건만 (제공자 × 사이즈)별로 세어 단가표와 곱해 예상 비용을 계산.
-    const costResults = await Promise.all(
-        COST_COMBOS.map((combo) =>
-            supabase
-                .from('api_usage')
-                .select('id', { count: 'exact', head: true })
-                .eq('status', 'success')
-                .eq('provider', combo.provider)
-                .eq('banner_size', combo.size),
-        ),
-    );
-
-    const estimatedCostUsd = COST_COMBOS.reduce(
-        (sum, combo, index) =>
-            sum + (costResults[index].count ?? 0) * estimateCostUsd(combo.provider, combo.size),
-        0,
-    );
-
     const error =
         totalResult.error ||
         successResult.error ||
@@ -138,12 +118,10 @@ export async function getApiUsageStats() {
         todayResult.error ||
         openaiResult.error ||
         geminiResult.error ||
-        costResults.find((result) => result.error)?.error ||
         null;
 
     const data: ApiUsageStats = {
         error: errorResult.count ?? 0,
-        estimatedCostUsd,
         gemini: geminiResult.count ?? 0,
         openai: openaiResult.count ?? 0,
         success: successResult.count ?? 0,
