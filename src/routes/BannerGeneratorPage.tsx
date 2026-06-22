@@ -1587,7 +1587,8 @@ function drawLogoInBox(context: CanvasRenderingContext2D, logo: HTMLImageElement
     const scale = Math.min(box.width / logo.width, box.height / logo.height);
     const width = logo.width * scale;
     const height = logo.height * scale;
-    const x = box.x + (box.width - width) / 2;
+    // 우측 정렬: 박스 배경을 칠하지 않으므로 로고가 우측 상단 코너에 밀착하도록 한다.
+    const x = box.x + box.width - width;
     const y = box.y + (box.height - height) / 2;
 
     context.save();
@@ -1628,10 +1629,13 @@ async function composeFinalCardImage(
     // (AI 는 그 자리를 비워두기만 함 — AI 가 브랜드를 그리면 위치가 매번 달라지던 문제를 제거)
     if (logo || form.badge) {
         const brandBox = getBrandBox(bannerSize, brandPreset.corner);
-        coverBrandBox(context, brandBox, backgroundColor);
         if (logo) {
+            // 흰 박스 방지: 배경을 칠하지 않고 (누끼된) 로고만 합성한다.
+            // 프롬프트가 코너를 배경색으로 비워두므로 투명 로고가 카드 배경과 자연스럽게 섞인다.
             drawLogoInBox(context, logo, brandBox);
         } else if (form.badge) {
+            // 텍스트 배지는 가독성을 위해 자리만 덮고 그린다.
+            coverBrandBox(context, brandBox, backgroundColor);
             drawBrandTextInBox(context, form.badge, brandBox, form.textColor || '#111827');
         }
     }
