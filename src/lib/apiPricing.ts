@@ -16,12 +16,13 @@ export const TOKEN_RATES_USD_PER_M: Record<
 const DEFAULT_MODEL_KEY = 'gpt-5.5';
 
 // ── 이미지 1장 단가 (USD) : provider → size → quality ──────────────────
-// ⚠️ 실제 image_generation 요금으로 맞추세요. medium 은 검증됨(square $0.042 / bottom $0.063),
-// low ≈ medium 의 약 1/4, high ≈ 약 4배(대략치).
+// ⚠️ 실제 image_generation 요금으로 맞추세요.
+// square medium = $0.04 : 사용자 실측(2장 $0.08, OpenAI Usage 대시보드)으로 보정됨(2026-06-22).
+// bottom 은 면적비(약 1.5배)로 추정, low ≈ medium 의 약 1/4·high ≈ 약 4배(대략치).
 export const IMAGE_PRICE_USD: Record<string, Record<string, Record<string, number>>> = {
     openai: {
-        bottom: { high: 0.25, low: 0.016, medium: 0.063 }, // 1536 x 1024
-        square: { high: 0.167, low: 0.011, medium: 0.042 }, // 1024 x 1024
+        bottom: { high: 0.24, low: 0.015, medium: 0.06 }, // 1536 x 1024
+        square: { high: 0.16, low: 0.01, medium: 0.04 }, // 1024 x 1024 (실측 보정)
     },
     gemini: {
         bottom: { high: 0.12, low: 0.03, medium: 0.06 },
