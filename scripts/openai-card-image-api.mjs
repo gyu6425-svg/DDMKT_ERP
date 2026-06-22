@@ -564,20 +564,13 @@ function buildPrompt({
 - Keep generated visuals secondary to readable Korean typography.`;
     const campaignStyleDirection = campaignStyleReferenceImages.length
         ? `
-Campaign master style:
-- ${campaignStyleReferenceImages.length} previously generated card image(s) from this run are attached first.
-- Treat the first generated card from this run as the campaign master design system even when this request uses a different canvas size or aspect ratio.
-- Design token lock is mandatory: the first generated card defines the exact campaign design tokens for all later cards.
-- For all later cards, reuse the exact same design tokens from the first card. Only replace the content. Do not redesign the system.
-- All later cards must look like responsive variants of the campaign master, not like new unrelated designs.
-- Match the campaign master before matching the reference library.
-- Preserve the campaign master's typography hierarchy, color mood, decorative language, image treatment, spacing rhythm, and component styling.
-- If the current canvas size differs from the campaign master, adapt only layout geometry to the new aspect ratio.
-- Do not copy the campaign master's words or content. Only copy the design system and repeated component treatment.`
-        : `
-Campaign master style:
-- This is the first generated card in this run. Establish a reusable campaign design system for later cards.
-- This first card will define the locked design tokens for title, body, emphasis, page labels, dividers, text boxes, spacing, and decorative components.`;
+[디자인 통일성 — 매우 중요] 첨부된 '기준 카드(디자인 마스터)' 이미지와 똑같은 디자인 시스템으로 만들 것. 한글 문구(내용)만 이번 카드의 것으로 바꾸고, 디자인은 그대로 복제한다:
+- 제목·본문·강조 텍스트의 글꼴(서체) 종류, 글자 굵기, 상대적 글자 크기 비율을 기준 카드와 똑같이.
+- 글자색·강조(포인트)색·배경색을 기준 카드와 똑같이.
+- 자간·행간, 정렬, 여백 리듬, 장식 요소·아이콘 스타일, 전체 톤을 똑같이.
+- 새 디자인을 만들지 말고 기준 카드의 '내용만 바뀐 변형'처럼 보이게 한다.
+(Match the attached design-master card EXACTLY: same font family, font weights, relative type sizes, text/accent/background colors, spacing and decorative style. Only the Korean copy changes — do not redesign.)`
+        : '';
     const referenceLibraryDirection = referenceLibraryImages.length || legacySeriesStyleReferenceImages.length
         ? `
 Reference library:
@@ -622,7 +615,7 @@ PRIMARY LAYOUT DIRECTION (must follow):
               : '좌측 상단';
     const brandLine =
         logoDataUrl || form.badge
-            ? `${cornerKo} 모서리에 브랜드(로고/브랜드명)가 들어갈 작은 빈 자리만 비워두기 (그 자리엔 글자·그림·아이콘을 넣지 말 것 — 브랜드는 생성 후 고정 위치에 합성됨). 메인 제목과 본문은 그 아래·왼쪽 영역에 배치.`
+            ? `${cornerKo} 모서리의 작은 영역은 브랜드가 생성 후 고정 합성될 자리다. 그 자리에는 제목·본문·아이콘·중요한 그래픽을 넣지 말 것. 그리고 그 자리에 박스·테두리·프레임·플레이트·배지·사각 칸 같은 어떤 표식도 절대 그리지 말고, 배경색이 그대로 이어지게만 둘 것. (Do NOT draw any box, plate, frame, border, badge, or placeholder rectangle in that corner — just let the plain background continue there.) 메인 제목과 본문은 그 아래·왼쪽 영역에 배치.`
             : `${cornerKo} 모서리는 단정하게 비우기`;
     const subtitleLine = form.subtitle ? `\n· 본문: ${form.subtitle}` : '';
     const emphasisLine = form.emphasis
@@ -650,7 +643,7 @@ ${categoryMoodBlock}
 - 굵고 가독성 높은 한글 타이포그래피. 핵심 문구가 한눈에 보이게.
 - 위에 적은 한글만 정확히 넣고, 그 외 영어 라벨·캡션·워터마크는 넣지 마.
 - 과하게 복잡하지 않게, 여백과 대비로 깔끔하게.${templateLine}${styleLine}
-
+${campaignStyleDirection}
 [캔버스]
 ${width}x${height}px. 가장자리까지 꽉 채우고 네 모서리는 완전한 직각(둥근 모서리·테두리·여백 금지). ${isSquare ? '정사각형 구성.' : '가로로 넓은 배너 구성.'}`;
 }

@@ -1417,6 +1417,41 @@ function exportTrimmedTransparent(canvas: HTMLCanvasElement, data: Uint8ClampedA
     return out.toDataURL('image/png');
 }
 
+// 이미 투명 배경(누끼된 PNG)인지 검사하고, 맞으면 재처리 없이 여백만 트림해 그대로 반환.
+// 모드 2(누끼 이미지 첨부): 사용자가 이미 처리한 PNG 를 손대지 않고 고정 합성하기 위함.
+function useTransparentLogoAsIs(image: HTMLImageElement): string | null {
+    if (!image.width || !image.height) return null;
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return null;
+
+    canvas.width = image.width;
+    canvas.height = image.height;
+    context.drawImage(image, 0, 0);
+
+    let data: Uint8ClampedArray;
+    try {
+        data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    } catch {
+        return null;
+    }
+
+    let transparent = 0;
+    let total = 0;
+    const stride = 4 * Math.max(1, Math.floor((canvas.width * canvas.height) / 40000));
+    for (let i = 3; i < data.length; i += stride) {
+        total += 1;
+        if (data[i] < 240) transparent += 1;
+    }
+
+    // 투명 픽셀이 5% 이상이면 이미 누끼된 PNG 로 보고 원본 그대로 사용(트림만).
+    if (total > 0 && transparent / total > 0.05) {
+        return exportTrimmedTransparent(canvas, data);
+    }
+    return null;
+}
+
 // 테두리에서 시작하는 flood-fill 로 '바깥 배경'만 투명 처리한다(로고 내부의 흰색은 보존).
 // 단색/근단색 배경 로고에 강함. 테두리가 균일하지 않으면(사진·복잡 배경) null 반환 → ML 폴백.
 function removeBackgroundByFloodFill(image: HTMLImageElement): string | null {
@@ -1561,6 +1596,17 @@ async function processLogoImage(
     image: HTMLImageElement,
     fallbackDataUrl: string,
 ): Promise<{ dataUrl: string; image: HTMLImageElement }> {
+    // 0순위(모드 2): 이미 투명한 PNG 면 재처리하지 않고 그대로 사용(가장자리 손상 방지).
+    const asIsDataUrl = useTransparentLogoAsIs(image);
+    if (asIsDataUrl) {
+        try {
+            const asIsImage = await loadImageFromDataUrl(asIsDataUrl);
+            return { dataUrl: asIsDataUrl, image: asIsImage };
+        } catch {
+            // 무시하고 다음 방법으로.
+        }
+    }
+
     // 1순위: 테두리 flood-fill 단색 배경 제거. 로고(평평한 흰/단색 배경)에 가장 깔끔 —
     // 흰 박스/halo 없이 바깥 배경만 투명 처리하고 로고 내부는 보존한다.
     const floodDataUrl = removeBackgroundByFloodFill(image);
@@ -1715,14 +1761,6 @@ function getBrandBox(bannerSize: BannerSize, corner: BrandCorner): BrandBox {
     return { height, width, x, y };
 }
 
-// 로고 자리만 타이트하게 덮는다(가로 띠 X) → 본문 제목을 가리지 않는다.
-function coverBrandBox(context: CanvasRenderingContext2D, box: BrandBox, fillColor: string) {
-    const padding = 12;
-
-    context.fillStyle = fillColor;
-    context.fillRect(box.x - padding, box.y - padding, box.width + padding * 2, box.height + padding * 2);
-}
-
 // 로고 이미지가 없을 때 브랜드명을 고정 박스 안에 또렷한 고딕체로 합성한다(AI 렌더 대신 고정 위치 보장).
 function drawBrandTextInBox(
     context: CanvasRenderingContext2D,
@@ -1732,8 +1770,12 @@ function drawBrandTextInBox(
 ) {
     context.save();
     context.fillStyle = color;
-    context.textAlign = 'center';
+    context.textAlign = 'right';
     context.textBaseline = 'middle';
+    // 박스(흰 판) 없이 그리므로, 배경이 살짝 어수선해도 읽히도록 옅은 대비 그림자만 준다.
+    const lightText = color.toLowerCase() === '#ffffff' || color.toLowerCase() === '#fff';
+    context.shadowColor = lightText ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.55)';
+    context.shadowBlur = 4;
 
     let fontSize = Math.floor(box.height * 0.72);
     const setFont = () => {
@@ -1745,7 +1787,8 @@ function drawBrandTextInBox(
         setFont();
     }
 
-    context.fillText(text, box.x + box.width / 2, box.y + box.height / 2);
+    // 우측 정렬(코너 밀착).
+    context.fillText(text, box.x + box.width, box.y + box.height / 2);
     context.restore();
 }
 
@@ -1800,8 +1843,7 @@ async function composeFinalCardImage(
             // 프롬프트가 코너를 배경색으로 비워두므로 투명 로고가 카드 배경과 자연스럽게 섞인다.
             drawLogoInBox(context, logo, brandBox);
         } else if (form.badge) {
-            // 텍스트 배지는 가독성을 위해 자리만 덮고 그린다.
-            coverBrandBox(context, brandBox, backgroundColor);
+            // 박스 없이 텍스트만 합성(흰 판 제거). 가독성은 drawBrandTextInBox 의 미세 그림자로 확보.
             drawBrandTextInBox(context, form.badge, brandBox, form.textColor || '#111827');
         }
     }
@@ -1809,7 +1851,8 @@ async function composeFinalCardImage(
     return canvas.toDataURL('image/png');
 }
 
-// 카드는 마스터 의존 없이 전부 동시 생성한다(카드 최대 3장이라 사실상 풀 병렬).
+// 디자인 통일성을 위해 첫 카드(디자인 마스터)를 먼저 생성한 뒤, 나머지 카드는 이 동시성으로 병렬 생성한다.
+// (최대 10장까지 가능하므로 레이트리밋 보호를 위해 3장씩 묶어 진행)
 const CARD_GENERATION_CONCURRENCY = 3;
 
 async function runWithConcurrency<T>(
@@ -2034,7 +2077,7 @@ function BannerGeneratorPage() {
     };
 
     const addPage = () => {
-        if (pages.length >= 3) {
+        if (pages.length >= 10) {
             return;
         }
 
@@ -2430,7 +2473,8 @@ function BannerGeneratorPage() {
                     user_email: user?.email ?? null,
                 });
 
-                return normalizedImageDataUrl;
+                // 디자인 통일성용으로 '원본 AI 이미지'(로고 합성 전)를 반환 → 다음 카드들의 디자인 마스터로 사용.
+                return result.imageDataUrl;
             } catch (error) {
                 const wasCancelled = cancelledRef.current;
                 const message = wasCancelled
@@ -2478,22 +2522,43 @@ function BannerGeneratorPage() {
             }
         };
 
-        const generateAllCardsInParallel = async () => {
+        // 디자인 통일성: 첫 카드를 먼저 생성해 '디자인 마스터'로 삼고,
+        // 나머지 카드는 그 원본 이미지를 참조(campaignStyleReference)해 동일한 서체·크기·색·톤으로 생성.
+        const generateWithCampaignMaster = async () => {
+            const [firstTarget, ...restTargets] = generationTargets;
+            if (!firstTarget) {
+                return;
+            }
+
+            const masterAiImage = await generateOneCard(firstTarget, {
+                campaignStyleReferenceImageDataUrls: [],
+                includeReferenceLibrary: true,
+                statusMessage: restTargets.length
+                    ? 'AI 이미지 생성 중(기준 카드)'
+                    : 'AI 이미지 생성 중',
+            });
+
+            if (cancelledRef.current || restTargets.length === 0) {
+                return;
+            }
+
+            const masterRef = masterAiImage ? [masterAiImage] : [];
+
             await runWithConcurrency(
-                generationTargets,
-                Math.min(CARD_GENERATION_CONCURRENCY, generationTargets.length),
+                restTargets,
+                Math.min(CARD_GENERATION_CONCURRENCY, restTargets.length),
                 async (target) => {
                     await generateOneCard(target, {
-                        campaignStyleReferenceImageDataUrls: [],
+                        campaignStyleReferenceImageDataUrls: masterRef,
                         includeReferenceLibrary: true,
-                        statusMessage: 'AI 이미지 생성 중',
+                        statusMessage: 'AI 이미지 생성 중(통일 디자인)',
                     });
                 },
             );
         };
 
         try {
-            await generateAllCardsInParallel();
+            await generateWithCampaignMaster();
         } finally {
             setAiLoading(false);
             runAbortRef.current = null;
@@ -2592,7 +2657,7 @@ function BannerGeneratorPage() {
                             <strong className="text-m text-[#111111]">카드 페이지</strong>
                             <Button
                                 className="inline-flex h-9 items-center justify-center rounded-md border border-[#d1d5db] bg-white px-3 text-xs font-semibold text-[#111827] disabled:cursor-not-allowed disabled:opacity-50"
-                                disabled={pages.length >= 3 || aiLoading}
+                                disabled={pages.length >= 10 || aiLoading}
                                 onClick={addPage}
                                 type="button"
                             >
