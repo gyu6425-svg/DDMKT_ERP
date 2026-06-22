@@ -607,12 +607,10 @@ PRIMARY LAYOUT DIRECTION (must follow):
 - Vary the composition, spacing, decorative motifs, and visual arrangement to match this direction. Keep the Korean text exact and the required colors as specified.`
         : '';
 
-    const logoBox = getLogoOverlayBox(bannerSize);
-    const reserveWidth = logoBox.x + logoBox.width + 60;
-    const reserveHeight = logoBox.y + logoBox.height + 16;
     const logoReservationDirection = logoDataUrl
-        ? `\n- A small brand logo will be overlaid on the TOP-LEFT corner after generation. Keep only that small top-left area (about the left ${reserveWidth}px and top ${reserveHeight}px) clear of text, filled with the background color. Do not put any title, body text, icon, number, or important graphic inside that small logo area.
-- Start the title immediately below the logo area with a normal, tight top margin. Do NOT leave a large empty gap or wide blank band above the title. Keep the vertical spacing balanced and fill the canvas naturally, as if the logo area is just a small header.`
+        ? `\n- A small brand logo will be composited into the TOP-RIGHT corner AFTER generation. Keep that small top-right area calm and uncluttered: no title, body text, icons, numbers, or important graphics there.
+- Do NOT paint a solid color block, white box, plate, badge, border, or frame in that corner. Let the normal card background continue there so a transparent logo can sit cleanly on top.
+- Keep the title and body in the left/lower area with a normal tight margin. Do NOT leave a large empty band.`
         : '';
 
     const usageLabel = isSquare ? '광고 썸네일' : '가로형 배너';

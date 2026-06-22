@@ -1378,6 +1378,159 @@ function removeLogoBackground(image: HTMLImageElement): string | null {
     return trimmedCanvas.toDataURL('image/png');
 }
 
+// 투명 여백을 잘라 PNG dataURL 로 내보낸다.
+function exportTrimmedTransparent(canvas: HTMLCanvasElement, data: Uint8ClampedArray): string {
+    const w = canvas.width;
+    const h = canvas.height;
+    let minX = w;
+    let minY = h;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let p = 0; p < w * h; p += 1) {
+        if (data[p * 4 + 3] > 8) {
+            const x = p % w;
+            const y = (p - x) / w;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+    }
+
+    if (maxX < minX || maxY < minY) {
+        return canvas.toDataURL('image/png');
+    }
+
+    const tw = maxX - minX + 1;
+    const th = maxY - minY + 1;
+    if (tw === w && th === h) {
+        return canvas.toDataURL('image/png');
+    }
+
+    const out = document.createElement('canvas');
+    const ctx = out.getContext('2d');
+    if (!ctx) return canvas.toDataURL('image/png');
+    out.width = tw;
+    out.height = th;
+    ctx.drawImage(canvas, minX, minY, tw, th, 0, 0, tw, th);
+    return out.toDataURL('image/png');
+}
+
+// 테두리에서 시작하는 flood-fill 로 '바깥 배경'만 투명 처리한다(로고 내부의 흰색은 보존).
+// 단색/근단색 배경 로고에 강함. 테두리가 균일하지 않으면(사진·복잡 배경) null 반환 → ML 폴백.
+function removeBackgroundByFloodFill(image: HTMLImageElement): string | null {
+    if (!image.width || !image.height) return null;
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return null;
+
+    const w = (canvas.width = image.width);
+    const h = (canvas.height = image.height);
+    context.drawImage(image, 0, 0);
+
+    let imageData: ImageData;
+    try {
+        imageData = context.getImageData(0, 0, w, h);
+    } catch {
+        return null;
+    }
+    const data = imageData.data;
+
+    // 테두리 픽셀 샘플링으로 배경색·균일도·기존 투명 여부 판단.
+    const stepX = Math.max(1, Math.floor(w / 80));
+    const stepY = Math.max(1, Math.floor(h / 80));
+    const samples: number[] = [];
+    let alphaSum = 0;
+    let alphaCount = 0;
+    const sample = (x: number, y: number) => {
+        const i = (y * w + x) * 4;
+        samples.push(i);
+        alphaSum += data[i + 3];
+        alphaCount += 1;
+    };
+    for (let x = 0; x < w; x += stepX) {
+        sample(x, 0);
+        sample(x, h - 1);
+    }
+    for (let y = 0; y < h; y += stepY) {
+        sample(0, y);
+        sample(w - 1, y);
+    }
+
+    // 이미 투명 배경이면(테두리 평균 알파 낮음) 원본 그대로 유지.
+    if (alphaCount > 0 && alphaSum / alphaCount < 20) {
+        return exportTrimmedTransparent(canvas, data);
+    }
+
+    let bgR = 0;
+    let bgG = 0;
+    let bgB = 0;
+    for (const i of samples) {
+        bgR += data[i];
+        bgG += data[i + 1];
+        bgB += data[i + 2];
+    }
+    bgR /= samples.length;
+    bgG /= samples.length;
+    bgB /= samples.length;
+
+    let variance = 0;
+    for (const i of samples) {
+        variance += Math.hypot(data[i] - bgR, data[i + 1] - bgG, data[i + 2] - bgB);
+    }
+    variance /= samples.length;
+    // 테두리가 균일하지 않으면(사진/그라데이션) flood-fill 부적합.
+    if (variance > 38) return null;
+
+    const tolerance = 52;
+    const feather = tolerance * 1.7;
+    const visited = new Uint8Array(w * h);
+    const stack: number[] = [];
+    const seed = (x: number, y: number) => {
+        if (x < 0 || y < 0 || x >= w || y >= h) return;
+        const p = y * w + x;
+        if (visited[p]) return;
+        visited[p] = 1;
+        stack.push(p);
+    };
+    for (let x = 0; x < w; x += 1) {
+        seed(x, 0);
+        seed(x, h - 1);
+    }
+    for (let y = 0; y < h; y += 1) {
+        seed(0, y);
+        seed(w - 1, y);
+    }
+
+    while (stack.length) {
+        const p = stack.pop() as number;
+        const i = p * 4;
+        const dist = Math.hypot(data[i] - bgR, data[i + 1] - bgG, data[i + 2] - bgB);
+
+        if (dist > tolerance) {
+            // 경계 픽셀: 배경에 가까우면 부분 투명으로 흰 테두리(halo) 제거, 아니면 로고이므로 멈춤.
+            if (dist < feather) {
+                const ratio = (dist - tolerance) / (feather - tolerance);
+                data[i + 3] = Math.min(data[i + 3], Math.round(255 * ratio));
+            }
+            continue;
+        }
+
+        data[i + 3] = 0;
+        const x = p % w;
+        const y = (p - x) / w;
+        seed(x + 1, y);
+        seed(x - 1, y);
+        seed(x, y + 1);
+        seed(x, y - 1);
+    }
+
+    context.putImageData(imageData, 0, 0);
+    return exportTrimmedTransparent(canvas, data);
+}
+
 function blobToDataUrl(blob: Blob) {
     return new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -1408,8 +1561,20 @@ async function processLogoImage(
     image: HTMLImageElement,
     fallbackDataUrl: string,
 ): Promise<{ dataUrl: string; image: HTMLImageElement }> {
+    // 1순위: 테두리 flood-fill 단색 배경 제거. 로고(평평한 흰/단색 배경)에 가장 깔끔 —
+    // 흰 박스/halo 없이 바깥 배경만 투명 처리하고 로고 내부는 보존한다.
+    const floodDataUrl = removeBackgroundByFloodFill(image);
+    if (floodDataUrl) {
+        try {
+            const floodImage = await loadImageFromDataUrl(floodDataUrl);
+            return { dataUrl: floodDataUrl, image: floodImage };
+        } catch {
+            // 무시하고 다음 방법으로.
+        }
+    }
+
     try {
-        // 브라우저 내 ML 모델로 배경 제거(복잡/그라데이션 배경도 처리).
+        // 2순위: 브라우저 내 ML 모델로 배경 제거(복잡/사진 배경 대응).
         const blob = await removeBackground(fallbackDataUrl);
         const dataUrl = await blobToDataUrl(blob);
 
