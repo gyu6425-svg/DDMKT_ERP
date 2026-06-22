@@ -5,6 +5,7 @@ create table if not exists public.api_usage (
     id uuid primary key default gen_random_uuid(),
     created_at timestamptz not null default now(),
     user_email text,
+    operator_name text,
     provider text not null,
     model text,
     banner_size text,
@@ -15,9 +16,10 @@ create table if not exists public.api_usage (
     cost_usd numeric
 );
 
--- 기존에 테이블을 이미 만들었다면 아래 두 줄만 실행해 컬럼을 추가하세요.
+-- 기존에 테이블을 이미 만들었다면 아래 줄만 실행해 컬럼을 추가하세요.
 alter table public.api_usage add column if not exists total_tokens integer;
 alter table public.api_usage add column if not exists cost_usd numeric;
+alter table public.api_usage add column if not exists operator_name text;
 
 create index if not exists api_usage_created_at_idx on public.api_usage (created_at desc);
 create index if not exists api_usage_provider_idx on public.api_usage (provider);

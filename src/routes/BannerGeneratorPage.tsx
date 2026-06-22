@@ -22,7 +22,7 @@ export type BannerSize = {
 };
 
 const bannerSizes: BannerSize[] = [
-    { height: 1254, id: 'square', label: '1254 x 1254', name: '정사각형', width: 1254 },
+    { height: 1080, id: 'square', label: '1080 x 1080', name: '정사각형', width: 1080 },
     { height: 941, id: 'bottom', label: '1672 x 941', name: '하단배너', width: 1672 },
 ];
 
@@ -235,6 +235,76 @@ const colorPresets = [
         accentColor: '#b45309',
         backgroundColor: '#fffbeb',
         textColor: '#222222',
+    },
+];
+
+// 업종(카테고리)별 무드 프리셋. 드롭다운에서 선택하면 (1) 색 팔레트를 폼에 적용하고
+// (2) directive(영문 무드 지시)를 프롬프트의 [업종·분위기] 블록으로 주입한다.
+// directive는 색감/이미지 무드에만 반영되며, 이미지에 글자로 렌더되지 않도록 프롬프트에서 명시한다.
+// 템플릿=어떻게 보이나(렌더 스타일), 카테고리=무엇에 관한가(업종 무드+색).
+export type BannerCategory = {
+    id: string;
+    name: string;
+    directive: string;
+    palette: { backgroundColor: string; accentColor: string; textColor: string };
+};
+
+const CATEGORY_PRESETS: BannerCategory[] = [
+    {
+        id: 'education',
+        name: '교육',
+        directive:
+            'Education & learning brand mood: trustworthy, clean and academic. Cool blue/teal palette, crisp geometric sans typography feel, subtle book/pencil/graduation motifs only as light decoration.',
+        palette: { backgroundColor: '#eef4ff', accentColor: '#1d4ed8', textColor: '#0f1f3d' },
+    },
+    {
+        id: 'medical',
+        name: '의료',
+        directive:
+            'Healthcare & clinic mood: calm, clean, hygienic and reassuring. Soft sky-blue and white with a touch of mint, gentle rounded shapes, cross/heart/shield motifs as light accents. Warm but professional, never cold.',
+        palette: { backgroundColor: '#f0f8ff', accentColor: '#0ea5e9', textColor: '#0b2540' },
+    },
+    {
+        id: 'food',
+        name: '음식',
+        directive:
+            'Food & beverage mood: warm, appetizing and inviting. Cream, warm orange and deep red tones, cozy lighting feel, fresh ingredient or steam motifs as light decoration. Make it look delicious.',
+        palette: { backgroundColor: '#fff5ea', accentColor: '#ea580c', textColor: '#4a2a17' },
+    },
+    {
+        id: 'appliance',
+        name: '가전',
+        directive:
+            'Home appliance & electronics mood: modern, sleek and high-tech. Cool neutral grays with one crisp accent, clean product-spotlight lighting, minimal premium look.',
+        palette: { backgroundColor: '#f4f5f7', accentColor: '#2563eb', textColor: '#111827' },
+    },
+    {
+        id: 'beauty',
+        name: '뷰티',
+        directive:
+            'Beauty & cosmetics mood: elegant, soft and premium. Blush pink, rose and champagne-gold tones, refined airy composition, glossy/silky texture feel.',
+        palette: { backgroundColor: '#fdf2f4', accentColor: '#db2777', textColor: '#3b1f2b' },
+    },
+    {
+        id: 'interior',
+        name: '인테리어/부동산',
+        directive:
+            'Interior & real estate mood: warm, sophisticated and spacious. Natural beige, warm wood and muted earth tones, clean architectural feel, soft natural light.',
+        palette: { backgroundColor: '#f6f1ea', accentColor: '#b45309', textColor: '#2a2118' },
+    },
+    {
+        id: 'fashion',
+        name: '패션',
+        directive:
+            'Fashion & apparel mood: chic, bold and editorial. High-contrast monochrome with one striking accent, magazine-like minimal typography feel, confident and stylish.',
+        palette: { backgroundColor: '#f5f5f5', accentColor: '#111111', textColor: '#111111' },
+    },
+    {
+        id: 'service',
+        name: '생활서비스',
+        directive:
+            'Local home-service mood (repair, cleaning, leak detection, moving): reliable, fast and reassuring. Confident blue with a strong action accent, bold clear typography feel, clean trustworthy look.',
+        palette: { backgroundColor: '#eef5ff', accentColor: '#1457ff', textColor: '#0b1f44' },
     },
 ];
 
@@ -578,6 +648,7 @@ function createFormFromRawText(
     rawText: string,
     currentForm: BannerForm,
     imageMeta: ImageMeta | null,
+    categoryPalette?: BannerCategory['palette'],
 ): BannerForm {
     const normalizedText = normalizeCopyText(rawText);
 
@@ -587,7 +658,8 @@ function createFormFromRawText(
 
     const analyzedCopy = analyzeCopyText(normalizedText);
     const layoutVariant = inferLayoutVariant(normalizedText, imageMeta);
-    const colors = inferColors(normalizedText, layoutVariant);
+    // 카테고리가 선택돼 있으면 그 팔레트를 색의 원천으로 쓰고 자동 색추론(inferColors)은 건너뛴다.
+    const colors = categoryPalette ?? inferColors(normalizedText, layoutVariant);
 
     return {
         ...currentForm,
@@ -1158,7 +1230,13 @@ function drawBanner(
         return;
     }
 
+    // 수동 레이아웃은 CANVAS_SIZE(1254) 좌표계로 그려져 있어, 정사각 출력 크기가 바뀌어도
+    // 캔버스 크기에 맞게 스케일해 미리보기가 잘리지 않게 한다. (AI 출력은 composeFinalCardImage가 별도 처리)
+    const squareScale = bannerSize.width / CANVAS_SIZE;
+    context.save();
+    context.scale(squareScale, squareScale);
     drawTemplateOne(context, form, image);
+    context.restore();
     if (logo) {
         drawLogoOverlay(context, logo, bannerSize);
     }
@@ -1479,6 +1557,32 @@ function coverBrandBox(context: CanvasRenderingContext2D, box: BrandBox, fillCol
     context.fillRect(box.x - padding, box.y - padding, box.width + padding * 2, box.height + padding * 2);
 }
 
+// 로고 이미지가 없을 때 브랜드명을 고정 박스 안에 또렷한 고딕체로 합성한다(AI 렌더 대신 고정 위치 보장).
+function drawBrandTextInBox(
+    context: CanvasRenderingContext2D,
+    text: string,
+    box: BrandBox,
+    color: string,
+) {
+    context.save();
+    context.fillStyle = color;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+
+    let fontSize = Math.floor(box.height * 0.72);
+    const setFont = () => {
+        context.font = `700 ${fontSize}px 'Pretendard', 'Noto Sans KR', sans-serif`;
+    };
+    setFont();
+    while (context.measureText(text).width > box.width && fontSize > 12) {
+        fontSize -= 1;
+        setFont();
+    }
+
+    context.fillText(text, box.x + box.width / 2, box.y + box.height / 2);
+    context.restore();
+}
+
 function drawLogoInBox(context: CanvasRenderingContext2D, logo: HTMLImageElement, box: BrandBox) {
     const scale = Math.min(box.width / logo.width, box.height / logo.height);
     const width = logo.width * scale;
@@ -1519,11 +1623,17 @@ async function composeFinalCardImage(
     context.fillRect(0, 0, bannerSize.width, bannerSize.height);
     drawCoverImage(context, image, 0, 0, bannerSize.width, bannerSize.height);
 
-    // 로고 파일만 코드가 우측 상단에 고정 합성(픽셀 동일). 브랜드명(파일 없음)은 AI가 프롬프트 지정 위치에 그린다.
-    if (logo) {
+    // 브랜드는 항상 코드로 우측 상단 고정 박스에 합성(픽셀 동일) → 몇 장을 뽑든 위치 동일.
+    // 로고 파일이 있으면 누끼 처리된 로고를, 없고 브랜드명만 있으면 텍스트를 같은 박스에 넣는다.
+    // (AI 는 그 자리를 비워두기만 함 — AI 가 브랜드를 그리면 위치가 매번 달라지던 문제를 제거)
+    if (logo || form.badge) {
         const brandBox = getBrandBox(bannerSize, brandPreset.corner);
         coverBrandBox(context, brandBox, backgroundColor);
-        drawLogoInBox(context, logo, brandBox);
+        if (logo) {
+            drawLogoInBox(context, logo, brandBox);
+        } else if (form.badge) {
+            drawBrandTextInBox(context, form.badge, brandBox, form.textColor || '#111827');
+        }
     }
 
     return canvas.toDataURL('image/png');
@@ -1571,6 +1681,10 @@ function BannerGeneratorPage() {
     const [pages, setPages] = useState<CardNewsPage[]>(() => [createCardNewsPage(1)]);
     const [activePageId, setActivePageId] = useState(() => pages[0]?.id || '');
     const [selectedTemplateId, setSelectedTemplateId] = useState<TemplateId>('template-1');
+    const [selectedCategoryId, setSelectedCategoryId] = useState('');
+    const [operatorName, setOperatorName] = useState(
+        () => localStorage.getItem('erp_operator_name') || '',
+    );
     const pagesRef = useRef(pages);
     const activePage = pages.find((page) => page.id === activePageId) || pages[0];
     const form = activePage?.form || defaultForm;
@@ -1579,6 +1693,7 @@ function BannerGeneratorPage() {
         bannerSizes.find((bannerSize) => bannerSize.id === activePage?.bannerSizeId) ||
         bannerSizes[0];
     const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
+    const selectedCategory = CATEGORY_PRESETS.find((category) => category.id === selectedCategoryId);
 
     useEffect(() => {
         pagesRef.current = pages;
@@ -1661,6 +1776,27 @@ function BannerGeneratorPage() {
         );
     };
 
+    // 카테고리 선택 시: 무드 색 팔레트를 모든 페이지 폼에 적용(색은 공유 필드).
+    // 이후 색상 피커로 수동 변경하면 그 값이 우선(사용자 > 카테고리 > 자동추론).
+    const handleSelectCategory = (categoryId: string) => {
+        setSelectedCategoryId(categoryId);
+        const palette = CATEGORY_PRESETS.find((category) => category.id === categoryId)?.palette;
+        if (!palette) {
+            return;
+        }
+        setPages((currentPages) =>
+            currentPages.map((page) => ({
+                ...page,
+                form: {
+                    ...page.form,
+                    accentColor: palette.accentColor,
+                    backgroundColor: palette.backgroundColor,
+                    textColor: palette.textColor,
+                },
+            })),
+        );
+    };
+
     const updatePageTextField = (
         pageId: string,
         field: Extract<keyof BannerForm, 'emphasis' | 'subtitle' | 'title'>,
@@ -1716,6 +1852,7 @@ function BannerGeneratorPage() {
                                 nextRawText,
                                 page.form,
                                 page.imageMetas[0],
+                                selectedCategory?.palette,
                             ),
                             rawText: nextRawText,
                         };
@@ -1825,6 +1962,7 @@ function BannerGeneratorPage() {
                                           imageIndex === 0
                                               ? nextImageMeta
                                               : page.imageMetas[0],
+                                          selectedCategory?.palette,
                                       ),
                                       imageMetas: page.imageMetas.map((imageMeta, index) =>
                                           index === imageIndex ? nextImageMeta : imageMeta,
@@ -2059,6 +2197,7 @@ function BannerGeneratorPage() {
                 const result = await generateAiCardImage({
                     bannerSize: pageBannerSize,
                     brandCorner: runBrandPreset.corner,
+                    categoryDirective: selectedCategory?.directive,
                     campaignStyleReferenceImageDataUrls:
                         options.campaignStyleReferenceImageDataUrls.slice(0, 1),
                     form: page.form,
@@ -2114,6 +2253,7 @@ function BannerGeneratorPage() {
                     banner_size: pageBannerSize.id,
                     cost_usd: result.usage ? computeActualCostUsd(result.usage) : null,
                     elapsed_ms: Date.now() - cardStartedAt,
+                    operator_name: operatorName || null,
                     provider: imageProvider,
                     status: 'success',
                     total_tokens: result.usage?.total_tokens ?? null,
@@ -2135,6 +2275,7 @@ function BannerGeneratorPage() {
                         banner_size: pageBannerSize.id,
                         elapsed_ms: Date.now() - cardStartedAt,
                         error_message: message,
+                        operator_name: operatorName || null,
                         provider: imageProvider,
                         status: 'error',
                         user_email: user?.email ?? null,
@@ -2489,6 +2630,44 @@ function BannerGeneratorPage() {
                                 value={form.textColor}
                             />
                         </label>
+                    </div>
+
+                    <div className="grid gap-2">
+                        <strong className="text-m text-[#111111]">내 이름(작업자)</strong>
+                        <input
+                            className="h-11 w-full rounded-md border border-[#d1d5db] bg-white px-3 text-sm font-semibold text-[#111827]"
+                            onChange={(event) => {
+                                const value = event.target.value;
+                                setOperatorName(value);
+                                localStorage.setItem('erp_operator_name', value);
+                            }}
+                            placeholder="예: 홍길동"
+                            type="text"
+                            value={operatorName}
+                        />
+                        <p className="m-0 text-xs leading-5 text-[#6b7280]">
+                            여러 명이 함께 쓸 때 누가 생성했는지 사용량 기록에 남깁니다. (이 기기에 저장)
+                        </p>
+                    </div>
+
+                    <div className="grid gap-2">
+                        <strong className="text-m text-[#111111]">업종 카테고리(무드)</strong>
+                        <select
+                            className="h-11 w-full rounded-md border border-[#d1d5db] bg-white px-3 text-sm font-semibold text-[#111827]"
+                            onChange={(event) => handleSelectCategory(event.target.value)}
+                            value={selectedCategoryId}
+                        >
+                            <option value="">미지정 (자동)</option>
+                            {CATEGORY_PRESETS.map((category) => (
+                                <option key={category.id} value={category.id}>
+                                    {category.name}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="m-0 text-xs leading-5 text-[#6b7280]">
+                            업종을 고르면 그 업종에 맞는 색감·이미지 무드로 생성됩니다. (색상은 자동
+                            적용되며, 아래 색상 피커로 직접 바꾸면 그 값이 우선)
+                        </p>
                     </div>
 
                     <div className="grid gap-2">

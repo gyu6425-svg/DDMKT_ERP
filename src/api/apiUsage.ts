@@ -7,6 +7,7 @@ export type ApiUsageRecord = {
     id: string;
     created_at: string;
     user_email: string | null;
+    operator_name: string | null;
     provider: string;
     model: string | null;
     banner_size: string | null;
@@ -19,6 +20,7 @@ export type ApiUsageRecord = {
 
 export type ApiUsageInput = {
     user_email?: string | null;
+    operator_name?: string | null;
     provider: string;
     model?: string | null;
     banner_size?: string | null;
@@ -59,6 +61,7 @@ export async function logApiUsage(input: ApiUsageInput) {
             elapsed_ms: input.elapsed_ms ?? null,
             error_message: input.error_message ?? null,
             model: input.model ?? null,
+            operator_name: input.operator_name ?? null,
             provider: input.provider,
             status: input.status,
             total_tokens: input.total_tokens ?? null,

@@ -518,6 +518,7 @@ function buildPrompt({
     brandCorner,
     customPrompt,
     campaignStyleReferenceImageDataUrls,
+    categoryDirective,
     form,
     imageDataUrl,
     imageDataUrls,
@@ -621,14 +622,10 @@ PRIMARY LAYOUT DIRECTION (must follow):
             : brandCorner === 'top-center'
               ? '상단 중앙'
               : '좌측 상단';
-    const brandLine = logoDataUrl
-        ? `${cornerKo} 모서리에 로고가 들어갈 작은 빈 자리만 비워두기 (그 자리엔 글자·그림을 넣지 말 것 — 로고는 나중에 합성). 메인 제목과 본문은 그 아래·왼쪽 영역에 배치.`
-        : form.badge
-          ? `${cornerKo} 모서리에 '${form.badge}' 브랜드명을 작게 고정 배치:
-- 위치 고정: 오른쪽 가장자리에서 약 5%, 위쪽에서 약 5% 안쪽. 모든 카드에서 정확히 같은 위치·같은 크기·같은 굵기·같은 색으로.
-- 메인 제목 글씨의 1/3 이하로 작게, 단정한 굵은 고딕체, 색은 ${form.textColor || '#111827'}.
-- 브랜드명은 그 자리에만 한 번. 다른 곳엔 절대 넣지 말 것. 메인 제목/본문은 그 아래·왼쪽 영역에.`
-          : `${cornerKo} 모서리는 단정하게 비우기`;
+    const brandLine =
+        logoDataUrl || form.badge
+            ? `${cornerKo} 모서리에 브랜드(로고/브랜드명)가 들어갈 작은 빈 자리만 비워두기 (그 자리엔 글자·그림·아이콘을 넣지 말 것 — 브랜드는 생성 후 고정 위치에 합성됨). 메인 제목과 본문은 그 아래·왼쪽 영역에 배치.`
+            : `${cornerKo} 모서리는 단정하게 비우기`;
     const subtitleLine = form.subtitle ? `\n· 본문: ${form.subtitle}` : '';
     const emphasisLine = form.emphasis
         ? `\n· 강조 문구(포인트 컬러로 가장 눈에 띄게, 필요하면 박스나 배지 안에): ${form.emphasis}`
@@ -636,6 +633,9 @@ PRIMARY LAYOUT DIRECTION (must follow):
     const ctaLine = form.cta ? `\n· 하단 CTA: 검정색 바 안에 흰 글씨로 '${form.cta}'` : '';
     const templateLine = templateDirection ? `\n- 스타일: ${templateDirection}` : '';
     const styleLine = styleDirective ? `\n- 레이아웃 방향: ${styleDirective}` : '';
+    const categoryMoodBlock = categoryDirective
+        ? `\n[업종·분위기 가이드 — 색감/이미지 무드에만 반영. 아래 영문 설명은 절대 이미지에 글자로 넣지 말 것]\n- ${categoryDirective}\n`
+        : '';
 
     return `한국어 ${usageLabel}을(를) 만들어줘. 깔끔하고 신뢰감 있는 마케팅 디자인, 광고 클릭을 유도하는 구조.
 
@@ -644,7 +644,7 @@ PRIMARY LAYOUT DIRECTION (must follow):
 
 [브랜드]
 ${brandLine}.
-
+${categoryMoodBlock}
 [들어갈 한글 텍스트 — 아래 문구를 철자와 띄어쓰기 그대로, 글자 깨짐 없이 정확히 렌더]
 · 메인 제목(가장 크고 굵게): ${form.title || ''}${subtitleLine}${emphasisLine}${ctaLine}
 
