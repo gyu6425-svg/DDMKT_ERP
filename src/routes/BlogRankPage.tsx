@@ -560,6 +560,18 @@ function SheetTab({
                                             >
                                                 {a.blog_id || extractBlogId(a.blog_url)}
                                             </a>
+                                            {a.contract_date || a.amount ? (
+                                                <div className="mt-0.5 flex flex-wrap gap-1.5 text-[11px] text-[#64748b]">
+                                                    {a.contract_date ? (
+                                                        <span>📅 {a.contract_date}</span>
+                                                    ) : null}
+                                                    {a.amount ? (
+                                                        <span className="font-semibold text-[#475569]">
+                                                            💰 {a.amount}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
                                         </td>
                                         <td className="px-3 py-2">
                                             {a.manager ? (
