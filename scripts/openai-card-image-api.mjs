@@ -719,79 +719,83 @@ async function generateOpenAiCardImage(payload) {
         });
     });
 
-    let openaiResponse;
+    const requestBody = JSON.stringify({
+        input: [{ content, role: 'user' }],
+        model,
+        tools: [{ quality, size: outputSize, type: 'image_generation' }],
+    });
 
-    try {
-        // GPT-5.5(추론 모델) + image_generation 툴 경로 — 한글 렌더 품질이 직접 호출보다 좋다.
-        openaiResponse = await fetch(OPENAI_API_URL, {
-            body: JSON.stringify({
-                input: [
-                    {
-                        content,
-                        role: 'user',
-                    },
-                ],
-                model,
-                tools: [
-                    {
-                        quality,
-                        size: outputSize,
-                        type: 'image_generation',
-                    },
-                ],
-            }),
-            headers: {
-                Authorization: `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            method: 'POST',
-        });
-    } catch (error) {
-        const errorDetails = describeError(error);
-        rememberRequest({
-            elapsedMs: Date.now() - startedAt,
-            id: requestId,
-            provider: 'openai',
-            status: 'error',
-            ...errorDetails,
-        });
-        throw error;
+    // 추론모델(gpt-5.5)이 간헐적으로 이미지를 안 내거나(추론만 하고 종료) 일시 오류(429/5xx)면 1회 더 시도.
+    let imageBase64 = '';
+    let lastResult = null;
+    const MAX_ATTEMPTS = 2;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+        let openaiResponse;
+        try {
+            openaiResponse = await fetch(OPENAI_API_URL, {
+                body: requestBody,
+                headers: {
+                    Authorization: `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json',
+                },
+                method: 'POST',
+            });
+        } catch (error) {
+            const errorDetails = describeError(error);
+            rememberRequest({
+                elapsedMs: Date.now() - startedAt,
+                id: requestId,
+                provider: 'openai',
+                status: 'error',
+                ...errorDetails,
+            });
+            throw error;
+        }
+
+        lastResult = await readJsonResponse(openaiResponse);
+
+        if (!openaiResponse.ok) {
+            if ((openaiResponse.status === 429 || openaiResponse.status >= 500) && attempt < MAX_ATTEMPTS) {
+                continue;
+            }
+            rememberRequest({
+                elapsedMs: Date.now() - startedAt,
+                id: requestId,
+                message: lastResult?.error?.message || 'OpenAI request failed',
+                openaiStatus: openaiResponse.status,
+                status: 'error',
+            });
+            return {
+                body: {
+                    message: lastResult?.error?.message || 'OpenAI 이미지 생성 요청에 실패했습니다.',
+                },
+                statusCode: openaiResponse.status,
+            };
+        }
+
+        const imageOutput = lastResult.output?.find((item) => item.type === 'image_generation_call');
+        imageBase64 = imageOutput?.result || '';
+        if (imageBase64) {
+            break;
+        }
+        // 이미지 없음 → 다음 attempt 에서 재시도
     }
 
-    const result = await readJsonResponse(openaiResponse);
     const elapsedMs = Date.now() - startedAt;
 
-    if (!openaiResponse.ok) {
-        rememberRequest({
-            elapsedMs,
-            id: requestId,
-            message: result?.error?.message || 'OpenAI request failed',
-            openaiStatus: openaiResponse.status,
-            status: 'error',
-        });
-        return {
-            body: {
-                message: result?.error?.message || 'OpenAI 이미지 생성 요청에 실패했습니다.',
-            },
-            statusCode: openaiResponse.status,
-        };
-    }
-
-    const imageOutput = result.output?.find((item) => item.type === 'image_generation_call');
-    const imageBase64 = imageOutput?.result;
-
     if (!imageBase64) {
+        const reason = lastResult?.incomplete_details?.reason || lastResult?.status || '';
         rememberRequest({
             elapsedMs,
             id: requestId,
-            message: 'No image in response',
+            message: `No image in response${reason ? ` (${reason})` : ''}`,
             status: 'error',
         });
-
         return {
             body: {
                 message:
-                    result?.error?.message || 'OpenAI 응답에서 생성 이미지를 찾지 못했습니다.',
+                    lastResult?.error?.message ||
+                    `재시도 후에도 이미지를 받지 못했습니다${reason ? ` (사유: ${reason})` : ''}. 잠시 후 다시 시도하거나 입력 문구를 줄여보세요.`,
             },
             statusCode: 502,
         };
@@ -811,7 +815,7 @@ async function generateOpenAiCardImage(payload) {
                 payload,
             ),
             prompt,
-            usage: result.usage || null,
+            usage: lastResult.usage || null,
         },
         statusCode: 200,
     };
