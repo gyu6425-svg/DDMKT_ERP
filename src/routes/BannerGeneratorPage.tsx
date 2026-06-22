@@ -2093,6 +2093,10 @@ function BannerGeneratorPage() {
     const [campaignConsistency, setCampaignConsistency] = useState<'exact' | 'style'>(() =>
         localStorage.getItem('erp_campaign_consistency') === 'style' ? 'style' : 'exact',
     );
+    // 참고 이미지 사용 방식: 'recreate'=AI가 재해석/재구성(기존), 'product'=업로드한 실사 제품 사진을 그대로 히어로로 보존.
+    const [referenceUsage, setReferenceUsage] = useState<'recreate' | 'product'>(() =>
+        localStorage.getItem('erp_reference_usage') === 'product' ? 'product' : 'recreate',
+    );
     // 상위 탭(생성/작업 기록). 한 컴포넌트 안에서 전환하므로 탭을 바꿔도 생성기는 마운트 유지 → 계속 돌아감.
     const [view, setView] = useState<'create' | 'gallery'>('create');
     const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
@@ -2638,6 +2642,7 @@ function BannerGeneratorPage() {
                     campaignStyleReferenceImageDataUrls:
                         options.campaignStyleReferenceImageDataUrls.slice(0, 1),
                     campaignConsistency,
+                    referenceUsage,
                     form: aiForm,
                     imageDataUrls: maskedImageDataUrls,
                     imageQuality,
@@ -3064,6 +3069,44 @@ function BannerGeneratorPage() {
                             </label>
                         ))}
                     </div>
+
+                    {activePage?.imageDataUrls?.some(Boolean) ? (
+                        <div className="grid gap-2">
+                            <strong className="text-m text-[#111111]">참고 이미지 사용 방식</strong>
+                            <div className="grid grid-cols-2 gap-2">
+                                {(
+                                    [
+                                        ['recreate', '재구성 · AI가 새로 그림'],
+                                        ['product', '제품 사진 그대로 · 실사 보존'],
+                                    ] as Array<['recreate' | 'product', string]>
+                                ).map(([value, label]) => {
+                                    const selected = referenceUsage === value;
+                                    return (
+                                        <Button
+                                            className={`h-11 rounded-md border px-3 text-sm font-semibold ${
+                                                selected
+                                                    ? 'border-[#1457ff] bg-[#eff6ff] text-[#111827]'
+                                                    : 'border-[#d1d5db] bg-white text-[#4b5563]'
+                                            }`}
+                                            key={value}
+                                            onClick={() => {
+                                                setReferenceUsage(value);
+                                                localStorage.setItem('erp_reference_usage', value);
+                                            }}
+                                            type="button"
+                                        >
+                                            {label}
+                                        </Button>
+                                    );
+                                })}
+                            </div>
+                            <p className="m-0 text-xs leading-5 text-[#6b7280]">
+                                '제품 사진 그대로'는 업로드한 실제 제품 사진을 다시 그리지 않고 그대로 주인공으로
+                                쓰고, 한글 문구·배경·장식을 그 주위에 자연스럽게 배치합니다. (배경이 깔끔한
+                                사진일수록 결과가 좋아요)
+                            </p>
+                        </div>
+                    ) : null}
 
                     {pages.length > 1 ? (
                         <Button

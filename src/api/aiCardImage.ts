@@ -9,6 +9,7 @@ export type GenerateAiCardImageInput = {
     categoryDirective?: string;
     campaignStyleReferenceImageDataUrls?: string[];
     campaignConsistency?: 'exact' | 'style';
+    referenceUsage?: 'recreate' | 'product';
     form: BannerForm;
     imageDataUrls?: string[];
     imageQuality?: 'low' | 'medium' | 'high';
@@ -58,6 +59,7 @@ export async function generateAiCardImage({
     categoryDirective,
     campaignStyleReferenceImageDataUrls,
     campaignConsistency,
+    referenceUsage,
     form,
     imageDataUrls,
     imageQuality,
@@ -97,6 +99,7 @@ export async function generateAiCardImage({
                 categoryDirective,
                 campaignStyleReferenceImageDataUrls,
                 campaignConsistency,
+                referenceUsage,
                 form,
                 imageDataUrls,
                 imageQuality,

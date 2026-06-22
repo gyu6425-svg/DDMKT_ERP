@@ -519,6 +519,7 @@ function buildPrompt({
     customPrompt,
     campaignStyleReferenceImageDataUrls,
     campaignConsistency = 'exact',
+    referenceUsage = 'recreate',
     categoryDirective,
     form,
     imageDataUrl,
@@ -554,7 +555,17 @@ function buildPrompt({
         referenceLibraryImageDataUrls,
     });
     const imageDirection = referenceImages.length
-        ? `- ${referenceImages.length} reference image(s) were uploaded.
+        ? referenceUsage === 'product'
+            ? `- ${referenceImages.length} reference image(s) were uploaded, and they are REAL PRODUCT PHOTOS of the actual product being advertised.
+- PRESERVE the uploaded product faithfully and treat it as the genuine hero of this ad — exactly like a real product advertisement where the real photographed product is the main visual.
+- Do NOT redraw, repaint, re-render, recolor, restyle, relight, smooth, "improve", or replace the product. Do NOT invent a different or similar-looking product, variant, size, or cap. Keep its EXACT shape, proportions, materials, finish, colors, and all label/packaging text and logos unchanged — do not change, translate, add, or remove any text on the packaging.
+- Keep it photographic. Do NOT turn it into an illustration, 3D render, cartoon, or stylized version.
+- The product must look like the SAME real photograph, just placed into the new ad — not an AI re-drawing.
+- Integrate it naturally so it does NOT look pasted, cut-out, or like a sticker: match the lighting direction and color temperature between product and background, add a soft realistic contact shadow / gentle reflection, and blend edges cleanly into a cohesive scene. The product and background should feel photographed together in one shot.
+- Build the advertisement layout AROUND the product: Korean copy in a clean text area beside or below it, with a tasteful background and light decorations and strong contrast so both product and text read clearly. Keep the product prominent, fully visible, and uncropped.
+- Keep the TOP-RIGHT corner area clear and calm for a brand logo composited later.
+- (업로드된 이미지는 실제 광고할 '실사 제품 사진'이다. 절대 다시 그리거나 재해석하지 말고 사진 원본 그대로 — 모양·비율·재질·라벨/패키지 글자·색·디테일 100% 동일 — 광고의 주인공으로 사용한다. 일러스트·3D·만화·스타일 변형 금지, 비슷한 다른 제품으로 바꾸지 말 것. '붙인/누끼 스티커' 느낌이 나지 않게: 제품과 배경의 빛 방향·색온도를 맞추고, 부드러운 접지 그림자/은은한 반사를 넣어 한 장면에서 함께 촬영된 것처럼 자연스럽게 융화시킨다. 한글 문구·배경·장식은 제품을 돋보이게 하는 보조로 그 주위에 배치하고, 우측 상단 모서리는 로고를 위해 비워둔다.)`
+            : `- ${referenceImages.length} reference image(s) were uploaded.
 - Use uploaded images as visual references, not as exact screenshots.
 - Combine the main subject, mood, colors, and context naturally.
 - Do not create a collage unless the copy clearly requires it.
@@ -647,13 +658,16 @@ ${brandLine ? `[브랜드]\n${brandLine}.\n` : ''}${categoryMoodBlock}
 [들어갈 한글 텍스트 — 아래 문구를 철자와 띄어쓰기 그대로, 글자 깨짐 없이 정확히 렌더]
 · 메인 제목(가장 크고 굵게): ${form.title || ''}${subtitleLine}${emphasisLine}${ctaLine}
 
+[이미지 활용]
+${imageDirection}
+
 [디자인 규칙]
 - 굵고 가독성 높은 한글 타이포그래피. 핵심 문구가 한눈에 보이게.
 - ⚠️ 모든 한글은 반드시 가로쓰기. 세로쓰기·글자 회전·세로로 한 글자씩 쪼개 배치 절대 금지(가독성 최우선). 사이드 세로 띠에 글자를 세워 넣지 말 것.
 - 현대적이고 깔끔한 전문 편집 디자인: 명확한 위계, 넉넉한 여백, 정돈된 구성. 조잡한 클립아트풍·과밀 배치 금지. (예: 좌측 굵은 헤드라인 + 한쪽에 깔끔한 사진/그래픽 균형)
 - 강조 문구는 포인트 컬러의 둥근 하이라이트 박스(알약형 배지) 안에 넣어 또렷하게.
 - 위에 적은 한글만 정확히 넣고, 그 외 영어 라벨·캡션·워터마크는 넣지 마.
-- 첨부된 참고/기준 이미지가 있어도 그 안의 글자·로고·브랜드명·회사명·간판 문구는 절대 따라 그리거나 재현하지 마. 이미지는 피사체·구도·색감·분위기 참고로만 쓰고, 화면에 들어가는 글자는 오직 위 [들어갈 한글 텍스트]뿐이다. (Do NOT copy or recreate any text, letters, logo, or brand/company name from any attached reference/master image — use it only for subject, composition, color, and mood.)
+${referenceUsage === 'product' && referenceImages.length ? `- 첨부된 제품 사진의 라벨·패키지 글자·로고는 '제품의 일부'이므로 원본 그대로 유지한다(지우거나 바꾸거나 새로 만들지 말 것). 단, 그 글자를 배너의 제목/마케팅 문구로 따로 키워 렌더하지는 말 것 — 배너에 들어가는 문구는 오직 위 [들어갈 한글 텍스트]뿐이다. (Keep the product's own on-package label/text/logo exactly as in the photo — do not erase, change, or regenerate it — but do not turn that on-package text into the banner's headline/marketing copy.)` : `- 첨부된 참고/기준 이미지가 있어도 그 안의 글자·로고·브랜드명·회사명·간판 문구는 절대 따라 그리거나 재현하지 마. 이미지는 피사체·구도·색감·분위기 참고로만 쓰고, 화면에 들어가는 글자는 오직 위 [들어갈 한글 텍스트]뿐이다. (Do NOT copy or recreate any text, letters, logo, or brand/company name from any attached reference/master image — use it only for subject, composition, color, and mood.)`}
 - 과하게 복잡하지 않게, 여백과 대비로 깔끔하게.${templateLine}${styleLine}
 ${campaignStyleDirection}
 [캔버스]
