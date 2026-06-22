@@ -317,19 +317,16 @@ const CATEGORY_PRESETS: BannerCategory[] = [
 
 // 생성할 때마다 랜덤으로 하나를 골라 프롬프트에 주입하는 레이아웃 아키타입 풀.
 // 다양성은 레이아웃/구성/장식에만 적용하고 색상·문구는 입력값을 유지한다.
+// 전문적이고 깔끔한 가로형 레이아웃만 사용(세로 텍스트·조잡한 구성 유발 프리셋 제거).
+// 모든 한글은 가로쓰기 전제. 강조 문구는 포인트 컬러 하이라이트 박스(알약형)에.
 const STYLE_PRESETS: string[] = [
-    'Bold centered hero: a very large centered Korean headline stacked in the upper-middle, supporting copy centered below it, with symmetric soft decorative shapes in the corners.',
-    'Left editorial: a strong left-aligned headline block on the left side, a clear visual or icon cluster balanced on the right side, with a generous left margin.',
-    'Diagonal split: divide the canvas with a soft diagonal band or shape; put the headline on one side and the main visual or emphasis on the other side.',
-    'Top headline, bottom info: a large headline across the top, a middle row of icon-and-label items, and a highlighted emphasis bar near the bottom.',
-    'Numbered step cards: present the supporting points as 2 to 4 stacked rounded cards, each with a number badge and a short label.',
-    'Big visual focus: one dominant central illustration or object, with the headline placed above or wrapping near it and minimal supporting text.',
-    'Color block sections: split the layout into 2 to 3 horizontal blocks using shades of the chosen palette, each block holding one piece of copy.',
-    'Question and answer: pose the title as a prominent question at the top, then answer it with an emphasized highlight box below.',
-    'Side accent panel: a vertical accent panel along the left or right edge holding a short label, with the main content filling the rest.',
-    'Airy minimal: a very spacious composition with a small but bold headline, lots of clean negative space, and a single small decorative motif.',
-    'Playful badges: rounded sticker-like elements and circular badges arranged in a lively, slightly asymmetric composition.',
-    'Magazine grid: a structured grid with a header zone, a content zone, and a footer emphasis zone separated by thin dividers.',
+    'Left editorial: a strong left-aligned bold Korean headline, concise supporting copy below it, and one clean relevant photo or simple graphic balanced on the right. Generous margins, clear hierarchy, modern and professional.',
+    'Bold hero: a large bold Korean headline in the upper-left, short supporting copy beneath, and a clean relevant photo on one side. Lots of clean whitespace, crisp and premium.',
+    'Top headline + highlight: a large bold headline across the top, supporting copy below, and the key emphasis phrase inside a colored rounded highlight pill; one clean photo to a side. Modern editorial look.',
+    'Diagonal split: a soft diagonal band separates a bold headline area from a clean photo/graphic area; crisp, modern, not busy.',
+    'Big visual focus: one clean dominant photo or object on one side, a bold headline and short copy on the other side; modern, spacious editorial layout.',
+    'Airy minimal: very spacious, a bold but compact headline, lots of clean negative space, and a single subtle accent shape; premium and modern.',
+    'Question and highlight: pose the headline at the top, then place the key emphasis phrase inside a colored rounded highlight box (pill) for punch; clean, professional, balanced.',
 ];
 
 function pickRandomStylePreset() {
