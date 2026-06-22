@@ -2427,9 +2427,12 @@ function BannerGeneratorPage() {
                 );
                 // AI 에는 브랜드명을 뺀 카피를 보낸다(코너 브랜드는 우리가 합성). 큰 브랜드명 중복 방지.
                 const brandName = page.form.badge || '';
+                // AI 에는 브랜드명을 한 글자도 보내지 않는다(badge 제거 + 카피에서 제거).
+                // 브랜드는 오직 우리가 page.form 으로 코너에 합성하므로, AI 가 큰 브랜드명을 그릴 근거 자체가 없다.
                 const aiForm = brandName
                     ? {
                           ...page.form,
+                          badge: '',
                           title: stripBrandFromCopy(page.form.title, brandName),
                           subtitle: stripBrandFromCopy(page.form.subtitle, brandName),
                           emphasis: stripBrandFromCopy(page.form.emphasis, brandName),
