@@ -43,6 +43,10 @@ export type BlogAccount = {
     note: string | null; // 특이사항
     contract_date: string | null; // 계약일자
     reporter: string | null; // 기자단
+    amount: string | null; // 금액
+    login_id: string | null; // 아이디
+    login_pw: string | null; // 비밀번호
+    manage_sheet_url: string | null; // 발행 관리시트
     is_active: boolean;
     client_id: string | null;
     // 웹사이트 순위 추적 (회사 단위). 없는 업체는 NULL = "해당없음".

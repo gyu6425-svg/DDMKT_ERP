@@ -711,9 +711,23 @@ function AccountEditModal({
 }) {
     const [websiteUrl, setWebsiteUrl] = useState(account.website_url ?? '');
     const [repKeyword, setRepKeyword] = useState(account.rep_keyword ?? '');
+    // 시트 전체 항목(편집에서 수정 가능)
+    const [name, setName] = useState(account.name ?? '');
+    const [manager, setManager] = useState(account.manager ?? '');
+    const [blogUrl, setBlogUrl] = useState(account.blog_url ?? '');
     const [contractDate, setContractDate] = useState(account.contract_date ?? '');
+    const [amount, setAmount] = useState(account.amount ?? '');
+    const [goalCount, setGoalCount] = useState(account.goal_count?.toString() ?? '');
+    const [remainCount, setRemainCount] = useState(account.remain_count?.toString() ?? '');
+    const [weekly, setWeekly] = useState(account.weekly ?? '');
     const [reporter, setReporter] = useState(account.reporter ?? '');
+    const [manageSheet, setManageSheet] = useState(account.manage_sheet_url ?? '');
     const [note, setNote] = useState(account.note ?? '');
+    const [isActive, setIsActive] = useState(account.is_active);
+    // 계정(별도 '보기'에서만 노출)
+    const [loginId, setLoginId] = useState(account.login_id ?? '');
+    const [loginPw, setLoginPw] = useState(account.login_pw ?? '');
+    const [showCred, setShowCred] = useState(false);
     const [saving, setSaving] = useState(false);
     const [confirmDel, setConfirmDel] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -760,12 +774,28 @@ function AccountEditModal({
     const save = async () => {
         setSaving(true);
         // website_url 은 저장 직전 호스트로 정규화(DB엔 항상 호스트만). 빈 값은 NULL.
+        const parseNum = (v: string) => {
+            const m = v.match(/\d+/);
+            return m ? Number(m[0]) : null;
+        };
         const { error } = await updateBlogAccount(account.id, {
             website_url: normHost(websiteUrl) || null,
             rep_keyword: repKeyword.trim() || null,
+            name: name.trim() || account.name,
+            manager: manager.trim() || null,
+            blog_url: blogUrl.trim() || account.blog_url,
+            blog_id: extractBlogId(blogUrl) || account.blog_id,
             contract_date: contractDate.trim() || null,
+            amount: amount.trim() || null,
+            goal_count: parseNum(goalCount),
+            remain_count: parseNum(remainCount),
+            weekly: weekly.trim() || null,
             reporter: reporter.trim() || null,
+            manage_sheet_url: manageSheet.trim() || null,
             note: note.trim() || null,
+            is_active: isActive,
+            login_id: loginId.trim() || null,
+            login_pw: loginPw.trim() || null,
         });
         setSaving(false);
         if (error) {
@@ -801,37 +831,125 @@ function AccountEditModal({
             <div className="max-h-[90vh] w-[min(520px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">{account.name} · 추적 설정</h3>
 
-                {/* ── 계약 정보(계약일자·기자단·특이사항) ── */}
+                {/* ── 관리 정보(시트 전체 항목 · 편집에서 모두 수정 가능) ── */}
                 <div className="mt-4 grid gap-2 rounded-lg border border-[#e2e8f0] p-3">
+                    <div className="text-xs font-bold text-[#334155]">관리 정보</div>
                     <div className="grid grid-cols-2 gap-2">
-                        <label className="block text-xs font-semibold text-[#334155]">
-                            <span className="mb-1 block">계약일자</span>
-                            <input
-                                className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
-                                onChange={(e) => setContractDate(e.target.value)}
-                                placeholder="예: 2026-06-22"
-                                value={contractDate}
-                            />
-                        </label>
-                        <label className="block text-xs font-semibold text-[#334155]">
-                            <span className="mb-1 block">기자단</span>
-                            <input
-                                className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
-                                onChange={(e) => setReporter(e.target.value)}
-                                placeholder="예: A팀"
-                                value={reporter}
-                            />
-                        </label>
+                        {(
+                            [
+                                ['업체명', name, setName, ''],
+                                ['담당', manager, setManager, ''],
+                                ['계약일자', contractDate, setContractDate, '2026-06-22'],
+                                ['금액', amount, setAmount, '예: 500,000'],
+                                ['계약건수', goalCount, setGoalCount, '20'],
+                                ['잔여건수', remainCount, setRemainCount, '6'],
+                                ['주 발행', weekly, setWeekly, '주 5회'],
+                                ['기자단', reporter, setReporter, 'A팀'],
+                            ] as Array<[string, string, (v: string) => void, string]>
+                        ).map(([label, value, setter, ph]) => (
+                            <label
+                                className="block text-xs font-semibold text-[#334155]"
+                                key={label}
+                            >
+                                <span className="mb-1 block">{label}</span>
+                                <input
+                                    className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                    onChange={(e) => setter(e.target.value)}
+                                    placeholder={ph}
+                                    value={value}
+                                />
+                            </label>
+                        ))}
                     </div>
+                    <label className="block text-xs font-semibold text-[#334155]">
+                        <span className="mb-1 block">발행 URL</span>
+                        <input
+                            className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                            onChange={(e) => setBlogUrl(e.target.value)}
+                            placeholder="https://blog.naver.com/..."
+                            value={blogUrl}
+                        />
+                    </label>
+                    <label className="block text-xs font-semibold text-[#334155]">
+                        <span className="mb-1 block">발행 관리시트</span>
+                        <input
+                            className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                            onChange={(e) => setManageSheet(e.target.value)}
+                            placeholder="관리 시트 링크"
+                            value={manageSheet}
+                        />
+                    </label>
                     <label className="block text-xs font-semibold text-[#334155]">
                         <span className="mb-1 block">특이사항(비고)</span>
                         <textarea
-                            className="min-h-[60px] w-full resize-y rounded-md border border-[#cbd5e1] bg-white px-2 py-1.5 text-sm"
+                            className="min-h-[56px] w-full resize-y rounded-md border border-[#cbd5e1] bg-white px-2 py-1.5 text-sm"
                             onChange={(e) => setNote(e.target.value)}
                             placeholder="메모/특이사항"
                             value={note}
                         />
                     </label>
+                    <label className="flex items-center gap-2 text-xs font-semibold text-[#334155]">
+                        <input
+                            checked={isActive}
+                            onChange={(e) => setIsActive(e.target.checked)}
+                            type="checkbox"
+                        />
+                        진행중(활성) — 끄면 ‘진행 중단’ 상태
+                    </label>
+                </div>
+
+                {/* ── 계정 정보(아이디/비밀번호) — 표에는 안 보이고 여기서만 보기·수정 ── */}
+                <div className="mt-3 grid gap-2 rounded-lg border border-[#fde68a] bg-[#fffbeb] p-3">
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-[#92400e]">
+                            계정 정보 (아이디 · 비밀번호)
+                        </span>
+                        <button
+                            className="rounded-md border border-[#fbbf24] bg-white px-2 py-1 text-[11px] font-semibold text-[#92400e]"
+                            onClick={() => setShowCred((v) => !v)}
+                            type="button"
+                        >
+                            {showCred ? '숨기기' : '보기'}
+                        </button>
+                    </div>
+                    {showCred ? (
+                        <div className="grid grid-cols-2 gap-2">
+                            {(
+                                [
+                                    ['아이디', loginId, setLoginId],
+                                    ['비밀번호', loginPw, setLoginPw],
+                                ] as Array<[string, string, (v: string) => void]>
+                            ).map(([label, value, setter]) => (
+                                <label
+                                    className="block text-xs font-semibold text-[#92400e]"
+                                    key={label}
+                                >
+                                    <span className="mb-1 block">{label}</span>
+                                    <div className="flex gap-1">
+                                        <input
+                                            className="h-9 w-full rounded-md border border-[#fbbf24] bg-white px-2 text-sm"
+                                            onChange={(e) => setter(e.target.value)}
+                                            value={value}
+                                        />
+                                        <button
+                                            className="shrink-0 rounded-md border border-[#fbbf24] bg-white px-2 text-[11px] font-semibold text-[#92400e]"
+                                            onClick={() => {
+                                                void navigator.clipboard.writeText(value);
+                                                onToast(`${label} 복사됨`);
+                                            }}
+                                            type="button"
+                                        >
+                                            복사
+                                        </button>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="m-0 text-[11px] text-[#92400e]">
+                            ‘보기’를 눌러 아이디·비밀번호를 확인·수정하세요. (표에는 노출되지 않습니다)
+                        </p>
+                    )}
                 </div>
 
                 {/* ── 블로그 대표키워드 (통합탭·블로그탭) ── */}
@@ -1367,17 +1485,25 @@ function ImportModal({
             let contractDate: string | null = null;
             let reporter: string | null = null;
             let note: string | null = null;
+            let amount: string | null = null;
+            let loginId: string | null = null;
+            let loginPw: string | null = null;
+            let manageSheet: string | null = null;
 
             if (urlIdx >= 10) {
                 // 실제 관리 시트(고정 열 순서). [행번호?] 업체명·계약일자·금액·계약건수·잔여건수·주발행·아이디·비번·기자단·발행관리시트·발행URL·특이사항
-                // → 위치 기반 매핑(빈 칸이 있어도 정확). 아이디/비번/금액/발행관리시트는 저장하지 않음.
+                // → 위치 기반 매핑(빈 칸이 있어도 정확). 모든 열 저장(아이디/비번은 표에 안 보이고 '계정 보기'에서만).
                 const off = urlIdx - 10; // 맨 앞 행번호 유무 보정
                 name = rawCells[off] || '';
                 contractDate = rawCells[off + 1] || null;
+                amount = rawCells[off + 2] || null;
                 goal = parseCnt(rawCells[off + 3]);
                 remain = parseCnt(rawCells[off + 4]);
                 weekly = rawCells[off + 5] || null;
+                loginId = rawCells[off + 6] || null;
+                loginPw = rawCells[off + 7] || null;
                 reporter = rawCells[off + 8] || null; // 기자단
+                manageSheet = rawCells[off + 9] || null;
                 note = rawCells[off + 11] || null; // 특이사항
             } else {
                 // 간단 붙여넣기 — 휴리스틱(이름/건수/주발행/담당).
@@ -1425,11 +1551,15 @@ function ImportModal({
             }
 
             payloads.push({
+                amount,
                 blog_id: extractBlogId(url),
                 blog_url: url,
                 contract_date: contractDate,
                 goal_count: goal,
                 is_active: true,
+                login_id: loginId,
+                login_pw: loginPw,
+                manage_sheet_url: manageSheet,
                 manager,
                 name,
                 note,
@@ -1470,7 +1600,8 @@ function ImportModal({
                     </span>
                     <br />
                     계약건수·잔여는 <b>"20건/6건"</b>처럼 '건'을 붙이면 가장 정확합니다.{' '}
-                    <b className="text-[#d97706]">아이디·비밀번호는 저장하지 않습니다.</b>
+                    <b className="text-[#d97706]">아이디·비밀번호도 함께 저장되며, 표엔 안 보이고 편집 → ‘계정 보기’에서만 확인됩니다.</b>
+                    {' '}모든 항목은 등록 후 <b>편집</b>에서 수정할 수 있습니다.
                 </p>
                 <textarea
                     className="min-h-[160px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-xs"
