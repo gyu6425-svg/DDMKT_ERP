@@ -1399,6 +1399,12 @@ function coverTopLeftBrandArea(
     context.fillRect(0, 0, box.x + box.width + padding, box.y + box.height + padding);
 }
 
+// AI 참조 이미지는 모델이 1024 해상도로만 쓰고 '느슨한 참조'로만 사용하므로,
+// 풀해상도 무손실 PNG 대신 ≤1024 + JPEG 로 보내 입력 토큰·업로드 지연을 줄인다(품질 무손상).
+const AI_REFERENCE_MAX_PX = 1024;
+const AI_REFERENCE_MIME = 'image/jpeg';
+const AI_REFERENCE_QUALITY = 0.85;
+
 async function maskBrandAreaForAiReference(
     dataUrl: string,
     bannerSize: BannerSize,
@@ -1408,20 +1414,23 @@ async function maskBrandAreaForAiReference(
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
 
-    canvas.width = bannerSize.width;
-    canvas.height = bannerSize.height;
+    // 가장 긴 변을 1024 로 제한(작으면 그대로). context.scale 로 브랜드 마스크 박스도 함께 비례 축소.
+    const scale = Math.min(1, AI_REFERENCE_MAX_PX / Math.max(bannerSize.width, bannerSize.height));
+    canvas.width = Math.round(bannerSize.width * scale);
+    canvas.height = Math.round(bannerSize.height * scale);
 
     if (!context) {
         return dataUrl;
     }
 
+    context.scale(scale, scale);
     context.fillStyle = fillColor;
     context.fillRect(0, 0, bannerSize.width, bannerSize.height);
     drawCoverImage(context, image, 0, 0, bannerSize.width, bannerSize.height);
 
     coverTopLeftBrandArea(context, bannerSize, fillColor);
 
-    return canvas.toDataURL('image/png');
+    return canvas.toDataURL(AI_REFERENCE_MIME, AI_REFERENCE_QUALITY);
 }
 
 type BrandCorner = 'top-left' | 'top-right' | 'top-center';

@@ -6,13 +6,14 @@
 export const USD_TO_KRW = 1500;
 
 // provider > banner_size > 1건당 USD
-// gpt-image-1 직접 호출 기준 추정. 기본 quality=medium 기준 대략치.
-// quality를 바꾸면 실제 비용도 달라짐(low ≈ 아래 값의 약 1/4, high ≈ 약 4배).
-// 실제 청구서 확인 후 조정 권장.
+// image_generation 툴(quality=medium) 기준. 검증된 실측 범위:
+//   square(1024x1024) ≈ $0.034~0.042 → 0.04 채택
+//   bottom(1536x1024) ≈ $0.05~0.063  → 0.06 채택
+// quality를 바꾸면 실제 비용도 달라짐(low ≈ 약 1/4, high ≈ 약 4배).
 export const IMAGE_PRICE_USD: Record<string, Record<string, number>> = {
     openai: {
-        square: 0.04, // 1024 x 1024, quality=medium 추정
-        bottom: 0.06, // 1536 x 1024, quality=medium 추정
+        square: 0.04, // 1024 x 1024, quality=medium (범위 $0.034~0.042)
+        bottom: 0.06, // 1536 x 1024, quality=medium (범위 $0.05~0.063)
     },
     gemini: {
         square: 0.04,
