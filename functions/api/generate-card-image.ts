@@ -12,6 +12,7 @@ type GenerateCardImagePayload = {
     brandText?: string;
     categoryDirective?: string;
     campaignStyleReferenceImageDataUrls?: string[];
+    campaignConsistency?: 'exact' | 'style';
     form?: {
         title?: string;
         subtitle?: string;
@@ -400,6 +401,7 @@ function buildPrompt({
     rawText = '',
     referenceLibraryImageDataUrls,
     campaignStyleReferenceImageDataUrls,
+    campaignConsistency = 'exact',
     seriesStyleReferenceImageDataUrls,
     categoryDirective,
     styleDirective,
@@ -453,15 +455,24 @@ function buildPrompt({
 - Choose clean, relevant card-news imagery such as abstract medical/education/product/service visuals, icons, soft shapes, or professional scene elements.
 - Do not invent real people, certificates, or institution marks unless explicitly provided in the copy.
 - Keep generated visuals secondary to readable Korean typography.`;
-    const campaignStyleDirection = campaignStyleReferenceImages.length
-        ? `
+    const campaignStyleDirection = !campaignStyleReferenceImages.length
+        ? ''
+        : campaignConsistency === 'style'
+          ? `
+[캠페인 무드 — 유사 무드(그림체·컬러만 유지)] 먼저 이 카드의 한글 문구에 어울리는 '완전히 새로운 장면'을 구상해서 그린다. 첨부된 '기준 카드' 이미지는 오직 '그림체(렌더링 방식)와 컬러(색감)'를 맞추기 위한 무드보드로만 사용하고, 그 안의 장면·인물·사물·구도·텍스트·레이아웃은 절대 따라 그리지 않는다:
+- 그림체: 기준 카드의 일러스트/사진 렌더링 처리(선·외곽선, 음영·명암, 질감, 마감 톤)를 똑같이.
+- 컬러: 배경색·강조(포인트)색·텍스트색을 포함한 전체 색 팔레트와 색 분위기를 똑같이(위에 지정된 색을 우선 따른다).
+- 장면·소재·인물·구도·카메라 앵글·레이아웃은 기준 카드와 '다르게' 새로 만든다. 같은 인물/사물/배치를 재사용하지 말 것.
+- 우측 상단 모서리는 비워둔다(브랜드 로고가 나중에 합성됨): 그 영역에 중요한 피사체·글자를 두지 말 것.
+- 베끼지 말고, '같은 붓·같은 색으로 그린 다른 그림'처럼 보이게 한다.
+(Create a BRAND-NEW scene for THIS card's Korean copy first. Use the attached reference ONLY as a color-and-rendering-style mood board — match its art style (line/outline, shading, texture, finish) and color palette only. Do NOT copy its subject, people, objects, composition, text, or layout. Invent a different subject, composition, and camera angle. Keep the top-right corner clear for a logo composited later. It must look like a DIFFERENT picture painted with the same brush and colors.)`
+          : `
 [디자인 통일성 — 매우 중요] 첨부된 '기준 카드(디자인 마스터)' 이미지와 똑같은 디자인 시스템으로 만들 것. 한글 문구(내용)만 이번 카드의 것으로 바꾸고, 디자인은 그대로 복제한다:
 - 제목·본문·강조 텍스트의 글꼴(서체) 종류, 글자 굵기, 상대적 글자 크기 비율을 기준 카드와 똑같이.
 - 글자색·강조(포인트)색·배경색을 기준 카드와 똑같이.
 - 자간·행간, 정렬, 여백 리듬, 장식 요소·아이콘 스타일, 전체 톤을 똑같이.
 - 새 디자인을 만들지 말고 기준 카드의 '내용만 바뀐 변형'처럼 보이게 한다.
-(Match the attached design-master card EXACTLY: same font family, font weights, relative type sizes, text/accent/background colors, spacing and decorative style. Only the Korean copy changes — do not redesign.)`
-        : '';
+(Match the attached design-master card EXACTLY: same font family, font weights, relative type sizes, text/accent/background colors, spacing and decorative style. Only the Korean copy changes — do not redesign.)`;
     const referenceLibraryDirection = referenceLibraryImages.length || legacySeriesStyleReferenceImages.length
         ? `
 Reference library:

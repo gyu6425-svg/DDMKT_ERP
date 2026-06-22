@@ -2089,6 +2089,10 @@ function BannerGeneratorPage() {
     const [operatorName, setOperatorName] = useState(
         () => localStorage.getItem('erp_operator_name') || '',
     );
+    // 캠페인 통일 방식: 'exact'=첫 카드 사진·구도 그대로(문구만 변경), 'style'=그림체·컬러만 유지(장면/구도 자유).
+    const [campaignConsistency, setCampaignConsistency] = useState<'exact' | 'style'>(() =>
+        localStorage.getItem('erp_campaign_consistency') === 'style' ? 'style' : 'exact',
+    );
     // 상위 탭(생성/작업 기록). 한 컴포넌트 안에서 전환하므로 탭을 바꿔도 생성기는 마운트 유지 → 계속 돌아감.
     const [view, setView] = useState<'create' | 'gallery'>('create');
     const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
@@ -2633,6 +2637,7 @@ function BannerGeneratorPage() {
                     categoryDirective: runCategory?.directive,
                     campaignStyleReferenceImageDataUrls:
                         options.campaignStyleReferenceImageDataUrls.slice(0, 1),
+                    campaignConsistency,
                     form: aiForm,
                     imageDataUrls: maskedImageDataUrls,
                     imageQuality,
@@ -3199,6 +3204,42 @@ function BannerGeneratorPage() {
                         <p className="m-0 text-xs leading-5 text-[#6b7280]">
                             켜면 생성할 때마다 레이아웃·구성을 랜덤으로 다양하게 만듭니다. (색상·문구는
                             입력값 유지)
+                        </p>
+                    </div>
+
+                    <div className="grid gap-2">
+                        <strong className="text-m text-[#111111]">캠페인 통일 방식</strong>
+                        <div className="grid grid-cols-2 gap-2">
+                            {(
+                                [
+                                    ['exact', '동일 구도 · 사진/구성 그대로'],
+                                    ['style', '유사 무드 · 그림체·컬러만'],
+                                ] as Array<['exact' | 'style', string]>
+                            ).map(([value, label]) => {
+                                const selected = campaignConsistency === value;
+                                return (
+                                    <Button
+                                        className={`h-11 rounded-md border px-3 text-sm font-semibold ${
+                                            selected
+                                                ? 'border-[#1457ff] bg-[#eff6ff] text-[#111827]'
+                                                : 'border-[#d1d5db] bg-white text-[#4b5563]'
+                                        }`}
+                                        key={value}
+                                        onClick={() => {
+                                            setCampaignConsistency(value);
+                                            localStorage.setItem('erp_campaign_consistency', value);
+                                        }}
+                                        type="button"
+                                    >
+                                        {label}
+                                    </Button>
+                                );
+                            })}
+                        </div>
+                        <p className="m-0 text-xs leading-5 text-[#6b7280]">
+                            2번째 카드부터 적용됩니다. '동일 구도'는 첫 카드의 사진·구도·레이아웃을 그대로 두고
+                            문구만 바꾸고, '유사 무드'는 첫 카드의 그림체·색감만 유지한 채 장면·구도는 자유롭게
+                            새로 만듭니다.
                         </p>
                     </div>
 
