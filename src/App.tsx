@@ -13,6 +13,7 @@ import BannerGeneratorPage from './routes/BannerGeneratorPage';
 import LoginPage from './routes/LoginPage';
 import MemosPage from './routes/MemosPage';
 import MyPage from './routes/MyPage';
+import PowerLinkPage from './routes/PowerLinkPage';
 import ReportsPage from './routes/ReportsPage';
 
 const routes = [
@@ -25,6 +26,7 @@ const routes = [
     { path: '/blog', element: <BlogPage /> },
     { path: '/blog-rank', element: <BlogRankPage /> },
     { path: '/banner-generator', element: <BannerGeneratorPage /> },
+    { path: '/powerlink', element: <PowerLinkPage /> },
     { path: '/mypage', element: <MyPage /> },
     { path: '/admin', element: <AdminPage /> },
 ];
