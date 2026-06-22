@@ -983,14 +983,34 @@ function TrackerTab({
                                         {nameOf(p.blog_account_id)}
                                     </td>
                                     <td className="px-3 py-2">
-                                        <div className="max-w-[360px] text-[13px] font-medium text-[#0f172a]">
-                                            {p.title || '제목 없음'}
-                                        </div>
-                                        {p.keyword ? (
-                                            <span className="mt-1 inline-block rounded bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-semibold text-[#7c3aed]">
-                                                #{p.keyword}
-                                            </span>
-                                        ) : null}
+                                        {(() => {
+                                            const postLink = p.post_url || acc?.blog_url || '';
+                                            const inner = (
+                                                <>
+                                                    <div className="max-w-[360px] text-[13px] font-medium text-[#0f172a] group-hover:text-[#7c3aed] group-hover:underline">
+                                                        {p.title || '제목 없음'}
+                                                    </div>
+                                                    {p.keyword ? (
+                                                        <span className="mt-1 inline-block rounded bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-semibold text-[#7c3aed]">
+                                                            #{p.keyword}
+                                                        </span>
+                                                    ) : null}
+                                                </>
+                                            );
+                                            return postLink ? (
+                                                <a
+                                                    className="group block cursor-pointer"
+                                                    href={postLink}
+                                                    rel="noopener noreferrer"
+                                                    target="_blank"
+                                                    title="실제 블로그 글로 이동"
+                                                >
+                                                    {inner}
+                                                </a>
+                                            ) : (
+                                                <div>{inner}</div>
+                                            );
+                                        })()}
                                     </td>
                                     <td className="px-3 py-2">
                                         <PostSearchCell account={acc} />
