@@ -1698,10 +1698,11 @@ type BrandBox = { x: number; y: number; width: number; height: number };
 // 브랜드/로고는 MASSIV 예시처럼 상단에 작게. 제목을 가리지 않도록 작고 높게 배치.
 function getBrandBox(bannerSize: BannerSize, corner: BrandCorner): BrandBox {
     const isBottom = bannerSize.id === 'bottom';
-    const width = isBottom ? 190 : 230;
-    const height = isBottom ? 48 : 54;
-    const margin = isBottom ? 56 : 70;
-    const y = isBottom ? 40 : 48;
+    // 코너 로고 크기: 너무 작지 않게 적당히(정사각 height 54→84, 폭 230→300).
+    const width = isBottom ? 250 : 300;
+    const height = isBottom ? 64 : 84;
+    const margin = isBottom ? 56 : 64;
+    const y = isBottom ? 40 : 52;
 
     let x = margin;
 
