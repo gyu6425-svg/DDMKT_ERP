@@ -1,6 +1,15 @@
-﻿import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { generateBlog, type GenerateBlogInput } from '../api/aiBlog';
 import { logApiUsage } from '../api/apiUsage';
+import {
+    getBlogOperators,
+    getBlogOutputs,
+    parseBlogTitle,
+    saveBlogOutput,
+    type BlogOutput,
+} from '../api/blogOutputs';
+import { computeActualCostUsd } from '../lib/apiPricing';
+import { WORK_CATEGORIES, categoryLabel } from '../lib/categories';
 import { useAuth } from '../hooks/useAuth';
 import Button from '../components/Button';
 
@@ -27,12 +36,20 @@ function BlogPage() {
     const [tone, setTone] = useState<NonNullable<GenerateBlogInput['tone']>>('info');
     const [length, setLength] = useState<NonNullable<GenerateBlogInput['length']>>('medium');
     const [includeHashtags, setIncludeHashtags] = useState(true);
+    const [category, setCategory] = useState('');
+    const [operatorName, setOperatorName] = useState(
+        () => localStorage.getItem('erp_operator_name') || '',
+    );
 
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState('');
     const [error, setError] = useState('');
     const [copied, setCopied] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
+
+    // 상위 탭(생성/작업 기록). 한 컴포넌트라 탭 전환해도 생성은 계속 진행된다.
+    const [view, setView] = useState<'create' | 'gallery'>('create');
+    const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
 
     const run = async () => {
         if (!topic.trim()) {
@@ -46,6 +63,7 @@ function BlogPage() {
         const controller = new AbortController();
         abortRef.current = controller;
         const startedAt = Date.now();
+        const runCategory = category;
 
         try {
             const output = await generateBlog({
@@ -60,13 +78,27 @@ function BlogPage() {
             });
             setResult(output.text);
             void logApiUsage({
+                cost_usd: output.usage ? computeActualCostUsd(output.usage) : null,
                 elapsed_ms: Date.now() - startedAt,
                 model: 'blog',
+                operator_name: operatorName || null,
                 provider: 'openai',
                 status: 'success',
                 total_tokens: output.usage?.total_tokens ?? null,
                 user_email: user?.email ?? null,
             });
+
+            // 작업 기록 저장(작업자·카테고리·시간 + 제목/본문). 실패해도 생성엔 영향 없음.
+            void saveBlogOutput({
+                category: runCategory || '',
+                category_label: categoryLabel(runCategory),
+                content: output.text,
+                length,
+                operator_name: operatorName || null,
+                title: parseBlogTitle(output.text) || topic.trim(),
+                tone,
+                topic: topic.trim(),
+            }).then(() => setGalleryRefreshKey((key) => key + 1));
         } catch (caught) {
             const message = caught instanceof Error ? caught.message : '생성에 실패했습니다.';
             setError(message);
@@ -74,6 +106,7 @@ function BlogPage() {
                 elapsed_ms: Date.now() - startedAt,
                 error_message: message,
                 model: 'blog',
+                operator_name: operatorName || null,
                 provider: 'openai',
                 status: 'error',
                 user_email: user?.email ?? null,
@@ -92,6 +125,11 @@ function BlogPage() {
         window.setTimeout(() => setCopied(false), 1500);
     };
 
+    const useFromGallery = (text: string) => {
+        setResult(text);
+        setView('create');
+    };
+
     return (
         <section className="grid gap-4">
             <div>
@@ -100,9 +138,45 @@ function BlogPage() {
                 </p>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
+            <div className="flex gap-1 border-b border-[#e2e8f0]">
+                {([['create', '생성'], ['gallery', '작업 기록']] as const).map(([key, label]) => (
+                    <button
+                        className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
+                            view === key
+                                ? 'border-[#1e40af] text-[#1e40af]'
+                                : 'border-transparent text-[#94a3b8]'
+                        }`}
+                        key={key}
+                        onClick={() => setView(key)}
+                        type="button"
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+
+            {view === 'gallery' ? (
+                <BlogGalleryView onUse={useFromGallery} refreshKey={galleryRefreshKey} />
+            ) : null}
+
+            <div
+                className={`grid gap-4 lg:grid-cols-[380px_minmax(0,1fr)] ${
+                    view === 'create' ? '' : 'hidden'
+                }`}
+            >
                 {/* 입력 */}
                 <div className="grid h-fit gap-3 rounded-[8px] border border-[#e2e8f0] bg-white p-4">
+                    <Field label="내 이름(작업자)">
+                        <input
+                            className="erp-input"
+                            onChange={(event) => {
+                                setOperatorName(event.target.value);
+                                localStorage.setItem('erp_operator_name', event.target.value);
+                            }}
+                            placeholder="예: 홍길동 (작업 기록에 남습니다)"
+                            value={operatorName}
+                        />
+                    </Field>
                     <Field label="주제 / 키워드 *">
                         <input
                             className="erp-input"
@@ -129,6 +203,20 @@ function BlogPage() {
                             />
                         </Field>
                     </div>
+                    <Field label="카테고리 (작업 기록 분류)">
+                        <select
+                            className="erp-input"
+                            onChange={(event) => setCategory(event.target.value)}
+                            value={category}
+                        >
+                            <option value="">미지정</option>
+                            {WORK_CATEGORIES.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                    {c.name}
+                                </option>
+                            ))}
+                        </select>
+                    </Field>
                     <Field label="포함 키워드 (쉼표로 구분)">
                         <input
                             className="erp-input"
@@ -241,6 +329,150 @@ function BlogPage() {
                 </div>
             </div>
         </section>
+    );
+}
+
+// 작업 기록 갤러리 — 카테고리(블로그 대시보드 동일 탭 스타일)·작업자별 필터. 카드 클릭 시 편집기로 불러오기.
+function BlogGalleryView({
+    onUse,
+    refreshKey,
+}: {
+    onUse: (text: string) => void;
+    refreshKey: number;
+}) {
+    const [items, setItems] = useState<BlogOutput[]>([]);
+    const [operators, setOperators] = useState<string[]>([]);
+    const [category, setCategory] = useState('');
+    const [operator, setOperator] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        let alive = true;
+        setLoading(true);
+        setError('');
+        void getBlogOutputs({ category, operator })
+            .then(({ data, error: loadError }) => {
+                if (!alive) return;
+                if (loadError) {
+                    setError(
+                        '작업 기록을 불러오지 못했습니다. Supabase 에서 blog_outputs 테이블을 만들었는지 확인하세요.',
+                    );
+                }
+                setItems(data);
+            })
+            .finally(() => {
+                if (alive) setLoading(false);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [category, operator, refreshKey]);
+
+    useEffect(() => {
+        let alive = true;
+        void getBlogOperators().then(({ operators: ops }) => {
+            if (alive) setOperators(ops);
+        });
+        return () => {
+            alive = false;
+        };
+    }, [refreshKey]);
+
+    const categoryTabs: Array<{ id: string; name: string }> = [
+        { id: '', name: '전체' },
+        ...WORK_CATEGORIES,
+    ];
+
+    return (
+        <div className="rounded-[8px] border border-[#e2e8f0] bg-white p-4">
+            <div className="mb-3">
+                <strong className="text-[15px] text-[#0f172a]">작업 기록</strong>
+                <p className="mt-1 mb-0 text-xs text-[#64748b]">
+                    생성한 글이 작업자·카테고리·시간과 함께 자동 저장됩니다. (카드를 누르면 편집기로 불러옵니다)
+                </p>
+            </div>
+
+            <div className="mb-3 flex flex-wrap gap-1 border-b border-[#e2e8f0]">
+                {categoryTabs.map((c) => (
+                    <button
+                        className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${
+                            category === c.id
+                                ? 'border-[#1e40af] text-[#1e40af]'
+                                : 'border-transparent text-[#94a3b8]'
+                        }`}
+                        key={c.id || 'all'}
+                        onClick={() => setCategory(c.id)}
+                        type="button"
+                    >
+                        {c.name}
+                    </button>
+                ))}
+            </div>
+
+            <div className="mb-4 flex items-center gap-2">
+                <span className="text-xs font-semibold text-[#64748b]">작업자</span>
+                <select
+                    className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                    onChange={(event) => setOperator(event.target.value)}
+                    value={operator}
+                >
+                    <option value="">전체</option>
+                    {operators.map((op) => (
+                        <option key={op} value={op}>
+                            {op}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            {error ? (
+                <p className="m-0 rounded-md bg-[#fee2e2] px-4 py-3 text-sm text-[#dc2626]">{error}</p>
+            ) : loading ? (
+                <p className="m-0 text-sm text-[#64748b]">불러오는 중…</p>
+            ) : items.length === 0 ? (
+                <p className="m-0 text-sm text-[#94a3b8]">아직 저장된 작업물이 없습니다.</p>
+            ) : (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {items.map((item) => (
+                        <button
+                            className="flex h-full flex-col rounded-md border border-[#e2e8f0] bg-[#f8fafc] p-3 text-left transition hover:border-[#1e40af]"
+                            key={item.id}
+                            onClick={() => onUse(item.content || '')}
+                            title="편집기로 불러오기"
+                            type="button"
+                        >
+                            <div className="mb-1 flex items-start justify-between gap-1">
+                                <span className="line-clamp-2 text-sm font-semibold text-[#0f172a]">
+                                    {item.title || item.topic || '제목 없음'}
+                                </span>
+                                {item.category_label ? (
+                                    <span className="shrink-0 rounded bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-semibold text-[#7c3aed]">
+                                        {item.category_label}
+                                    </span>
+                                ) : null}
+                            </div>
+                            <p className="m-0 line-clamp-4 flex-1 whitespace-pre-wrap text-xs leading-5 text-[#475569]">
+                                {item.content || ''}
+                            </p>
+                            <div className="mt-2 flex items-center justify-between text-[10px] text-[#94a3b8]">
+                                <span className="font-semibold text-[#64748b]">
+                                    {item.operator_name || '미지정'}
+                                </span>
+                                <span>
+                                    {new Date(item.created_at).toLocaleString('ko-KR', {
+                                        day: '2-digit',
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        month: '2-digit',
+                                    })}
+                                </span>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }
 
