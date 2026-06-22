@@ -26,6 +26,8 @@ create index if not exists blog_accounts_active_idx on public.blog_accounts (is_
 -- 기존 테이블에도 적용되도록 add column if not exists 로 작성(idempotent).
 alter table public.blog_accounts add column if not exists website_url text;   -- 회사 홈페이지 '호스트만' 저장(예: momo-cleaning.com). blog_url(풀 URL)과 표기 다름. UNIQUE 두지 않음(대행사 특성상 공유 가능).
 alter table public.blog_accounts add column if not exists rep_keyword text;    -- 웹사이트 순위 측정에 쓸 대표키워드 1개
+alter table public.blog_accounts add column if not exists contract_date text;  -- 계약일자
+alter table public.blog_accounts add column if not exists reporter text;       -- 기자단
 -- 시계열 요소 = { "date":"YYYY-MM-DD", "we":순위, "status":"ok|out|fail|skip" }
 --   ok=노출/측정성공, out=권외(MAX_RANK_SCAN 초과), fail=API/네트워크 실패, skip=url/키워드 미설정
 alter table public.blog_accounts add column if not exists website_measurements jsonb not null default '[]'::jsonb;

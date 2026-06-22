@@ -405,6 +405,32 @@ function SheetTab({
         }
     };
 
+    const [bulkBusy, setBulkBusy] = useState(false);
+    // 일괄삭제 — 현재 표(필터 적용)에 보이는 업체를 한 번에 삭제(측정 이력 포함). 되돌릴 수 없음.
+    const bulkDelete = async () => {
+        const targets = filtered;
+        if (!targets.length || bulkBusy) {
+            return;
+        }
+        if (
+            !window.confirm(
+                `현재 목록의 ${targets.length}개 업체를 모두 삭제할까요?\n측정 이력까지 함께 삭제되며 되돌릴 수 없습니다.`,
+            )
+        ) {
+            return;
+        }
+        setBulkBusy(true);
+        onToast(`${targets.length}개 삭제 중...`);
+        let failed = 0;
+        for (const a of targets) {
+            const { error } = await deleteBlogAccount(a.id);
+            if (error) failed += 1;
+        }
+        await onReload();
+        setBulkBusy(false);
+        onToast(`삭제 완료 · ${targets.length - failed}개${failed ? ` (실패 ${failed})` : ''}`);
+    };
+
     const managers = useMemo(
         () => [...new Set(accounts.map((a) => a.manager).filter(Boolean))] as string[],
         [accounts],
@@ -477,6 +503,14 @@ function SheetTab({
                     type="button"
                 >
                     시트 붙여넣기 등록
+                </button>
+                <button
+                    className="inline-flex h-9 items-center rounded-md border border-[#fca5a5] bg-white px-3 text-xs font-semibold text-[#dc2626] disabled:opacity-50"
+                    disabled={bulkBusy || filtered.length === 0}
+                    onClick={() => void bulkDelete()}
+                    type="button"
+                >
+                    {bulkBusy ? '삭제 중…' : '일괄삭제'}
                 </button>
             </div>
 
@@ -677,6 +711,9 @@ function AccountEditModal({
 }) {
     const [websiteUrl, setWebsiteUrl] = useState(account.website_url ?? '');
     const [repKeyword, setRepKeyword] = useState(account.rep_keyword ?? '');
+    const [contractDate, setContractDate] = useState(account.contract_date ?? '');
+    const [reporter, setReporter] = useState(account.reporter ?? '');
+    const [note, setNote] = useState(account.note ?? '');
     const [saving, setSaving] = useState(false);
     const [confirmDel, setConfirmDel] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -726,6 +763,9 @@ function AccountEditModal({
         const { error } = await updateBlogAccount(account.id, {
             website_url: normHost(websiteUrl) || null,
             rep_keyword: repKeyword.trim() || null,
+            contract_date: contractDate.trim() || null,
+            reporter: reporter.trim() || null,
+            note: note.trim() || null,
         });
         setSaving(false);
         if (error) {
@@ -733,7 +773,7 @@ function AccountEditModal({
             return;
         }
         await onReload();
-        onToast('웹사이트 정보 저장 완료');
+        onToast('저장 완료');
         onClose();
     };
 
@@ -760,6 +800,39 @@ function AccountEditModal({
         >
             <div className="max-h-[90vh] w-[min(520px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">{account.name} · 추적 설정</h3>
+
+                {/* ── 계약 정보(계약일자·기자단·특이사항) ── */}
+                <div className="mt-4 grid gap-2 rounded-lg border border-[#e2e8f0] p-3">
+                    <div className="grid grid-cols-2 gap-2">
+                        <label className="block text-xs font-semibold text-[#334155]">
+                            <span className="mb-1 block">계약일자</span>
+                            <input
+                                className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                onChange={(e) => setContractDate(e.target.value)}
+                                placeholder="예: 2026-06-22"
+                                value={contractDate}
+                            />
+                        </label>
+                        <label className="block text-xs font-semibold text-[#334155]">
+                            <span className="mb-1 block">기자단</span>
+                            <input
+                                className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                onChange={(e) => setReporter(e.target.value)}
+                                placeholder="예: A팀"
+                                value={reporter}
+                            />
+                        </label>
+                    </div>
+                    <label className="block text-xs font-semibold text-[#334155]">
+                        <span className="mb-1 block">특이사항(비고)</span>
+                        <textarea
+                            className="min-h-[60px] w-full resize-y rounded-md border border-[#cbd5e1] bg-white px-2 py-1.5 text-sm"
+                            onChange={(e) => setNote(e.target.value)}
+                            placeholder="메모/특이사항"
+                            value={note}
+                        />
+                    </label>
+                </div>
 
                 {/* ── 블로그 대표키워드 (통합탭·블로그탭) ── */}
                 <div className="mt-4 rounded-lg border border-[#e2e8f0] p-3">
@@ -1270,24 +1343,79 @@ function ImportModal({
                 return;
             }
             // 탭 또는 콤마로 구분. blog.naver.com URL 만 있으면 등록 가능(이름 없으면 blog_id 사용).
-            const cells = trimmed.split(/[\t,]/).map((c) => c.trim()).filter(Boolean);
-            const url = cells.find((c) => c.includes('blog.naver.com'));
-            if (!url) {
+            const rawCells = trimmed.split(/[\t,]/).map((c) => c.trim());
+            // 헤더 줄(업체명/계약건수 …)은 건너뛴다.
+            if (/^업체\s*명?$/.test(rawCells[0] || '') || rawCells.includes('계약건수')) {
+                return;
+            }
+            const urlIdx = rawCells.findIndex((c) => c.includes('blog.naver.com'));
+            if (urlIdx < 0) {
                 skipped += 1;
                 return;
             }
-            const nums = cells
-                .map((c) => {
-                    const m = c.match(/^(\d+)\s*건?$/);
-                    return m ? Number(m[1]) : null;
-                })
-                .filter((v): v is number => v !== null);
-            const weekly = cells.find((c) => /주\s*\d/.test(c)) || null;
-            // 이름 = URL/숫자/주발행 아닌 첫 셀. 없으면(URL만 붙여넣음) blog_id 를 이름으로.
-            let name =
-                cells.find(
-                    (c) => c !== url && !c.includes('http') && !/^\d+\s*건?$/.test(c) && c !== weekly,
-                ) || '';
+            const url = rawCells[urlIdx];
+            const parseCnt = (c: string | undefined) => {
+                const m = (c || '').match(/\d+/);
+                return m ? Number(m[0]) : null;
+            };
+
+            let name = '';
+            let goal: number | null = null;
+            let remain: number | null = null;
+            let weekly: string | null = null;
+            let manager: string | null = null;
+            let contractDate: string | null = null;
+            let reporter: string | null = null;
+            let note: string | null = null;
+
+            if (urlIdx >= 10) {
+                // 실제 관리 시트(고정 열 순서). [행번호?] 업체명·계약일자·금액·계약건수·잔여건수·주발행·아이디·비번·기자단·발행관리시트·발행URL·특이사항
+                // → 위치 기반 매핑(빈 칸이 있어도 정확). 아이디/비번/금액/발행관리시트는 저장하지 않음.
+                const off = urlIdx - 10; // 맨 앞 행번호 유무 보정
+                name = rawCells[off] || '';
+                contractDate = rawCells[off + 1] || null;
+                goal = parseCnt(rawCells[off + 3]);
+                remain = parseCnt(rawCells[off + 4]);
+                weekly = rawCells[off + 5] || null;
+                reporter = rawCells[off + 8] || null; // 기자단
+                note = rawCells[off + 11] || null; // 특이사항
+            } else {
+                // 간단 붙여넣기 — 휴리스틱(이름/건수/주발행/담당).
+                let cells = rawCells.filter(Boolean);
+                if (cells.length > 1 && /^\d+$/.test(cells[0])) {
+                    cells = cells.slice(1); // 맨 앞 행번호 제거
+                }
+                // 계약/잔여건수: '건' 붙은 셀 우선, 없으면 순수 숫자.
+                let nums = cells
+                    .filter((c) => /^\d+\s*건$/.test(c))
+                    .map((c) => Number(c.match(/\d+/)![0]));
+                if (!nums.length) {
+                    nums = cells.filter((c) => /^\d+$/.test(c)).map(Number);
+                }
+                goal = nums[0] ?? null;
+                remain = nums[1] ?? null;
+                weekly = cells.find((c) => /주\s*\d/.test(c)) || null;
+                name =
+                    cells.find(
+                        (c) =>
+                            c !== url &&
+                            !c.includes('http') &&
+                            !/^\d+\s*건?$/.test(c) &&
+                            c !== weekly,
+                    ) || '';
+                manager =
+                    cells.find(
+                        (c) =>
+                            c &&
+                            c !== name &&
+                            c !== url &&
+                            !c.includes('http') &&
+                            !/\d/.test(c) &&
+                            c.length <= 4 &&
+                            c !== weekly,
+                    ) || null;
+            }
+
             if (!name) {
                 name = extractBlogId(url) || '블로그';
             }
@@ -1295,26 +1423,18 @@ function ImportModal({
                 skipped += 1;
                 return;
             }
-            const manager =
-                cells.find(
-                    (c) =>
-                        c &&
-                        c !== name &&
-                        c !== url &&
-                        !c.includes('http') &&
-                        !/\d/.test(c) &&
-                        c.length <= 4 &&
-                        c !== weekly,
-                ) || null;
 
             payloads.push({
                 blog_id: extractBlogId(url),
                 blog_url: url,
-                goal_count: nums[0] ?? null,
+                contract_date: contractDate,
+                goal_count: goal,
                 is_active: true,
                 manager,
                 name,
-                remain_count: nums[1] ?? null,
+                note,
+                remain_count: remain,
+                reporter,
                 weekly,
             });
         });
@@ -1344,13 +1464,13 @@ function ImportModal({
             <div className="w-[min(620px,94vw)] rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">시트 붙여넣기 등록</h3>
                 <p className="mt-1 mb-3 text-sm text-[#64748b]">
-                    한 줄에 블로그 하나. <b>블로그 URL만 붙여넣어도 등록</b>됩니다(이름은 자동). 한 줄에 여러 정보를{' '}
-                    <b>탭 또는 콤마(,)</b>로 구분:{' '}
+                    한 줄에 블로그 하나. <b>블로그 URL만 붙여넣어도 등록</b>됩니다(이름은 자동). <b>관리 시트를 그대로 복사·붙여넣어도</b> 자동 인식합니다(행번호·금액·빈 칸 있어도 OK):{' '}
                     <span className="rounded bg-[#f1f5f9] px-1 text-xs">
-                        업체명 , 계약건수 , 잔여건수 , 주발행 , 담당 , 블로그 URL
+                        업체명·계약일자·금액·계약건수·잔여건수·주발행·아이디·비번·기자단·발행관리시트·발행URL·특이사항
                     </span>
                     <br />
-                    <b className="text-[#d97706]">아이디·비밀번호는 붙여넣지 마세요 — 계정 정보는 저장하지 않습니다.</b>
+                    계약건수·잔여는 <b>"20건/6건"</b>처럼 '건'을 붙이면 가장 정확합니다.{' '}
+                    <b className="text-[#d97706]">아이디·비밀번호는 저장하지 않습니다.</b>
                 </p>
                 <textarea
                     className="min-h-[160px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-xs"

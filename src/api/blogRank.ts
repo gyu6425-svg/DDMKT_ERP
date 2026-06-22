@@ -40,7 +40,9 @@ export type BlogAccount = {
     goal_count: number | null;
     remain_count: number | null;
     weekly: string | null;
-    note: string | null;
+    note: string | null; // 특이사항
+    contract_date: string | null; // 계약일자
+    reporter: string | null; // 기자단
     is_active: boolean;
     client_id: string | null;
     // 웹사이트 순위 추적 (회사 단위). 없는 업체는 NULL = "해당없음".
