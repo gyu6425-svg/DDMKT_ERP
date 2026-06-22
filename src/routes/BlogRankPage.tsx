@@ -1190,7 +1190,7 @@ function TrackerTab({
                                             const postLink = p.post_url || acc?.blog_url || '';
                                             const inner = (
                                                 <>
-                                                    <div className="max-w-[360px] text-[13px] font-medium text-[#0f172a] group-hover:text-[#7c3aed] group-hover:underline">
+                                                    <div className="max-w-[360px] truncate text-[13px] font-medium text-[#0f172a] group-hover:text-[#7c3aed] group-hover:underline">
                                                         {p.title || '제목 없음'}
                                                     </div>
                                                     {p.keyword ? (
