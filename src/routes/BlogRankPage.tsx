@@ -1472,111 +1472,57 @@ function ImportModal({
             if (!trimmed) {
                 return;
             }
-            // 탭 또는 콤마로 구분. blog.naver.com URL 만 있으면 등록 가능(이름 없으면 blog_id 사용).
-            const rawCells = trimmed.split(/[\t,]/).map((c) => c.trim());
-            // 헤더 줄(업체명/계약건수 …)은 건너뛴다.
-            if (/^업체\s*명?$/.test(rawCells[0] || '') || rawCells.includes('계약건수')) {
-                return;
-            }
-            const urlIdx = rawCells.findIndex((c) => c.includes('blog.naver.com'));
-            if (urlIdx < 0) {
+            // 탭 또는 콤마로 구분. 붙여넣기는 업체명·계약건수·잔여건수·주발행·발행URL 만 등록.
+            // 계약일자·금액·아이디·비밀번호·기자단·특이사항은 등록 후 '편집'에서 따로 관리한다.
+            const cells0 = trimmed
+                .split(/[\t,]/)
+                .map((c) => c.trim())
+                .filter(Boolean);
+            const url = cells0.find((c) => c.includes('blog.naver.com'));
+            if (!url) {
                 skipped += 1;
                 return;
             }
-            const url = rawCells[urlIdx];
-            const parseCnt = (c: string | undefined) => {
-                const m = (c || '').match(/\d+/);
-                return m ? Number(m[0]) : null;
-            };
-
-            let name = '';
-            let goal: number | null = null;
-            let remain: number | null = null;
-            let weekly: string | null = null;
-            let manager: string | null = null;
-            let contractDate: string | null = null;
-            let reporter: string | null = null;
-            let note: string | null = null;
-            let amount: string | null = null;
-            let loginId: string | null = null;
-            let loginPw: string | null = null;
-            let manageSheet: string | null = null;
-
-            if (urlIdx >= 10) {
-                // 실제 관리 시트(고정 열 순서). [행번호?] 업체명·계약일자·금액·계약건수·잔여건수·주발행·아이디·비번·기자단·발행관리시트·발행URL·특이사항
-                // → 위치 기반 매핑(빈 칸이 있어도 정확). 모든 열 저장(아이디/비번은 표에 안 보이고 '계정 보기'에서만).
-                const off = urlIdx - 10; // 맨 앞 행번호 유무 보정
-                name = rawCells[off] || '';
-                contractDate = rawCells[off + 1] || null;
-                amount = rawCells[off + 2] || null;
-                goal = parseCnt(rawCells[off + 3]);
-                remain = parseCnt(rawCells[off + 4]);
-                weekly = rawCells[off + 5] || null;
-                loginId = rawCells[off + 6] || null;
-                loginPw = rawCells[off + 7] || null;
-                reporter = rawCells[off + 8] || null; // 기자단
-                manageSheet = rawCells[off + 9] || null;
-                note = rawCells[off + 11] || null; // 특이사항
-            } else {
-                // 간단 붙여넣기 — 휴리스틱(이름/건수/주발행/담당).
-                let cells = rawCells.filter(Boolean);
-                if (cells.length > 1 && /^\d+$/.test(cells[0])) {
-                    cells = cells.slice(1); // 맨 앞 행번호 제거
-                }
-                // 계약/잔여건수: '건' 붙은 셀 우선, 없으면 순수 숫자.
-                let nums = cells
-                    .filter((c) => /^\d+\s*건$/.test(c))
-                    .map((c) => Number(c.match(/\d+/)![0]));
-                if (!nums.length) {
-                    nums = cells.filter((c) => /^\d+$/.test(c)).map(Number);
-                }
-                goal = nums[0] ?? null;
-                remain = nums[1] ?? null;
-                weekly = cells.find((c) => /주\s*\d/.test(c)) || null;
-                name =
-                    cells.find(
-                        (c) =>
-                            c !== url &&
-                            !c.includes('http') &&
-                            !/^\d+\s*건?$/.test(c) &&
-                            c !== weekly,
-                    ) || '';
-                manager =
-                    cells.find(
-                        (c) =>
-                            c &&
-                            c !== name &&
-                            c !== url &&
-                            !c.includes('http') &&
-                            !/\d/.test(c) &&
-                            c.length <= 4 &&
-                            c !== weekly,
-                    ) || null;
+            // 맨 앞 행번호(순수 숫자)는 제거 — 행번호가 계약건수로 오인되는 문제 방지.
+            const cells =
+                cells0.length > 1 && /^\d+$/.test(cells0[0]) ? cells0.slice(1) : cells0;
+            // 계약/잔여건수: '건' 붙은 셀 우선(금액·행번호 오인 방지). 없으면 순수 숫자.
+            let nums = cells
+                .filter((c) => /^\d+\s*건$/.test(c))
+                .map((c) => Number(c.match(/\d+/)![0]));
+            if (!nums.length) {
+                nums = cells.filter((c) => /^\d+$/.test(c)).map(Number);
             }
-
+            const goal = nums[0] ?? null;
+            const remain = nums[1] ?? null;
+            const weekly = cells.find((c) => /주\s*\d/.test(c)) || null;
+            let name =
+                cells.find(
+                    (c) =>
+                        c !== url &&
+                        !c.includes('http') &&
+                        !/^\d+\s*건?$/.test(c) &&
+                        c !== weekly,
+                ) || '';
             if (!name) {
                 name = extractBlogId(url) || '블로그';
             }
-            if (existingUrls.has(url) || existingNames.has(name) || payloads.some((p) => p.blog_url === url)) {
+            if (
+                existingUrls.has(url) ||
+                existingNames.has(name) ||
+                payloads.some((p) => p.blog_url === url)
+            ) {
                 skipped += 1;
                 return;
             }
 
             payloads.push({
-                amount,
                 blog_id: extractBlogId(url),
                 blog_url: url,
-                contract_date: contractDate,
                 goal_count: goal,
                 is_active: true,
-                login_id: loginId,
-                login_pw: loginPw,
-                manage_sheet_url: manageSheet,
-                manager,
                 name,
-                note,
                 remain_count: remain,
-                reporter,
                 weekly,
             });
         });
@@ -1606,14 +1552,13 @@ function ImportModal({
             <div className="w-[min(620px,94vw)] rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">시트 붙여넣기 등록</h3>
                 <p className="mt-1 mb-3 text-sm text-[#64748b]">
-                    한 줄에 블로그 하나. <b>블로그 URL만 붙여넣어도 등록</b>됩니다(이름은 자동). <b>관리 시트를 그대로 복사·붙여넣어도</b> 자동 인식합니다(행번호·금액·빈 칸 있어도 OK):{' '}
+                    한 줄에 블로그 하나. <b>블로그 URL만 붙여넣어도 등록</b>됩니다(이름은 자동). 관리 시트를 그대로 붙여넣어도 OK — 등록되는 항목은{' '}
                     <span className="rounded bg-[#f1f5f9] px-1 text-xs">
-                        업체명·계약일자·금액·계약건수·잔여건수·주발행·아이디·비번·기자단·발행관리시트·발행URL·특이사항
-                    </span>
+                        업체명 · 계약건수 · 잔여건수 · 주 발행 · 발행 URL
+                    </span>{' '}
+                    입니다(행번호·빈 칸 있어도 인식). 계약건수·잔여는 <b>"20건/6건"</b>처럼 '건'을 붙이면 가장 정확합니다.
                     <br />
-                    계약건수·잔여는 <b>"20건/6건"</b>처럼 '건'을 붙이면 가장 정확합니다.{' '}
-                    <b className="text-[#d97706]">아이디·비밀번호도 함께 저장되며, 표엔 안 보이고 편집 → ‘계정 보기’에서만 확인됩니다.</b>
-                    {' '}모든 항목은 등록 후 <b>편집</b>에서 수정할 수 있습니다.
+                    <b className="text-[#d97706]">계약일자·금액·아이디·비밀번호·기자단·특이사항</b>은 등록 후 <b>편집</b>에서 따로 입력·관리합니다.
                 </p>
                 <textarea
                     className="min-h-[160px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-xs"
