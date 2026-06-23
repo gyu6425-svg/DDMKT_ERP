@@ -34,10 +34,19 @@ async function crawlBlogLocal({ blogAccountId }) {
             return null;
         }
     };
+    const measureOne = async (url, parse) => {
+        const h = await get(url);
+        let r = h ? parse(h) : { rank: OUT_OF_RANK, status: 'fail' };
+        if (r.status === 'fail') {
+            await new Promise((res) => setTimeout(res, 1500));
+            const h2 = await get(url);
+            r = h2 ? parse(h2) : { rank: OUT_OF_RANK, status: 'fail' };
+        }
+        return r;
+    };
     const measure = async (kw, blogId, logNo) => {
-        const [ti, bl] = await Promise.all([get(TI_URL(kw)), get(BL_URL(kw))]);
-        const tp = ti ? rankInPopular(ti, blogId) : { rank: OUT_OF_RANK, status: 'fail' };
-        const bp = bl ? rankInBlogtab(bl, blogId, logNo) : { rank: OUT_OF_RANK, status: 'fail' };
+        const tp = await measureOne(TI_URL(kw), (h) => rankInPopular(h, blogId));
+        const bp = await measureOne(BL_URL(kw), (h) => rankInBlogtab(h, blogId, logNo));
         return { ti: tp.rank, ti_status: tp.status, bl: bp.rank, bl_status: bp.status };
     };
     try {
@@ -97,9 +106,19 @@ async function measureRankLocal({ keyword, blogId, logNo = '' }) {
             return null;
         }
     };
-    const [tiHtml, blHtml] = await Promise.all([get(TI_URL(keyword)), get(BL_URL(keyword))]);
-    const ti = tiHtml ? rankInPopular(tiHtml, blogId) : { rank: OUT_OF_RANK, status: 'fail' };
-    const bl = blHtml ? rankInBlogtab(blHtml, blogId, logNo) : { rank: OUT_OF_RANK, status: 'fail' };
+    // 파싱 실패(네이버 일시차단/빈응답)면 잠깐 쉬고 1회 재시도.
+    const measureOne = async (url, parse) => {
+        const h = await get(url);
+        let r = h ? parse(h) : { rank: OUT_OF_RANK, status: 'fail' };
+        if (r.status === 'fail') {
+            await new Promise((res) => setTimeout(res, 1500));
+            const h2 = await get(url);
+            r = h2 ? parse(h2) : { rank: OUT_OF_RANK, status: 'fail' };
+        }
+        return r;
+    };
+    const ti = await measureOne(TI_URL(keyword), (h) => rankInPopular(h, blogId));
+    const bl = await measureOne(BL_URL(keyword), (h) => rankInBlogtab(h, blogId, logNo));
     return {
         statusCode: 200,
         body: { keyword, blogId, ti: ti.rank, ti_status: ti.status, bl: bl.rank, bl_status: bl.status },

@@ -48,10 +48,25 @@ async function fetchText(url: string): Promise<string | null> {
     }
 }
 
+// 측정 1개(통합 또는 블로그탭) — 파싱 실패(네이버 일시차단/빈응답)면 잠깐 쉬고 1회 재시도.
+async function measureOne(
+    url: string,
+    parse: (html: string) => { rank: number; status: string },
+): Promise<{ rank: number; status: string }> {
+    const html = await fetchText(url);
+    let r = html ? parse(html) : { rank: OUT_OF_RANK, status: 'fail' };
+    if (r.status === 'fail') {
+        await new Promise((res) => setTimeout(res, 1500));
+        const html2 = await fetchText(url);
+        r = html2 ? parse(html2) : { rank: OUT_OF_RANK, status: 'fail' };
+    }
+    return r;
+}
+
 async function measure(keyword: string, blogId: string, logNo: string) {
-    const [tiHtml, blHtml] = await Promise.all([fetchText(TI_URL(keyword)), fetchText(BL_URL(keyword))]);
-    const ti = tiHtml ? rankInPopular(tiHtml, blogId) : { rank: OUT_OF_RANK, status: 'fail' };
-    const bl = blHtml ? rankInBlogtab(blHtml, blogId, logNo) : { rank: OUT_OF_RANK, status: 'fail' };
+    // 동시요청을 줄이려 통합→블로그 순차로(폭주 시 차단 완화).
+    const ti = await measureOne(TI_URL(keyword), (h) => rankInPopular(h, blogId));
+    const bl = await measureOne(BL_URL(keyword), (h) => rankInBlogtab(h, blogId, logNo));
     return { ti: ti.rank, ti_status: ti.status, bl: bl.rank, bl_status: bl.status };
 }
 
