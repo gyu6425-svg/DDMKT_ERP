@@ -6,9 +6,10 @@ const navigationItems = [
     { path: '/dashboard', label: '대시보드' },
     { path: '/clients', label: '고객사 관리' },
     { path: '/contracts', label: '계약 관리' },
-    { path: '/calendar', label: '캘린더' },
-    { path: '/reports', label: '리포트' },
-    { path: '/memos', label: '메모' },
+    // 리포트·메모·캘린더는 추후 구현 — 지금은 비활성(클릭 불가).
+    { path: '/calendar', label: '캘린더', disabled: true },
+    { path: '/reports', label: '리포트', disabled: true },
+    { path: '/memos', label: '메모', disabled: true },
     { path: '/banner-generator', label: '배너 생성기' },
     { path: '/powerlink', label: '파워링크' },
 ];
@@ -51,17 +52,28 @@ function Sidebar() {
             </div>
 
             <nav className="grid gap-[18px] max-[800px]:grid-cols-2">
-                {navigationItems.map((item) => (
-                    <a
-                        aria-current={item.path === currentPath ? 'page' : undefined}
-                        className={linkClassName(item.path)}
-                        href={item.path}
-                        key={item.path}
-                        onClick={(event) => navigate(event, item.path)}
-                    >
-                        {item.label}
-                    </a>
-                ))}
+                {navigationItems.map((item) =>
+                    item.disabled ? (
+                        <span
+                            aria-disabled="true"
+                            className="cursor-not-allowed text-[16px] font-normal text-[#c4c4c4] no-underline"
+                            key={item.path}
+                            title="준비 중입니다"
+                        >
+                            {item.label}
+                        </span>
+                    ) : (
+                        <a
+                            aria-current={item.path === currentPath ? 'page' : undefined}
+                            className={linkClassName(item.path)}
+                            href={item.path}
+                            key={item.path}
+                            onClick={(event) => navigate(event, item.path)}
+                        >
+                            {item.label}
+                        </a>
+                    ),
+                )}
                 <AdminOnly>
                     <a
                         aria-current={currentPath === '/blog-rank' ? 'page' : undefined}
