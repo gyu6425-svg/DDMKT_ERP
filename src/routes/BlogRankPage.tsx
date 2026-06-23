@@ -1630,10 +1630,11 @@ function ImportModal({
             if (!trimmed) {
                 return;
             }
-            // 고정 순서: 업체명 / 계약일자 / 금액 / 계약건수 / 잔여건수 / 주 발행건수 / 아이디 / 비밀번호 / 기자단 / 발행 관리시트 / 발행 URL
+            // 엑셀 시트 고정 순서(탭 또는 / 구분):
+            // 업체명 / 연락처 / 계약일자 / 금액 / 계약건수 / 잔여건수 / 주 발행건수 / 아이디 / 비밀번호 / 발행 관리시트 / 발행 URL / 기자단 / 특이사항
             let f = splitFields(trimmed);
-            // 맨 앞 행번호(12칸+이고 첫 칸이 숫자만) 제거.
-            if (f.length >= 12 && /^\d+$/.test(f[0])) {
+            // 맨 앞 행번호(첫 칸이 숫자만 + 칸 수가 충분) 제거.
+            if (f.length >= 13 && /^\d+$/.test(f[0])) {
                 f = f.slice(1);
             }
             const blogUrl =
@@ -1661,15 +1662,18 @@ function ImportModal({
                 blog_id: extractBlogId(blogUrl),
                 blog_url: blogUrl,
                 name,
-                contract_date: f[1] || null,
-                amount: f[2] || null,
-                goal_count: toNum(f[3]),
-                remain_count: toNum(f[4]),
-                weekly: f[5] || null,
-                login_id: f[6] || null,
-                login_pw: f[7] || null,
-                reporter: f[8] || null,
+                manager: null, // 담당자는 비워두고 편집에서 따로 입력
+                // f[1] = 연락처 (저장 필드 없어 건너뜀)
+                contract_date: f[2] || null,
+                amount: f[3] || null,
+                goal_count: toNum(f[4]),
+                remain_count: toNum(f[5]),
+                weekly: f[6] || null,
+                login_id: f[7] || null,
+                login_pw: f[8] || null,
                 manage_sheet_url: sheet,
+                reporter: f[11] || null,
+                note: f[12] || null,
                 is_active: true,
             });
         });
@@ -1680,7 +1684,7 @@ function ImportModal({
         }
 
         setSaving(true);
-        const { error } = await insertBlogAccounts(payloads);
+        const { data, error } = await insertBlogAccounts(payloads);
         setSaving(false);
         if (error) {
             onToast(`오류: ${error.message}`);
@@ -1688,6 +1692,31 @@ function ImportModal({
         }
         await onReload();
         onToast(`${payloads.length}개 등록 완료${skipped ? ` · ${skipped}건 건너뜀` : ''}`);
+        // 등록 직후 담당자 입력 프롬프트(담당은 시트에 없어 비워둔 상태) — 바로 채울 수 있게.
+        if (data && data.length) {
+            setMgrPrompt(data);
+        } else {
+            onClose();
+        }
+    };
+
+    // 담당자 일괄 입력
+    const [mgrPrompt, setMgrPrompt] = useState<BlogAccount[] | null>(null);
+    const [mgrInputs, setMgrInputs] = useState<Record<string, string>>({});
+    const [mgrSaving, setMgrSaving] = useState(false);
+
+    const saveManagers = async () => {
+        if (!mgrPrompt) return;
+        setMgrSaving(true);
+        for (const acc of mgrPrompt) {
+            const m = (mgrInputs[acc.id] || '').trim();
+            if (m) {
+                await updateBlogAccount(acc.id, { manager: m });
+            }
+        }
+        setMgrSaving(false);
+        await onReload();
+        onToast('담당자 저장 완료');
         onClose();
     };
 
@@ -1697,41 +1726,92 @@ function ImportModal({
             onClick={(e) => e.target === e.currentTarget && onClose()}
         >
             <div className="w-[min(620px,94vw)] rounded-2xl bg-white p-6">
-                <h3 className="m-0 text-lg font-bold">시트 붙여넣기 등록</h3>
-                <p className="mt-1 mb-3 text-sm text-[#64748b]">
-                    한 줄에 블로그 하나. 칸은 <b>슬래시( / )</b>로 구분하고, 아래 <b>고정 순서</b>로 입력하세요(빈 칸은 그냥 비워두면 됩니다):
-                    <br />
-                    <span className="mt-1 inline-block rounded bg-[#f1f5f9] px-1.5 py-1 text-xs">
-                        업체명 / 계약일자 / 금액 / 계약건수 / 잔여건수 / 주 발행건수 / 아이디 / 비밀번호 / 기자단 / 발행 관리시트 / 발행 URL
-                    </span>
-                    <br />
-                    URL·날짜 속 슬래시는 자동으로 보호되니 그대로 붙여넣으셔도 됩니다. (블로그 URL만 붙여넣어도 등록 가능 · 엑셀에서 복사한 탭 구분도 인식)
-                </p>
-                <textarea
-                    className="min-h-[160px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-xs"
-                    onChange={(e) => setText(e.target.value)}
-                    placeholder={
-                        '참조와이엘 / 2026-06-01 / 100만원 / 30건 / 25건 / 주5회 / myid / mypw / 장지영 / https://docs.google.com/sheet / https://blog.naver.com/puleenbe\n든든한누수탐지 / / / 20건 / 6건 / 주3회 / / / / / https://blog.naver.com/st7al_i_byid-\nhttps://blog.naver.com/bau_j2'
-                    }
-                    value={text}
-                />
-                <div className="mt-4 flex justify-end gap-2">
-                    <button
-                        className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
-                        onClick={onClose}
-                        type="button"
-                    >
-                        닫기
-                    </button>
-                    <button
-                        className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                        disabled={saving}
-                        onClick={() => void doImport()}
-                        type="button"
-                    >
-                        {saving ? '등록 중...' : '등록하기'}
-                    </button>
-                </div>
+                {mgrPrompt ? (
+                    <>
+                        <h3 className="m-0 text-lg font-bold">담당자 입력</h3>
+                        <p className="mt-1 mb-3 text-sm text-[#64748b]">
+                            방금 등록한 <b>{mgrPrompt.length}개</b> 업체의 담당자를 입력하세요. (담당은 시트에 없어
+                            비워둔 상태 · 비워두고 나중에 편집에서 수정도 가능)
+                        </p>
+                        <div className="grid max-h-[52vh] gap-2 overflow-y-auto">
+                            {mgrPrompt.map((acc, i) => (
+                                <label
+                                    className="grid grid-cols-[1fr_1.4fr] items-center gap-2 text-sm"
+                                    key={acc.id}
+                                >
+                                    <span className="truncate font-semibold text-[#334155]">{acc.name}</span>
+                                    <input
+                                        autoFocus={i === 0}
+                                        className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                        onChange={(e) =>
+                                            setMgrInputs((s) => ({ ...s, [acc.id]: e.target.value }))
+                                        }
+                                        placeholder="담당자를 입력하세요"
+                                        value={mgrInputs[acc.id] || ''}
+                                    />
+                                </label>
+                            ))}
+                        </div>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button
+                                className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                                onClick={onClose}
+                                type="button"
+                            >
+                                건너뛰기
+                            </button>
+                            <button
+                                className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                                disabled={mgrSaving}
+                                onClick={() => void saveManagers()}
+                                type="button"
+                            >
+                                {mgrSaving ? '저장 중...' : '저장'}
+                            </button>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <h3 className="m-0 text-lg font-bold">시트 붙여넣기 등록</h3>
+                        <p className="mt-1 mb-3 text-sm text-[#64748b]">
+                            한 줄에 블로그 하나. <b>엑셀에서 행을 복사해 그대로 붙여넣으면</b> 됩니다(탭 구분). 칸
+                            순서는 아래 고정 순서입니다(빈 칸은 비워두면 됨):
+                            <br />
+                            <span className="mt-1 inline-block rounded bg-[#f1f5f9] px-1.5 py-1 text-xs">
+                                업체명 / 연락처 / 계약일자 / 금액 / 계약건수 / 잔여건수 / 주 발행건수 / 아이디 /
+                                비밀번호 / 발행 관리시트 / 발행 URL / 기자단 / 특이사항
+                            </span>
+                            <br />
+                            <b>담당자는 등록 후 바로 입력</b>하는 창이 뜹니다. (직접 칠 땐 칸 구분을 슬래시 / 로 해도
+                            됨 · URL·날짜 속 슬래시는 자동 보호 · 블로그 URL만 붙여도 등록)
+                        </p>
+                        <textarea
+                            className="min-h-[160px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-xs"
+                            onChange={(e) => setText(e.target.value)}
+                            placeholder={
+                                '참조와이엘\t010-1234-5678\t2026-06-01\t100만원\t30건\t25건\t주5회\tmyid\tmypw\thttps://docs.google.com/sheet\thttps://blog.naver.com/puleenbe\t장지영\t재계약 예정\nhttps://blog.naver.com/bau_j2'
+                            }
+                            value={text}
+                        />
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button
+                                className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                                onClick={onClose}
+                                type="button"
+                            >
+                                닫기
+                            </button>
+                            <button
+                                className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                                disabled={saving}
+                                onClick={() => void doImport()}
+                                type="button"
+                            >
+                                {saving ? '등록 중...' : '등록하기'}
+                            </button>
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     );
