@@ -10,8 +10,12 @@ import {
     insertBlogKeyword,
     updateBlogAccount,
     updatePostKeyword,
+    updatePostMeasurements,
+    todayKST,
+    extractLogNo,
     type BlogAccount,
     type BlogKeyword,
+    type BlogMeasurement,
     type BlogPost,
     type WebMeasurement,
 } from '../api/blogRank';
@@ -1398,12 +1402,43 @@ function PostSearchCell({
 
     const saveKeyword = async () => {
         setSaving(true);
+        setErr('');
+        // 1) 키워드 먼저 무조건 저장(측정 실패해도 저장은 유지).
         const { error } = await updatePostKeyword(post.id, editVal);
-        setSaving(false);
-        if (!error) {
-            setEditing(false);
-            await onSaved();
+        if (error) {
+            setErr(error.message || '키워드 저장 실패');
+            setSaving(false);
+            return; // 저장 실패 시 편집창 유지
         }
+        // 2) 저장된 실효 키워드로 즉시 재측정해 통합탭/블로그탭 반영.
+        const effective = editVal.trim() || post.keyword || '';
+        const prevEffective = post.keyword_manual || post.keyword || '';
+        const keywordChanged = effective !== prevEffective;
+        const today = todayKST();
+        // 키워드가 바뀌면 이전 키워드의 측정 이력은 버린다(서로 다른 키워드 순위로 delta 비교되는 오류 방지).
+        let next: BlogMeasurement[] = keywordChanged
+            ? []
+            : post.measurements.filter((m) => m.date !== today);
+        let measured = false;
+        if (effective && blogId) {
+            try {
+                const r = await searchRank(effective, blogId, extractLogNo(post.post_url || ''));
+                next = [
+                    ...next,
+                    { date: today, ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status },
+                ];
+                measured = true;
+            } catch (e) {
+                setErr(`키워드 저장됨 · 측정 실패: ${e instanceof Error ? e.message : ''}`);
+            }
+        }
+        // 측정 성공했거나(레코드 추가) 키워드가 바뀌어 이력을 비웠으면 measurements 영속화.
+        if (measured || keywordChanged) {
+            await updatePostMeasurements(post.id, next);
+        }
+        setSaving(false);
+        setEditing(false);
+        await onSaved();
     };
 
     return (
@@ -1425,7 +1460,7 @@ function PostSearchCell({
                         onClick={() => void saveKeyword()}
                         type="button"
                     >
-                        {saving ? '…' : '저장'}
+                        {saving ? '측정 중…' : '저장'}
                     </button>
                     <button
                         className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md border border-[#cbd5e1] bg-white px-3 text-sm font-semibold text-[#475569]"

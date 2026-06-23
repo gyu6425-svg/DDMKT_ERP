@@ -134,6 +134,26 @@ export async function updatePostKeyword(postId: string, keywordManual: string) {
     return { error };
 }
 
+// 측정 이력(measurements) 직접 갱신 — 키워드 수정 후 즉시 재측정 결과 반영용. (크롤은 service_role 로 별도 기록)
+export async function updatePostMeasurements(postId: string, measurements: BlogMeasurement[]) {
+    const { error } = await supabase
+        .from('blog_posts')
+        .update({ measurements })
+        .eq('id', postId);
+    return { error };
+}
+
+// KST(UTC+9) YYYY-MM-DD — 크롤러 todayKST(crawlLib.mjs)와 동일해야 같은 날짜 레코드가 깔끔히 교체됨.
+export function todayKST(): string {
+    return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+// blog.naver.com/{id}/{logNo} → logNo. 글 단위 블로그탭 측정에 사용(없으면 빈 문자열).
+export function extractLogNo(url: string): string {
+    const m = String(url || '').match(/(?:m\.)?blog\.naver\.com\/[^/?#]+\/(\d{6,})/);
+    return m ? m[1] : '';
+}
+
 // ── 대표키워드 ──────────────────────────────────────────
 // measurements 는 크롤러만 기록하므로 프론트는 행 insert/delete 만 한다(update 경로 없음).
 export async function getBlogKeywords() {
