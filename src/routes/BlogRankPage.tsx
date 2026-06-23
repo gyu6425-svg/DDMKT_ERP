@@ -17,8 +17,9 @@ import {
 import { crawlBlog } from '../api/crawlBlog';
 import { searchRank, type RankSearchResult } from '../api/rankSearch';
 import { useAuth } from '../hooks/useAuth';
+import BlogPage from './BlogPage';
 
-type Tab = 'dashboard' | 'sheet' | 'tracker';
+type Tab = 'dashboard' | 'sheet' | 'tracker' | 'writer';
 
 const PER_SHEET = 20;
 const PER_FEED = 30;
@@ -77,7 +78,7 @@ function BlogRankPage() {
     // 탭을 URL 쿼리(?tab=)에 저장 → 새로고침해도 현재 탭 유지.
     const [tab, setTab] = useState<Tab>(() => {
         const t = new URLSearchParams(window.location.search).get('tab');
-        return t === 'sheet' || t === 'tracker' ? t : 'dashboard';
+        return t === 'sheet' || t === 'tracker' || t === 'writer' ? t : 'dashboard';
     });
     const [toast, setToast] = useState('');
 
@@ -170,6 +171,7 @@ function BlogRankPage() {
                         ['dashboard', '대시보드'],
                         ['sheet', '블로그 관리 시트'],
                         ['tracker', '순위 트래커'],
+                        ['writer', '블로그 작성기'],
                     ] as const
                 ).map(([key, label]) => (
                     <button
@@ -200,6 +202,7 @@ function BlogRankPage() {
                 />
             ) : null}
             {tab === 'tracker' ? <TrackerTab accounts={accounts} posts={posts} /> : null}
+            {tab === 'writer' ? <BlogPage /> : null}
 
             {toast ? (
                 <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-medium text-white shadow-lg">

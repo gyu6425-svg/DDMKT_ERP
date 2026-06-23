@@ -9,7 +9,6 @@ const navigationItems = [
     { path: '/calendar', label: '캘린더' },
     { path: '/reports', label: '리포트' },
     { path: '/memos', label: '메모' },
-    { path: '/blog', label: '블로그 작성기' },
     { path: '/banner-generator', label: '배너 생성기' },
     { path: '/powerlink', label: '파워링크' },
 ];
