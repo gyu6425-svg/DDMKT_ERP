@@ -31,7 +31,7 @@ export function NoteModal({
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-            onClick={(e) => e.target === e.currentTarget && onClose()}
+            onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
             <div className="w-[min(560px,94vw)] rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">{account.name} · 특이사항</h3>
