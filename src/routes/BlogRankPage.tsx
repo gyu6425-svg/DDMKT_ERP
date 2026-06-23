@@ -9,6 +9,7 @@ import {
     insertBlogAccounts,
     insertBlogKeyword,
     updateBlogAccount,
+    updatePostKeyword,
     type BlogAccount,
     type BlogKeyword,
     type BlogPost,
@@ -201,7 +202,9 @@ function BlogRankPage() {
                     onToast={showToast}
                 />
             ) : null}
-            {tab === 'tracker' ? <TrackerTab accounts={accounts} posts={posts} /> : null}
+            {tab === 'tracker' ? (
+                <TrackerTab accounts={accounts} posts={posts} onReload={load} />
+            ) : null}
             {tab === 'writer' ? <BlogPage /> : null}
 
             {toast ? (
@@ -1145,9 +1148,11 @@ function AccountEditModal({
 function TrackerTab({
     accounts,
     posts,
+    onReload,
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
+    onReload: () => Promise<void>;
 }) {
     const [co, setCo] = useState('');
     const [inOnly, setInOnly] = useState(false);
@@ -1238,9 +1243,10 @@ function TrackerTab({
                                                     <div className="max-w-[360px] truncate text-[13px] font-medium text-[#0f172a] group-hover:text-[#7c3aed] group-hover:underline">
                                                         {p.title || '제목 없음'}
                                                     </div>
-                                                    {p.keyword ? (
+                                                    {p.keyword_manual || p.keyword ? (
                                                         <span className="mt-1 inline-block rounded bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-semibold text-[#7c3aed]">
-                                                            #{p.keyword}
+                                                            #{p.keyword_manual || p.keyword}
+                                                            {p.keyword_manual ? ' (수정됨)' : ''}
                                                         </span>
                                                     ) : null}
                                                 </>
@@ -1261,7 +1267,7 @@ function TrackerTab({
                                         })()}
                                     </td>
                                     <td className="px-3 py-2">
-                                        <PostSearchCell account={acc} />
+                                        <PostSearchCell account={acc} post={p} onSaved={onReload} />
                                     </td>
                                     <td className="px-3 py-2 text-center">
                                         <RankCell post={p} keyName="ti" />
@@ -1314,11 +1320,24 @@ function fmtRank(rank: number, status: string): string {
     return `${rank}위`;
 }
 
-function PostSearchCell({ account }: { account: BlogAccount | null }) {
+function PostSearchCell({
+    account,
+    post,
+    onSaved,
+}: {
+    account: BlogAccount | null;
+    post: BlogPost;
+    onSaved: () => Promise<void>;
+}) {
     const [kw, setKw] = useState('');
     const [busy, setBusy] = useState(false);
     const [res, setRes] = useState<RankSearchResult | null>(null);
     const [err, setErr] = useState('');
+    // 자동키워드 수동 수정
+    const effectiveKw = post.keyword_manual || post.keyword || '';
+    const [editing, setEditing] = useState(false);
+    const [editVal, setEditVal] = useState(effectiveKw);
+    const [saving, setSaving] = useState(false);
 
     if (!account) {
         return <span className="text-xs text-[#94a3b8]">—</span>;
@@ -1342,27 +1361,83 @@ function PostSearchCell({ account }: { account: BlogAccount | null }) {
         }
     };
 
+    const saveKeyword = async () => {
+        setSaving(true);
+        const { error } = await updatePostKeyword(post.id, editVal);
+        setSaving(false);
+        if (!error) {
+            setEditing(false);
+            await onSaved();
+        }
+    };
+
     return (
-        <div className="min-w-[230px]">
-            <div className="flex gap-1">
-                <input
-                    aria-label="키워드 직접 검색"
-                    className="h-11 w-full min-w-0 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
-                    onChange={(e) => setKw(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && void run()}
-                    placeholder="키워드 직접 검색"
-                    value={kw}
-                />
-                <button
-                    className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white disabled:opacity-50"
-                    disabled={busy || !kw.trim()}
-                    onClick={() => void run()}
-                    title="이 블로그가 입력 키워드로 몇 위인지 즉시 검색"
-                    type="button"
-                >
-                    {busy ? '…' : '검색'}
-                </button>
-            </div>
+        <div className="min-w-[300px]">
+            {editing ? (
+                <div className="flex gap-1">
+                    <input
+                        aria-label="자동키워드 수정"
+                        autoFocus
+                        className="h-11 w-full min-w-0 rounded-md border border-[#a78bfa] bg-white px-2.5 text-sm"
+                        onChange={(e) => setEditVal(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && void saveKeyword()}
+                        placeholder="자동키워드 직접 입력"
+                        value={editVal}
+                    />
+                    <button
+                        className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#7c3aed] px-4 text-sm font-semibold text-white disabled:opacity-50"
+                        disabled={saving}
+                        onClick={() => void saveKeyword()}
+                        type="button"
+                    >
+                        {saving ? '…' : '저장'}
+                    </button>
+                    <button
+                        className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md border border-[#cbd5e1] bg-white px-3 text-sm font-semibold text-[#475569]"
+                        onClick={() => {
+                            setEditing(false);
+                            setEditVal(effectiveKw);
+                        }}
+                        type="button"
+                    >
+                        취소
+                    </button>
+                </div>
+            ) : (
+                <div className="flex gap-1">
+                    <input
+                        aria-label="키워드 직접 검색"
+                        className="h-11 w-full min-w-0 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
+                        onChange={(e) => setKw(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && void run()}
+                        placeholder="키워드 직접 검색"
+                        value={kw}
+                    />
+                    <button
+                        className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white disabled:opacity-50"
+                        disabled={busy || !kw.trim()}
+                        onClick={() => void run()}
+                        title="이 블로그가 입력 키워드로 몇 위인지 즉시 검색"
+                        type="button"
+                    >
+                        {busy ? '…' : '검색'}
+                    </button>
+                    <button
+                        className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#7c3aed] px-4 text-sm font-semibold text-white"
+                        onClick={() => {
+                            setEditVal(effectiveKw);
+                            setEditing(true);
+                        }}
+                        title="이 글의 자동키워드를 직접 수정(다음 자동 측정도 이 값으로 유지)"
+                        type="button"
+                    >
+                        수정
+                    </button>
+                </div>
+            )}
+            {post.keyword_manual ? (
+                <div className="mt-1 text-[10px] font-semibold text-[#7c3aed]">수동 키워드 #{post.keyword_manual}</div>
+            ) : null}
             {res ? (
                 <div className="mt-1 text-[11px] font-semibold text-[#0f172a]">
                     <span className="text-[#94a3b8]">#{res.keyword}</span> · 통합{' '}

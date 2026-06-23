@@ -52,6 +52,8 @@ create table if not exists public.blog_posts (
 );
 create index if not exists blog_posts_account_idx on public.blog_posts (blog_account_id);
 create index if not exists blog_posts_published_idx on public.blog_posts (published_date desc);
+-- 자동키워드 수동 수정값. 있으면 측정·표시에 이걸 우선 사용하고, 크롤은 이 컬럼을 건드리지 않아 계속 유지된다.
+alter table public.blog_posts add column if not exists keyword_manual text;
 
 -- ── 블로그 대표키워드 추적 (사용자가 직접 지정, 블로그당 복수) ───────────
 -- 글 단위(blog_posts) 추적과 별개로, "이 블로그가 OO키워드로 통합탭/블로그탭 몇 위인지"를

@@ -108,7 +108,8 @@ export async function onRequestPost({ request, env }: FunctionContext) {
             );
             const upserted = rows.length ? await sbInsert(env, 'blog_posts', rows, 'blog_account_id,post_url') : [];
             for (const post of upserted) {
-                const kw = (post.keyword || '').trim();
+                // 수동 지정 키워드(keyword_manual)가 있으면 그 값으로 측정 — 크롤이 덮어쓰지 않으므로 계속 유지됨.
+                const kw = (post.keyword_manual || post.keyword || '').trim();
                 if (!kw) continue;
                 const r = await measure(kw, blogId, extractLogNo(post.post_url || ''));
                 const recs = upsertToday(post.measurements, { date: today, ...r }, today);

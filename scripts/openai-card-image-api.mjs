@@ -60,7 +60,8 @@ async function crawlBlogLocal({ blogAccountId }) {
             }));
             const up = rows.length ? await sbInsert(env, 'blog_posts', rows, 'blog_account_id,post_url') : [];
             for (const post of up) {
-                const kw = (post.keyword || '').trim();
+                // 수동 지정 키워드(keyword_manual) 우선 — 크롤이 덮어쓰지 않아 계속 유지됨.
+                const kw = (post.keyword_manual || post.keyword || '').trim();
                 if (!kw) continue;
                 const r = await measure(kw, blogId, extractLogNo(post.post_url || ''));
                 await sbPatch(env, 'blog_posts', { id: `eq.${post.id}` }, { measurements: upsertToday(post.measurements, { date: today, ...r }, today) });

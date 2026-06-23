@@ -864,7 +864,8 @@ def run():
         acc = acc_by_id.get(post["blog_account_id"])
         if not acc:
             continue
-        keyword = post.get("keyword") or ""
+        # 수동 지정 키워드(keyword_manual) 우선 — 크롤이 덮어쓰지 않아 계속 유지됨.
+        keyword = post.get("keyword_manual") or post.get("keyword") or ""
         if not keyword:
             continue
         blog_id = acc.get("blog_id") or parse_blog_url(acc.get("blog_url", ""))[0] or ""

@@ -64,6 +64,7 @@ export type BlogPost = {
     post_url: string | null;
     title: string | null;
     keyword: string | null;
+    keyword_manual: string | null; // 사용자가 직접 입력한 키워드. 있으면 자동 측정도 이 값으로 측정(크롤이 덮어쓰지 않음).
     published_date: string | null;
     first_seen_at: string | null;
     measurements: BlogMeasurement[];
@@ -121,6 +122,16 @@ export async function getBlogPosts() {
         .returns<BlogPost[]>();
 
     return { data: data ?? [], error };
+}
+
+// 자동키워드 수동 수정 — keyword_manual 만 갱신(자동 keyword/측정은 크롤이 유지). 빈 문자열이면 수동값 해제.
+export async function updatePostKeyword(postId: string, keywordManual: string) {
+    const value = keywordManual.trim();
+    const { error } = await supabase
+        .from('blog_posts')
+        .update({ keyword_manual: value || null })
+        .eq('id', postId);
+    return { error };
 }
 
 // ── 대표키워드 ──────────────────────────────────────────
