@@ -24,7 +24,7 @@ type FunctionContext = {
     env: Record<string, string | undefined>;
 };
 
-const MAX_POSTS = 5;
+const MAX_POSTS = 15; // RSS에서 가져올 최신 글 수(옛 글도 행으로 보이게 — 글 단위 순위 표시)
 const MAX_KEYWORDS = 3;
 
 function jsonResponse(body: unknown, status = 200) {
@@ -126,6 +126,7 @@ export async function onRequestPost({ request, env }: FunctionContext) {
                 // 수동 지정 키워드(keyword_manual)가 있으면 그 값으로 측정 — 크롤이 덮어쓰지 않으므로 계속 유지됨.
                 const kw = (post.keyword_manual || post.keyword || '').trim();
                 if (!kw) continue;
+                // 글 단위(logNo) 측정 — 각 글의 실제 순위. (같은 키워드여도 5월글/6월글 각자 순위)
                 const r = await measure(kw, blogId, extractLogNo(post.post_url || ''));
                 const recs = upsertToday(post.measurements, { date: today, ...r }, today);
                 await sbPatch(env, 'blog_posts', { id: `eq.${post.id}` }, { measurements: recs });

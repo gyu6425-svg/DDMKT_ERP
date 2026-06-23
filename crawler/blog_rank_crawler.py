@@ -52,7 +52,7 @@ UA = (
     "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 )
 REQUEST_DELAY = 1.0        # 검색 요청 사이 간격(초)
-MAX_POSTS_PER_BLOG = 8     # 블로그당 RSS에서 가져올 최신 글 수
+MAX_POSTS_PER_BLOG = 15    # 블로그당 RSS에서 가져올 최신 글 수(옛 글도 행으로 보이게)
 MAX_KEYWORDS_PER_ACCOUNT = 3  # 블로그당 대표키워드 측정 상한(네이버 요청량/차단 가드)
 MAX_RANK_SCAN = 30         # 이 순위까지 탐색(넘으면 권외=99)
 OUT_OF_RANK = 99

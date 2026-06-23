@@ -18,10 +18,22 @@ export function TrackerTab({
 }) {
     const [co, setCo] = useState('');
     const [nameQ, setNameQ] = useState('');
+    const [month, setMonth] = useState('');
     const [inOnly, setInOnly] = useState(false);
     const [page, setPage] = useState(1);
 
     const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
+
+    // 발행 월 목록(YYYY-MM) — 현재 co 필터에 맞춰, 최신월 먼저.
+    const months = useMemo(() => {
+        const set = new Set<string>();
+        for (const p of posts) {
+            if (co && p.blog_account_id !== co) continue;
+            const m = (p.published_date || '').slice(0, 7);
+            if (m) set.add(m);
+        }
+        return [...set].sort((a, b) => (a < b ? 1 : -1));
+    }, [posts, co]);
 
     const filtered = useMemo(() => {
         const q = nameQ.trim().toLowerCase();
@@ -29,11 +41,12 @@ export function TrackerTab({
             (p) =>
                 (co === '' || p.blog_account_id === co) &&
                 (q === '' || nameOf(p.blog_account_id).toLowerCase().includes(q)) &&
+                (month === '' || (p.published_date || '').slice(0, 7) === month) &&
                 (!inOnly || (p.measurements.length && (lastM(p)?.ti ?? 99) <= 10)),
         );
         return [...list].sort((a, b) => dayN(a) - dayN(b));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [posts, co, nameQ, inOnly, accounts]);
+    }, [posts, co, nameQ, month, inOnly, accounts]);
 
     const pages = Math.max(1, Math.ceil(filtered.length / PER_FEED));
     const current = Math.min(page, pages);
@@ -67,6 +80,24 @@ export function TrackerTab({
                             {a.name}
                         </option>
                     ))}
+                </select>
+                <select
+                    className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs"
+                    onChange={(e) => {
+                        setMonth(e.target.value);
+                        setPage(1);
+                    }}
+                    value={month}
+                >
+                    <option value="">발행 월 전체</option>
+                    {months.map((m) => {
+                        const [y, mo] = m.split('-');
+                        return (
+                            <option key={m} value={m}>
+                                {y}년 {Number(mo)}월
+                            </option>
+                        );
+                    })}
                 </select>
                 <label className="flex items-center gap-1 text-xs text-[#334155]">
                     <input checked={inOnly} onChange={(e) => setInOnly(e.target.checked)} type="checkbox" />

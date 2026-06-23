@@ -59,7 +59,7 @@ async function crawlBlogLocal({ blogAccountId }) {
         const rss = await get(`https://rss.blog.naver.com/${blogId}.xml`);
         if (!rss) errors.push('RSS 실패');
         else {
-            const items = parseRss(rss, 5).filter((p) => p.url);
+            const items = parseRss(rss, 15).filter((p) => p.url);
             const rows = items.map((p) => ({
                 blog_account_id: blogAccountId,
                 post_url: p.url,
