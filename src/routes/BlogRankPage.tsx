@@ -1614,6 +1614,21 @@ function ImportModal({
         const m = (v || '').match(/\d+/);
         return m ? Number(m[0]) : null;
     };
+    // 계약일자: '~월~일'만 입력하면 연도 자동 — 현재 월보다 크면 작년(미래월=지난해), 작거나 같으면 올해.
+    const parseContractDate = (v: string | undefined): string | null => {
+        const s = (v || '').trim();
+        if (!s) return null;
+        if (/\d{4}/.test(s)) return s; // 이미 연도 포함이면 그대로
+        const m = s.match(/(\d{1,2})\s*[월./-]\s*(\d{1,2})/);
+        if (!m) return s; // '월/일' 형식 아니면 원문 유지
+        const month = Number(m[1]);
+        const day = Number(m[2]);
+        if (month < 1 || month > 12 || day < 1 || day > 31) return s;
+        const now = new Date();
+        const curMonth = now.getMonth() + 1;
+        const year = month > curMonth ? now.getFullYear() - 1 : now.getFullYear();
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    };
 
     const doImport = async () => {
         const raw = text.trim();
@@ -1630,16 +1645,16 @@ function ImportModal({
             if (!trimmed) {
                 return;
             }
-            // 엑셀 시트 고정 순서(탭 또는 / 구분):
-            // 업체명 / 연락처 / 계약일자 / 금액 / 계약건수 / 잔여건수 / 주 발행건수 / 아이디 / 비밀번호 / 발행 관리시트 / 발행 URL / 기자단 / 특이사항
+            // 붙여넣기 고정 순서(탭 또는 / 구분):
+            // 업체명 / 계약일자 / 계약건수 / 잔여건수 / 총 발행건수 / 발행 URL / 기자단
             let f = splitFields(trimmed);
-            // 맨 앞 행번호(첫 칸이 숫자만 + 칸 수가 충분) 제거.
-            if (f.length >= 13 && /^\d+$/.test(f[0])) {
+            // 맨 앞 행번호(첫 칸이 숫자만) 제거 — 업체명은 숫자만일 수 없음.
+            if (f.length > 1 && /^\d+$/.test(f[0])) {
                 f = f.slice(1);
             }
             const blogUrl =
-                f[10] && f[10].includes('blog.naver.com')
-                    ? f[10]
+                f[5] && f[5].includes('blog.naver.com')
+                    ? f[5]
                     : f.find((c) => c && c.includes('blog.naver.com'));
             if (!blogUrl) {
                 skipped += 1;
@@ -1657,23 +1672,17 @@ function ImportModal({
                 skipped += 1;
                 return;
             }
-            const sheet = f[9] && f[9].includes('http') ? f[9] : null;
             payloads.push({
                 blog_id: extractBlogId(blogUrl),
                 blog_url: blogUrl,
                 name,
-                manager: null, // 담당자는 비워두고 편집에서 따로 입력
-                // f[1] = 연락처 (저장 필드 없어 건너뜀)
-                contract_date: f[2] || null,
-                amount: f[3] || null,
-                goal_count: toNum(f[4]),
-                remain_count: toNum(f[5]),
-                weekly: f[6] || null,
-                login_id: f[7] || null,
-                login_pw: f[8] || null,
-                manage_sheet_url: sheet,
-                reporter: f[11] || null,
-                note: f[12] || null,
+                manager: null, // 담당자는 비워두고 등록 후 프롬프트에서 입력
+                contract_date: parseContractDate(f[1]),
+                goal_count: toNum(f[2]),
+                remain_count: toNum(f[3]),
+                weekly: f[4] || null, // 총 발행건수
+                reporter: f[6] || null,
+                // 금액·아이디·비밀번호·발행관리시트·특이사항·연락처는 등록 후 편집에서 따로 입력
                 is_active: true,
             });
         });
@@ -1774,22 +1783,22 @@ function ImportModal({
                     <>
                         <h3 className="m-0 text-lg font-bold">시트 붙여넣기 등록</h3>
                         <p className="mt-1 mb-3 text-sm text-[#64748b]">
-                            한 줄에 블로그 하나. <b>엑셀에서 행을 복사해 그대로 붙여넣으면</b> 됩니다(탭 구분). 칸
-                            순서는 아래 고정 순서입니다(빈 칸은 비워두면 됨):
+                            한 줄에 블로그 하나. <b>엑셀에서 행을 복사해 붙여넣으면</b> 됩니다(탭 구분). 칸 순서는 아래
+                            고정 순서입니다(빈 칸은 비워두면 됨):
                             <br />
                             <span className="mt-1 inline-block rounded bg-[#f1f5f9] px-1.5 py-1 text-xs">
-                                업체명 / 연락처 / 계약일자 / 금액 / 계약건수 / 잔여건수 / 주 발행건수 / 아이디 /
-                                비밀번호 / 발행 관리시트 / 발행 URL / 기자단 / 특이사항
+                                업체명 / 계약일자 / 계약건수 / 잔여건수 / 총 발행건수 / 발행 URL / 기자단
                             </span>
                             <br />
-                            <b>담당자는 등록 후 바로 입력</b>하는 창이 뜹니다. (직접 칠 땐 칸 구분을 슬래시 / 로 해도
-                            됨 · URL·날짜 속 슬래시는 자동 보호 · 블로그 URL만 붙여도 등록)
+                            <b>계약일자</b>는 <b>“7월 15일”</b>처럼 월·일만 적으면 연도 자동(현재 월보다 크면 작년,
+                            작거나 같으면 올해). <b>담당자</b>는 등록 후 바로 입력하는 창이 뜹니다. (금액·아이디·비밀번호·발행관리시트·특이사항은
+                            등록 후 편집에서 입력 · 직접 칠 땐 / 구분도 가능 · 블로그 URL만 붙여도 등록)
                         </p>
                         <textarea
                             className="min-h-[160px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-xs"
                             onChange={(e) => setText(e.target.value)}
                             placeholder={
-                                '참조와이엘\t010-1234-5678\t2026-06-01\t100만원\t30건\t25건\t주5회\tmyid\tmypw\thttps://docs.google.com/sheet\thttps://blog.naver.com/puleenbe\t장지영\t재계약 예정\nhttps://blog.naver.com/bau_j2'
+                                '참조와이엘\t7월 15일\t30건\t25건\t주5회\thttps://blog.naver.com/puleenbe\t장지영\nhttps://blog.naver.com/bau_j2'
                             }
                             value={text}
                         />
