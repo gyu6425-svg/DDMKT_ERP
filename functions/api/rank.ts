@@ -56,7 +56,7 @@ export async function onRequestPost({ request }: FunctionContext) {
         return jsonResponse({ error: 'keyword, blogId 가 필요합니다' }, 400);
     }
 
-    const key = `${blogId}|${keyword}`;
+    const key = `${blogId}|${logNo}|${keyword}`; // logNo 포함 — 같은 블로그·키워드라도 글마다 별도 캐시(글 단위 측정).
     const hit = cache.get(key);
     if (hit && Date.now() - hit.at < CACHE_TTL) {
         return jsonResponse(hit.data);
