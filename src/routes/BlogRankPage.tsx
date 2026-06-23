@@ -434,6 +434,39 @@ function SheetTab({
         onToast(`삭제 완료 · ${targets.length - failed}개${failed ? ` (실패 ${failed})` : ''}`);
     };
 
+    const [bulkCrawlBusy, setBulkCrawlBusy] = useState(false);
+    // 전체 측정 — 현재 표(필터 적용)에 보이는 업체를 위에서부터 차례로 즉시 크롤(RSS+순위 측정).
+    const bulkCrawl = async () => {
+        const targets = filtered;
+        if (!targets.length || bulkCrawlBusy) {
+            return;
+        }
+        if (
+            !window.confirm(
+                `현재 목록의 ${targets.length}개 업체를 모두 측정할까요?\n순서대로 진행되며 시간이 다소 걸릴 수 있습니다.`,
+            )
+        ) {
+            return;
+        }
+        setBulkCrawlBusy(true);
+        let done = 0;
+        let failed = 0;
+        for (const a of targets) {
+            setCrawlingId(a.id);
+            onToast(`전체 측정 중... (${done + 1}/${targets.length}) ${a.name}`);
+            try {
+                await crawlBlog(a.id);
+            } catch {
+                failed += 1;
+            }
+            done += 1;
+        }
+        setCrawlingId(null);
+        await onReload();
+        setBulkCrawlBusy(false);
+        onToast(`전체 측정 완료 · ${done - failed}개${failed ? ` (실패 ${failed})` : ''}`);
+    };
+
     const managers = useMemo(
         () => [...new Set(accounts.map((a) => a.manager).filter(Boolean))] as string[],
         [accounts],
@@ -508,8 +541,17 @@ function SheetTab({
                     시트 붙여넣기 등록
                 </button>
                 <button
+                    className="inline-flex h-9 items-center rounded-md bg-[#059669] px-3 text-xs font-semibold text-white hover:bg-[#047857] disabled:opacity-50"
+                    disabled={bulkCrawlBusy || bulkBusy || filtered.length === 0}
+                    onClick={() => void bulkCrawl()}
+                    title="현재 목록의 모든 업체를 위에서부터 차례로 측정"
+                    type="button"
+                >
+                    {bulkCrawlBusy ? '측정 중…' : '전체 측정'}
+                </button>
+                <button
                     className="inline-flex h-9 items-center rounded-md border border-[#fca5a5] bg-white px-3 text-xs font-semibold text-[#dc2626] disabled:opacity-50"
-                    disabled={bulkBusy || filtered.length === 0}
+                    disabled={bulkBusy || bulkCrawlBusy || filtered.length === 0}
                     onClick={() => void bulkDelete()}
                     type="button"
                 >
@@ -654,7 +696,7 @@ function SheetTab({
                                             <div className="flex justify-center gap-1">
                                                 <button
                                                     className="rounded bg-[#059669] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#047857] disabled:opacity-50"
-                                                    disabled={crawlingId === a.id}
+                                                    disabled={crawlingId === a.id || bulkCrawlBusy}
                                                     onClick={() => void doCrawl(a)}
                                                     title="터미널 없이 이 블로그 RSS+순위를 지금 측정"
                                                     type="button"
