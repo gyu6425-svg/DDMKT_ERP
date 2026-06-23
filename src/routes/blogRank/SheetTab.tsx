@@ -6,6 +6,7 @@ import { Pager, Tag } from './ui';
 import { AccountEditModal } from './AccountEditModal';
 import { ImportModal } from './ImportModal';
 import { NoteModal } from './NoteModal';
+import { openBlogReport } from './report';
 
 export function SheetTab({
     accounts,
@@ -401,6 +402,18 @@ export function SheetTab({
                                                     type="button"
                                                 >
                                                     편집
+                                                </button>
+                                                <button
+                                                    className="rounded bg-[#1e40af] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#1e3a8a]"
+                                                    onClick={() => {
+                                                        if (!openBlogReport(a, postCountOf(a.id))) {
+                                                            onToast('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.');
+                                                        }
+                                                    }}
+                                                    title="계약·현재 노출 순위 기반 성과 보고서(인쇄/PDF)"
+                                                    type="button"
+                                                >
+                                                    성과
                                                 </button>
                                             </div>
                                         </td>
