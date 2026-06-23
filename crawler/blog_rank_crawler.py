@@ -36,6 +36,14 @@ try:
 except Exception:
     pass
 
+# 작업 스케줄러로 stdout 이 파일/파이프로 갈 때 인코딩이 cp949 가 되어, 이모지·일부 한글(자모 등)에서
+# UnicodeEncodeError 가 나면 '측정 도중 전체 크래시'(→ 뒤쪽 블로그 미측정)로 이어진다. UTF-8 로 강제.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 try:
     import feedparser
 except ImportError:
@@ -526,8 +534,10 @@ def _block_min_r(node):
             if isinstance(cl, dict):
                 for key in ("content", "title", "image"):
                     ct = cl.get(key)
-                    if isinstance(ct, dict) and isinstance(ct.get("r"), int):
-                        rs.append(ct["r"])
+                    # r 은 화면순위(정수/실수). bool 은 int 하위형이라 명시 제외(JS typeof number 와 1:1).
+                    v = ct.get("r") if isinstance(ct, dict) else None
+                    if isinstance(v, (int, float)) and not isinstance(v, bool):
+                        rs.append(v)
             for v in o.values():
                 w(v)
         elif isinstance(o, list):
@@ -562,50 +572,31 @@ def _iter_blog_posts(node):
     return out
 
 
-_EXT_HOST_RE = re.compile(r"https?://[a-z0-9.-]+\.[a-z]{2,}", re.I)
-
-
-def _has_external_site(raw):
-    """외부(비네이버) 사이트 링크 존재 여부 — 웹문서/사이트 항목 판별."""
-    for u in _EXT_HOST_RE.findall(raw):
-        if not re.search(r"naver\.com|pstatic\.net|nstatic\.net|w3\.org", u, re.I):
-            return True
-    return False
-
-
-# ── 통합탭(ti): 인기글(urB_coR) 섹션, '광고(ader)만 제외' 후 사이트+카페+블로그+당근 전부 r순 카운트 ──
-# 2026-06-23: 당근(daangn)도 카운트 포함으로 변경(사용자 요청). 파싱/fetch 분리 — 덤프로 오프라인 회귀테스트 가능.
+# ── 통합탭(ti): 광고만 제외하고 '화면에 보이는 결과 카드 전부'를 문서(화면)순으로 카운트 ──
+# 2026-06-23: 사용자 요청 — 인기글(urB_coR) 섹션만 보던 것을 전 섹션으로 확장. JS rankInPopular 와 1:1.
+#   섹션마다 clickLog.r 이 1부터 재시작 → r 정렬 금지, 블록 등장(=화면) 순서로 한 칸씩 카운트.
+#   결과 카드 = clickLog.r 있는 블록(_block_min_r<999). AI답변·이미지·연관검색어(r 없음)는 제외.
+#   파워링크 광고는 bootstrap JSON 밖(서버렌더)이라 블록에 없고, ader 링크는 안전망으로 추가 제외.
 def _rank_in_popular(html_text, blog_id, log_no=""):
-    """통합검색 HTML → (rank, status). urB_coR 에서 광고(ader)만 빼고 사이트/카페/블로그/당근 r순."""
+    """통합검색 HTML → (rank, status). 광고 제외, 보이는 결과 전부 문서순 카운트."""
     blocks = extract_bootstrap_json(html_text)
     if not blocks:
         return OUT_OF_RANK, "fail"      # JSON 없음 = 차단/구조변경 → 권외와 구분
 
-    items = []   # (r, id)  — 당근/광고 제외한 인기글 섹션 항목 전부
+    rank = 0
     for b in blocks:
         try:
             j = json.loads(b)
         except Exception:
             continue
-        if (j.get("meta") or {}).get("area", "") != "urB_coR":   # 인기글(상단) 섹션만
+        if "ader.naver.com" in b:            # 광고(ader) 제외
             continue
-        r = _block_min_r(j)
+        if _block_min_r(j) >= 999:           # 비-결과 블록(AI/이미지/연관검색어) 제외
+            continue
+        rank += 1                            # 화면에 보이는 결과 카드 한 칸
         mb = _BLOG_RE.search(b)
-        if mb:
-            items.append((r, mb.group(1)))          # 블로그(우리 포함)
-        elif "ader.naver.com" in b:
-            continue                                # 광고(ader)만 제외
-        elif "cafe.naver.com" in b:
-            items.append((r, "(cafe)"))             # 카페
-        elif "daangn" in b:
-            items.append((r, "(daangn)"))           # 당근 — 사용자 요청으로 카운트 포함
-        elif _has_external_site(b):
-            items.append((r, "(site)"))             # 외부 웹문서 사이트
-        # 그 외(식별 불가) 제외
-    items.sort(key=lambda x: x[0])
-    for idx, (r, pid) in enumerate(items, start=1):
-        if pid == blog_id:
-            return idx, "ok"
+        if mb and mb.group(1) == blog_id:
+            return rank, "ok"
     return OUT_OF_RANK, "out"
 
 
@@ -665,12 +656,18 @@ def measure_blogtab_real(keyword, blog_id, log_no=""):
 def measure_rank(keyword, blog_id, post_url):
     log_no = extract_log_no(post_url)
 
-    # 블로그탭(bl): 진짜 블로그탭 HTML 파싱
+    # 블로그탭(bl): 진짜 블로그탭 HTML 파싱. fail(차단/빈응답)이면 잠깐 쉬고 1회 재시도(권외와 구분 위해).
     bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
+    if bl_status == "fail":
+        time.sleep(REQUEST_DELAY * 2)
+        bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
     time.sleep(REQUEST_DELAY)
 
-    # 통합탭(ti): 인기글 섹션 화면순위
+    # 통합탭(ti): 화면순위. 마찬가지로 fail 이면 1회 재시도.
     ti, ti_status = measure_integrated_popular(keyword, blog_id, log_no)
+    if ti_status == "fail":
+        time.sleep(REQUEST_DELAY * 2)
+        ti, ti_status = measure_integrated_popular(keyword, blog_id, log_no)
     time.sleep(REQUEST_DELAY)
 
     return ti, bl, ti_status, bl_status

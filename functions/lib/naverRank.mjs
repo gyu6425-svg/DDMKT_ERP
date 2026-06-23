@@ -59,7 +59,8 @@ function blockMinR(node) {
             if (cl && typeof cl === 'object') {
                 for (const key of ['content', 'title', 'image']) {
                     const ct = cl[key];
-                    if (ct && typeof ct === 'object' && typeof ct.r === 'number') {
+                    // r = 화면순위(유한수). 파이썬 _block_min_r 와 1:1(불리언/NaN 제외).
+                    if (ct && typeof ct === 'object' && typeof ct.r === 'number' && Number.isFinite(ct.r)) {
                         if (min === null || ct.r < min) min = ct.r;
                     }
                 }
@@ -92,18 +93,15 @@ function iterBlogPosts(node) {
     return out;
 }
 
-// 외부(비네이버) 사이트 링크가 블록에 있는지 — 웹문서/사이트 항목 판별용.
-function hasExternalSite(raw) {
-    const urls = raw.match(/https?:\/\/[a-z0-9.-]+\.[a-z]{2,}/gi) || [];
-    return urls.some((u) => !/(naver\.com|pstatic\.net|nstatic\.net|w3\.org)/i.test(u));
-}
-
-// 통합탭(ti): 인기글(meta.area=urB_coR) 섹션에서 '광고(ader)만 제외'하고
-// 사이트(웹문서)+카페+블로그+당근 전부를 r(화면순)으로 카운트. (2026-06-23: 당근도 카운트 포함으로 변경)
+// 통합탭(ti): 광고(ader/파워링크)만 제외하고, 화면에 보이는 '모든 결과 카드'를 문서(=화면) 순서대로
+// 카운트한 위치 = 순위. (2026-06-23: 사용자 요청 — 인기글 섹션만 보던 것을 전 섹션으로 확장.
+//   urB_coR·urB_boR 등 섹션마다 r 이 1부터 재시작하므로 r 정렬 금지, 블록 등장 순서로 카운트.)
+//   결과 카드 판정 = clickLog.r 이 있는 블록(blockMinR<999). AI답변·이미지캐러셀·연관검색어(r 없음)는 제외.
+//   파워링크 광고는 bootstrap JSON 밖(서버렌더)이라 애초에 블록에 안 들어오고, ader 링크는 안전망으로 한 번 더 제외.
 export function rankInPopular(html, blogId) {
     const blocks = extractBootstrapJson(html);
     if (!blocks.length) return { rank: OUT_OF_RANK, status: 'fail' };
-    const items = [];
+    let rank = 0;
     for (const b of blocks) {
         let j;
         try {
@@ -111,25 +109,11 @@ export function rankInPopular(html, blogId) {
         } catch {
             continue;
         }
-        if (((j.meta && j.meta.area) || '') !== 'urB_coR') continue;
-        const r = blockMinR(j);
+        if (b.includes('ader.naver.com')) continue; // 광고(ader) 제외
+        if (blockMinR(j) >= 999) continue; // 비-결과 블록(AI/이미지/연관검색어) 제외
+        rank += 1; // 화면에 보이는 결과 카드 한 칸
         const mb = b.match(BLOG_RE);
-        if (mb) {
-            items.push([r, mb[1]]); // 블로그(우리 포함)
-        } else if (b.includes('ader.naver.com')) {
-            continue; // 광고(ader)만 제외
-        } else if (b.includes('cafe.naver.com')) {
-            items.push([r, '(cafe)']); // 카페
-        } else if (b.includes('daangn')) {
-            items.push([r, '(daangn)']); // 당근 — 사용자 요청으로 카운트 포함
-        } else if (hasExternalSite(b)) {
-            items.push([r, '(site)']); // 외부 웹문서 사이트
-        }
-        // 그 외(식별 불가) 제외
-    }
-    items.sort((a, b) => a[0] - b[0]);
-    for (let i = 0; i < items.length; i++) {
-        if (items[i][1] === blogId) return { rank: i + 1, status: 'ok' };
+        if (mb && mb[1] === blogId) return { rank, status: 'ok' };
     }
     return { rank: OUT_OF_RANK, status: 'out' };
 }
