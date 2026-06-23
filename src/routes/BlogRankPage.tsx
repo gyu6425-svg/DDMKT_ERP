@@ -200,6 +200,7 @@ function BlogRankPage() {
                     keywords={keywords}
                     onReload={load}
                     onToast={showToast}
+                    onGoTracker={() => setTab('tracker')}
                 />
             ) : null}
             {tab === 'tracker' ? (
@@ -378,12 +379,14 @@ function SheetTab({
     keywords,
     onReload,
     onToast,
+    onGoTracker,
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
     keywords: BlogKeyword[];
     onReload: () => Promise<void>;
     onToast: (message: string) => void;
+    onGoTracker: () => void;
 }) {
     const [q, setQ] = useState('');
     const [mgr, setMgr] = useState('');
@@ -438,6 +441,7 @@ function SheetTab({
     };
 
     const [bulkCrawlBusy, setBulkCrawlBusy] = useState(false);
+    const [crawlDone, setCrawlDone] = useState<{ ok: number; failed: number } | null>(null);
     // 전체 측정 — 현재 표(필터 적용)에 보이는 업체를 위에서부터 차례로 즉시 크롤(RSS+순위 측정).
     const bulkCrawl = async () => {
         const targets = filtered;
@@ -467,7 +471,7 @@ function SheetTab({
         setCrawlingId(null);
         await onReload();
         setBulkCrawlBusy(false);
-        onToast(`전체 측정 완료 · ${done - failed}개${failed ? ` (실패 ${failed})` : ''}`);
+        setCrawlDone({ ok: done - failed, failed });
     };
 
     const managers = useMemo(
@@ -508,6 +512,37 @@ function SheetTab({
 
     return (
         <div className="grid gap-3">
+            {crawlDone ? (
+                <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#a7f3d0] bg-[#ecfdf5] px-4 py-3">
+                    <span className="text-lg">✅</span>
+                    <div className="mr-auto">
+                        <div className="text-sm font-bold text-[#065f46]">자동 측정이 완료되었습니다</div>
+                        <div className="text-xs text-[#047857]">
+                            {crawlDone.ok}개 측정 완료
+                            {crawlDone.failed ? ` · 실패 ${crawlDone.failed}개` : ''} · 순위 트래커에서 결과를
+                            확인하세요
+                        </div>
+                    </div>
+                    <button
+                        className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-md bg-[#059669] px-4 text-sm font-semibold text-white"
+                        onClick={() => {
+                            setCrawlDone(null);
+                            onGoTracker();
+                        }}
+                        type="button"
+                    >
+                        순위 트래커 보러가기
+                    </button>
+                    <button
+                        aria-label="닫기"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[#047857] hover:bg-[#d1fae5]"
+                        onClick={() => setCrawlDone(null)}
+                        type="button"
+                    >
+                        ✕
+                    </button>
+                </div>
+            ) : null}
             <div className="flex flex-wrap items-center gap-2">
                 <input
                     className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
