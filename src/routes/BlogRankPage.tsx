@@ -1612,6 +1612,27 @@ function ImportModal({
     const [text, setText] = useState('');
     const [saving, setSaving] = useState(false);
 
+    // 한 줄을 칸으로 분리. 탭이 있으면 탭, 없으면 슬래시(/). URL·날짜 속 내부 슬래시는 보호 후 분리(깨짐 방지).
+    const splitFields = (line: string): string[] => {
+        if (line.includes('\t')) {
+            return line.split('\t').map((c) => c.trim());
+        }
+        const prot: string[] = [];
+        const mark = (m: string) => {
+            prot.push(m);
+            return `\uF8FF${prot.length - 1}\uF8FF`;
+        };
+        let s = line.replace(/(?:https?:\/\/)?[\w.-]+\.[a-z]{2,}(?:\/[^\s]*)?/gi, mark); // URL/도메인 보호
+        s = s.replace(/\d{1,4}\/\d{1,2}\/\d{1,4}/g, mark); // 2026/06/23 형식 날짜 보호
+        return s
+            .split('/')
+            .map((c) => c.replace(/\uF8FF(\d+)\uF8FF/g, (_, i) => prot[Number(i)]).trim());
+    };
+    const toNum = (v: string | undefined): number | null => {
+        const m = (v || '').match(/\d+/);
+        return m ? Number(m[0]) : null;
+    };
+
     const doImport = async () => {
         const raw = text.trim();
         if (!raw) {
@@ -1627,58 +1648,47 @@ function ImportModal({
             if (!trimmed) {
                 return;
             }
-            // 탭 또는 콤마로 구분. 붙여넣기는 업체명·계약건수·잔여건수·주발행·발행URL 만 등록.
-            // 계약일자·금액·아이디·비밀번호·기자단·특이사항은 등록 후 '편집'에서 따로 관리한다.
-            const cells0 = trimmed
-                .split(/[\t,]/)
-                .map((c) => c.trim())
-                .filter(Boolean);
-            const url = cells0.find((c) => c.includes('blog.naver.com'));
-            if (!url) {
+            // 고정 순서: 업체명 / 계약일자 / 금액 / 계약건수 / 잔여건수 / 주 발행건수 / 아이디 / 비밀번호 / 기자단 / 발행 관리시트 / 발행 URL
+            let f = splitFields(trimmed);
+            // 맨 앞 행번호(12칸+이고 첫 칸이 숫자만) 제거.
+            if (f.length >= 12 && /^\d+$/.test(f[0])) {
+                f = f.slice(1);
+            }
+            const blogUrl =
+                f[10] && f[10].includes('blog.naver.com')
+                    ? f[10]
+                    : f.find((c) => c && c.includes('blog.naver.com'));
+            if (!blogUrl) {
                 skipped += 1;
                 return;
             }
-            // 맨 앞 행번호(순수 숫자)는 제거 — 행번호가 계약건수로 오인되는 문제 방지.
-            const cells =
-                cells0.length > 1 && /^\d+$/.test(cells0[0]) ? cells0.slice(1) : cells0;
-            // 계약/잔여건수: '건' 붙은 셀 우선(금액·행번호 오인 방지). 없으면 순수 숫자.
-            let nums = cells
-                .filter((c) => /^\d+\s*건$/.test(c))
-                .map((c) => Number(c.match(/\d+/)![0]));
-            if (!nums.length) {
-                nums = cells.filter((c) => /^\d+$/.test(c)).map(Number);
-            }
-            const goal = nums[0] ?? null;
-            const remain = nums[1] ?? null;
-            const weekly = cells.find((c) => /주\s*\d/.test(c)) || null;
-            let name =
-                cells.find(
-                    (c) =>
-                        c !== url &&
-                        !c.includes('http') &&
-                        !/^\d+\s*건?$/.test(c) &&
-                        c !== weekly,
-                ) || '';
-            if (!name) {
-                name = extractBlogId(url) || '블로그';
-            }
+            const name =
+                f[0] && !f[0].includes('http') && !f[0].includes('blog.naver.com')
+                    ? f[0]
+                    : extractBlogId(blogUrl) || '블로그';
             if (
-                existingUrls.has(url) ||
+                existingUrls.has(blogUrl) ||
                 existingNames.has(name) ||
-                payloads.some((p) => p.blog_url === url)
+                payloads.some((p) => p.blog_url === blogUrl)
             ) {
                 skipped += 1;
                 return;
             }
-
+            const sheet = f[9] && f[9].includes('http') ? f[9] : null;
             payloads.push({
-                blog_id: extractBlogId(url),
-                blog_url: url,
-                goal_count: goal,
-                is_active: true,
+                blog_id: extractBlogId(blogUrl),
+                blog_url: blogUrl,
                 name,
-                remain_count: remain,
-                weekly,
+                contract_date: f[1] || null,
+                amount: f[2] || null,
+                goal_count: toNum(f[3]),
+                remain_count: toNum(f[4]),
+                weekly: f[5] || null,
+                login_id: f[6] || null,
+                login_pw: f[7] || null,
+                reporter: f[8] || null,
+                manage_sheet_url: sheet,
+                is_active: true,
             });
         });
 
@@ -1707,19 +1717,19 @@ function ImportModal({
             <div className="w-[min(620px,94vw)] rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">시트 붙여넣기 등록</h3>
                 <p className="mt-1 mb-3 text-sm text-[#64748b]">
-                    한 줄에 블로그 하나. <b>블로그 URL만 붙여넣어도 등록</b>됩니다(이름은 자동). 관리 시트를 그대로 붙여넣어도 OK — 등록되는 항목은{' '}
-                    <span className="rounded bg-[#f1f5f9] px-1 text-xs">
-                        업체명 · 계약건수 · 잔여건수 · 주 발행 · 발행 URL
-                    </span>{' '}
-                    입니다(행번호·빈 칸 있어도 인식). 계약건수·잔여는 <b>"20건/6건"</b>처럼 '건'을 붙이면 가장 정확합니다.
+                    한 줄에 블로그 하나. 칸은 <b>슬래시( / )</b>로 구분하고, 아래 <b>고정 순서</b>로 입력하세요(빈 칸은 그냥 비워두면 됩니다):
                     <br />
-                    <b className="text-[#d97706]">계약일자·금액·아이디·비밀번호·기자단·특이사항</b>은 등록 후 <b>편집</b>에서 따로 입력·관리합니다.
+                    <span className="mt-1 inline-block rounded bg-[#f1f5f9] px-1.5 py-1 text-xs">
+                        업체명 / 계약일자 / 금액 / 계약건수 / 잔여건수 / 주 발행건수 / 아이디 / 비밀번호 / 기자단 / 발행 관리시트 / 발행 URL
+                    </span>
+                    <br />
+                    URL·날짜 속 슬래시는 자동으로 보호되니 그대로 붙여넣으셔도 됩니다. (블로그 URL만 붙여넣어도 등록 가능 · 엑셀에서 복사한 탭 구분도 인식)
                 </p>
                 <textarea
                     className="min-h-[160px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-xs"
                     onChange={(e) => setText(e.target.value)}
                     placeholder={
-                        'https://blog.naver.com/bau_j2\n든든한누수탐지 인천, https://blog.naver.com/st7al_i_byid-\n참조와이엘, 30건, 25건, 주 5회, 장지영, https://blog.naver.com/puleenbe'
+                        '참조와이엘 / 2026-06-01 / 100만원 / 30건 / 25건 / 주5회 / myid / mypw / 장지영 / https://docs.google.com/sheet / https://blog.naver.com/puleenbe\n든든한누수탐지 / / / 20건 / 6건 / 주3회 / / / / / https://blog.naver.com/st7al_i_byid-\nhttps://blog.naver.com/bau_j2'
                     }
                     value={text}
                 />
