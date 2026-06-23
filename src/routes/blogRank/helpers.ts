@@ -1,0 +1,44 @@
+import type { BlogAccount, BlogPost, WebMeasurement } from '../../api/blogRank';
+
+export type Tab = 'dashboard' | 'sheet' | 'tracker' | 'writer';
+
+export const PER_SHEET = 20;
+export const PER_FEED = 30;
+
+export function lastM(post: BlogPost) {
+    return post.measurements.length ? post.measurements[post.measurements.length - 1] : null;
+}
+export function prevM(post: BlogPost) {
+    return post.measurements.length >= 2
+        ? post.measurements[post.measurements.length - 2]
+        : null;
+}
+export function progOf(account: BlogAccount): number | null {
+    if (account.goal_count == null || account.remain_count == null || account.goal_count === 0) {
+        return null;
+    }
+    return Math.round(((account.goal_count - account.remain_count) / account.goal_count) * 100);
+}
+export function dayN(post: BlogPost): number {
+    if (!post.published_date) {
+        return post.measurements.length ? post.measurements.length - 1 : 0;
+    }
+    const diff = Date.now() - new Date(post.published_date).getTime();
+    return Math.max(0, Math.floor(diff / 86400000));
+}
+
+// ── 웹사이트(회사 단위) 헬퍼 ──
+export function lastWe(account: BlogAccount): WebMeasurement | null {
+    const w = account.website_measurements;
+    return w && w.length ? w[w.length - 1] : null;
+}
+export function prevWe(account: BlogAccount): WebMeasurement | null {
+    const w = account.website_measurements;
+    return w && w.length >= 2 ? w[w.length - 2] : null;
+}
+
+export function fmtRank(rank: number, status: string): string {
+    if (status === 'fail') return '실패';
+    if (status === 'out' || rank > 30) return '권외';
+    return `${rank}위`;
+}
