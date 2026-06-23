@@ -9,7 +9,7 @@ import { rankInPopular, rankInBlogtab, TI_URL, BL_URL, MOBILE_UA, OUT_OF_RANK } 
 // @ts-expect-error — .mjs 단일소스(크롤 헬퍼).
 import {
     parseRss,
-    extractKeyword,
+    deriveKeyword,
     parseBlogUrl,
     extractLogNo,
     todayKST,
@@ -97,13 +97,15 @@ export async function onRequestPost({ request, env }: FunctionContext) {
             errors.push('RSS 응답 실패(차단/비공개 가능)');
         } else {
             const items = parseRss(rssTxt, MAX_POSTS).filter((p: { url: string }) => p.url);
-            const rows = items.map((p: { url: string; title: string; published_date: string | null }) => ({
-                blog_account_id: blogAccountId,
-                post_url: p.url,
-                title: p.title,
-                keyword: extractKeyword(p.title),
-                published_date: p.published_date,
-            }));
+            const rows = items.map(
+                (p: { url: string; title: string; published_date: string | null; tags?: string[] }) => ({
+                    blog_account_id: blogAccountId,
+                    post_url: p.url,
+                    title: p.title,
+                    keyword: deriveKeyword(p.title, p.tags || []),
+                    published_date: p.published_date,
+                }),
+            );
             const upserted = rows.length ? await sbInsert(env, 'blog_posts', rows, 'blog_account_id,post_url') : [];
             for (const post of upserted) {
                 const kw = (post.keyword || '').trim();

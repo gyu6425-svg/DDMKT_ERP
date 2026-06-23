@@ -78,25 +78,151 @@ TAILS = [
     "솔직후기", "체크리스트", "비교", "총정리",
 ]
 
+# 동기화 주의: functions/lib/crawlLib.mjs 의 동일 리스트와 1:1 유지. 테스트(test_parsers.py / crawlLib.test.mjs)가 sync 보증.
+MODIFIER_WORDS = ["아파트", "주택", "빌라", "상가", "사무실", "사무용", "사무", "오피스텔", "오피스", "빌딩", "신축", "구축", "단독주택", "다세대", "원룸", "투룸", "욕실", "화장실", "주방", "베란다", "발코니", "지하", "외벽", "내벽"]
+MODIFIER_PREFIXES = ["스탠드형", "벽걸이형", "스탠드", "벽걸이", "천장형", "시스템", "가정용", "업소용", "이동식"]
+SERVICE_SUFFIXES = ["청소", "교체", "탐지", "시공", "수리", "설치", "점검", "코팅", "철거", "방수", "줄눈", "인테리어", "제거", "도배", "장판", "보수", "복원", "리모델링", "세척", "폐기물", "폐기", "처리", "이전", "공사"]
+GU_BLACKLIST = ["배수구", "입구", "출구", "환기구", "통풍구", "비상구", "가구", "도구", "연구", "욕구"]
+DONG_BLACKLIST = ["운동", "이동", "활동", "자동", "공동", "행동", "변동", "진동", "노동", "충동"]
+SI_BLACKLIST = ["사용시", "필요시", "이용시", "방문시", "구매시", "신청시", "설치시", "청소시", "발생시", "작동시", "외출시", "취침시", "가동시", "운전시", "주행시", "충전시", "교체시", "수리시", "점검시", "고장시", "정전시", "누수시", "결제시", "주문시", "배송시", "예약시", "상담시", "문의시", "계약시", "입주시", "이사시", "폐기시", "철거시", "건조시"]
+
+
+def _strip_modifier_prefix(w):
+    for p in MODIFIER_PREFIXES:
+        if len(w) > len(p) and w.startswith(p):
+            return w[len(p):]
+    return w
+
+
+def _ends_with_service(w):
+    return any(w.endswith(s) for s in SERVICE_SUFFIXES)
+
+
+def _is_region_candidate(w):
+    return len(w) >= 3 and (w.endswith("동") or w.endswith("구"))
+
 
 def extract_keyword(title: str) -> str:
+    # 제목 폴백 — 지역(시>구>동>첫단어) + 지역 뒤 첫 '서비스 접미어' 단어(더 큰/앞선 카테고리).
     t = html.unescape(title or "").strip()
     t = re.sub(r"<[^>]+>", "", t)
     t = re.sub(r"[\[\]\(\)·,.!?~\-_/|]", " ", t)
     words = [w for w in t.split() if w and w not in TAILS]
     if not words:
         return t[:12]
-    has_nusu = any("누수" in w for w in words)
-    # 모든 지역을 "~동 누수탐지" 로 통일: 제목 어디에 있든 '동'으로 끝나는 동네 단어(3자+,
-    # 이동/활동 같은 2자 오탐 제외)를 찾으면 그걸 우선. "인천 석남동 누수탐지 욕조" → "석남동 누수탐지".
-    dong = next((w for w in words if len(w) >= 3 and w.endswith("동")), None)
-    if dong and has_nusu:
-        return f"{dong} 누수탐지"
-    # 동이 없으면(남양주/용인 등 시 단위): '누수' 든 첫 단어까지(뒤 세부어 제외).
-    j = next((i for i, w in enumerate(words) if "누수" in w), None)
-    if j is not None:
-        return " ".join(words[: j + 1])
-    return " ".join(words[:2])  # '누수' 없으면 앞 2단어(폴백)
+
+    # 지역: 높은 행정단위 우선 ~시 > ~구 > ~동 > 첫 단어.
+    region_idx = next((i for i, w in enumerate(words) if len(w) >= 3 and w.endswith("시") and w not in SI_BLACKLIST), None)
+    if region_idx is None:
+        region_idx = next((i for i, w in enumerate(words) if len(w) >= 3 and w.endswith("구") and w not in GU_BLACKLIST), None)
+    if region_idx is None:
+        region_idx = next((i for i, w in enumerate(words) if len(w) >= 3 and w.endswith("동") and w not in DONG_BLACKLIST), None)
+    if region_idx is None:
+        region_idx = 0
+    region = words[region_idx]
+
+    # 지역 토큰 자체가 서비스로 끝나면(지역+서비스 한 단어) 그대로.
+    if _ends_with_service(region):
+        return region
+
+    stripped = [_strip_modifier_prefix(w) for w in words]
+    # 서비스: 지역 '뒤'의 첫 서비스-접미어 단어, 없으면 지역 '앞'에서.
+    svc_end = None
+    for i in range(region_idx + 1, len(words)):
+        sw = stripped[i]
+        if not sw or sw in MODIFIER_WORDS:
+            continue
+        if _ends_with_service(sw):
+            svc_end = i
+            break
+    if svc_end is None:
+        for i in range(0, region_idx):
+            sw = stripped[i]
+            if not sw or sw in MODIFIER_WORDS:
+                continue
+            if _ends_with_service(sw):
+                svc_end = i
+                break
+
+    service = ""
+    if svc_end is not None:
+        parts = []
+        k = svc_end
+        while k >= 0:
+            if k == region_idx:
+                break
+            sw = stripped[k]
+            if not sw or sw in MODIFIER_WORDS:
+                break
+            if k != svc_end and _is_region_candidate(sw):
+                break
+            parts.insert(0, sw)
+            if k != svc_end and _ends_with_service(sw):
+                break
+            if len(parts) >= 2:  # 복합어 최대 2단어
+                break
+            k -= 1
+        service = "".join(parts)
+    else:
+        for i in range(len(words)):
+            if i == region_idx:
+                continue
+            sw = stripped[i]
+            if not sw or sw in MODIFIER_WORDS or _is_region_candidate(sw):
+                continue
+            service = sw
+            break
+
+    if not service or region == service:
+        return region
+    return f"{region} {service}"
+
+
+def _longest_common_suffix(arr):
+    if not arr:
+        return ""
+    suffix = arr[0]
+    for s in arr[1:]:
+        i = 0
+        while i < len(suffix) and i < len(s) and suffix[len(suffix) - 1 - i] == s[len(s) - 1 - i]:
+            i += 1
+        suffix = suffix[len(suffix) - i:]
+        if not suffix:
+            break
+    return suffix
+
+
+def pick_main_hashtag_keyword(tags):
+    # 해시태그에서 메인키워드(지역+서비스). 예: [춘천유리교체,춘천아파트유리교체,유리교체] → '춘천 유리교체'
+    clean = []
+    for t in (tags or []):
+        s = str(t or "").lstrip("#")
+        s = re.sub(r"\s+", "", s).strip()
+        if s:
+            clean.append(s)
+    if not clean:
+        return ""
+    uniq = list(dict.fromkeys(clean))
+    if len(uniq) == 1:
+        return uniq[0]
+    service = _longest_common_suffix(uniq)
+    if service and len(service) >= 2:
+        best = ""
+        for t in uniq:
+            if t.endswith(service) and len(t) > len(service) and (not best or len(t) < len(best)):
+                best = t
+        if best:
+            region = best[: len(best) - len(service)]
+            return f"{region} {service}" if region else service
+    return min(uniq, key=len)
+
+
+def derive_keyword(title, tags):
+    # 해시태그가 '지역+서비스'로 분리되면(공백 포함) 우선, 아니면 제목에서 추출.
+    from_tags = pick_main_hashtag_keyword(tags)
+    if from_tags and " " in from_tags:
+        return from_tags
+    return extract_keyword(title)
 
 
 # ── Supabase REST ────────────────────────────────────────
@@ -156,7 +282,12 @@ def fetch_rss_posts(blog_id: str):
         pub = None
         if entry.get("published_parsed"):
             pub = datetime.date(*entry.published_parsed[:3]).isoformat()
-        posts.append({"url": link, "title": html.unescape(entry.get("title", "")), "published_date": pub})
+        # 네이버 RSS <tag> = 글 하단 해시태그(쉼표 구분). feedparser 가 노출 안 하면 빈 리스트(제목 폴백).
+        tag_raw = entry.get("tag") or entry.get("tags") or ""
+        if isinstance(tag_raw, list):
+            tag_raw = ",".join(getattr(x, "term", None) or (x.get("term") if isinstance(x, dict) else str(x)) for x in tag_raw)
+        tags = [t.strip() for t in html.unescape(str(tag_raw)).split(",") if t.strip()]
+        posts.append({"url": link, "title": html.unescape(entry.get("title", "")), "published_date": pub, "tags": tags})
     return posts
 
 
@@ -687,7 +818,7 @@ def run():
         rows = [
             {
                 "blog_account_id": acc["id"], "post_url": p["url"], "title": p["title"],
-                "keyword": extract_keyword(p["title"]), "published_date": p["published_date"],
+                "keyword": derive_keyword(p["title"], p.get("tags") or []), "published_date": p["published_date"],
             }
             for p in rss if p["url"]
         ]

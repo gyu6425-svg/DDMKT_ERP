@@ -1,5 +1,5 @@
 // crawlLib 골든 회귀 — extractKeyword(파이썬과 동일)·parseRss. 실행: node functions/lib/crawlLib.test.mjs
-import { extractKeyword, parseRss, todayKST } from './crawlLib.mjs';
+import { deriveKeyword, extractKeyword, parseRss, pickMainHashtagKeyword, todayKST } from './crawlLib.mjs';
 
 let failed = 0;
 const eq = (desc, got, exp) => {
@@ -8,21 +8,42 @@ const eq = (desc, got, exp) => {
     if (!ok) failed++;
 };
 
-// extractKeyword — 파이썬 골든과 동일 결과
+// extractKeyword — 지역(시>구>동) + 지역 뒤 첫 서비스. 파이썬 test_parsers.py 와 동일 골든.
+// 실제 블로그(band14371) 케이스 — 사용자 확정값
+eq('덕양구 집기폐기', extractKeyword('덕양구 사무실 집기폐기 삼송동 사무용 책상철거 사무실비우기 사무가구폐기'), '덕양구 집기폐기');
+eq('김포시 이사폐기물', extractKeyword('김포시 사무실 이사폐기물 사우동 사무가구철거 빈사무실만들기'), '김포시 이사폐기물');
+eq('춘천 유리교체', extractKeyword('춘천 아파트 유리교체 창문이 깨졌을 때 가장 먼저 확인해야 할 것'), '춘천 유리교체');
+eq('진해 에어컨청소', extractKeyword('진해 스탠드에어컨 청소 왜 필요할까? 분해 후 확인한 오염 상태'), '진해 에어컨청소');
+// 누수 회귀(시/구 없음 → 동 우선 유지)
 eq('인천 석남동 누수탐지', extractKeyword('인천 석남동 누수탐지 욕조 보수 믿을 수 있는 탐지 사례'), '석남동 누수탐지');
-eq('인천서구 누수탐지 석남동', extractKeyword('인천서구 누수탐지 석남동 가좌동 빌라누수'), '석남동 누수탐지');
+eq('인천서구 누수탐지(구 우선)', extractKeyword('인천서구 누수탐지 석남동 가좌동 빌라누수'), '인천서구 누수탐지');
 eq('남양주누수탐지 수동면', extractKeyword('남양주누수탐지, 수동면 세탁실 바닥 배수구 누수원인과 복구과정'), '남양주누수탐지');
 eq('용인누수탐지 세탁실', extractKeyword('용인누수탐지 세탁실 바닥 배수구'), '용인누수탐지');
 eq('남양주 누수탐지', extractKeyword('남양주 누수탐지 PPC관 교체 시공'), '남양주 누수탐지');
 eq('가정동 누수탐지', extractKeyword('가정동 누수탐지 빌라'), '가정동 누수탐지');
 
+// pickMainHashtagKeyword — 해시태그에서 메인키워드 선택
+eq('해시태그 메인', pickMainHashtagKeyword(['춘천유리교체', '춘천아파트유리교체', '유리교체']), '춘천 유리교체');
+eq('해시태그 #접두', pickMainHashtagKeyword(['#춘천유리교체', '#춘천아파트유리교체', '#유리교체']), '춘천 유리교체');
+eq('해시태그 순서무관', pickMainHashtagKeyword(['유리교체', '춘천아파트유리교체', '춘천유리교체']), '춘천 유리교체');
+eq('해시태그 순수서비스없음', pickMainHashtagKeyword(['진해아파트에어컨청소', '진해에어컨청소']), '진해 에어컨청소');
+eq('해시태그 1개', pickMainHashtagKeyword(['마포구옥상쓰레기처리']), '마포구옥상쓰레기처리');
+eq('해시태그 빈', pickMainHashtagKeyword([]), '');
+
+// deriveKeyword — 깔끔한 해시태그면 우선, 일반 태그면 제목 폴백
+eq('derive 해시태그우선', deriveKeyword('춘천 아파트 유리교체 창문이 깨졌을 때', ['춘천유리교체', '춘천아파트유리교체', '유리교체']), '춘천 유리교체');
+eq('derive 제목폴백(치우다)', deriveKeyword('덕양구 사무실 집기폐기 삼송동 사무용 책상철거', ['빈사무실', '사무용가구', '대형책상버리는방법']), '덕양구 집기폐기');
+eq('derive 태그없음→제목', deriveKeyword('김포시 사무실 이사폐기물 사우동 사무가구철거', []), '김포시 이사폐기물');
+
 // parseRss — RSS 2.0 블록 파싱
 const xml = `<rss><channel>
 <item><title>인천 석남동 누수탐지 욕조 보수</title><link>https://blog.naver.com/st7al_i_byid-/224320636263</link><pubDate>Thu, 19 Jun 2026 09:00:00 +0900</pubDate></item>
-<item><title><![CDATA[남양주누수탐지, 수동면 세탁실]]></title><link>https://blog.naver.com/st7al_i_byid-/111111111111</link><pubDate>Wed, 18 Jun 2026 10:00:00 +0900</pubDate></item>
+<item><title><![CDATA[남양주누수탐지, 수동면 세탁실]]></title><link>https://blog.naver.com/st7al_i_byid-/111111111111</link><pubDate>Wed, 18 Jun 2026 10:00:00 +0900</pubDate><tag><![CDATA[ 춘천유리교체,춘천아파트유리교체,유리교체 ]]></tag></item>
 </channel></rss>`;
 const items = parseRss(xml, 5);
 eq('parseRss 개수', items.length, 2);
+eq('parseRss[1] tags', JSON.stringify(items[1].tags), JSON.stringify(['춘천유리교체', '춘천아파트유리교체', '유리교체']));
+eq('parseRss[0] tags 빈', JSON.stringify(items[0].tags), JSON.stringify([]));
 eq('parseRss[0] url', items[0].url, 'https://blog.naver.com/st7al_i_byid-/224320636263');
 eq('parseRss[0] title', items[0].title, '인천 석남동 누수탐지 욕조 보수');
 eq('parseRss[1] CDATA title', items[1].title, '남양주누수탐지, 수동면 세탁실');

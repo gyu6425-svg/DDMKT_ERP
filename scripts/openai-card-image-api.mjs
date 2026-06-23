@@ -6,7 +6,7 @@ import sharp from 'sharp';
 import { rankInPopular, rankInBlogtab, TI_URL, BL_URL, MOBILE_UA, OUT_OF_RANK } from '../functions/lib/naverRank.mjs';
 import {
     parseRss,
-    extractKeyword,
+    deriveKeyword,
     parseBlogUrl,
     extractLogNo,
     todayKST,
@@ -55,7 +55,7 @@ async function crawlBlogLocal({ blogAccountId }) {
                 blog_account_id: blogAccountId,
                 post_url: p.url,
                 title: p.title,
-                keyword: extractKeyword(p.title),
+                keyword: deriveKeyword(p.title, p.tags || []),
                 published_date: p.published_date,
             }));
             const up = rows.length ? await sbInsert(env, 'blog_posts', rows, 'blog_account_id,post_url') : [];
