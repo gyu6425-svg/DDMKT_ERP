@@ -3,6 +3,7 @@ export type CrawlResult = {
     blogAccountId: string;
     blogId: string;
     postsMeasured: number;
+    postsRemaining: number; // 이번 요청에서 측정 못 한(예산 초과) 글 수. >0이면 클라이언트가 재호출로 채움.
     keywordsMeasured: number;
     errors: string[];
 };

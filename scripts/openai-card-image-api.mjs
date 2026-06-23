@@ -34,11 +34,20 @@ async function crawlBlogLocal({ blogAccountId }) {
             return null;
         }
     };
+    // 분할 측정 — Cloudflare crawl-blog.ts 와 동일. 한 요청당 글 MEASURE_BATCH개(오늘 미측정/실패분, 최신 우선).
+    const MEASURE_BATCH = 5;
+    const THROTTLE_MS = 300;
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const needsMeasure = (ms) => {
+        const rec = (Array.isArray(ms) ? ms : []).find((m) => m && m.date === today);
+        if (!rec) return true;
+        return rec.ti_status === 'fail' || rec.bl_status === 'fail';
+    };
     const measureOne = async (url, parse) => {
         const h = await get(url);
         let r = h ? parse(h) : { rank: OUT_OF_RANK, status: 'fail' };
         if (r.status === 'fail') {
-            await new Promise((res) => setTimeout(res, 1500));
+            await sleep(700);
             const h2 = await get(url);
             r = h2 ? parse(h2) : { rank: OUT_OF_RANK, status: 'fail' };
         }
@@ -56,6 +65,7 @@ async function crawlBlogLocal({ blogAccountId }) {
         const blogId = acc.blog_id || parseBlogUrl(acc.blog_url || '')[0];
         if (!blogId) return { statusCode: 400, body: { error: 'blog_id 없음' } };
         let postsMeasured = 0;
+        let postsRemaining = 0;
         const rss = await get(`https://rss.blog.naver.com/${blogId}.xml`);
         if (!rss) errors.push('RSS 실패');
         else {
@@ -68,25 +78,30 @@ async function crawlBlogLocal({ blogAccountId }) {
                 published_date: p.published_date,
             }));
             const up = rows.length ? await sbInsert(env, 'blog_posts', rows, 'blog_account_id,post_url') : [];
-            for (const post of up) {
-                // 수동 지정 키워드(keyword_manual) 우선 — 크롤이 덮어쓰지 않아 계속 유지됨.
+            // 수동 지정 키워드(keyword_manual) 우선. 오늘 성공 측정 없는 글만 최신순으로 MEASURE_BATCH개.
+            const pending = up
+                .filter((p) => (p.keyword_manual || p.keyword || '').trim() && needsMeasure(p.measurements))
+                .sort((a, b) => String(b.published_date || '').localeCompare(String(a.published_date || '')));
+            postsRemaining = Math.max(0, pending.length - MEASURE_BATCH);
+            for (const post of pending.slice(0, MEASURE_BATCH)) {
                 const kw = (post.keyword_manual || post.keyword || '').trim();
-                if (!kw) continue;
                 const r = await measure(kw, blogId, extractLogNo(post.post_url || ''));
                 await sbPatch(env, 'blog_posts', { id: `eq.${post.id}` }, { measurements: upsertToday(post.measurements, { date: today, ...r }, today) });
                 postsMeasured++;
+                await sleep(THROTTLE_MS);
             }
         }
         let keywordsMeasured = 0;
         const kws = await sbGet(env, 'blog_keywords', { blog_account_id: `eq.${blogAccountId}`, select: '*' });
         for (const row of kws.slice(0, 3)) {
             const kw = (row.keyword || '').trim();
-            if (!kw) continue;
+            if (!kw || !needsMeasure(row.measurements)) continue;
             const r = await measure(kw, blogId, '');
             await sbPatch(env, 'blog_keywords', { id: `eq.${row.id}` }, { measurements: upsertToday(row.measurements, { date: today, ...r }, today) });
             keywordsMeasured++;
+            await sleep(THROTTLE_MS);
         }
-        return { statusCode: 200, body: { blogAccountId, blogId, postsMeasured, keywordsMeasured, errors } };
+        return { statusCode: 200, body: { blogAccountId, blogId, postsMeasured, postsRemaining, keywordsMeasured, errors } };
     } catch (e) {
         return { statusCode: 500, body: { error: e instanceof Error ? e.message : '크롤 오류', errors } };
     }

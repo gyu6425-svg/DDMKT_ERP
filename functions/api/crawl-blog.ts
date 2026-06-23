@@ -24,8 +24,21 @@ type FunctionContext = {
     env: Record<string, string | undefined>;
 };
 
-const MAX_POSTS = 15; // RSS에서 가져올 최신 글 수(옛 글도 행으로 보이게 — 글 단위 순위 표시)
+const MAX_POSTS = 15; // RSS에서 가져올(=행으로 보일) 최신 글 수. 측정은 아래 MEASURE_BATCH 로 분할.
 const MAX_KEYWORDS = 3;
+// 한 요청당 '실제 측정'할 글 수. Cloudflare Free 한도(외부요청 50·시간)에 맞춘 원래 예산(글 5 + 키워드 3).
+// 15개를 한 번에 측정하면 한도를 넘겨 뒤쪽 글이 영영 '측정 대기'로 남으므로, 여기서 끊고 나머지는
+// postsRemaining 로 알려 클라이언트가 추가 호출로 마저 채운다(다회 분할 측정).
+const MEASURE_BATCH = 5;
+const THROTTLE_MS = 300; // 네이버 연속요청 간격(레이트리밋=측정 '실패' 완화).
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// 오늘자 '성공' 측정이 있으면 skip(=이미 측정됨). 레코드가 없거나 오늘 'fail' 이면 (재)측정 대상.
+function needsMeasure(measurements: Array<{ date?: string; ti_status?: string; bl_status?: string }>, today: string) {
+    const rec = (Array.isArray(measurements) ? measurements : []).find((m) => m && m.date === today);
+    if (!rec) return true;
+    return rec.ti_status === 'fail' || rec.bl_status === 'fail';
+}
 
 function jsonResponse(body: unknown, status = 200) {
     return new Response(JSON.stringify(body), {
@@ -56,7 +69,7 @@ async function measureOne(
     const html = await fetchText(url);
     let r = html ? parse(html) : { rank: OUT_OF_RANK, status: 'fail' };
     if (r.status === 'fail') {
-        await new Promise((res) => setTimeout(res, 1500));
+        await sleep(700);
         const html2 = await fetchText(url);
         r = html2 ? parse(html2) : { rank: OUT_OF_RANK, status: 'fail' };
     }
@@ -105,8 +118,9 @@ export async function onRequestPost({ request, env }: FunctionContext) {
         const blogId = acc.blog_id || parseBlogUrl(acc.blog_url || '')[0];
         if (!blogId) return jsonResponse({ error: 'blog_id 를 알 수 없습니다' }, 400);
 
-        // (A) RSS 동기화 → (B) per-post ti/bl
+        // (A) RSS 동기화 → (B) per-post ti/bl (오늘 미측정/실패분만, 최신글 우선, MEASURE_BATCH개씩)
         let postsMeasured = 0;
+        let postsRemaining = 0;
         const rssTxt = await fetchText(`https://rss.blog.naver.com/${blogId}.xml`);
         if (!rssTxt) {
             errors.push('RSS 응답 실패(차단/비공개 가능)');
@@ -122,15 +136,25 @@ export async function onRequestPost({ request, env }: FunctionContext) {
                 }),
             );
             const upserted = rows.length ? await sbInsert(env, 'blog_posts', rows, 'blog_account_id,post_url') : [];
-            for (const post of upserted) {
+            // 측정 대상 = 키워드 있고(수동 지정 우선) 오늘 성공 측정이 없는 글. 최신글 먼저.
+            const pending = upserted
+                .filter(
+                    (p: { keyword_manual?: string; keyword?: string; measurements: [] }) =>
+                        (p.keyword_manual || p.keyword || '').trim() && needsMeasure(p.measurements, today),
+                )
+                .sort((a: { published_date?: string }, b: { published_date?: string }) =>
+                    String(b.published_date || '').localeCompare(String(a.published_date || '')),
+                );
+            postsRemaining = Math.max(0, pending.length - MEASURE_BATCH);
+            for (const post of pending.slice(0, MEASURE_BATCH)) {
                 // 수동 지정 키워드(keyword_manual)가 있으면 그 값으로 측정 — 크롤이 덮어쓰지 않으므로 계속 유지됨.
                 const kw = (post.keyword_manual || post.keyword || '').trim();
-                if (!kw) continue;
                 // 글 단위(logNo) 측정 — 각 글의 실제 순위. (같은 키워드여도 5월글/6월글 각자 순위)
                 const r = await measure(kw, blogId, extractLogNo(post.post_url || ''));
                 const recs = upsertToday(post.measurements, { date: today, ...r }, today);
                 await sbPatch(env, 'blog_posts', { id: `eq.${post.id}` }, { measurements: recs });
                 postsMeasured++;
+                await sleep(THROTTLE_MS);
             }
         }
 
@@ -139,14 +163,15 @@ export async function onRequestPost({ request, env }: FunctionContext) {
         const kws = await sbGet(env, 'blog_keywords', { blog_account_id: `eq.${blogAccountId}`, select: '*' });
         for (const row of kws.slice(0, MAX_KEYWORDS)) {
             const kw = (row.keyword || '').trim();
-            if (!kw) continue;
+            if (!kw || !needsMeasure(row.measurements, today)) continue; // 오늘 측정된 키워드는 skip(예산 절약)
             const r = await measure(kw, blogId, '');
             const recs = upsertToday(row.measurements, { date: today, ...r }, today);
             await sbPatch(env, 'blog_keywords', { id: `eq.${row.id}` }, { measurements: recs });
             keywordsMeasured++;
+            await sleep(THROTTLE_MS);
         }
 
-        return jsonResponse({ blogAccountId, blogId, postsMeasured, keywordsMeasured, errors });
+        return jsonResponse({ blogAccountId, blogId, postsMeasured, postsRemaining, keywordsMeasured, errors });
     } catch (err) {
         return jsonResponse({ error: `크롤 오류: ${String((err as Error)?.message || err)}`, errors }, 500);
     }

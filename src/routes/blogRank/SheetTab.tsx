@@ -37,10 +37,17 @@ export function SheetTab({
         setCrawlingId(a.id);
         onToast(`${a.name} 측정 중...`);
         try {
-            const r = await crawlBlog(a.id);
+            // 서버는 한 번에 일부 글만 측정(한도) → 남은 글(postsRemaining)이 0이 될 때까지 재호출로 마저 채움.
+            let r = await crawlBlog(a.id);
+            let totalPosts = r.postsMeasured;
+            for (let pass = 1; r.postsRemaining > 0 && pass < 6; pass += 1) {
+                onToast(`${a.name} 측정 중... (남은 글 ${r.postsRemaining}개)`);
+                r = await crawlBlog(a.id);
+                totalPosts += r.postsMeasured;
+            }
             await onReload();
             const errNote = r.errors?.length ? ` (${r.errors.join(', ')})` : '';
-            onToast(`${a.name} 측정 완료 · 글 ${r.postsMeasured} · 키워드 ${r.keywordsMeasured}${errNote}`);
+            onToast(`${a.name} 측정 완료 · 글 ${totalPosts} · 키워드 ${r.keywordsMeasured}${errNote}`);
         } catch (e) {
             onToast(`측정 실패: ${e instanceof Error ? e.message : ''}`);
         } finally {
@@ -96,7 +103,11 @@ export function SheetTab({
             setCrawlingId(a.id);
             onToast(`전체 측정 중... (${done + 1}/${targets.length}) ${a.name}`);
             try {
-                await crawlBlog(a.id);
+                // 업체당 남은 글이 없을 때까지 분할 측정(최대 4패스 — 전체 소요시간 제한).
+                let r = await crawlBlog(a.id);
+                for (let pass = 1; r.postsRemaining > 0 && pass < 4; pass += 1) {
+                    r = await crawlBlog(a.id);
+                }
             } catch {
                 failed += 1;
             }
