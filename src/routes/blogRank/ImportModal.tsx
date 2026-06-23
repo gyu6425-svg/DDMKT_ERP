@@ -187,6 +187,12 @@ export function ImportModal({
                                         onChange={(e) =>
                                             setMgrInputs((s) => ({ ...s, [acc.id]: e.target.value }))
                                         }
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                void saveManagers();
+                                            }
+                                        }}
                                         placeholder="담당자를 입력하세요"
                                         value={mgrInputs[acc.id] || ''}
                                     />
