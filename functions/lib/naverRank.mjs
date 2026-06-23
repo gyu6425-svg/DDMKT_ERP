@@ -98,8 +98,8 @@ function hasExternalSite(raw) {
     return urls.some((u) => !/(naver\.com|pstatic\.net|nstatic\.net|w3\.org)/i.test(u));
 }
 
-// 통합탭(ti): 인기글(meta.area=urB_coR) 섹션에서 '당근(daangn)·광고(ader)만 제외'하고
-// 사이트(웹문서)+카페+블로그 전부를 r(화면순)으로 카운트. 화면 실측과 일치(석남동=3, 연희동=5).
+// 통합탭(ti): 인기글(meta.area=urB_coR) 섹션에서 '광고(ader)만 제외'하고
+// 사이트(웹문서)+카페+블로그+당근 전부를 r(화면순)으로 카운트. (2026-06-23: 당근도 카운트 포함으로 변경)
 export function rankInPopular(html, blogId) {
     const blocks = extractBootstrapJson(html);
     if (!blocks.length) return { rank: OUT_OF_RANK, status: 'fail' };
@@ -116,10 +116,12 @@ export function rankInPopular(html, blogId) {
         const mb = b.match(BLOG_RE);
         if (mb) {
             items.push([r, mb[1]]); // 블로그(우리 포함)
-        } else if (b.includes('daangn') || b.includes('ader.naver.com')) {
-            continue; // 당근·광고 제외
+        } else if (b.includes('ader.naver.com')) {
+            continue; // 광고(ader)만 제외
         } else if (b.includes('cafe.naver.com')) {
             items.push([r, '(cafe)']); // 카페
+        } else if (b.includes('daangn')) {
+            items.push([r, '(daangn)']); // 당근 — 사용자 요청으로 카운트 포함
         } else if (hasExternalSite(b)) {
             items.push([r, '(site)']); // 외부 웹문서 사이트
         }

@@ -565,10 +565,10 @@ def _has_external_site(raw):
     return False
 
 
-# ── 통합탭(ti): 인기글(urB_coR) 섹션, '당근·광고만 제외' 후 사이트+카페+블로그 전부 r순 카운트 ──
-# 화면 실측 일치(석남동=3, 인천연희동=5). 파싱/fetch 분리 — 덤프로 오프라인 회귀테스트 가능.
+# ── 통합탭(ti): 인기글(urB_coR) 섹션, '광고(ader)만 제외' 후 사이트+카페+블로그+당근 전부 r순 카운트 ──
+# 2026-06-23: 당근(daangn)도 카운트 포함으로 변경(사용자 요청). 파싱/fetch 분리 — 덤프로 오프라인 회귀테스트 가능.
 def _rank_in_popular(html_text, blog_id, log_no=""):
-    """통합검색 HTML → (rank, status). urB_coR 에서 당근/광고만 빼고 사이트/카페/블로그 r순."""
+    """통합검색 HTML → (rank, status). urB_coR 에서 광고(ader)만 빼고 사이트/카페/블로그/당근 r순."""
     blocks = extract_bootstrap_json(html_text)
     if not blocks:
         return OUT_OF_RANK, "fail"      # JSON 없음 = 차단/구조변경 → 권외와 구분
@@ -585,10 +585,12 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
         mb = _BLOG_RE.search(b)
         if mb:
             items.append((r, mb.group(1)))          # 블로그(우리 포함)
-        elif "daangn" in b or "ader.naver.com" in b:
-            continue                                # 당근·광고 제외
+        elif "ader.naver.com" in b:
+            continue                                # 광고(ader)만 제외
         elif "cafe.naver.com" in b:
             items.append((r, "(cafe)"))             # 카페
+        elif "daangn" in b:
+            items.append((r, "(daangn)"))           # 당근 — 사용자 요청으로 카운트 포함
         elif _has_external_site(b):
             items.append((r, "(site)"))             # 외부 웹문서 사이트
         # 그 외(식별 불가) 제외
