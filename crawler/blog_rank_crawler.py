@@ -85,6 +85,7 @@ SERVICE_SUFFIXES = ["청소", "교체", "탐지", "시공", "수리", "설치", 
 GU_BLACKLIST = ["배수구", "입구", "출구", "환기구", "통풍구", "비상구", "가구", "도구", "연구", "욕구"]
 DONG_BLACKLIST = ["운동", "이동", "활동", "자동", "공동", "행동", "변동", "진동", "노동", "충동"]
 SI_BLACKLIST = ["사용시", "필요시", "이용시", "방문시", "구매시", "신청시", "설치시", "청소시", "발생시", "작동시", "외출시", "취침시", "가동시", "운전시", "주행시", "충전시", "교체시", "수리시", "점검시", "고장시", "정전시", "누수시", "결제시", "주문시", "배송시", "예약시", "상담시", "문의시", "계약시", "입주시", "이사시", "폐기시", "철거시", "건조시"]
+LEAD_STOPWORDS = ["여름", "겨울", "봄", "가을", "초여름", "한여름", "늦여름", "초겨울", "한겨울", "장마", "장마철", "무더위", "무더운", "환절기", "요즘", "이번", "올해", "작년", "내년", "드디어", "오늘", "어제", "내일", "최근", "정말", "진짜", "바로", "드뎌", "이제", "벌써"]
 
 
 def _strip_modifier_prefix(w):
@@ -117,6 +118,9 @@ def extract_keyword(title: str) -> str:
         region_idx = next((i for i, w in enumerate(words) if len(w) >= 3 and w.endswith("구") and w not in GU_BLACKLIST), None)
     if region_idx is None:
         region_idx = next((i for i, w in enumerate(words) if len(w) >= 3 and w.endswith("동") and w not in DONG_BLACKLIST), None)
+    if region_idx is None:
+        # 시/구/동 없음 → 첫 '비설명·비수식' 단어를 지역으로(계절·설명어 '여름' 등 건너뜀).
+        region_idx = next((i for i, w in enumerate(words) if w not in LEAD_STOPWORDS and w not in MODIFIER_WORDS), None)
     if region_idx is None:
         region_idx = 0
     region = words[region_idx]

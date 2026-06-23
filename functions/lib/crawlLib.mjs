@@ -18,6 +18,12 @@ const SI_BLACKLIST = [
     '정전시', '누수시', '결제시', '주문시', '배송시', '예약시', '상담시', '문의시', '계약시', '입주시',
     '이사시', '폐기시', '철거시', '건조시',
 ];
+// 시/구/동 없는 지역(위례·송파 등)일 때 첫 단어를 지역으로 쓰는데, 제목이 계절·설명어로 시작하면 그걸 건너뛴다.
+const LEAD_STOPWORDS = [
+    '여름', '겨울', '봄', '가을', '초여름', '한여름', '늦여름', '초겨울', '한겨울', '장마', '장마철', '무더위',
+    '무더운', '환절기', '요즘', '이번', '올해', '작년', '내년', '드디어', '오늘', '어제', '내일', '최근',
+    '정말', '진짜', '바로', '드뎌', '이제', '벌써',
+];
 
 function stripModifierPrefix(w) {
     for (const p of MODIFIER_PREFIXES) {
@@ -57,6 +63,10 @@ export function extractKeyword(title) {
     }
     if (regionIdx === -1) {
         regionIdx = words.findIndex((w) => w.length >= 3 && w.endsWith('동') && !DONG_BLACKLIST.includes(w));
+    }
+    if (regionIdx === -1) {
+        // 시/구/동 없음 → 첫 '비설명·비수식' 단어를 지역으로(계절·설명어 '여름' 등 건너뜀).
+        regionIdx = words.findIndex((w) => !LEAD_STOPWORDS.includes(w) && !MODIFIER_WORDS.includes(w));
     }
     if (regionIdx === -1) regionIdx = 0;
     const region = words[regionIdx];
