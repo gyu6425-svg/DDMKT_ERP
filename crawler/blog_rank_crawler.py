@@ -95,9 +95,9 @@ TAILS = [
 ]
 
 # 동기화 주의: functions/lib/crawlLib.mjs 의 동일 리스트와 1:1 유지. 테스트(test_parsers.py / crawlLib.test.mjs)가 sync 보증.
-MODIFIER_WORDS = ["아파트", "주택", "빌라", "상가", "사무실", "사무용", "사무", "오피스텔", "오피스", "빌딩", "신축", "구축", "단독주택", "다세대", "원룸", "투룸", "욕실", "화장실", "주방", "베란다", "발코니", "지하", "외벽", "내벽"]
+MODIFIER_WORDS = ["아파트", "주택", "빌라", "상가", "사무실", "사무용", "사무", "오피스텔", "오피스", "빌딩", "신축", "구축", "단독주택", "다세대", "원룸", "투룸", "욕실", "화장실", "주방", "베란다", "발코니", "지하", "외벽", "내벽", "공장", "매장", "학원"]
 MODIFIER_PREFIXES = ["스탠드형", "벽걸이형", "스탠드", "벽걸이", "천장형", "시스템", "가정용", "업소용", "이동식"]
-SERVICE_SUFFIXES = ["청소", "교체", "탐지", "시공", "수리", "설치", "점검", "코팅", "철거", "방수", "줄눈", "인테리어", "제거", "도배", "장판", "보수", "복원", "리모델링", "세척", "폐기물", "폐기", "처리", "이전", "공사", "막힘", "뚫기"]
+SERVICE_SUFFIXES = ["청소", "교체", "탐지", "시공", "수리", "설치", "점검", "코팅", "철거", "방수", "줄눈", "인테리어", "제거", "도배", "장판", "보수", "복원", "리모델링", "세척", "폐기물", "폐기", "처리", "이전", "공사", "막힘", "뚫기", "간판"]
 GU_BLACKLIST = ["배수구", "입구", "출구", "환기구", "통풍구", "비상구", "가구", "도구", "연구", "욕구"]
 DONG_BLACKLIST = ["운동", "이동", "활동", "자동", "공동", "행동", "변동", "진동", "노동", "충동"]
 SI_BLACKLIST = ["사용시", "필요시", "이용시", "방문시", "구매시", "신청시", "설치시", "청소시", "발생시", "작동시", "외출시", "취침시", "가동시", "운전시", "주행시", "충전시", "교체시", "수리시", "점검시", "고장시", "정전시", "누수시", "결제시", "주문시", "배송시", "예약시", "상담시", "문의시", "계약시", "입주시", "이사시", "폐기시", "철거시", "건조시"]
@@ -165,9 +165,19 @@ def extract_keyword(title: str) -> str:
         region_idx = 0
     region = words[region_idx]
 
+    # 상위 지역(광역시)이 지역 앞에 별도 토큰으로 있으면 함께 표기(사용자 확정: '인천 논현동 간판').
+    metro_prefix = ""
+    for i in range(region_idx):
+        if words[i] in REGION_METRO and words[i] != region:
+            metro_prefix = words[i]
+            break
+
+    def with_metro(kw):
+        return f"{metro_prefix} {kw}" if metro_prefix and not kw.startswith(metro_prefix) else kw
+
     # 지역 토큰 자체가 서비스로 끝나면(지역+서비스 한 단어) 그대로.
     if _ends_with_service(region):
-        return region
+        return with_metro(region)
 
     stripped = [_strip_modifier_prefix(w) for w in words]
     # 서비스: 지역 '뒤'의 첫 서비스-접미어 단어, 없으면 지역 '앞'에서.
@@ -221,8 +231,8 @@ def extract_keyword(title: str) -> str:
             break
 
     if not service or region == service:
-        return region
-    return f"{region} {service}"
+        return with_metro(region)
+    return with_metro(f"{region} {service}")
 
 
 def _longest_common_suffix(arr):
