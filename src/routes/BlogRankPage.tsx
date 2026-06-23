@@ -1638,7 +1638,8 @@ function ImportModal({
         const existingUrls = new Set(existing.map((a) => a.blog_url));
         const existingNames = new Set(existing.map((a) => a.name));
         const payloads: Array<Partial<BlogAccount>> = [];
-        let skipped = 0;
+        let skippedDup = 0; // 이미 등록됨(중복)
+        let skippedNoUrl = 0; // 발행 URL 없음
 
         raw.split('\n').forEach((line) => {
             const trimmed = line.trim();
@@ -1657,7 +1658,7 @@ function ImportModal({
                     ? f[5]
                     : f.find((c) => c && c.includes('blog.naver.com'));
             if (!blogUrl) {
-                skipped += 1;
+                skippedNoUrl += 1;
                 return;
             }
             const name =
@@ -1669,7 +1670,7 @@ function ImportModal({
                 existingNames.has(name) ||
                 payloads.some((p) => p.blog_url === blogUrl)
             ) {
-                skipped += 1;
+                skippedDup += 1;
                 return;
             }
             payloads.push({
@@ -1688,7 +1689,13 @@ function ImportModal({
         });
 
         if (!payloads.length) {
-            onToast(`등록할 항목이 없습니다 (중복/형식 ${skipped}건 건너뜀)`);
+            const reasons = [
+                skippedDup ? `이미 등록됨 ${skippedDup}건` : '',
+                skippedNoUrl ? `발행 URL 없음 ${skippedNoUrl}건` : '',
+            ]
+                .filter(Boolean)
+                .join(' · ');
+            onToast(`등록할 항목이 없습니다${reasons ? ` (${reasons})` : ''}`);
             return;
         }
 
@@ -1700,7 +1707,11 @@ function ImportModal({
             return;
         }
         await onReload();
-        onToast(`${payloads.length}개 등록 완료${skipped ? ` · ${skipped}건 건너뜀` : ''}`);
+        const skipNote =
+            skippedDup || skippedNoUrl
+                ? ` · 건너뜀 ${skippedDup ? `이미등록 ${skippedDup}` : ''}${skippedDup && skippedNoUrl ? '/' : ''}${skippedNoUrl ? `URL없음 ${skippedNoUrl}` : ''}`
+                : '';
+        onToast(`${payloads.length}개 등록 완료${skipNote}`);
         // 등록 직후 담당자 입력 프롬프트(담당은 시트에 없어 비워둔 상태) — 바로 채울 수 있게.
         if (data && data.length) {
             setMgrPrompt(data);
