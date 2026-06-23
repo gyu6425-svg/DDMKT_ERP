@@ -28,6 +28,14 @@ from urllib.parse import quote, unquote, urlparse
 
 import requests
 
+# Windows 백신/방화벽이 TLS를 가로채(자체 루트 CA 주입) certifi 검증이 실패하는 환경 대응.
+# OS(윈도) 신뢰 저장소를 그대로 쓰게 해 SSL CERTIFICATE_VERIFY_FAILED 를 막는다. 없으면 무시.
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except Exception:
+    pass
+
 try:
     import feedparser
 except ImportError:
