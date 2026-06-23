@@ -15,6 +15,7 @@ export function AccountEditModal({
     // 시트 전체 항목(편집에서 수정 가능)
     const [name, setName] = useState(account.name ?? '');
     const [manager, setManager] = useState(account.manager ?? '');
+    const [contact, setContact] = useState(account.contact ?? '');
     const [blogUrl, setBlogUrl] = useState(account.blog_url ?? '');
     const [contractDate, setContractDate] = useState(account.contract_date ?? '');
     const [amount, setAmount] = useState(account.amount ?? '');
@@ -42,6 +43,7 @@ export function AccountEditModal({
         const { error } = await updateBlogAccount(account.id, {
             name: name.trim() || account.name,
             manager: manager.trim() || null,
+            contact: contact.trim() || null,
             blog_url: blogUrl.trim() || account.blog_url,
             blog_id: extractBlogId(blogUrl) || account.blog_id,
             contract_date: contractDate.trim() || null,
@@ -96,6 +98,7 @@ export function AccountEditModal({
                             [
                                 ['업체명', name, setName, ''],
                                 ['담당', manager, setManager, ''],
+                                ['연락처', contact, setContact, '010-0000-0000'],
                                 ['계약일자', contractDate, setContractDate, '2026-06-22'],
                                 ['금액', amount, setAmount, '예: 500,000'],
                                 ['계약건수', goalCount, setGoalCount, '20'],

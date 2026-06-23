@@ -35,6 +35,7 @@ export type BlogAccount = {
     created_at: string;
     name: string;
     manager: string | null;
+    contact: string | null; // 연락처
     blog_url: string;
     blog_id: string | null;
     goal_count: number | null;
