@@ -305,10 +305,11 @@ def sb_patch(path, params, payload):
 
 
 # ── RSS 수집 ─────────────────────────────────────────────
-def fetch_rss_posts(blog_id: str):
+def fetch_rss_posts(blog_id: str, limit=50):
+    # 계약일 필터를 위해 RSS에서 넉넉히 읽는다(기본 50). run()에서 계약일/최신N으로 추린다.
     parsed = feedparser.parse(f"https://rss.blog.naver.com/{blog_id}.xml")
     posts = []
-    for entry in parsed.entries[:MAX_POSTS_PER_BLOG]:
+    for entry in parsed.entries[:limit]:
         link = entry.get("link", "")
         pub = None
         if entry.get("published_parsed"):
@@ -848,6 +849,12 @@ def run():
         except Exception as exc:
             print(f"  RSS 실패 {acc['name']}: {exc}")
             continue
+        # 계약일(contract_date) 이후 글 전부. 계약일 없으면 최신 MAX_POSTS_PER_BLOG 개.
+        cd = (acc.get("contract_date") or "").strip()
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", cd):
+            rss = [p for p in rss if p["published_date"] and p["published_date"] >= cd]
+        else:
+            rss = rss[:MAX_POSTS_PER_BLOG]
         rows = [
             {
                 "blog_account_id": acc["id"], "post_url": p["url"], "title": p["title"],

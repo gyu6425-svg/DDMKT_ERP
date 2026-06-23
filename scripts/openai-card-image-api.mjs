@@ -59,7 +59,12 @@ async function crawlBlogLocal({ blogAccountId }) {
         const rss = await get(`https://rss.blog.naver.com/${blogId}.xml`);
         if (!rss) errors.push('RSS 실패');
         else {
-            const items = parseRss(rss, 5).filter((p) => p.url);
+            // 계약일 이후 글 전부. 계약일 없으면 최신 5개.
+            const cd = String(acc.contract_date || '').trim();
+            const all = parseRss(rss, 50).filter((p) => p.url);
+            const items = /^\d{4}-\d{2}-\d{2}$/.test(cd)
+                ? all.filter((p) => p.published_date && p.published_date >= cd)
+                : all.slice(0, 5);
             const rows = items.map((p) => ({
                 blog_account_id: blogAccountId,
                 post_url: p.url,
