@@ -24,8 +24,7 @@ type FunctionContext = {
     env: Record<string, string | undefined>;
 };
 
-const MAX_POSTS = 5; // 계약일 없을 때 폴백(최신 N개)
-const RSS_READ = 50; // 계약일 필터 전 RSS에서 읽을 최대 글 수
+const MAX_POSTS = 5;
 const MAX_KEYWORDS = 3;
 
 function jsonResponse(body: unknown, status = 200) {
@@ -112,12 +111,7 @@ export async function onRequestPost({ request, env }: FunctionContext) {
         if (!rssTxt) {
             errors.push('RSS 응답 실패(차단/비공개 가능)');
         } else {
-            // 계약일(contract_date) 이후 글을 전부 추적. 계약일 없으면 기존처럼 최신 MAX_POSTS 개.
-            const cd = String(acc.contract_date || '').trim();
-            const all = parseRss(rssTxt, RSS_READ).filter((p: { url: string }) => p.url);
-            const items = /^\d{4}-\d{2}-\d{2}$/.test(cd)
-                ? all.filter((p: { published_date: string | null }) => p.published_date && p.published_date >= cd)
-                : all.slice(0, MAX_POSTS);
+            const items = parseRss(rssTxt, MAX_POSTS).filter((p: { url: string }) => p.url);
             const rows = items.map(
                 (p: { url: string; title: string; published_date: string | null; tags?: string[] }) => ({
                     blog_account_id: blogAccountId,
