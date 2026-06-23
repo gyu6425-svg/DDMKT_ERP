@@ -81,11 +81,31 @@ TAILS = [
 # 동기화 주의: functions/lib/crawlLib.mjs 의 동일 리스트와 1:1 유지. 테스트(test_parsers.py / crawlLib.test.mjs)가 sync 보증.
 MODIFIER_WORDS = ["아파트", "주택", "빌라", "상가", "사무실", "사무용", "사무", "오피스텔", "오피스", "빌딩", "신축", "구축", "단독주택", "다세대", "원룸", "투룸", "욕실", "화장실", "주방", "베란다", "발코니", "지하", "외벽", "내벽"]
 MODIFIER_PREFIXES = ["스탠드형", "벽걸이형", "스탠드", "벽걸이", "천장형", "시스템", "가정용", "업소용", "이동식"]
-SERVICE_SUFFIXES = ["청소", "교체", "탐지", "시공", "수리", "설치", "점검", "코팅", "철거", "방수", "줄눈", "인테리어", "제거", "도배", "장판", "보수", "복원", "리모델링", "세척", "폐기물", "폐기", "처리", "이전", "공사"]
+SERVICE_SUFFIXES = ["청소", "교체", "탐지", "시공", "수리", "설치", "점검", "코팅", "철거", "방수", "줄눈", "인테리어", "제거", "도배", "장판", "보수", "복원", "리모델링", "세척", "폐기물", "폐기", "처리", "이전", "공사", "막힘", "뚫기"]
 GU_BLACKLIST = ["배수구", "입구", "출구", "환기구", "통풍구", "비상구", "가구", "도구", "연구", "욕구"]
 DONG_BLACKLIST = ["운동", "이동", "활동", "자동", "공동", "행동", "변동", "진동", "노동", "충동"]
 SI_BLACKLIST = ["사용시", "필요시", "이용시", "방문시", "구매시", "신청시", "설치시", "청소시", "발생시", "작동시", "외출시", "취침시", "가동시", "운전시", "주행시", "충전시", "교체시", "수리시", "점검시", "고장시", "정전시", "누수시", "결제시", "주문시", "배송시", "예약시", "상담시", "문의시", "계약시", "입주시", "이사시", "폐기시", "철거시", "건조시"]
-LEAD_STOPWORDS = ["여름", "겨울", "봄", "가을", "초여름", "한여름", "늦여름", "초겨울", "한겨울", "장마", "장마철", "무더위", "무더운", "환절기", "요즘", "이번", "올해", "작년", "내년", "드디어", "오늘", "어제", "내일", "최근", "정말", "진짜", "바로", "드뎌", "이제", "벌써"]
+LEAD_STOPWORDS = ["여름", "겨울", "봄", "가을", "초여름", "한여름", "늦여름", "초겨울", "한겨울", "장마", "장마철", "무더위", "무더운", "환절기", "요즘", "이번", "올해", "작년", "내년", "드디어", "오늘", "어제", "내일", "최근", "정말", "진짜", "바로", "드뎌", "이제", "벌써", "우리집", "인기", "업체", "전문", "비오는날"]
+COLLOQUIAL_EXCLUDE = ["구리", "광명"]
+
+
+def _load_region_set():
+    # functions/lib/regions.json 공유 — metro/newTowns + 시/구 콜로퀄(송파구→송파). 동은 '~동' 규칙 처리.
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "functions", "lib", "regions.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return set()
+    s = set(data.get("metro", []) + data.get("newTowns", []))
+    for arr, suf in [(data.get("si", []), "시"), (data.get("gun", []), "군"), (data.get("gu", []), "구")]:
+        for full in arr:
+            if full.endswith(suf) and len(full) - 1 >= 2 and full[:-1] not in COLLOQUIAL_EXCLUDE:
+                s.add(full[:-1])
+    return s
+
+
+REGION_SET = _load_region_set()
 
 
 def _strip_modifier_prefix(w):
@@ -119,7 +139,10 @@ def extract_keyword(title: str) -> str:
     if region_idx is None:
         region_idx = next((i for i, w in enumerate(words) if len(w) >= 3 and w.endswith("동") and w not in DONG_BLACKLIST), None)
     if region_idx is None:
-        # 시/구/동 없음 → 첫 '비설명·비수식' 단어를 지역으로(계절·설명어 '여름' 등 건너뜀).
+        # 접미어 없는 지역명 사전 매칭(위례·송파·진해·춘천 등). '여름'은 사전에 없어 안 잡힘.
+        region_idx = next((i for i, w in enumerate(words) if w in REGION_SET), None)
+    if region_idx is None:
+        # 그래도 없으면 첫 '비설명·비수식' 단어를 지역으로(계절·설명어 '여름' 등 건너뜀).
         region_idx = next((i for i, w in enumerate(words) if w not in LEAD_STOPWORDS and w not in MODIFIER_WORDS), None)
     if region_idx is None:
         region_idx = 0
@@ -150,23 +173,26 @@ def extract_keyword(title: str) -> str:
 
     service = ""
     if svc_end is not None:
-        parts = []
-        k = svc_end
-        while k >= 0:
-            if k == region_idx:
-                break
-            sw = stripped[k]
-            if not sw or sw in MODIFIER_WORDS:
-                break
-            if k != svc_end and _is_region_candidate(sw):
-                break
-            parts.insert(0, sw)
-            if k != svc_end and _ends_with_service(sw):
-                break
-            if len(parts) >= 2:  # 복합어 최대 2단어
-                break
-            k -= 1
-        service = "".join(parts)
+        sw = stripped[svc_end]
+        matched = next((s for s in SERVICE_SUFFIXES if sw.endswith(s)), "")
+        if sw != matched:
+            # 이미 완전한 서비스 복합어(책장철거/집기폐기/이사폐기물/유리교체) → 그대로.
+            service = sw
+        else:
+            # 단어가 접미어 자체(청소/교체) → 바로 앞 목적어 1개만 결합(에어컨 청소→에어컨청소).
+            prev = svc_end - 1
+            pw = stripped[prev] if prev >= 0 else ""
+            if (
+                pw
+                and prev != region_idx
+                and pw not in MODIFIER_WORDS
+                and not _is_region_candidate(pw)
+                and pw not in LEAD_STOPWORDS
+                and not _ends_with_service(pw)
+            ):
+                service = pw + sw
+            else:
+                service = sw
     else:
         for i in range(len(words)):
             if i == region_idx:

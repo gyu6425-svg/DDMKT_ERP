@@ -2,13 +2,35 @@
 // Cloudflare Function(crawl-blog.ts) + dev 서버(openai-card-image-api.mjs) + node 테스트가 공유.
 // 측정(ti/bl) 파서는 naverRank.mjs 재사용. 여기엔 RSS·키워드·DB쓰기·날짜 헬퍼만.
 
+import REGIONS from './regions.json' with { type: 'json' };
+
+// 콜로퀄(시/구 접미어 떼기)로 만들면 일반명사와 충돌하는 지역은 콜로퀄 미등록(명시적 구리시/광명시는 접미어로 인식).
+const COLLOQUIAL_EXCLUDE = ['구리', '광명'];
+
+// 전국 지역 사전(접미어 없는 지역 인식용). metro/newTowns + 시/구 콜로퀄(송파구→송파). 동은 '~동' 규칙으로 처리.
+const REGION_SET = (() => {
+    const set = new Set([...(REGIONS.metro || []), ...(REGIONS.newTowns || [])]);
+    const addColloquial = (arr, suffix) => {
+        for (const full of arr || []) {
+            if (full.endsWith(suffix)) {
+                const c = full.slice(0, -1);
+                if (c.length >= 2 && !COLLOQUIAL_EXCLUDE.includes(c)) set.add(c);
+            }
+        }
+    };
+    addColloquial(REGIONS.si, '시');
+    addColloquial(REGIONS.gun, '군');
+    addColloquial(REGIONS.gu, '구');
+    return set;
+})();
+
 const TAILS = ['후기', '비용', '정리', '추천', '방법', '안내', '가격', '내돈내산', '솔직후기', '체크리스트', '비교', '총정리'];
 
 // 동기화 주의: crawler/blog_rank_crawler.py 의 동일 리스트와 1:1 유지. 테스트(crawlLib.test.mjs / test_parsers.py)가 sync 보증.
 // 제목에서 메인키워드 추출용. 지역=구>동>첫단어, 서비스=지역 뒤 첫 '서비스 접미어' 단어(더 큰 카테고리=앞선 것).
 const MODIFIER_WORDS = ['아파트', '주택', '빌라', '상가', '사무실', '사무용', '사무', '오피스텔', '오피스', '빌딩', '신축', '구축', '단독주택', '다세대', '원룸', '투룸', '욕실', '화장실', '주방', '베란다', '발코니', '지하', '외벽', '내벽'];
 const MODIFIER_PREFIXES = ['스탠드형', '벽걸이형', '스탠드', '벽걸이', '천장형', '시스템', '가정용', '업소용', '이동식'];
-const SERVICE_SUFFIXES = ['청소', '교체', '탐지', '시공', '수리', '설치', '점검', '코팅', '철거', '방수', '줄눈', '인테리어', '제거', '도배', '장판', '보수', '복원', '리모델링', '세척', '폐기물', '폐기', '처리', '이전', '공사'];
+const SERVICE_SUFFIXES = ['청소', '교체', '탐지', '시공', '수리', '설치', '점검', '코팅', '철거', '방수', '줄눈', '인테리어', '제거', '도배', '장판', '보수', '복원', '리모델링', '세척', '폐기물', '폐기', '처리', '이전', '공사', '막힘', '뚫기'];
 const GU_BLACKLIST = ['배수구', '입구', '출구', '환기구', '통풍구', '비상구', '가구', '도구', '연구', '욕구'];
 const DONG_BLACKLIST = ['운동', '이동', '활동', '자동', '공동', '행동', '변동', '진동', '노동', '충동'];
 // '시(市)'가 아닌 '~시(時)' 오탐 제외(사용시·필요시 등). 도시명은 보통 3자+ 라 len>=3 + 블랙리스트로 거른다.
@@ -22,7 +44,7 @@ const SI_BLACKLIST = [
 const LEAD_STOPWORDS = [
     '여름', '겨울', '봄', '가을', '초여름', '한여름', '늦여름', '초겨울', '한겨울', '장마', '장마철', '무더위',
     '무더운', '환절기', '요즘', '이번', '올해', '작년', '내년', '드디어', '오늘', '어제', '내일', '최근',
-    '정말', '진짜', '바로', '드뎌', '이제', '벌써',
+    '정말', '진짜', '바로', '드뎌', '이제', '벌써', '우리집', '인기', '업체', '전문', '비오는날',
 ];
 
 function stripModifierPrefix(w) {
@@ -65,7 +87,11 @@ export function extractKeyword(title) {
         regionIdx = words.findIndex((w) => w.length >= 3 && w.endsWith('동') && !DONG_BLACKLIST.includes(w));
     }
     if (regionIdx === -1) {
-        // 시/구/동 없음 → 첫 '비설명·비수식' 단어를 지역으로(계절·설명어 '여름' 등 건너뜀).
+        // 접미어 없는 지역명 사전 매칭(위례·송파·진해·춘천 등). '여름'은 사전에 없어 안 잡힘.
+        regionIdx = words.findIndex((w) => REGION_SET.has(w));
+    }
+    if (regionIdx === -1) {
+        // 그래도 없으면 첫 '비설명·비수식' 단어를 지역으로(계절·설명어 '여름' 등 건너뜀).
         regionIdx = words.findIndex((w) => !LEAD_STOPWORDS.includes(w) && !MODIFIER_WORDS.includes(w));
     }
     if (regionIdx === -1) regionIdx = 0;
@@ -98,18 +124,28 @@ export function extractKeyword(title) {
 
     let service = '';
     if (svcEnd !== -1) {
-        // 복합어 조립: 접미어 단어에서 왼쪽으로 인접한 비수식·비지역 단어를 모아 붙임(예 '에어컨'+'청소'→'에어컨청소').
-        const parts = [];
-        for (let k = svcEnd; k >= 0; k -= 1) {
-            if (k === regionIdx) break;
-            const sw = stripped[k];
-            if (!sw || MODIFIER_WORDS.includes(sw)) break;
-            if (k !== svcEnd && isRegionCandidate(sw)) break;
-            parts.unshift(sw);
-            if (k !== svcEnd && endsWithService(sw)) break;
-            if (parts.length >= 2) break; // 복합어는 최대 2단어(예 '에어컨청소'). 형용사 글루 폭주 방지.
+        const sw = stripped[svcEnd];
+        const matched = SERVICE_SUFFIXES.find((s) => sw.endsWith(s)) || '';
+        if (sw !== matched) {
+            // 이미 완전한 서비스 복합어(책장철거/집기폐기/이사폐기물/유리교체) → 그대로(앞 단어 안 붙임).
+            service = sw;
+        } else {
+            // 단어가 접미어 자체(청소/교체) → 바로 앞 목적어 1개만 결합(에어컨 청소→에어컨청소).
+            const prev = svcEnd - 1;
+            const pw = prev > regionIdx || (prev >= 0 && prev !== regionIdx) ? stripped[prev] : '';
+            if (
+                pw &&
+                prev !== regionIdx &&
+                !MODIFIER_WORDS.includes(pw) &&
+                !isRegionCandidate(pw) &&
+                !LEAD_STOPWORDS.includes(pw) &&
+                !endsWithService(pw)
+            ) {
+                service = pw + sw;
+            } else {
+                service = sw;
+            }
         }
-        service = parts.join('');
     } else {
         for (let i = 0; i < words.length; i += 1) {
             if (i === regionIdx) continue;
