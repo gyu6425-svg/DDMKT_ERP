@@ -52,7 +52,11 @@ export function buildBlogReportHtml(account: BlogAccount, posts: BlogPost[]): st
 <td class="rank">${escapeHtml(ti)}</td>
 <td>${escapeHtml(bl)}</td>
 <td class="kw">${escapeHtml(kwOf(p) || '—')}</td>
-<td class="title">${escapeHtml(p.title || '제목 없음')}</td>
+<td class="title">${
+                    p.post_url
+                        ? `<a href="${escapeHtml(p.post_url)}" target="_blank" rel="noopener">${escapeHtml(p.title || '제목 없음')}</a>`
+                        : escapeHtml(p.title || '제목 없음')
+                }</td>
 <td class="date">${escapeHtml(p.published_date || '—')}</td>
 <td class="date">${escapeHtml(m?.date || '—')}</td>
 </tr>`;
@@ -78,6 +82,7 @@ export function buildBlogReportHtml(account: BlogAccount, posts: BlogPost[]): st
   td.rank { font-weight:800; color:#1e40af; }
   tr.muted td { color:#94a3b8; }
   td.title { max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  td.title a { color:#1e40af; text-decoration:none; } td.title a:hover { text-decoration:underline; }
   td.date { color:#94a3b8; white-space:nowrap; }
   .empty { text-align:center; color:#94a3b8; padding:28px; }
   .foot { margin-top:24px; color:#94a3b8; font-size:11px; }
