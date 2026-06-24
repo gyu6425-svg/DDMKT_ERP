@@ -28,8 +28,9 @@ CASES = [
     ("인천연희동 통합탭(사이트 포함)", c._rank_in_popular, "통합탭_인천_연희동_누수탐지_2026_06_19.html", "rlawhddls125", 5, "ok"),
     # 유리교체: 상단 블로그(windoorplus=3) + 하위 섹션 블로그(ist3ist3=9, kimdo3040=13) 모두 잡혀야 함.
     ("유리교체 통합탭(상단 블로그)", c._rank_in_popular, "통합탭_유리교체_2026_06_23.html", "windoorplus", 3, "ok"),
-    ("유리교체 통합탭(하위섹션 블로그)", c._rank_in_popular, "통합탭_유리교체_2026_06_23.html", "ist3ist3", 9, "ok"),
-    ("유리교체 통합탭(하위섹션 끝블로그)", c._rank_in_popular, "통합탭_유리교체_2026_06_23.html", "kimdo3040", 13, "ok"),
+    # 섹션내 순위: ist3ist3·kimdo3040 은 urB_boR(블로그) 섹션 → 그 섹션 안 1·5위(누적 9·13 아님).
+    ("유리교체 통합탭(블로그섹션 1위)", c._rank_in_popular, "통합탭_유리교체_2026_06_23.html", "ist3ist3", 1, "ok"),
+    ("유리교체 통합탭(블로그섹션 5위)", c._rank_in_popular, "통합탭_유리교체_2026_06_23.html", "kimdo3040", 5, "ok"),
     ("석남동 블로그탭(순위밖)", c._rank_in_blogtab, "블로그탭B_석남동_누수탐지_2026_06_19.html", OUR, c.OUT_OF_RANK, "out"),
 ]
 
@@ -57,6 +58,13 @@ PERPOST2_CASES = [
 PERPOST_DUMP3 = "통합탭_김포경호업체_2026_06_24.html"
 PERPOST3_CASES = [
     ("통합탭 더맨시스템(web제외 1위)", "themansystem-", "224299201732", 1, "ok"),
+]
+
+# 안산 푸르지오9차인테리어(design_do_) 실측 — urB_coR(오늘의집/부동산=웹사이트/문서) 섹션 다음
+#   urB_boR(블로그) 섹션 첫 카드 → 섹션내 1위(누적이면 6위 오인).
+PERPOST_DUMP4 = "통합탭_안산푸르지오9차_2026_06_24.html"
+PERPOST4_CASES = [
+    ("통합탭 안산 design_do_(섹션내 1위)", "design_do_", "224266735547", 1, "ok"),
 ]
 
 # 웹사이트(문서)탭 존재 여부 — (덤프, blog_id, log_no, 기대) likesign #1글=있음, 더맨시스템=없음.
@@ -180,6 +188,16 @@ def main():
             rank, status = c._rank_in_popular(_read(PERPOST_DUMP3), bid, lno)
         except FileNotFoundError:
             print(f"  SKIP  {desc}: 덤프 없음({PERPOST_DUMP3})")
+            continue
+        ok = (rank == exp_rank and status == exp_status)
+        print(f"  {'PASS' if ok else 'FAIL'}  {desc}: rank={rank} status={status} (기대 {exp_rank}/{exp_status})")
+        if not ok:
+            failed += 1
+    for desc, bid, lno, exp_rank, exp_status in PERPOST4_CASES:
+        try:
+            rank, status = c._rank_in_popular(_read(PERPOST_DUMP4), bid, lno)
+        except FileNotFoundError:
+            print(f"  SKIP  {desc}: 덤프 없음({PERPOST_DUMP4})")
             continue
         ok = (rank == exp_rank and status == exp_status)
         print(f"  {'PASS' if ok else 'FAIL'}  {desc}: rank={rank} status={status} (기대 {exp_rank}/{exp_status})")

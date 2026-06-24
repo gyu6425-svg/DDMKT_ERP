@@ -136,15 +136,15 @@ function isWebArea(area) {
     return area.toLowerCase().startsWith('web');
 }
 
-// 통합탭(ti): 광고(ader/파워링크)만 제외하고, 화면에 보이는 '모든 결과 카드'를 문서(=화면) 순서대로
-// 카운트한 위치 = 순위. (2026-06-23: 사용자 요청 — 인기글 섹션만 보던 것을 전 섹션으로 확장.
-//   urB_coR·urB_boR 등 섹션마다 r 이 1부터 재시작하므로 r 정렬 금지, 블록 등장 순서로 카운트.)
-//   결과 카드 판정 = clickLog.r 이 있는 블록(blockMinR<999). AI답변·이미지캐러셀·연관검색어(r 없음)는 제외.
-//   파워링크 광고는 bootstrap JSON 밖(서버렌더)이라 애초에 블록에 안 들어오고, ader 링크는 안전망으로 한 번 더 제외.
-//   매칭은 카드 '대표글'(primaryBlogPosts)로만 — 관련글 묶음(afterArticles 등) 링크에 순위 전염 방지.
+// 통합탭(ti): '그 블로그가 속한 섹션 안에서의 순위'(섹션마다 1부터 재시작). 파이썬 _rank_in_popular 1:1.
+// (2026-06-24: 사용자 확인 — 통합검색은 섹션(area)이 여러 개고 블로그 순위는 '자기 섹션 안' 기준.
+//   예) 안산 푸르지오9차: 오늘의집/부동산으로 시작하는 urB_coR=웹사이트/문서 섹션이 위에 있고,
+//   design_do_ 는 아래 urB_boR(블로그) 섹션 첫 카드 → 통합탭 1위. 누적이면 6위로 잘못 나옴.)
+//   섹션 = area 가 같은 연속 블록. area 바뀌면 1부터 다시. web*·ader·비결과(r없음) 제외, 매칭은 대표글로만.
 export function rankInPopular(html, blogId, logNo = '') {
     const blocks = extractBootstrapJson(html);
     if (!blocks.length) return { rank: OUT_OF_RANK, status: 'fail' };
+    let prevArea = null;
     let rank = 0;
     for (const b of blocks) {
         let j;
@@ -154,9 +154,15 @@ export function rankInPopular(html, blogId, logNo = '') {
             continue;
         }
         if (b.includes('ader.naver.com')) continue; // 광고(ader) 제외
-        if (isWebArea(blockArea(j))) continue; // 웹사이트(문서)탭 섹션 제외 — 통합탭 순위 아님
+        const area = blockArea(j);
+        if (isWebArea(area)) continue; // 웹사이트(문서)탭 섹션 제외 — 통합탭 순위 아님
         if (blockMinR(j) >= 999) continue; // 비-결과 블록(AI/이미지/연관검색어) 제외
-        rank += 1; // 화면에 보이는 결과 카드 한 칸
+        if (area !== prevArea) {
+            // 새 섹션 → 순위 1부터 재시작
+            rank = 0;
+            prevArea = area;
+        }
+        rank += 1; // 같은 섹션 안에서 보이는 카드 한 칸
         // logNo 있으면 '그 글'만 매칭(통합탭도 글 단위) — 같은 블로그 다른 글에 순위 오인 방지.
         for (const [bid, lno] of primaryBlogPosts(j)) {
             if (logNo) {

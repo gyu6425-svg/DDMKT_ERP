@@ -755,18 +755,20 @@ def _is_web_area(area):
     return area.lower().startswith("web")
 
 
-# ── 통합탭(ti): 광고만 제외하고 '화면에 보이는 결과 카드 전부'를 문서(화면)순으로 카운트 ──
-# 2026-06-23: 사용자 요청 — 인기글(urB_coR) 섹션만 보던 것을 전 섹션으로 확장. JS rankInPopular 와 1:1.
-#   섹션마다 clickLog.r 이 1부터 재시작 → r 정렬 금지, 블록 등장(=화면) 순서로 한 칸씩 카운트.
-#   결과 카드 = clickLog.r 있는 블록(_block_min_r<999). AI답변·이미지·연관검색어(r 없음)는 제외.
-#   파워링크 광고는 bootstrap JSON 밖(서버렌더)이라 블록에 없고, ader 링크는 안전망으로 추가 제외.
-#   매칭은 카드 '대표글'(_primary_blog_posts)로만 — 관련글 묶음(afterArticles 등) 링크에 순위 전염 방지.
+# ── 통합탭(ti): '그 블로그가 속한 섹션 안에서의 순위'(섹션마다 1부터 재시작) ──
+# 2026-06-24: 사용자 확인 — 통합검색은 섹션(블록 area)이 여러 개고, 블로그 순위는 '자기 섹션 안'
+#   기준이다. 예) 안산 푸르지오9차인테리어: 오늘의집/부동산으로 시작하는 urB_coR(=웹사이트/문서)
+#   섹션이 위에 있고, design_do_ 는 그 아래 urB_boR(블로그) 섹션의 첫 카드 → 통합탭 1위.
+#   (누적 카운트면 6위로 잘못 나옴.) 칠곡 pjyysh=5·석남동=4·김포 더맨=1 등 사용자 확인값과 일치.
+#   섹션 = area 가 같은 연속 블록. area 가 바뀌면 순위 1부터 다시 센다.
+#   web*(웹사이트/문서) 섹션·광고(ader)·비결과(r 없음) 블록은 제외. 매칭은 카드 '대표글'로만.
 def _rank_in_popular(html_text, blog_id, log_no=""):
-    """통합검색 HTML → (rank, status). 광고·웹사이트(문서)탭 제외, 보이는 결과 전부 문서순 카운트."""
+    """통합검색 HTML → (rank, status). 블로그가 속한 섹션 안에서의 순위(섹션마다 1부터)."""
     blocks = extract_bootstrap_json(html_text)
     if not blocks:
         return OUT_OF_RANK, "fail"      # JSON 없음 = 차단/구조변경 → 권외와 구분
 
+    prev_area = None
     rank = 0
     for b in blocks:
         try:
@@ -775,11 +777,15 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
             continue
         if "ader.naver.com" in b:            # 광고(ader) 제외
             continue
-        if _is_web_area(_block_area(j)):     # 웹사이트(문서)탭 섹션 제외 — 통합탭 순위 아님
+        area = _block_area(j)
+        if _is_web_area(area):               # 웹사이트(문서)탭 섹션 제외 — 통합탭 순위 아님
             continue
         if _block_min_r(j) >= 999:           # 비-결과 블록(AI/이미지/연관검색어) 제외
             continue
-        rank += 1                            # 화면에 보이는 결과 카드 한 칸
+        if area != prev_area:                # 새 섹션 → 순위 1부터 재시작
+            rank = 0
+            prev_area = area
+        rank += 1                            # 같은 섹션 안에서 보이는 카드 한 칸
         # log_no 있으면 '그 글'만 매칭(통합탭도 글 단위) — 같은 블로그 다른 글(예: 작년 글)에 순위를
         # 잘못 붙이지 않도록. log_no 없으면(대표키워드 등) 블로그 단위 매칭.
         for bid, lno in _primary_blog_posts(j):

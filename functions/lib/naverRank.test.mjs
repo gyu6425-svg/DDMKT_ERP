@@ -20,8 +20,9 @@ const CASES = [
     // 유리교체: 상단 섹션 블로그(windoorplus=3)와 '하위 섹션' 블로그(ist3ist3=9, kimdo3040=13) 모두 잡혀야 함.
     // (구버전 urB_coR-only 였다면 하위 섹션 블로그는 권외로 잘못 나옴 = '트래커 다 안맞아' 버그.)
     ['유리교체 통합탭(상단 블로그)', (h) => rankInPopular(h, 'windoorplus'), '통합탭_유리교체_2026_06_23.html', 3, 'ok'],
-    ['유리교체 통합탭(하위섹션 블로그)', (h) => rankInPopular(h, 'ist3ist3'), '통합탭_유리교체_2026_06_23.html', 9, 'ok'],
-    ['유리교체 통합탭(하위섹션 끝블로그)', (h) => rankInPopular(h, 'kimdo3040'), '통합탭_유리교체_2026_06_23.html', 13, 'ok'],
+    // 섹션내 순위: ist3ist3·kimdo3040 은 urB_boR(블로그) 섹션이라 그 섹션 안에서 1·5위(누적 9·13 아님).
+    ['유리교체 통합탭(블로그섹션 1위)', (h) => rankInPopular(h, 'ist3ist3'), '통합탭_유리교체_2026_06_23.html', 1, 'ok'],
+    ['유리교체 통합탭(블로그섹션 5위)', (h) => rankInPopular(h, 'kimdo3040'), '통합탭_유리교체_2026_06_23.html', 5, 'ok'],
     // 통합탭 글 단위(logNo) 매칭 — 같은 블로그 다른 글에 순위 오인 방지. likesign(간판) 실측:
     //   #1=224066671070 은 web*(웹사이트/문서) 섹션에만 → 통합탭 권외(웹사이트탭=있음).
     //   #2=224258926265 는 ugB_bsR(인기글) → web 제외 후 1위. 224291228962 는 미노출(권외).
@@ -37,6 +38,9 @@ const CASES = [
     // 김포 경호업체(themansystem-) 실측 — web_gen(sks303040 문서) 제외 → ugB_bsR 인기글 1위.
     //   웹사이트(문서)탭엔 우리 글 없음(sks303040 임) → 웹사이트탭=없음.
     ['통합탭 더맨시스템(web제외 1위)', (h) => rankInPopular(h, 'themansystem-', '224299201732'), '통합탭_김포경호업체_2026_06_24.html', 1, 'ok'],
+    // 안산 푸르지오9차인테리어(design_do_) 실측 — 위 urB_coR(오늘의집/부동산=웹사이트/문서) 섹션 다음
+    //   urB_boR(블로그) 섹션의 첫 카드 → 섹션내 1위(누적이면 6위로 오인).
+    ['통합탭 안산 design_do_(섹션내 1위)', (h) => rankInPopular(h, 'design_do_', '224266735547'), '통합탭_안산푸르지오9차_2026_06_24.html', 1, 'ok'],
     // 웹사이트(문서)탭 존재 여부 — likesign #1글은 web 섹션에 있음, 더맨시스템은 web 섹션에 없음.
     ['웹사이트탭 likesign #1글(있음)', (h) => ({ rank: websitePresent(h, 'likesign', '224066671070') === '있음' ? 1 : 99, status: websitePresent(h, 'likesign', '224066671070') }), '통합탭_likesign_글단위_2026_06_24.html', 1, '있음'],
     ['웹사이트탭 더맨시스템(없음)', (h) => ({ rank: websitePresent(h, 'themansystem-', '224299201732') === '있음' ? 1 : 99, status: websitePresent(h, 'themansystem-', '224299201732') }), '통합탭_김포경호업체_2026_06_24.html', 99, '없음'],
