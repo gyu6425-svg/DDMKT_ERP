@@ -141,7 +141,7 @@ export function PostSearchCell({
                         className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white disabled:opacity-50"
                         disabled={busy || !kw.trim()}
                         onClick={() => void run()}
-                        title="이 글이 입력 키워드로 몇 위인지 즉시 검색(블로그탭=이 글 기준, 통합탭=블로그 기준)"
+                        title="이 글이 입력 키워드로 몇 위인지 즉시 검색(통합탭·블로그탭 모두 '이 글' 기준)"
                         type="button"
                     >
                         {busy ? '…' : '검색'}
@@ -166,7 +166,7 @@ export function PostSearchCell({
                 <div className="mt-1 text-[11px] font-semibold text-[#0f172a]">
                     <span className="text-[#94a3b8]">#{res.keyword}</span> · 통합{' '}
                     <span className="text-[#059669]">{fmtRank(res.ti, res.ti_status)}</span>
-                    <span className="text-[9px] font-normal text-[#94a3b8]">(블로그)</span> · 블로그탭{' '}
+                    <span className="text-[9px] font-normal text-[#94a3b8]">(이 글)</span> · 블로그탭{' '}
                     <span className="text-[#1e40af]">{fmtRank(res.bl, res.bl_status)}</span>
                     <span className="text-[9px] font-normal text-[#94a3b8]">(이 글)</span>
                 </div>
