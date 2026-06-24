@@ -257,7 +257,8 @@ function sendKakao(){
     Kakao.Share.sendDefault({
       objectType: 'text',
       text: KK_SUMMARY,
-      link: { webUrl: KK_LINK, mobileWebUrl: KK_LINK }
+      link: { webUrl: KK_LINK, mobileWebUrl: KK_LINK },
+      buttonTitle: '성과 보고서 보기'
     });
   } catch(e){ alert('카카오 공유 오류: ' + (e && e.message ? e.message : e)); }
 }
