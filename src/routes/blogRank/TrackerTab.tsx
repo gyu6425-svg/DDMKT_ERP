@@ -4,7 +4,7 @@ import { dayN, lastM, PER_FEED } from './helpers';
 import { Pager } from './ui';
 import { PostSearchCell } from './PostSearchCell';
 import { RankCell } from './RankCell';
-import { Sparkline } from './Sparkline';
+import { openTrackerReport } from './report';
 import { WebRankCell } from './WebRankCell';
 
 export function TrackerTab({
@@ -104,6 +104,18 @@ export function TrackerTab({
                     통합 10위 이내만
                 </label>
                 <span className="ml-auto text-xs text-[#64748b]">{filtered.length}건</span>
+                <button
+                    className="rounded-md bg-[#1e40af] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
+                    onClick={() => {
+                        if (!openTrackerReport(filtered, accounts)) {
+                            window.alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.');
+                        }
+                    }}
+                    title="현재 목록(필터 적용) 기준 성과 보고서(인쇄/PDF)"
+                    type="button"
+                >
+                    성과
+                </button>
             </div>
 
             <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
@@ -117,7 +129,6 @@ export function TrackerTab({
                             <th className="px-3 py-2 text-center font-semibold">통합탭</th>
                             <th className="px-3 py-2 text-center font-semibold">블로그탭</th>
                             <th className="px-3 py-2 text-center font-semibold">웹사이트</th>
-                            <th className="px-3 py-2 text-center font-semibold">일별 추이</th>
                             <th className="px-3 py-2 text-center font-semibold">경과</th>
                             <th className="px-3 py-2 text-center font-semibold">측정</th>
                         </tr>
@@ -187,9 +198,6 @@ export function TrackerTab({
                                         )}
                                     </td>
                                     <td className="px-3 py-2 text-center">
-                                        <Sparkline post={p} />
-                                    </td>
-                                    <td className="px-3 py-2 text-center">
                                         <span className="rounded bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#475569]">
                                             D+{dayN(p)}
                                         </span>
@@ -202,7 +210,7 @@ export function TrackerTab({
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={10}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={9}>
                                     아직 수집된 글이 없습니다 · 파이썬 크롤러 실행 후 표시됩니다
                                 </td>
                             </tr>
