@@ -307,29 +307,60 @@ def _strip_trailing_modifier(s):
 
 
 _HASHTAG_RE = re.compile(r'class="__se-hash-tag">#([^<]+)</span>')
+_GSTAG_RE = re.compile(r'gsTagName\s*=\s*"([^"]*)"')
 
 
 def extract_hashtags_from_html(html_text):
-    """모바일 글 본문 HTML 하단 해시태그(<span class="__se-hash-tag">#태그</span>) 추출."""
+    """본문 하단 해시태그 추출. gsTagName(쉼표, 구·신 공통) + __se-hash-tag(신 에디터) 병합."""
+    s = html_text or ""
     out = []
-    for t in _HASHTAG_RE.findall(html_text or ""):
-        t = re.sub(r"\s+", "", t).strip()
-        if t and t not in out:
-            out.append(t)
+
+    def push(t):
+        v = re.sub(r"\s+", "", str(t)).lstrip("#").strip()
+        if v and v not in out:
+            out.append(v)
+
+    g = _GSTAG_RE.search(s)
+    if g and g.group(1):
+        for t in g.group(1).split(","):
+            push(t)
+    for t in _HASHTAG_RE.findall(s):
+        push(t)
     return out
 
 
+_REGION_BOUND_RE = re.compile(r"^(.{2,4}?[동구])(.+)$")
+
+
+def _region_prefix(t):
+    """글루 해시태그 앞부분이 알려진 지역명이면 그 prefix(최장), 없으면 ''. 천안식당창업→천안, 삼송동집기폐기→삼송동."""
+    best = ""
+    for r in REGION_SET:
+        if len(t) > len(r) and t.startswith(r) and len(r) > len(best):
+            best = r
+    m = _REGION_BOUND_RE.match(t)  # 동/구로 끝나는 앞부분(사전에 없어도)
+    if m and len(m.group(1)) >= 3 and len(m.group(1)) > len(best) \
+            and m.group(1) not in GU_BLACKLIST and m.group(1) not in DONG_BLACKLIST:
+        best = m.group(1)
+    return best
+
+
+def _has_region_or_service(t):
+    return bool(_region_prefix(t)) or any(s in t for s in SERVICE_SUFFIXES)
+
+
 def derive_keyword(title, tags):
-    # '무조건 블로그 하단 해시태그' 우선(crawlLib.mjs deriveKeyword 와 1:1).
-    #  1) 복수 해시태그 공통 suffix(지역+서비스) 2) 글루 단일태그+제목서비스로 지역분리 3) 제목 폴백.
+    # '무조건 하단 해시태그' 우선(crawlLib.mjs deriveKeyword 와 1:1). 해시태그 그대로, 이상한 건 수동수정.
     clean = [re.sub(r"\s+", "", str(t or "").lstrip("#")).strip() for t in (tags or [])]
     clean = [t for t in clean if t]
+    # 1) 복수 해시태그 공통 suffix → 지역+서비스
     multi = pick_main_hashtag_keyword(clean)
     if multi and " " in multi:
         sp = multi.index(" ")
         region = _strip_trailing_modifier(multi[:sp])
         if region:
             return f"{region}{multi[sp:]}"
+    # 2) 글루 단일 + 제목 서비스로 지역 분리
     title_kw = extract_keyword(title)
     parts = title_kw.split(" ")
     title_service = parts[-1]
@@ -339,6 +370,16 @@ def derive_keyword(title, tags):
                 region = _strip_trailing_modifier(t[: len(t) - len(title_service)])
                 if region:
                     return f"{region} {title_service}"
+    # 3) 지역/서비스를 담은 해시태그면 그 해시태그를 메인키워드로(가장 짧은=핵심). 지역 있으면 분리.
+    usable = [t for t in clean if _has_region_or_service(t)]
+    if usable:
+        main = min(usable, key=len)
+        rp = _region_prefix(main)
+        if rp:
+            rest = _strip_modifier_prefix(main[len(rp):])
+            return f"{rp} {rest}" if rest else rp
+        return _strip_modifier_prefix(main)  # 지역 없는 서비스 키워드 그대로
+    # 4) 제목 폴백
     return title_kw
 
 
@@ -993,11 +1034,10 @@ def _process_blog(acc, kw_by_acc):
     return (pm, wm, km)
 
 
-def run(fast=False, workers=8):
+def run(fast=False, workers=4):
     need_config()
-    global REQUEST_DELAY
-    if fast:
-        REQUEST_DELAY = 0.2   # 병렬이라 요청 간 간격을 줄임(블로그별 순차는 유지).
+    # 안전 우선: fast 여도 '요청 간격(REQUEST_DELAY)'은 그대로 유지하고 블로그만 병렬(소수 워커).
+    # (8워커+0.2초처럼 간격까지 줄이면 네이버가 차단해 fail 폭증 → 절대 줄이지 않음.)
     print(f"=== 크롤링 시작 {TODAY} / 블로그탭:{'공식 API' if USE_API else 'HTML'} / "
           f"{'병렬x'+str(workers) if fast else '순차'} / 최신 {MAX_POSTS_PER_BLOG}글 ===")
     if not USE_API:
@@ -1045,9 +1085,9 @@ if __name__ == "__main__":
         else:
             debug_keyword(kw, blog_id, post_url, website_host)
     else:
-        # 전체 실행. --fast = 블로그 병렬(빠름), --workers N = 동시 처리 수(기본 8).
+        # 전체 실행. 기본=순차(가장 안전). --fast = 블로그 병렬(소수 워커, 간격은 유지), --workers N(기본 4).
         fast = "--fast" in args
-        workers = 8
+        workers = 4
         if "--workers" in args:
             try:
                 workers = max(1, int(args[args.index("--workers") + 1]))

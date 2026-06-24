@@ -261,23 +261,48 @@ function stripTrailingModifier(s) {
     return r;
 }
 
-// 모바일 글 본문 HTML 하단 해시태그(<span class="__se-hash-tag">#태그</span>) 추출.
+// 모바일 글 본문 HTML 하단 해시태그 추출. 두 소스 병합(중복 제거):
+//  1) gsTagName JS 변수(쉼표구분) — 구·신 에디터 공통이라 가장 안정적.
+//  2) <span class="__se-hash-tag">#태그</span> (신 에디터 본문).
 export function extractHashtagsFromHtml(html) {
-    const re = /class="__se-hash-tag">#([^<]+)<\/span>/g;
+    const s = String(html || '');
     const out = [];
+    const push = (t) => {
+        const v = String(t).replace(/\s+/g, '').replace(/^#/, '').trim();
+        if (v && !out.includes(v)) out.push(v);
+    };
+    const g = s.match(/gsTagName\s*=\s*"([^"]*)"/);
+    if (g && g[1]) for (const t of g[1].split(',')) push(t);
+    const re = /class="__se-hash-tag">#([^<]+)<\/span>/g;
     let m;
-    while ((m = re.exec(String(html || '')))) {
-        const t = m[1].replace(/\s+/g, '').trim();
-        if (t) out.push(t);
-    }
-    return [...new Set(out)];
+    while ((m = re.exec(s))) push(m[1]);
+    return out;
 }
 
-// 최종 자동키워드 — '무조건 블로그 하단 해시태그' 우선(사용자 요구):
-//  1) 복수 해시태그: 공통 suffix(서비스)로 메인키워드(지역+서비스, 수식어 없는 최단형). 예 춘천유리교체류.
-//  2) 글루 단일 해시태그(#진해스탠드에어컨청소): 제목에서 구한 '서비스'로 끝나면 앞부분=지역(수식어 제거).
-//     → '진해 에어컨청소'. 제목 지역이 틀려도 해시태그 지역으로 교정됨.
-//  3) 해시태그가 지역+서비스가 아니면(포트폴리오 등) 제목에서 지역+서비스 추출.
+// 글루 해시태그의 앞부분이 '알려진 지역명'이면 그 지역 prefix 반환(최장 매칭), 없으면 ''.
+// 예: 천안식당창업→천안, 삼송동집기폐기→삼송동, 공공기관청소경비→''(지역없음).
+function regionPrefix(t) {
+    let best = '';
+    for (const r of REGION_SET) {
+        if (t.length > r.length && t.startsWith(r) && r.length > best.length) best = r;
+    }
+    const m = t.match(/^(.{2,4}?[동구])(.+)$/); // 동/구로 끝나는 앞부분(삼송동 등) — 사전에 없어도 인식
+    if (m && m[1].length >= 3 && m[1].length > best.length && !GU_BLACKLIST.includes(m[1]) && !DONG_BLACKLIST.includes(m[1])) {
+        best = m[1];
+    }
+    return best;
+}
+// 이 해시태그가 '키워드로 쓸 만'한가 = 지역 또는 서비스어를 담고 있는가. (포트폴리오=false)
+function hasRegionOrService(t) {
+    return !!regionPrefix(t) || SERVICE_SUFFIXES.some((s) => t.includes(s));
+}
+
+// 최종 자동키워드 — '무조건 블로그 하단 해시태그' 우선(사용자 확정 방향: 해시태그 그대로, 이상한 건 수동수정):
+//  1) 복수 해시태그 공통 suffix → 지역+서비스(춘천유리교체류).
+//  2) 글루 단일 + 제목 서비스로 지역 분리(#진해스탠드에어컨청소 → 진해 에어컨청소).
+//  3) 지역/서비스를 담은 해시태그면 그 해시태그를 메인키워드로(지역 있으면 분리·수식어 제거).
+//     천안식당창업→천안 식당창업, 공공기관청소경비→그대로. (식당/폐업/매입 등 제목으로 뽑으면 틀리는 업종 대응)
+//  4) 쓸 해시태그가 없으면(포트폴리오 등) 제목에서 지역+서비스 추출.
 export function deriveKeyword(title, tags) {
     const clean = (Array.isArray(tags) ? tags : [])
         .map((t) => String(t || '').replace(/^#/, '').replace(/\s+/g, '').trim())
@@ -301,7 +326,18 @@ export function deriveKeyword(title, tags) {
             }
         }
     }
-    // 3) 제목 폴백
+    // 3) 지역/서비스를 담은 해시태그면 그 해시태그를 메인키워드로(가장 짧은=핵심). 지역 있으면 분리.
+    const usable = clean.filter(hasRegionOrService);
+    if (usable.length) {
+        const main = usable.reduce((a, b) => (b.length < a.length ? b : a));
+        const rp = regionPrefix(main);
+        if (rp) {
+            const rest = stripModifierPrefix(main.slice(rp.length));
+            return rest ? `${rp} ${rest}` : rp;
+        }
+        return stripModifierPrefix(main); // 지역 없는 서비스 키워드(공공기관청소경비 등) 그대로
+    }
+    // 4) 제목 폴백 (포트폴리오 등 쓸 해시태그 없음)
     return titleKw;
 }
 

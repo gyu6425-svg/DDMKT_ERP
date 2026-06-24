@@ -58,12 +58,17 @@ eq('derive 글루단일(천장형 제거)', deriveKeyword('분해 후 오염을 
 eq('derive 해시태그 무의미→제목', deriveKeyword('청라 공장 간판 빠른 시안', ['포트폴리오']), '청라 간판');
 // 지역 없이 수식어만인 해시태그 → 수식어를 지역으로 오인 말고 제목 폴백(독립검증 지적 반영).
 eq('derive 수식어만(글루)', deriveKeyword('에어컨청소 후기', ['스탠드에어컨청소']), '에어컨청소');
-eq('derive 수식어만(복수)', deriveKeyword('엉뚱제목', ['아파트청소', '주택청소']), '엉뚱제목');
+eq('derive 수식어만(복수)', deriveKeyword('엉뚱제목', ['아파트청소', '주택청소']), '주택청소'); // 해시태그 그대로(거짓지역 아님)
+// 업종 해시태그(폐업/매입 등 제목으론 못 잡는 업종) → 해시태그 그대로. themansystem/winnerkitchen 실측.
+eq('derive 업종(지역없음)', deriveKeyword('시설물 공공기관 유지 관리 청소 경비를 함께 운영해야 하는 이유', ['시설물공공기관유지관리청소경비', '시설물유지관리업체', '공공기관청소경비']), '공공기관청소경비');
+eq('derive 업종(지역분리)', deriveKeyword('천안 식당 창업에 활용되는 식당집기, 도시락 전문점 폐업 주방용품 매입 사례', ['천안식당창업', '천안식당폐업', '천안주방용품', '천안주방용품매입', '천안식당집기']), '천안 식당창업');
 
 // extractHashtagsFromHtml — 본문 __se-hash-tag 추출(중복 제거)
 const tagHtml = '<p><span class="__se-hash-tag">#진해스탠드에어컨청소</span></p>x<span class="__se-hash-tag">#진해에어컨청소</span><span class="__se-hash-tag">#진해스탠드에어컨청소</span>';
 eq('extractHashtags', JSON.stringify(extractHashtagsFromHtml(tagHtml)), JSON.stringify(['진해스탠드에어컨청소', '진해에어컨청소']));
 eq('extractHashtags 없음', JSON.stringify(extractHashtagsFromHtml('<p>no tags</p>')), JSON.stringify([]));
+// gsTagName JS 변수(구 에디터) — 쉼표구분
+eq('extractHashtags gsTagName', JSON.stringify(extractHashtagsFromHtml('x var gsTagName = "천안식당창업,천안식당폐업,천안주방용품"; y')), JSON.stringify(['천안식당창업', '천안식당폐업', '천안주방용품']));
 
 // parseRss — RSS 2.0 블록 파싱
 const xml = `<rss><channel>

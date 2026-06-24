@@ -1,5 +1,5 @@
 import type { BlogAccount, BlogPost } from '../../api/blogRank';
-import { lastM, lastWe, prevM, type Tab } from './helpers';
+import { lastM, prevM, type Tab } from './helpers';
 import { Empty, Kpi, Panel, Tag } from './ui';
 
 export function DashboardTab({
@@ -35,14 +35,7 @@ export function DashboardTab({
         .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
         .slice(0, 6);
 
-    // 웹사이트(업체 기준) 지표 — 글 단위 KPI 와 모수가 다르므로 별도 섹션으로 분리.
-    const webTracked = accounts.filter((a) => a.website_url && a.rep_keyword);
-    const webMeasured = webTracked.filter((a) => lastWe(a));
-    const webExposed = webMeasured.filter((a) => lastWe(a)?.status === 'ok').length;
-    const webIn10 = webMeasured.filter((a) => {
-        const m = lastWe(a);
-        return m?.status === 'ok' && m.we <= 10;
-    }).length;
+    // 웹사이트(업체 기준) 지표 패널은 현재 비활성(아래 JSX 주석). 신뢰도 낮아 보류 — 다시 켜면 변수 복구.
 
     return (
         <div className="grid gap-4">
@@ -68,7 +61,9 @@ export function DashboardTab({
                 />
             </div>
 
-            <Panel
+
+
+            {/* <Panel
                 title="웹사이트 노출 (업체 기준)"
                 sub="통합검색 '웹사이트' 섹션 · webkr API 추정값이라 신뢰도 낮음"
             >
@@ -95,7 +90,7 @@ export function DashboardTab({
                 ) : (
                     <Empty text="아직 웹사이트 추적 업체가 없습니다 · '블로그 관리 시트' 탭에서 업체 '편집' → 회사 홈페이지·대표키워드를 등록하세요" />
                 )}
-            </Panel>
+            </Panel> */}
 
             <div className="grid gap-4 lg:grid-cols-2">
                 <Panel title="오늘 챙겨야 할 블로그" sub="잔여 임박 · 진행 중단">
