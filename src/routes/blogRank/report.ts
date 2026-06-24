@@ -36,9 +36,10 @@ const tiSearchUrl = (kw: string): string =>
 const blSearchUrl = (kw: string): string =>
     `https://m.search.naver.com/search.naver?ssc=tab.m_blog.all&query=${encodeURIComponent(kw)}`;
 
-// 카카오톡 공유(JavaScript SDK) 앱 키. developers.kakao.com 앱의 JavaScript 키를 넣으면 버튼 작동.
+// 카카오톡 공유(JavaScript SDK) 앱 키. developers.kakao.com '든든한 마케팅 성과보고' 앱 JS 키.
 //   비어 있으면 버튼이 '설정 안내' 알림만 띄운다(키 없이 발송 불가).
-const KAKAO_JS_KEY = '';
+//   ※ JS 키는 공개되어도 되는 클라이언트 키(도메인 등록으로 보호). REST/Admin 키와 다름.
+const KAKAO_JS_KEY = 'b6992ad148e994c2022d648fdb386ca8';
 
 export function buildBlogReportHtml(account: BlogAccount, posts: BlogPost[]): string {
     const today = todayKST();
