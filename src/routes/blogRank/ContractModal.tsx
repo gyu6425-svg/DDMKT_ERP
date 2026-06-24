@@ -33,12 +33,17 @@ export function ContractModal({
         setEnd('');
     };
     const remove = (i: number) => setPeriods(periods.filter((_, j) => j !== i));
+    const updatePeriod = (i: number, field: 'start' | 'end', value: string) =>
+        setPeriods(periods.map((p, j) => (j === i ? { ...p, [field]: value } : p)));
 
     const save = async () => {
         setSaving(true);
+        const clean = periods
+            .map((p) => ({ start: p.start.trim(), end: p.end?.trim() || undefined }))
+            .filter((p) => p.start);
         const { error } = await updateBlogAccount(account.id, {
-            contracts: periods,
-            contract_date: periods.length ? periods[0].start : null, // 레거시 동기화(최초 시작일)
+            contracts: clean,
+            contract_date: clean.length ? clean[0].start : null, // 레거시 동기화(최초 시작일)
         });
         setSaving(false);
         if (error) {
@@ -110,21 +115,31 @@ export function ContractModal({
                     {periods.length ? (
                         periods.map((p, i) => (
                             <div
-                                className="flex items-center gap-2 rounded-md border border-[#eef2f7] px-3 py-2 text-sm"
+                                className="flex items-center gap-1.5 rounded-md border border-[#eef2f7] px-2 py-2 text-sm"
                                 key={i}
                             >
                                 <span
-                                    className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
                                         i === 0 ? 'bg-[#dbeafe] text-[#1e40af]' : 'bg-[#f1f5f9] text-[#475569]'
                                     }`}
                                 >
-                                    {i === 0 ? '최초 계약' : `재계약 ${i}회차`}
+                                    {i === 0 ? '최초' : `재${i}`}
                                 </span>
-                                <span className="font-semibold text-[#0f172a]">
-                                    {p.start} ~ {p.end || '미입력'}
-                                </span>
+                                <input
+                                    className="h-8 w-[96px] rounded border border-[#cbd5e1] bg-white px-1.5 text-xs"
+                                    onChange={(e) => updatePeriod(i, 'start', e.target.value)}
+                                    placeholder="시작일"
+                                    value={p.start}
+                                />
+                                <span className="text-[#94a3b8]">~</span>
+                                <input
+                                    className="h-8 w-[96px] rounded border border-[#cbd5e1] bg-white px-1.5 text-xs"
+                                    onChange={(e) => updatePeriod(i, 'end', e.target.value)}
+                                    placeholder="종료일"
+                                    value={p.end || ''}
+                                />
                                 <button
-                                    className="ml-auto rounded border border-[#fca5a5] px-2 py-0.5 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
+                                    className="ml-auto shrink-0 rounded border border-[#fca5a5] px-2 py-0.5 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
                                     onClick={() => remove(i)}
                                     type="button"
                                 >
