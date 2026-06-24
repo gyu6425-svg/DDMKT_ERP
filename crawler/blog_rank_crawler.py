@@ -1002,6 +1002,7 @@ def _process_blog(acc, kw_by_acc):
     ]
     if rows:
         upserted = sb_insert("blog_posts", rows, on_conflict="blog_account_id,post_url")
+        upserted.sort(key=lambda p: p.get("published_date") or "", reverse=True)  # 최신글 먼저 측정
         for post in upserted:
             keyword = post.get("keyword_manual") or post.get("keyword") or ""
             if not keyword:
