@@ -43,6 +43,15 @@ PERPOST_CASES = [
     ("통합탭 글단위 추적글(권외)", "likesign", "224291228962", c.OUT_OF_RANK, "out"),
 ]
 
+# 칠곡 업소용가구(pjyysh) 실측 — 카드 대표글은 5/15글(224286383537)=5위, 6/11글(224312956224)은
+#   같은 카드의 afterArticles(관련글) 안에만 등장 → 권외(발행일 다른 글에 순위 전염 금지).
+PERPOST_DUMP2 = "통합탭_칠곡업소용가구_글단위_2026_06_24.html"
+PERPOST2_CASES = [
+    ("통합탭 글단위 카드대표글(5/15)", "pjyysh", "224286383537", 5, "ok"),
+    ("통합탭 글단위 관련글(6/11,권외)", "pjyysh", "224312956224", c.OUT_OF_RANK, "out"),
+    ("통합탭 blogId(칠곡 pjyysh)", "pjyysh", "", 5, "ok"),
+]
+
 
 KEYWORD_CASES = [
     # 실제 블로그(band14371) — 사용자 확정값. 지역=시>구>동, 서비스=지역 뒤 첫 서비스 단어.
@@ -138,6 +147,16 @@ def main():
             rank, status = c._rank_in_popular(_read(PERPOST_DUMP), bid, lno)
         except FileNotFoundError:
             print(f"  SKIP  {desc}: 덤프 없음({PERPOST_DUMP})")
+            continue
+        ok = (rank == exp_rank and status == exp_status)
+        print(f"  {'PASS' if ok else 'FAIL'}  {desc}: rank={rank} status={status} (기대 {exp_rank}/{exp_status})")
+        if not ok:
+            failed += 1
+    for desc, bid, lno, exp_rank, exp_status in PERPOST2_CASES:
+        try:
+            rank, status = c._rank_in_popular(_read(PERPOST_DUMP2), bid, lno)
+        except FileNotFoundError:
+            print(f"  SKIP  {desc}: 덤프 없음({PERPOST_DUMP2})")
             continue
         ok = (rank == exp_rank and status == exp_status)
         print(f"  {'PASS' if ok else 'FAIL'}  {desc}: rank={rank} status={status} (기대 {exp_rank}/{exp_status})")

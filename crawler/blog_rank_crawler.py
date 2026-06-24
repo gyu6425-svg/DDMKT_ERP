@@ -655,7 +655,6 @@ def measure_web_rank(keyword, website_host):
 # 네이버 m.search 는 결과를 script 내 entry.bootstrap({...JSON}) 으로 클라이언트 렌더한다.
 # 각 JSON 블록 = 한 모듈/글. meta.area 로 섹션을 구분하고 clickLog...r 이 화면 절대순위.
 # 실측 검증(dumps/): 석남동 ti=3·bl=순위밖, 인천석남동 ti=1.
-_BLOG_RE = re.compile(r"blog\.naver\.com/([^/?#\"\\]+)")
 _BLOG_POST_RE = re.compile(r"blog\.naver\.com/([^/?#\"\\]+)/(\d{6,})")  # 글 단위 매칭용(blogId+logNo)
 
 
@@ -707,11 +706,46 @@ def _iter_blog_posts(node):
     return out
 
 
+# 카드 '대표글' 판별용 — 제목/본문 네비링크만 보고, 관련글 묶음 하위는 배제한다.
+#   2026-06-24 실측(칠곡 업소용가구 pjyysh): 카드 본문글은 5/15글(contentHref·titleHref)인데
+#   같은 카드의 afterArticles(='이 블로그 다른 글') 안에 6/11글 링크가 먼저 등장 → 옛 코드가
+#   raw 첫 링크(6/11글)를 잡아 6월글에 5위를 잘못 부여. 발행일 다른 글끼리 순위 전염되던 버그.
+_PRIMARY_NAV_FIELDS = ("href", "titleHref", "contentHref")  # 카드 본문 이동 링크
+_PRIMARY_EXCLUDE_KEYS = (
+    "afterArticles", "clusters", "series", "relatedContents", "subItems",
+)  # 관련글/클러스터 묶음 — 대표글 아님
+
+
+def _primary_blog_posts(node):
+    """블록에서 카드 '대표글' (blog_id, log_no) 목록. 관련글 묶음 하위는 제외."""
+    out = []
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in _PRIMARY_EXCLUDE_KEYS:
+                    continue                 # 관련글 묶음 하위는 통째로 건너뜀
+                if isinstance(v, str):
+                    if k in _PRIMARY_NAV_FIELDS:
+                        m = _BLOG_POST_RE.search(v)
+                        if m:
+                            out.append((m.group(1), m.group(2)))
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for x in o:
+                walk(x)
+
+    walk(node)
+    return out
+
+
 # ── 통합탭(ti): 광고만 제외하고 '화면에 보이는 결과 카드 전부'를 문서(화면)순으로 카운트 ──
 # 2026-06-23: 사용자 요청 — 인기글(urB_coR) 섹션만 보던 것을 전 섹션으로 확장. JS rankInPopular 와 1:1.
 #   섹션마다 clickLog.r 이 1부터 재시작 → r 정렬 금지, 블록 등장(=화면) 순서로 한 칸씩 카운트.
 #   결과 카드 = clickLog.r 있는 블록(_block_min_r<999). AI답변·이미지·연관검색어(r 없음)는 제외.
 #   파워링크 광고는 bootstrap JSON 밖(서버렌더)이라 블록에 없고, ader 링크는 안전망으로 추가 제외.
+#   매칭은 카드 '대표글'(_primary_blog_posts)로만 — 관련글 묶음(afterArticles 등) 링크에 순위 전염 방지.
 def _rank_in_popular(html_text, blog_id, log_no=""):
     """통합검색 HTML → (rank, status). 광고 제외, 보이는 결과 전부 문서순 카운트."""
     blocks = extract_bootstrap_json(html_text)
@@ -731,13 +765,11 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
         rank += 1                            # 화면에 보이는 결과 카드 한 칸
         # log_no 있으면 '그 글'만 매칭(통합탭도 글 단위) — 같은 블로그 다른 글(예: 작년 글)에 순위를
         # 잘못 붙이지 않도록. log_no 없으면(대표키워드 등) 블로그 단위 매칭.
-        if log_no:
-            mp = _BLOG_POST_RE.search(b)
-            if mp and mp.group(2) == log_no:
-                return rank, "ok"
-        else:
-            mb = _BLOG_RE.search(b)
-            if mb and mb.group(1) == blog_id:
+        for bid, lno in _primary_blog_posts(j):
+            if log_no:
+                if lno == log_no:
+                    return rank, "ok"
+            elif bid == blog_id:
                 return rank, "ok"
     return OUT_OF_RANK, "out"
 
