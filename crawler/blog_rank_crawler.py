@@ -67,7 +67,7 @@ UA = (
     "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 )
-REQUEST_DELAY = float(os.environ.get("CRAWL_DELAY", "1.0"))  # 검색 요청 사이 간격(초). env CRAWL_DELAY 로 조절(차단 시 늘림).
+REQUEST_DELAY = float(os.environ.get("CRAWL_DELAY", "2.0"))  # 검색 요청 사이 간격(초). 차단 회피 위해 2초 기본. env CRAWL_DELAY 로 조절.
 MAX_POSTS_PER_BLOG = 10    # 블로그당 RSS 최신 글 수(최신 위주 — 이 글들만 측정, 옛 글 제외)
 OLDEST_DATE = "2025-01-01"  # 이 날짜 이전(너무 옛날) 글은 추적 제외 — 최신 1~2년만 추적
 MAX_KEYWORDS_PER_ACCOUNT = 3  # 블로그당 대표키워드 측정 상한(네이버 요청량/차단 가드)
