@@ -27,6 +27,15 @@ export function AmountModal({
     const [date, setDate] = useState('');
     const [saving, setSaving] = useState(false);
 
+    // 계약 기간 목록(드롭다운용) — 계약 셀에서 쌓은 시작~종료 기간들.
+    const periods =
+        account.contracts && account.contracts.length
+            ? account.contracts
+            : account.contract_date
+              ? [{ start: account.contract_date, end: undefined as string | undefined }]
+              : [];
+    const periodLabel = (p: { start: string; end?: string }) => `${p.start} ~ ${p.end || '진행중'}`;
+
     const total = entries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
     const add = () => {
@@ -87,18 +96,33 @@ export function AmountModal({
                             placeholder="금액(예: 500000)"
                             value={amt}
                         />
-                        <input
-                            className="h-9 flex-1 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
-                            onChange={(e) => setDate(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    add();
-                                }
-                            }}
-                            placeholder="계약일(선택, 예: 2026-06-24)"
-                            value={date}
-                        />
+                        {periods.length ? (
+                            <select
+                                className="h-9 flex-1 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                onChange={(e) => setDate(e.target.value)}
+                                value={date}
+                            >
+                                <option value="">계약 기간 선택(선택)</option>
+                                {periods.map((p, i) => (
+                                    <option key={i} value={periodLabel(p)}>
+                                        {periodLabel(p)} 건
+                                    </option>
+                                ))}
+                            </select>
+                        ) : (
+                            <input
+                                className="h-9 flex-1 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                onChange={(e) => setDate(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        add();
+                                    }
+                                }}
+                                placeholder="계약 먼저 등록하면 기간 선택 가능"
+                                value={date}
+                            />
+                        )}
                         <button
                             className="rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white"
                             onClick={add}
