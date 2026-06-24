@@ -114,8 +114,8 @@ export function TrackerTab({
                             <th className="px-3 py-2 font-semibold">블로그</th>
                             <th className="px-3 py-2 font-semibold">제목 · 자동 키워드</th>
                             <th className="px-3 py-2 font-semibold">키워드 검색</th>
-                            <th className="px-3 py-2 text-center font-semibold">통합탭</th>
-                            <th className="px-3 py-2 text-center font-semibold">블로그탭</th>
+                            <th className="px-3 py-2 text-center font-bold text-[#059669]">통합탭</th>
+                            <th className="px-3 py-2 text-center font-bold text-[#1e40af]">블로그탭</th>
                             <th className="px-3 py-2 text-center font-semibold">웹사이트</th>
                             <th className="px-3 py-2 text-center font-semibold">경과</th>
                             <th className="px-3 py-2 text-center font-semibold">측정</th>
