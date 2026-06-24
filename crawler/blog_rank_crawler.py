@@ -18,6 +18,7 @@
 """
 
 import os
+import random
 import re
 import sys
 import time
@@ -68,7 +69,15 @@ UA = (
     "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 )
 REQUEST_DELAY = float(os.environ.get("CRAWL_DELAY", "2.0"))  # 검색 요청 사이 간격(초). 차단 회피 위해 2초 기본. env CRAWL_DELAY 로 조절.
+BLOCK_REST_EVERY = int(os.environ.get("CRAWL_REST_EVERY", "8"))   # N개 블로그마다 긴 휴식(누적 레이트리밋 예방)
+BLOCK_REST_SEC = float(os.environ.get("CRAWL_REST_SEC", "25"))    # 그 휴식 길이(초, 지터 포함)
 MAX_POSTS_PER_BLOG = 10    # 블로그당 RSS 최신 글 수(최신 위주 — 이 글들만 측정, 옛 글 제외)
+
+
+def _pause(base=None):
+    """요청 간격 + 무작위 지터. 일정한 주기는 봇으로 탐지되기 쉬우므로 매번 살짝 흔든다(차단 예방)."""
+    b = REQUEST_DELAY if base is None else base
+    time.sleep(b + random.uniform(0, b * 0.6))
 OLDEST_DATE = "2025-01-01"  # 이 날짜 이전(너무 옛날) 글은 추적 제외 — 최신 1~2년만 추적
 MAX_KEYWORDS_PER_ACCOUNT = 3  # 블로그당 대표키워드 측정 상한(네이버 요청량/차단 가드)
 MAX_RANK_SCAN = 30         # 이 순위까지 탐색(넘으면 권외=99)
@@ -466,7 +475,7 @@ def fetch_rss_posts(blog_id: str):
             tags = rss_tags
         else:
             tags = fetch_post_hashtags(link) or rss_tags
-            time.sleep(REQUEST_DELAY)
+            _pause()
         posts.append({"url": link, "title": html.unescape(entry.get("title", "")),
                       "published_date": pub, "tags": tags})
     return posts
@@ -935,16 +944,16 @@ def measure_rank(keyword, blog_id, post_url):
     # 블로그탭(bl): 진짜 블로그탭 HTML 파싱. fail(차단/빈응답)이면 잠깐 쉬고 1회 재시도(권외와 구분 위해).
     bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
     if bl_status == "fail":
-        time.sleep(REQUEST_DELAY * 2)
+        _pause(REQUEST_DELAY * 2)
         bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
-    time.sleep(REQUEST_DELAY)
+    _pause()
 
     # 통합탭(ti)+웹사이트탭 존재(ws): 한 번 조회로 둘 다. 마찬가지로 fail 이면 1회 재시도.
     ti, ti_status, ws = measure_integrated_popular(keyword, blog_id, log_no)
     if ti_status == "fail":
-        time.sleep(REQUEST_DELAY * 2)
+        _pause(REQUEST_DELAY * 2)
         ti, ti_status, ws = measure_integrated_popular(keyword, blog_id, log_no)
-    time.sleep(REQUEST_DELAY)
+    _pause()
 
     return ti, bl, ti_status, bl_status, ws
 
@@ -1092,7 +1101,7 @@ def dump_keyword(keyword, blog_id="", website_host=""):
             _dump_one(label, keyword, url, html_text, blog_id, website_host)
         except Exception as exc:
             print(f"\n[{label}] 실패: {exc}")
-        time.sleep(REQUEST_DELAY)
+        _pause()
 
     # 블로그탭: 공식 API 순서 vs 화면 순서 대조용(검증 후 API 1차 유지 가능)
     if USE_API and blog_id:
@@ -1197,7 +1206,15 @@ def run(fast=False, workers=4):
         with ThreadPoolExecutor(max_workers=workers) as ex:
             results = list(ex.map(lambda a: _process_blog(a, kw_by_acc), accounts))
     else:
-        results = [_process_blog(a, kw_by_acc) for a in accounts]
+        # 순차: N개 블로그마다 긴 휴식 — 요청이 누적되면 네이버가 막판에 레이트리밋(오늘 막판 fail 다발)
+        #   하므로 주기적으로 쉬어 누적 부하를 끊는다. 휴식 길이도 지터로 흔든다.
+        results = []
+        for i, a in enumerate(accounts):
+            results.append(_process_blog(a, kw_by_acc))
+            if BLOCK_REST_EVERY > 0 and (i + 1) % BLOCK_REST_EVERY == 0 and (i + 1) < len(accounts):
+                rest = BLOCK_REST_SEC + random.uniform(0, BLOCK_REST_SEC * 0.5)
+                print(f"  …{i + 1}/{len(accounts)} 완료 · 차단 예방 휴식 {rest:.0f}초", flush=True)
+                time.sleep(rest)
 
     pm = sum(r[0] for r in results)
     wm = sum(r[1] for r in results)
