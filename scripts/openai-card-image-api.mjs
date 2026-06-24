@@ -55,7 +55,7 @@ async function crawlBlogLocal({ blogAccountId }) {
         return r;
     };
     const measure = async (kw, blogId, logNo) => {
-        const tp = await measureOne(TI_URL(kw), (h) => rankInPopular(h, blogId));
+        const tp = await measureOne(TI_URL(kw), (h) => rankInPopular(h, blogId, logNo));
         const bp = await measureOne(BL_URL(kw), (h) => rankInBlogtab(h, blogId, logNo));
         return { ti: tp.rank, ti_status: tp.status, bl: bp.rank, bl_status: bp.status };
     };
@@ -144,7 +144,7 @@ async function measureRankLocal({ keyword, blogId, logNo = '' }) {
         }
         return r;
     };
-    const ti = await measureOne(TI_URL(keyword), (h) => rankInPopular(h, blogId));
+    const ti = await measureOne(TI_URL(keyword), (h) => rankInPopular(h, blogId, logNo));
     const bl = await measureOne(BL_URL(keyword), (h) => rankInBlogtab(h, blogId, logNo));
     return {
         statusCode: 200,

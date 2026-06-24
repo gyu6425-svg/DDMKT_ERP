@@ -33,6 +33,16 @@ CASES = [
     ("석남동 블로그탭(순위밖)", c._rank_in_blogtab, "블로그탭B_석남동_누수탐지_2026_06_19.html", OUR, c.OUT_OF_RANK, "out"),
 ]
 
+# 통합탭 글 단위(logNo) 매칭 — 같은 블로그 다른 글에 순위 오인 방지. likesign(간판) 실측:
+#   #1=224066671070(2025), #2=224258926265, 추적글 224291228962 는 미노출(권외).
+PERPOST_DUMP = "통합탭_likesign_글단위_2026_06_24.html"
+PERPOST_CASES = [
+    ("통합탭 blogId(아무 글이나)", "likesign", "", 1, "ok"),
+    ("통합탭 글단위 #1글", "likesign", "224066671070", 1, "ok"),
+    ("통합탭 글단위 #2글", "likesign", "224258926265", 2, "ok"),
+    ("통합탭 글단위 추적글(권외)", "likesign", "224291228962", c.OUT_OF_RANK, "out"),
+]
+
 
 KEYWORD_CASES = [
     # 실제 블로그(band14371) — 사용자 확정값. 지역=시>구>동, 서비스=지역 뒤 첫 서비스 단어.
@@ -112,6 +122,16 @@ def main():
             rank, status = fn(_read(dump), blog_id)
         except FileNotFoundError:
             print(f"  SKIP  {desc}: 덤프 없음({dump})")
+            continue
+        ok = (rank == exp_rank and status == exp_status)
+        print(f"  {'PASS' if ok else 'FAIL'}  {desc}: rank={rank} status={status} (기대 {exp_rank}/{exp_status})")
+        if not ok:
+            failed += 1
+    for desc, bid, lno, exp_rank, exp_status in PERPOST_CASES:
+        try:
+            rank, status = c._rank_in_popular(_read(PERPOST_DUMP), bid, lno)
+        except FileNotFoundError:
+            print(f"  SKIP  {desc}: 덤프 없음({PERPOST_DUMP})")
             continue
         ok = (rank == exp_rank and status == exp_status)
         print(f"  {'PASS' if ok else 'FAIL'}  {desc}: rank={rank} status={status} (기대 {exp_rank}/{exp_status})")

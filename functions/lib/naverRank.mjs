@@ -98,7 +98,8 @@ function iterBlogPosts(node) {
 //   urB_coR·urB_boR 등 섹션마다 r 이 1부터 재시작하므로 r 정렬 금지, 블록 등장 순서로 카운트.)
 //   결과 카드 판정 = clickLog.r 이 있는 블록(blockMinR<999). AI답변·이미지캐러셀·연관검색어(r 없음)는 제외.
 //   파워링크 광고는 bootstrap JSON 밖(서버렌더)이라 애초에 블록에 안 들어오고, ader 링크는 안전망으로 한 번 더 제외.
-export function rankInPopular(html, blogId) {
+const BLOG_POST_RE = /blog\.naver\.com\/([^/?#"\\]+)\/(\d{6,})/; // 글 단위 매칭용(blogId+logNo)
+export function rankInPopular(html, blogId, logNo = '') {
     const blocks = extractBootstrapJson(html);
     if (!blocks.length) return { rank: OUT_OF_RANK, status: 'fail' };
     let rank = 0;
@@ -112,8 +113,14 @@ export function rankInPopular(html, blogId) {
         if (b.includes('ader.naver.com')) continue; // 광고(ader) 제외
         if (blockMinR(j) >= 999) continue; // 비-결과 블록(AI/이미지/연관검색어) 제외
         rank += 1; // 화면에 보이는 결과 카드 한 칸
-        const mb = b.match(BLOG_RE);
-        if (mb && mb[1] === blogId) return { rank, status: 'ok' };
+        // logNo 있으면 '그 글'만 매칭(통합탭도 글 단위) — 같은 블로그 다른 글에 순위 오인 방지.
+        if (logNo) {
+            const mp = b.match(BLOG_POST_RE);
+            if (mp && mp[2] === logNo) return { rank, status: 'ok' };
+        } else {
+            const mb = b.match(BLOG_RE);
+            if (mb && mb[1] === blogId) return { rank, status: 'ok' };
+        }
     }
     return { rank: OUT_OF_RANK, status: 'out' };
 }

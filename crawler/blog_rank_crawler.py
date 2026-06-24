@@ -614,6 +614,7 @@ def measure_web_rank(keyword, website_host):
 # 각 JSON 블록 = 한 모듈/글. meta.area 로 섹션을 구분하고 clickLog...r 이 화면 절대순위.
 # 실측 검증(dumps/): 석남동 ti=3·bl=순위밖, 인천석남동 ti=1.
 _BLOG_RE = re.compile(r"blog\.naver\.com/([^/?#\"\\]+)")
+_BLOG_POST_RE = re.compile(r"blog\.naver\.com/([^/?#\"\\]+)/(\d{6,})")  # 글 단위 매칭용(blogId+logNo)
 
 
 def _block_min_r(node):
@@ -686,9 +687,16 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
         if _block_min_r(j) >= 999:           # 비-결과 블록(AI/이미지/연관검색어) 제외
             continue
         rank += 1                            # 화면에 보이는 결과 카드 한 칸
-        mb = _BLOG_RE.search(b)
-        if mb and mb.group(1) == blog_id:
-            return rank, "ok"
+        # log_no 있으면 '그 글'만 매칭(통합탭도 글 단위) — 같은 블로그 다른 글(예: 작년 글)에 순위를
+        # 잘못 붙이지 않도록. log_no 없으면(대표키워드 등) 블로그 단위 매칭.
+        if log_no:
+            mp = _BLOG_POST_RE.search(b)
+            if mp and mp.group(2) == log_no:
+                return rank, "ok"
+        else:
+            mb = _BLOG_RE.search(b)
+            if mb and mb.group(1) == blog_id:
+                return rank, "ok"
     return OUT_OF_RANK, "out"
 
 

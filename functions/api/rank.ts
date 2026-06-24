@@ -63,7 +63,7 @@ export async function onRequestPost({ request }: FunctionContext) {
     }
 
     const [tiHtml, blHtml] = await Promise.all([fetchText(TI_URL(keyword)), fetchText(BL_URL(keyword))]);
-    const ti = tiHtml ? rankInPopular(tiHtml, blogId) : { rank: OUT_OF_RANK, status: 'fail' };
+    const ti = tiHtml ? rankInPopular(tiHtml, blogId, logNo) : { rank: OUT_OF_RANK, status: 'fail' };
     const bl = blHtml ? rankInBlogtab(blHtml, blogId, logNo) : { rank: OUT_OF_RANK, status: 'fail' };
     const data = {
         keyword,

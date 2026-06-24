@@ -22,6 +22,12 @@ const CASES = [
     ['유리교체 통합탭(상단 블로그)', (h) => rankInPopular(h, 'windoorplus'), '통합탭_유리교체_2026_06_23.html', 3, 'ok'],
     ['유리교체 통합탭(하위섹션 블로그)', (h) => rankInPopular(h, 'ist3ist3'), '통합탭_유리교체_2026_06_23.html', 9, 'ok'],
     ['유리교체 통합탭(하위섹션 끝블로그)', (h) => rankInPopular(h, 'kimdo3040'), '통합탭_유리교체_2026_06_23.html', 13, 'ok'],
+    // 통합탭 글 단위(logNo) 매칭 — 같은 블로그 다른 글에 순위 오인 방지. likesign(간판) 실측:
+    //   #1=224066671070(2025), #2=224258926265, 추적글 224291228962 는 미노출(권외).
+    ['통합탭 blogId(아무 글이나)', (h) => rankInPopular(h, 'likesign'), '통합탭_likesign_글단위_2026_06_24.html', 1, 'ok'],
+    ['통합탭 글단위 #1글', (h) => rankInPopular(h, 'likesign', '224066671070'), '통합탭_likesign_글단위_2026_06_24.html', 1, 'ok'],
+    ['통합탭 글단위 #2글', (h) => rankInPopular(h, 'likesign', '224258926265'), '통합탭_likesign_글단위_2026_06_24.html', 2, 'ok'],
+    ['통합탭 글단위 추적글(권외)', (h) => rankInPopular(h, 'likesign', '224291228962'), '통합탭_likesign_글단위_2026_06_24.html', 99, 'out'],
     ['석남동 블로그탭(순위밖)', (h) => rankInBlogtab(h, OUR), '블로그탭B_석남동_누수탐지_2026_06_19.html', 99, 'out'],
 ];
 

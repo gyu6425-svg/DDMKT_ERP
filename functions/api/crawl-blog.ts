@@ -79,7 +79,7 @@ async function measureOne(
 
 async function measure(keyword: string, blogId: string, logNo: string) {
     // 동시요청을 줄이려 통합→블로그 순차로(폭주 시 차단 완화).
-    const ti = await measureOne(TI_URL(keyword), (h) => rankInPopular(h, blogId));
+    const ti = await measureOne(TI_URL(keyword), (h) => rankInPopular(h, blogId, logNo));
     const bl = await measureOne(BL_URL(keyword), (h) => rankInBlogtab(h, blogId, logNo));
     return { ti: ti.rank, ti_status: ti.status, bl: bl.rank, bl_status: bl.status };
 }
