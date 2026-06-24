@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { deleteBlogAccount, extractBlogId, type BlogAccount, type BlogPost } from '../../api/blogRank';
+import { deleteBlogAccount, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { crawlBlog } from '../../api/crawlBlog';
 import { lastM, progOf, PER_SHEET } from './helpers';
 import { Pager, Tag } from './ui';
@@ -280,14 +280,14 @@ export function SheetTab({
                                 return (
                                     <tr key={a.id} className="border-b border-[#e2e8f0]">
                                         <td className="px-3 py-2">
-                                            <div className="font-semibold">{a.name}</div>
                                             <a
-                                                className="text-[11px] text-[#94a3b8] hover:underline"
+                                                className="font-semibold text-[#0f172a] hover:text-[#1e40af] hover:underline"
                                                 href={a.blog_url}
                                                 rel="noreferrer"
                                                 target="_blank"
+                                                title="블로그로 이동"
                                             >
-                                                {a.blog_id || extractBlogId(a.blog_url)}
+                                                {a.name}
                                             </a>
                                             {a.contract_date || a.amount ? (
                                                 <div className="mt-0.5 flex flex-wrap gap-1.5 text-[11px] text-[#64748b]">
