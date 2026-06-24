@@ -24,6 +24,22 @@ export function latestContractDate(a: Pick<BlogAccount, 'renewals' | 'contract_d
     return a.contract_date || '';
 }
 
+// ── 재계약 임박 판정(계약일 기준) ──────────────────────
+// 계약 주기는 아직 미확정 — 임시 상수. 사용자가 주기 확정하면 RENEWAL_PERIOD_DAYS 만 바꾸면 됨.
+const RENEWAL_PERIOD_DAYS = 365; // 계약일로부터 재계약까지(임시: 1년)
+const IMMINENT_DAYS = 30; // 재계약 예정일 며칠 전부터 '임박'
+
+// 오늘이 (마지막 계약일 + 주기) 의 IMMINENT_DAYS 이내로 다가왔거나 지났으면 임박.
+export function isRenewalImminent(a: Pick<BlogAccount, 'renewals' | 'contract_date'>): boolean {
+    const base = latestContractDate(a);
+    if (!base) return false;
+    const baseTime = new Date(base).getTime();
+    if (Number.isNaN(baseTime)) return false;
+    const dueTime = baseTime + RENEWAL_PERIOD_DAYS * 86400000;
+    const daysUntil = (dueTime - Date.now()) / 86400000;
+    return daysUntil <= IMMINENT_DAYS;
+}
+
 // 누적 계약금액 합계. amounts 있으면 합산, 없으면 레거시 amount 텍스트에서 숫자 파싱.
 export function amountTotal(a: Pick<BlogAccount, 'amounts' | 'amount'>): number {
     if (a.amounts && a.amounts.length) {

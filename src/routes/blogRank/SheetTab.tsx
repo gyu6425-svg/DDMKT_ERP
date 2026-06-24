@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { deleteBlogAccount, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { crawlBlog } from '../../api/crawlBlog';
-import { amountTotal, currentField, fmtWon, latestContractDate, lastM, progOf, PER_SHEET } from './helpers';
+import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDate, lastM, progOf, PER_SHEET } from './helpers';
 import { Pager, Tag } from './ui';
 import { AccountEditModal } from './AccountEditModal';
 import { AmountModal } from './AmountModal';
@@ -405,10 +405,10 @@ export function SheetTab({
                                         <td className="px-3 py-2 text-center">
                                             {!a.is_active ? (
                                                 <Tag kind="stop">중단</Tag>
-                                            ) : a.remain_count != null && a.remain_count <= 3 ? (
+                                            ) : isRenewalImminent(a) ? (
                                                 <Tag kind="low">재계약 임박</Tag>
-                                            ) : a.goal_count == null ? (
-                                                <Tag kind="muted">정보 부족</Tag>
+                                            ) : !latestContractDate(a) ? (
+                                                <Tag kind="muted">계약일 미입력</Tag>
                                             ) : (
                                                 <Tag kind="run">진행 중</Tag>
                                             )}
