@@ -136,6 +136,56 @@ function isWebArea(area) {
     return area.toLowerCase().startsWith('web');
 }
 
+// 이 노드 자체 clickLog(content/title/image).r 최솟값(=이 카드 화면순위). 없으면 null. (파이썬 _node_min_r 1:1)
+function nodeMinR(d) {
+    const cl = d && d.clickLog;
+    if (!cl || typeof cl !== 'object') return null;
+    let min = null;
+    for (const k of ['content', 'title', 'image']) {
+        const ct = cl[k];
+        if (ct && typeof ct === 'object' && typeof ct.r === 'number' && Number.isFinite(ct.r)) {
+            if (min === null || ct.r < min) min = ct.r;
+        }
+    }
+    return min;
+}
+// 이 노드 직속 네비링크의 [blogId, logNo]. (파이썬 _node_primary 1:1)
+function nodePrimary(d) {
+    const out = [];
+    for (const k of PRIMARY_NAV_FIELDS) {
+        const v = d[k];
+        if (typeof v === 'string') {
+            const m = v.match(BLOG_POST_RE);
+            if (m) out.push([m[1], m[2]]);
+        }
+    }
+    return out;
+}
+// ugB 블록(한 블록=여러 카드) → r별 카드 [[r, [[bid,lno],...]], ...] r 오름차순. afterArticles 제외, r=0 헤더 스킵.
+function ugbCards(j) {
+    const bucket = new Map();
+    const walk = (o) => {
+        if (Array.isArray(o)) {
+            for (const x of o) walk(x);
+        } else if (o && typeof o === 'object') {
+            const r = nodeMinR(o);
+            if (r !== null && r !== 0) {
+                if (!bucket.has(r)) bucket.set(r, new Set());
+                const set = bucket.get(r);
+                for (const p of nodePrimary(o)) set.add(p[0] + '|' + p[1]);
+            }
+            for (const [k, v] of Object.entries(o)) {
+                if (PRIMARY_EXCLUDE_KEYS.has(k)) continue;
+                walk(v);
+            }
+        }
+    };
+    walk(j);
+    return [...bucket.keys()]
+        .sort((a, b) => a - b)
+        .map((r) => [r, [...bucket.get(r)].map((s) => s.split('|'))]);
+}
+
 // 통합탭(ti): '그 블로그가 속한 섹션 안에서의 순위'(섹션마다 1부터 재시작). 파이썬 _rank_in_popular 1:1.
 // (2026-06-24: 사용자 확인 — 통합검색은 섹션(area)이 여러 개고 블로그 순위는 '자기 섹션 안' 기준.
 //   예) 안산 푸르지오9차: 오늘의집/부동산으로 시작하는 urB_coR=웹사이트/문서 섹션이 위에 있고,
@@ -162,13 +212,24 @@ export function rankInPopular(html, blogId, logNo = '') {
             rank = 0;
             prevArea = area;
         }
-        rank += 1; // 같은 섹션 안에서 보이는 카드 한 칸
-        // logNo 있으면 '그 글'만 매칭(통합탭도 글 단위) — 같은 블로그 다른 글에 순위 오인 방지.
-        for (const [bid, lno] of primaryBlogPosts(j)) {
-            if (logNo) {
-                if (lno === logNo) return { rank, status: 'ok' };
-            } else if (bid === blogId) {
-                return { rank, status: 'ok' };
+        // ugB_*(한 블록=여러 카드, 예 ugB_bsR)은 블록 안 카드를 r 순서로 한 칸씩 — 같은 블록의 다른
+        //   카드(예 서천: sd44422 1위 … limebuffet 5위)에 순위가 1로 뭉개지지 않게.
+        // urB_*(블록=카드 1개)은 블록 등장 순서로 한 칸씩(블록 내부 r 무시 — 화면 위치와 1:1).
+        if (area.startsWith('ugB')) {
+            for (const [, prims] of ugbCards(j)) {
+                rank += 1;
+                for (const [bid, lno] of prims) {
+                    if ((logNo && lno === logNo) || (!logNo && bid === blogId)) return { rank, status: 'ok' };
+                }
+            }
+        } else {
+            rank += 1; // 같은 섹션 안에서 보이는 카드 한 칸
+            for (const [bid, lno] of primaryBlogPosts(j)) {
+                if (logNo) {
+                    if (lno === logNo) return { rank, status: 'ok' };
+                } else if (bid === blogId) {
+                    return { rank, status: 'ok' };
+                }
             }
         }
     }

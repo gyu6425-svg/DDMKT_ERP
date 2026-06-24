@@ -755,6 +755,55 @@ def _is_web_area(area):
     return area.lower().startswith("web")
 
 
+def _node_min_r(d):
+    """이 dict 자체의 clickLog(content/title/image).r 최솟값(=이 카드의 화면순위). 없으면 None."""
+    cl = d.get("clickLog")
+    if not isinstance(cl, dict):
+        return None
+    rs = []
+    for k in ("content", "title", "image"):
+        ct = cl.get(k)
+        if isinstance(ct, dict):
+            v = ct.get("r")
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                rs.append(v)
+    return min(rs) if rs else None
+
+
+def _node_primary(d):
+    """이 dict 직속 네비링크(href/titleHref/contentHref)의 (blog_id, log_no)."""
+    out = []
+    for k in _PRIMARY_NAV_FIELDS:
+        v = d.get(k)
+        if isinstance(v, str):
+            m = _BLOG_POST_RE.search(v)
+            if m:
+                out.append((m.group(1), m.group(2)))
+    return out
+
+
+def _ugb_cards(j):
+    """ugB 블록(한 블록=여러 카드) → r별 카드 [(r, set((blog_id, log_no)))], r 오름차순.
+    r 이 화면 순위(1부터). afterArticles 등 관련글 묶음은 제외. r=0(헤더)은 스킵."""
+    bucket = {}
+
+    def w(o):
+        if isinstance(o, dict):
+            r = _node_min_r(o)
+            if r is not None and r != 0:
+                bucket.setdefault(r, set()).update(_node_primary(o))
+            for k, v in o.items():
+                if k in _PRIMARY_EXCLUDE_KEYS:
+                    continue
+                w(v)
+        elif isinstance(o, list):
+            for x in o:
+                w(x)
+
+    w(j)
+    return [(r, bucket[r]) for r in sorted(bucket)]
+
+
 # ── 통합탭(ti): '그 블로그가 속한 섹션 안에서의 순위'(섹션마다 1부터 재시작) ──
 # 2026-06-24: 사용자 확인 — 통합검색은 섹션(블록 area)이 여러 개고, 블로그 순위는 '자기 섹션 안'
 #   기준이다. 예) 안산 푸르지오9차인테리어: 오늘의집/부동산으로 시작하는 urB_coR(=웹사이트/문서)
@@ -785,15 +834,21 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
         if area != prev_area:                # 새 섹션 → 순위 1부터 재시작
             rank = 0
             prev_area = area
-        rank += 1                            # 같은 섹션 안에서 보이는 카드 한 칸
-        # log_no 있으면 '그 글'만 매칭(통합탭도 글 단위) — 같은 블로그 다른 글(예: 작년 글)에 순위를
-        # 잘못 붙이지 않도록. log_no 없으면(대표키워드 등) 블로그 단위 매칭.
-        for bid, lno in _primary_blog_posts(j):
-            if log_no:
-                if lno == log_no:
+        # ugB_*(한 블록=여러 카드, 예 ugB_bsR) 은 블록 안 카드를 r 순서로 한 칸씩 — 같은 블록의
+        #   다른 카드(예 서천: sd44422 1위 … limebuffet 5위)에 순위가 1로 뭉개지지 않게.
+        # urB_*(블록=카드 1개) 은 블록 등장 순서로 한 칸씩(블록 내부 r 무시 — 화면 위치와 1:1).
+        # log_no 있으면 '그 글'만 매칭(통합탭도 글 단위). 없으면 블로그 단위 매칭.
+        if area.startswith("ugB"):
+            for r, prims in _ugb_cards(j):
+                rank += 1
+                for bid, lno in prims:
+                    if (log_no and lno == log_no) or (not log_no and bid == blog_id):
+                        return rank, "ok"
+        else:
+            rank += 1                        # 같은 섹션 안에서 보이는 카드 한 칸
+            for bid, lno in _primary_blog_posts(j):
+                if (log_no and lno == log_no) or (not log_no and bid == blog_id):
                     return rank, "ok"
-            elif bid == blog_id:
-                return rank, "ok"
     return OUT_OF_RANK, "out"
 
 

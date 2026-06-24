@@ -58,6 +58,9 @@ PERPOST2_CASES = [
 PERPOST_DUMP3 = "통합탭_김포경호업체_2026_06_24.html"
 PERPOST3_CASES = [
     ("통합탭 더맨시스템(web제외 1위)", "themansystem-", "224299201732", 1, "ok"),
+    # ugB_bsR 멀티카드 카운트 — 같은 블록 안 r=2/r=5 글이 1로 뭉개지지 않고 제 순위로(서천 limebuffet 회귀방지).
+    ("통합탭 ugB 멀티카드 2위", "jhbillfallma", "224316244666", 2, "ok"),
+    ("통합탭 ugB 멀티카드 5위", "gkstjeo97", "224317276845", 5, "ok"),
 ]
 
 # 안산 푸르지오9차인테리어(design_do_) 실측 — urB_coR(오늘의집/부동산=웹사이트/문서) 섹션 다음
