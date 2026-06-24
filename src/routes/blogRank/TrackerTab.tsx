@@ -5,7 +5,6 @@ import { Pager } from './ui';
 import { PostSearchCell } from './PostSearchCell';
 import { RankCell } from './RankCell';
 import { openTrackerReport } from './report';
-import { WebRankCell } from './WebRankCell';
 
 export function TrackerTab({
     accounts,
@@ -117,7 +116,6 @@ export function TrackerTab({
                             <th className="px-3 py-2 text-center font-bold text-[#059669]">통합탭</th>
                             <th className="px-3 py-2 text-center font-bold text-[#1e40af]">블로그탭</th>
                             <th className="px-3 py-2 text-center font-semibold">웹사이트탭</th>
-                            <th className="px-3 py-2 text-center font-semibold">웹사이트</th>
                             <th className="px-3 py-2 text-center font-semibold">경과</th>
                             <th className="px-3 py-2 text-center font-semibold">측정</th>
                             <th className="px-3 py-2 text-center font-semibold">성과</th>
@@ -197,13 +195,6 @@ export function TrackerTab({
                                         })()}
                                     </td>
                                     <td className="px-3 py-2 text-center">
-                                        {acc ? (
-                                            <WebRankCell account={acc} />
-                                        ) : (
-                                            <span className="text-xs text-[#94a3b8]">—</span>
-                                        )}
-                                    </td>
-                                    <td className="px-3 py-2 text-center">
                                         <span className="rounded bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#475569]">
                                             D+{dayN(p)}
                                         </span>
@@ -233,7 +224,7 @@ export function TrackerTab({
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={11}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={10}>
                                     아직 수집된 글이 없습니다 · 파이썬 크롤러 실행 후 표시됩니다
                                 </td>
                             </tr>
