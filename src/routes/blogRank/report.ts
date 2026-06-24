@@ -206,11 +206,13 @@ export function buildTrackerReportHtml(posts: BlogPost[], accounts: BlogAccount[
   .foot { margin-top:22px; color:#94a3b8; font-size:11px; }
   .btns { margin:18px 0; display:flex; gap:8px; } .btns button { font-size:14px; padding:8px 16px; border-radius:8px; border:0; background:#1e40af; color:#fff; font-weight:700; cursor:pointer; }
   .btns button.kakao { background:#FEE500; color:#191600; display:inline-flex; align-items:center; gap:6px; }
+  .btns button.copy { background:#0f766e; }
   @media print { .btns { display:none; } body { padding:0; } }
 </style></head><body>
 <div class="btns">
   <button onclick="window.print()">인쇄 / PDF로 저장</button>
   <button class="kakao" onclick="sendKakao()"><span aria-hidden="true">💬</span> 카카오톡 발송</button>
+  <button class="copy" onclick="copyLink()">🔗 링크 복사</button>
 </div>
 <div class="head"><h1>순위 트래커 성과 보고서</h1>
 <div class="sub">네이버 통합검색/블로그탭 노출 순위 · 기준일 ${escapeHtml(today)}</div></div>
@@ -242,6 +244,16 @@ function sendKakao(){
       link: { webUrl: KK_LINK, mobileWebUrl: KK_LINK }
     });
   } catch(e){ alert('카카오 공유 오류: ' + (e && e.message ? e.message : e)); }
+}
+// 링크 복사 — 호스팅된 보고서 주소(/r/:id)를 복사. 카톡 등 어디든 붙여넣어 전송(모바일/PC 공통, 가장 확실).
+function copyLink(){
+  var url = (window.location && window.location.href && window.location.href.indexOf('about:')!==0) ? window.location.href : KK_LINK;
+  function done(){ alert('보고서 링크를 복사했습니다.\n카카오톡 대화창에 붙여넣어 보내세요.\n\n' + url); }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done, function(){ window.prompt('이 링크를 길게 눌러 복사하세요:', url); });
+  } else {
+    window.prompt('이 링크를 길게 눌러 복사하세요:', url);
+  }
 }
 setTimeout(function(){window.focus();},100);
 </script>
