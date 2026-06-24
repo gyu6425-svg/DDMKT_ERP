@@ -95,6 +95,30 @@ export function extractKeyword(title) {
         regionIdx = words.findIndex((w) => REGION_SET.has(w));
     }
     if (regionIdx === -1) {
+        // 알려진 지역명이 없으면 '서비스 단어 바로 앞' 단어를 지역으로(설명어로 시작하는 제목 대응:
+        // '에어컨 관리…용원 에어컨청소'→용원, '냄새…장유 에어컨청소'→장유). 수식어(스탠드/천장형…) 건너뜀.
+        const svcIdx = words.findIndex((w) => {
+            const sw = stripModifierPrefix(w);
+            return sw && !MODIFIER_WORDS.includes(sw) && endsWithService(sw);
+        });
+        if (svcIdx > 0) {
+            for (let i = svcIdx - 1; i >= 0; i -= 1) {
+                const sw = stripModifierPrefix(words[i]);
+                if (
+                    !sw ||
+                    MODIFIER_WORDS.includes(words[i]) ||
+                    MODIFIER_PREFIXES.includes(words[i]) ||
+                    LEAD_STOPWORDS.includes(words[i]) ||
+                    endsWithService(sw)
+                ) {
+                    continue;
+                }
+                regionIdx = i;
+                break;
+            }
+        }
+    }
+    if (regionIdx === -1) {
         // 그래도 없으면 첫 '비설명·비수식' 단어를 지역으로(계절·설명어 '여름' 등 건너뜀).
         regionIdx = words.findIndex((w) => !LEAD_STOPWORDS.includes(w) && !MODIFIER_WORDS.includes(w));
     }

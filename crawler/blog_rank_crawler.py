@@ -159,6 +159,23 @@ def extract_keyword(title: str) -> str:
         # 접미어 없는 지역명 사전 매칭(위례·송파·진해·춘천 등). '여름'은 사전에 없어 안 잡힘.
         region_idx = next((i for i, w in enumerate(words) if w in REGION_SET), None)
     if region_idx is None:
+        # 알려진 지역명이 없으면 '서비스 단어 바로 앞' 단어를 지역으로(설명어로 시작하는 제목 대응:
+        # '에어컨 관리…용원 에어컨청소'→용원, '냄새…장유 에어컨청소'→장유). 수식어(스탠드/천장형…) 건너뜀.
+        svc_idx = next(
+            (i for i, w in enumerate(words)
+             if _strip_modifier_prefix(w) and _strip_modifier_prefix(w) not in MODIFIER_WORDS
+             and _ends_with_service(_strip_modifier_prefix(w))),
+            None,
+        )
+        if svc_idx is not None and svc_idx > 0:
+            for i in range(svc_idx - 1, -1, -1):
+                sw = _strip_modifier_prefix(words[i])
+                if (not sw or words[i] in MODIFIER_WORDS or words[i] in MODIFIER_PREFIXES
+                        or words[i] in LEAD_STOPWORDS or _ends_with_service(sw)):
+                    continue
+                region_idx = i
+                break
+    if region_idx is None:
         # 그래도 없으면 첫 '비설명·비수식' 단어를 지역으로(계절·설명어 '여름' 등 건너뜀).
         region_idx = next((i for i, w in enumerate(words) if w not in LEAD_STOPWORDS and w not in MODIFIER_WORDS), None)
     if region_idx is None:
