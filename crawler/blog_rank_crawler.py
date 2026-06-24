@@ -291,12 +291,55 @@ def pick_main_hashtag_keyword(tags):
     return min(uniq, key=len)
 
 
+def _strip_trailing_modifier(s):
+    """지역부 끝에 붙은 수식어(스탠드/천장형/사무실 등)를 반복 제거 — '진해스탠드'→'진해'."""
+    r = s
+    changed = True
+    while changed and r:
+        changed = False
+        for m in MODIFIER_PREFIXES + MODIFIER_WORDS:
+            # >= : 잔여 전체가 수식어면(지역 없음) 끝까지 떼어 ''로 만들고 제목 폴백 유도.
+            if len(r) >= len(m) and r.endswith(m):
+                r = r[: len(r) - len(m)]
+                changed = True
+                break
+    return r
+
+
+_HASHTAG_RE = re.compile(r'class="__se-hash-tag">#([^<]+)</span>')
+
+
+def extract_hashtags_from_html(html_text):
+    """모바일 글 본문 HTML 하단 해시태그(<span class="__se-hash-tag">#태그</span>) 추출."""
+    out = []
+    for t in _HASHTAG_RE.findall(html_text or ""):
+        t = re.sub(r"\s+", "", t).strip()
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
 def derive_keyword(title, tags):
-    # 해시태그가 '지역+서비스'로 분리되면(공백 포함) 우선, 아니면 제목에서 추출.
-    from_tags = pick_main_hashtag_keyword(tags)
-    if from_tags and " " in from_tags:
-        return from_tags
-    return extract_keyword(title)
+    # '무조건 블로그 하단 해시태그' 우선(crawlLib.mjs deriveKeyword 와 1:1).
+    #  1) 복수 해시태그 공통 suffix(지역+서비스) 2) 글루 단일태그+제목서비스로 지역분리 3) 제목 폴백.
+    clean = [re.sub(r"\s+", "", str(t or "").lstrip("#")).strip() for t in (tags or [])]
+    clean = [t for t in clean if t]
+    multi = pick_main_hashtag_keyword(clean)
+    if multi and " " in multi:
+        sp = multi.index(" ")
+        region = _strip_trailing_modifier(multi[:sp])
+        if region:
+            return f"{region}{multi[sp:]}"
+    title_kw = extract_keyword(title)
+    parts = title_kw.split(" ")
+    title_service = parts[-1]
+    if title_service and len(title_service) >= 2:
+        for t in clean:
+            if t.endswith(title_service) and len(t) > len(title_service):
+                region = _strip_trailing_modifier(t[: len(t) - len(title_service)])
+                if region:
+                    return f"{region} {title_service}"
+    return title_kw
 
 
 # ── Supabase REST ────────────────────────────────────────
@@ -347,6 +390,19 @@ def sb_patch(path, params, payload):
     return r.json()
 
 
+# 글 본문 하단 해시태그(#…)를 모바일 글 HTML에서 가져온다. RSS <tag>는 주제태그 1개뿐인 경우가 많아
+# '무조건 하단 해시태그' 요구를 충족하려면 본문을 봐야 함. 실패 시 빈 리스트(→ RSS태그/제목 폴백).
+def fetch_post_hashtags(post_url):
+    bid, lno = parse_blog_url(post_url)
+    if not bid or not lno:
+        return []
+    try:
+        code, h = _fetch_html(f"https://m.blog.naver.com/{bid}/{lno}")
+        return extract_hashtags_from_html(h) if code == 200 else []
+    except Exception:
+        return []
+
+
 # ── RSS 수집 ─────────────────────────────────────────────
 def fetch_rss_posts(blog_id: str):
     parsed = feedparser.parse(f"https://rss.blog.naver.com/{blog_id}.xml")
@@ -356,12 +412,21 @@ def fetch_rss_posts(blog_id: str):
         pub = None
         if entry.get("published_parsed"):
             pub = datetime.date(*entry.published_parsed[:3]).isoformat()
-        # 네이버 RSS <tag> = 글 하단 해시태그(쉼표 구분). feedparser 가 노출 안 하면 빈 리스트(제목 폴백).
+        # 네이버 RSS <tag> = 주제태그(쉼표). feedparser 가 노출 안 하면 빈 리스트.
         tag_raw = entry.get("tag") or entry.get("tags") or ""
         if isinstance(tag_raw, list):
             tag_raw = ",".join(getattr(x, "term", None) or (x.get("term") if isinstance(x, dict) else str(x)) for x in tag_raw)
-        tags = [t.strip() for t in html.unescape(str(tag_raw)).split(",") if t.strip()]
-        posts.append({"url": link, "title": html.unescape(entry.get("title", "")), "published_date": pub, "tags": tags})
+        rss_tags = [t.strip() for t in html.unescape(str(tag_raw)).split(",") if t.strip()]
+        # RSS <tag>가 이미 '지역+서비스'면(band14371류) 그대로 — 불필요한 본문 fetch 생략(일일 부하↓).
+        # 아니면(puleenbe 주제태그 1개 등) 본문 하단 해시태그를 직접 가져온다(무조건 해시태그).
+        rss_kw = pick_main_hashtag_keyword(rss_tags)
+        if rss_kw and " " in rss_kw:
+            tags = rss_tags
+        else:
+            tags = fetch_post_hashtags(link) or rss_tags
+            time.sleep(REQUEST_DELAY)
+        posts.append({"url": link, "title": html.unescape(entry.get("title", "")),
+                      "published_date": pub, "tags": tags})
     return posts
 
 

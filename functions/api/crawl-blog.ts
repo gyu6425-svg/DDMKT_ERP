@@ -10,6 +10,7 @@ import { rankInPopular, rankInBlogtab, TI_URL, BL_URL, MOBILE_UA, OUT_OF_RANK } 
 import {
     parseRss,
     deriveKeyword,
+    extractHashtagsFromHtml,
     parseBlogUrl,
     extractLogNo,
     todayKST,
@@ -29,7 +30,7 @@ const MAX_KEYWORDS = 3;
 // 한 요청당 '실제 측정'할 글 수. Cloudflare Free 한도(외부요청 50·시간)에 맞춘 원래 예산(글 5 + 키워드 3).
 // 15개를 한 번에 측정하면 한도를 넘겨 뒤쪽 글이 영영 '측정 대기'로 남으므로, 여기서 끊고 나머지는
 // postsRemaining 로 알려 클라이언트가 추가 호출로 마저 채운다(다회 분할 측정).
-const MEASURE_BATCH = 5;
+const MEASURE_BATCH = 4; // 글당 본문HTML(키워드)+ti+bl(재시도) 고려해 Cloudflare 외부요청 50 한도 내로.
 const THROTTLE_MS = 300; // 네이버 연속요청 간격(레이트리밋=측정 '실패' 완화).
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -147,12 +148,27 @@ export async function onRequestPost({ request, env }: FunctionContext) {
                 );
             postsRemaining = Math.max(0, pending.length - MEASURE_BATCH);
             for (const post of pending.slice(0, MEASURE_BATCH)) {
-                // 수동 지정 키워드(keyword_manual)가 있으면 그 값으로 측정 — 크롤이 덮어쓰지 않으므로 계속 유지됨.
-                const kw = (post.keyword_manual || post.keyword || '').trim();
+                const logNo = extractLogNo(post.post_url || '');
+                // 수동 키워드 있으면 그대로. 없으면 본문 하단 해시태그로 재도출(무조건 해시태그) — RSS태그 키워드 교정.
+                let kw = (post.keyword_manual || post.keyword || '').trim();
+                let kwChanged = false;
+                if (!post.keyword_manual) {
+                    const phtml = await fetchText(`https://m.blog.naver.com/${blogId}/${logNo}`);
+                    const derived = deriveKeyword(post.title || '', phtml ? extractHashtagsFromHtml(phtml) : []).trim();
+                    if (derived && derived !== kw) {
+                        kw = derived;
+                        kwChanged = true;
+                    }
+                }
                 // 글 단위(logNo) 측정 — 각 글의 실제 순위. (같은 키워드여도 5월글/6월글 각자 순위)
-                const r = await measure(kw, blogId, extractLogNo(post.post_url || ''));
+                const r = await measure(kw, blogId, logNo);
                 const recs = upsertToday(post.measurements, { date: today, ...r }, today);
-                await sbPatch(env, 'blog_posts', { id: `eq.${post.id}` }, { measurements: recs });
+                await sbPatch(
+                    env,
+                    'blog_posts',
+                    { id: `eq.${post.id}` },
+                    kwChanged ? { measurements: recs, keyword: kw } : { measurements: recs },
+                );
                 postsMeasured++;
                 await sleep(THROTTLE_MS);
             }

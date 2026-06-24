@@ -243,12 +243,66 @@ export function pickMainHashtagKeyword(tags) {
     return uniq.reduce((a, b) => (b.length < a.length ? b : a));
 }
 
-// 최종 자동키워드: 해시태그가 '지역+서비스'로 깔끔하게 분리되면(공백 포함) 그걸 우선,
-// 아니면(치우다처럼 일반 태그) 제목에서 추출. 둘 다 애매하면 편집에서 수기수정.
+// 지역부 끝에 붙은 수식어(스탠드/천장형/사무실 등)를 반복 제거 — '진해스탠드'→'진해'.
+function stripTrailingModifier(s) {
+    let r = s;
+    let changed = true;
+    while (changed && r) {
+        changed = false;
+        for (const m of [...MODIFIER_PREFIXES, ...MODIFIER_WORDS]) {
+            // >= : 잔여 전체가 수식어면(지역 없음) 끝까지 떼어 ''로 만들고 제목 폴백 유도.
+            if (r.length >= m.length && r.endsWith(m)) {
+                r = r.slice(0, r.length - m.length);
+                changed = true;
+                break;
+            }
+        }
+    }
+    return r;
+}
+
+// 모바일 글 본문 HTML 하단 해시태그(<span class="__se-hash-tag">#태그</span>) 추출.
+export function extractHashtagsFromHtml(html) {
+    const re = /class="__se-hash-tag">#([^<]+)<\/span>/g;
+    const out = [];
+    let m;
+    while ((m = re.exec(String(html || '')))) {
+        const t = m[1].replace(/\s+/g, '').trim();
+        if (t) out.push(t);
+    }
+    return [...new Set(out)];
+}
+
+// 최종 자동키워드 — '무조건 블로그 하단 해시태그' 우선(사용자 요구):
+//  1) 복수 해시태그: 공통 suffix(서비스)로 메인키워드(지역+서비스, 수식어 없는 최단형). 예 춘천유리교체류.
+//  2) 글루 단일 해시태그(#진해스탠드에어컨청소): 제목에서 구한 '서비스'로 끝나면 앞부분=지역(수식어 제거).
+//     → '진해 에어컨청소'. 제목 지역이 틀려도 해시태그 지역으로 교정됨.
+//  3) 해시태그가 지역+서비스가 아니면(포트폴리오 등) 제목에서 지역+서비스 추출.
 export function deriveKeyword(title, tags) {
-    const fromTags = pickMainHashtagKeyword(tags);
-    if (fromTags && fromTags.includes(' ')) return fromTags;
-    return extractKeyword(title);
+    const clean = (Array.isArray(tags) ? tags : [])
+        .map((t) => String(t || '').replace(/^#/, '').replace(/\s+/g, '').trim())
+        .filter(Boolean);
+    // 1) 복수 해시태그 공통 suffix (지역부의 수식어는 한 번 더 제거 — '주택 청소' 같은 오인 방지)
+    const multi = pickMainHashtagKeyword(clean);
+    if (multi && multi.includes(' ')) {
+        const sp = multi.indexOf(' ');
+        const region = stripTrailingModifier(multi.slice(0, sp));
+        if (region) return `${region}${multi.slice(sp)}`;
+    }
+    // 2) 글루 단일 해시태그 + 제목 서비스
+    const titleKw = extractKeyword(title);
+    const parts = titleKw.split(' ');
+    const titleService = parts[parts.length - 1];
+    if (titleService && titleService.length >= 2) {
+        for (const t of clean) {
+            if (t.endsWith(titleService) && t.length > titleService.length) {
+                const region = stripTrailingModifier(t.slice(0, t.length - titleService.length));
+                if (region) return `${region} ${titleService}`;
+            }
+        }
+    }
+    // 3) 제목 폴백
+    return titleKw;
 }
 
 // blog.naver.com/{id}/{logNo} → [id, logNo]

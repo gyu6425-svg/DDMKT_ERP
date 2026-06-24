@@ -70,6 +70,20 @@ DERIVE_CASES = [
     (["춘천유리교체", "춘천아파트유리교체", "유리교체"], "춘천 아파트 유리교체 창문이", "춘천 유리교체"),
     (["빈사무실", "사무용가구", "대형책상버리는방법"], "덕양구 사무실 집기폐기 삼송동 사무용 책상철거", "덕양구 집기폐기"),
     ([], "김포시 사무실 이사폐기물 사우동 사무가구철거", "김포시 이사폐기물"),
+    # 글루 단일 해시태그(#진해스탠드에어컨청소): 제목 서비스로 끝나면 앞부분=지역(수식어 제거). puleenbe 실측.
+    (["진해스탠드에어컨청소"], "완전 분해 세척으로 진해 스탠드에어컨청소 해야하는 이유", "진해 에어컨청소"),
+    (["용원에어컨청소"], "에어컨 관리 시기를 놓치지 마세요 용원 에어컨청소", "용원 에어컨청소"),
+    (["진영천장형에어컨청소"], "분해 후 오염을 제거해야하는 이유 진영 천장형 에어컨청소", "진영 에어컨청소"),
+    (["포트폴리오"], "청라 공장 간판 빠른 시안", "청라 간판"),
+    # 지역 없이 수식어만인 해시태그 → 수식어를 지역으로 오인하지 말고 제목 폴백(독립검증 지적 반영).
+    (["스탠드에어컨청소"], "에어컨청소 후기", "에어컨청소"),
+    (["아파트청소", "주택청소"], "엉뚱제목", "엉뚱제목"),
+]
+
+HASHTAG_HTML_CASES = [
+    ('<span class="__se-hash-tag">#진해스탠드에어컨청소</span>x<span class="__se-hash-tag">#진해에어컨청소</span><span class="__se-hash-tag">#진해스탠드에어컨청소</span>',
+     ["진해스탠드에어컨청소", "진해에어컨청소"]),
+    ("<p>no tags</p>", []),
 ]
 
 
@@ -85,6 +99,12 @@ def main():
         got = c.derive_keyword(title, tags)
         ok = got == exp
         print(f"  {'PASS' if ok else 'FAIL'}  derive_keyword: {got!r} (기대 {exp!r})")
+        if not ok:
+            failed += 1
+    for html_in, exp in HASHTAG_HTML_CASES:
+        got = c.extract_hashtags_from_html(html_in)
+        ok = got == exp
+        print(f"  {'PASS' if ok else 'FAIL'}  extract_hashtags: {got!r} (기대 {exp!r})")
         if not ok:
             failed += 1
     for desc, fn, dump, blog_id, exp_rank, exp_status in CASES:

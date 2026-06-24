@@ -1,5 +1,5 @@
 // crawlLib 골든 회귀 — extractKeyword(파이썬과 동일)·parseRss. 실행: node functions/lib/crawlLib.test.mjs
-import { deriveKeyword, extractKeyword, parseRss, pickMainHashtagKeyword, todayKST } from './crawlLib.mjs';
+import { deriveKeyword, extractHashtagsFromHtml, extractKeyword, parseRss, pickMainHashtagKeyword, todayKST } from './crawlLib.mjs';
 
 let failed = 0;
 const eq = (desc, got, exp) => {
@@ -51,6 +51,19 @@ eq('해시태그 빈', pickMainHashtagKeyword([]), '');
 eq('derive 해시태그우선', deriveKeyword('춘천 아파트 유리교체 창문이 깨졌을 때', ['춘천유리교체', '춘천아파트유리교체', '유리교체']), '춘천 유리교체');
 eq('derive 제목폴백(치우다)', deriveKeyword('덕양구 사무실 집기폐기 삼송동 사무용 책상철거', ['빈사무실', '사무용가구', '대형책상버리는방법']), '덕양구 집기폐기');
 eq('derive 태그없음→제목', deriveKeyword('김포시 사무실 이사폐기물 사우동 사무가구철거', []), '김포시 이사폐기물');
+// 글루 단일 해시태그(#진해스탠드에어컨청소): 제목 서비스로 끝나면 앞부분=지역(수식어 제거). puleenbe 실측.
+eq('derive 글루단일(스탠드 제거)', deriveKeyword('완전 분해 세척으로 진해 스탠드에어컨청소 해야하는 이유', ['진해스탠드에어컨청소']), '진해 에어컨청소');
+eq('derive 글루단일(제목지역 교정)', deriveKeyword('에어컨 관리 시기를 놓치지 마세요 용원 에어컨청소', ['용원에어컨청소']), '용원 에어컨청소');
+eq('derive 글루단일(천장형 제거)', deriveKeyword('분해 후 오염을 제거해야하는 이유 진영 천장형 에어컨청소', ['진영천장형에어컨청소']), '진영 에어컨청소');
+eq('derive 해시태그 무의미→제목', deriveKeyword('청라 공장 간판 빠른 시안', ['포트폴리오']), '청라 간판');
+// 지역 없이 수식어만인 해시태그 → 수식어를 지역으로 오인 말고 제목 폴백(독립검증 지적 반영).
+eq('derive 수식어만(글루)', deriveKeyword('에어컨청소 후기', ['스탠드에어컨청소']), '에어컨청소');
+eq('derive 수식어만(복수)', deriveKeyword('엉뚱제목', ['아파트청소', '주택청소']), '엉뚱제목');
+
+// extractHashtagsFromHtml — 본문 __se-hash-tag 추출(중복 제거)
+const tagHtml = '<p><span class="__se-hash-tag">#진해스탠드에어컨청소</span></p>x<span class="__se-hash-tag">#진해에어컨청소</span><span class="__se-hash-tag">#진해스탠드에어컨청소</span>';
+eq('extractHashtags', JSON.stringify(extractHashtagsFromHtml(tagHtml)), JSON.stringify(['진해스탠드에어컨청소', '진해에어컨청소']));
+eq('extractHashtags 없음', JSON.stringify(extractHashtagsFromHtml('<p>no tags</p>')), JSON.stringify([]));
 
 // parseRss — RSS 2.0 블록 파싱
 const xml = `<rss><channel>

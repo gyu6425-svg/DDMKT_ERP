@@ -7,6 +7,7 @@ import { rankInPopular, rankInBlogtab, TI_URL, BL_URL, MOBILE_UA, OUT_OF_RANK } 
 import {
     parseRss,
     deriveKeyword,
+    extractHashtagsFromHtml,
     parseBlogUrl,
     extractLogNo,
     todayKST,
@@ -84,9 +85,20 @@ async function crawlBlogLocal({ blogAccountId }) {
                 .sort((a, b) => String(b.published_date || '').localeCompare(String(a.published_date || '')));
             postsRemaining = Math.max(0, pending.length - MEASURE_BATCH);
             for (const post of pending.slice(0, MEASURE_BATCH)) {
-                const kw = (post.keyword_manual || post.keyword || '').trim();
-                const r = await measure(kw, blogId, extractLogNo(post.post_url || ''));
-                await sbPatch(env, 'blog_posts', { id: `eq.${post.id}` }, { measurements: upsertToday(post.measurements, { date: today, ...r }, today) });
+                const logNo = extractLogNo(post.post_url || '');
+                let kw = (post.keyword_manual || post.keyword || '').trim();
+                let kwChanged = false;
+                if (!post.keyword_manual) {
+                    const phtml = await get(`https://m.blog.naver.com/${blogId}/${logNo}`);
+                    const derived = deriveKeyword(post.title || '', phtml ? extractHashtagsFromHtml(phtml) : []).trim();
+                    if (derived && derived !== kw) {
+                        kw = derived;
+                        kwChanged = true;
+                    }
+                }
+                const r = await measure(kw, blogId, logNo);
+                const recs = upsertToday(post.measurements, { date: today, ...r }, today);
+                await sbPatch(env, 'blog_posts', { id: `eq.${post.id}` }, kwChanged ? { measurements: recs, keyword: kw } : { measurements: recs });
                 postsMeasured++;
                 await sleep(THROTTLE_MS);
             }
