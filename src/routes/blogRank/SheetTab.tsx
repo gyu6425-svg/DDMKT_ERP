@@ -306,10 +306,10 @@ export function SheetTab({
                                                 title="클릭해서 계약일·재계약 관리"
                                                 type="button"
                                             >
-                                                {latestContractDate(a) || '+ 계약일'}
-                                                {a.renewals && a.renewals.length ? (
+                                                {latestContractDate(a) || '+ 계약'}
+                                                {a.contracts && a.contracts.length > 1 ? (
                                                     <span className="ml-1 rounded bg-[#ede9fe] px-1 text-[9px] font-semibold text-[#6d28d9]">
-                                                        재{a.renewals.length}
+                                                        갱신{a.contracts.length - 1}
                                                     </span>
                                                 ) : null}
                                             </button>

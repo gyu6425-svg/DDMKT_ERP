@@ -37,9 +37,10 @@ export type AmountEntry = {
     note?: string;
 };
 
-// 재계약 1건(최초 계약일은 contract_date, 재계약은 이 배열에 누적).
-export type ContractRenewal = {
-    date: string;
+// 계약 기간 1건(시작일~종료일). contracts 배열에 누적 — 마지막 항목 = 현재 계약, 종료일 = 재계약 예정일.
+export type ContractPeriod = {
+    start: string;
+    end?: string;
     note?: string;
 };
 
@@ -62,8 +63,8 @@ export type BlogAccount = {
     weekly: string | null; // 주 발행(현재값 = weekly_history 마지막)
     weekly_history: HistoryEntry[] | null; // 주 발행 변경 이력(값+날짜)
     note: string | null; // 특이사항
-    contract_date: string | null; // 최초 계약일자
-    renewals: ContractRenewal[] | null; // 재계약 히스토리(날짜 누적)
+    contract_date: string | null; // 최초 계약 시작일(레거시 — contracts 없을 때 시드)
+    contracts: ContractPeriod[] | null; // 계약 기간 이력 [{start,end}] · 마지막=현재 계약
     reporter: string | null; // 기자단(현재값 = reporter_history 마지막)
     reporter_history: HistoryEntry[] | null; // 기자단 변경 이력(값+날짜)
     amount: string | null; // 금액(레거시 단일값 — amounts 없을 때만 폴백 표시)

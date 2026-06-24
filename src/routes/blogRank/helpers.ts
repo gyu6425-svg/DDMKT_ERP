@@ -15,28 +15,28 @@ export function currentField(history: { value: string }[] | null, legacy: string
     return legacy || '';
 }
 
-// 현재 유효 계약일 = 마지막 재계약일(있으면) 아니면 최초 계약일.
-export function latestContractDate(a: Pick<BlogAccount, 'renewals' | 'contract_date'>): string {
-    if (a.renewals && a.renewals.length) {
-        const last = a.renewals[a.renewals.length - 1];
-        if (last && last.date) return last.date;
-    }
-    return a.contract_date || '';
+// 현재 계약 = contracts 마지막(있으면), 없으면 레거시 contract_date 를 시작일로.
+export function currentContract(
+    a: Pick<BlogAccount, 'contracts' | 'contract_date'>,
+): { start: string; end?: string } | null {
+    if (a.contracts && a.contracts.length) return a.contracts[a.contracts.length - 1];
+    if (a.contract_date) return { start: a.contract_date };
+    return null;
 }
 
-// ── 재계약 임박 판정(계약일 기준) ──────────────────────
-// 계약 주기는 아직 미확정 — 임시 상수. 사용자가 주기 확정하면 RENEWAL_PERIOD_DAYS 만 바꾸면 됨.
-const RENEWAL_PERIOD_DAYS = 365; // 계약일로부터 재계약까지(임시: 1년)
-const IMMINENT_DAYS = 30; // 재계약 예정일 며칠 전부터 '임박'
+// 현재 계약 시작일(셀 표시용).
+export function latestContractDate(a: Pick<BlogAccount, 'contracts' | 'contract_date'>): string {
+    return currentContract(a)?.start || '';
+}
 
-// 오늘이 (마지막 계약일 + 주기) 의 IMMINENT_DAYS 이내로 다가왔거나 지났으면 임박.
-export function isRenewalImminent(a: Pick<BlogAccount, 'renewals' | 'contract_date'>): boolean {
-    const base = latestContractDate(a);
-    if (!base) return false;
-    const baseTime = new Date(base).getTime();
-    if (Number.isNaN(baseTime)) return false;
-    const dueTime = baseTime + RENEWAL_PERIOD_DAYS * 86400000;
-    const daysUntil = (dueTime - Date.now()) / 86400000;
+// ── 재계약 임박 판정 = 현재 계약의 '종료일'이 다가왔거나 지났는가 ──
+const IMMINENT_DAYS = 30; // 종료일 며칠 전부터 '임박'
+export function isRenewalImminent(a: Pick<BlogAccount, 'contracts' | 'contract_date'>): boolean {
+    const c = currentContract(a);
+    if (!c || !c.end) return false; // 종료일 없으면 판정 불가
+    const endTime = new Date(c.end).getTime();
+    if (Number.isNaN(endTime)) return false;
+    const daysUntil = (endTime - Date.now()) / 86400000;
     return daysUntil <= IMMINENT_DAYS;
 }
 

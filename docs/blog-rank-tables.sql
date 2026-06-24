@@ -28,7 +28,7 @@ alter table public.blog_accounts add column if not exists website_url text;   --
 alter table public.blog_accounts add column if not exists rep_keyword text;    -- 웹사이트 순위 측정에 쓸 대표키워드 1개
 alter table public.blog_accounts add column if not exists contact text;        -- 연락처
 alter table public.blog_accounts add column if not exists contract_date text;  -- 최초 계약일자
-alter table public.blog_accounts add column if not exists renewals jsonb not null default '[]'::jsonb; -- 재계약 히스토리 [{date,note?}]
+alter table public.blog_accounts add column if not exists contracts jsonb not null default '[]'::jsonb; -- 계약 기간 이력 [{start,end?,note?}]
 alter table public.blog_accounts add column if not exists weekly_history jsonb not null default '[]'::jsonb;   -- 주 발행 변경이력 [{value,date?}]
 alter table public.blog_accounts add column if not exists reporter_history jsonb not null default '[]'::jsonb; -- 기자단 변경이력 [{value,date?}]
 alter table public.blog_accounts add column if not exists reporter text;       -- 기자단
