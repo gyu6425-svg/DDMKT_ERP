@@ -68,7 +68,7 @@ UA = (
     "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 )
 REQUEST_DELAY = 1.0        # 검색 요청 사이 간격(초)
-MAX_POSTS_PER_BLOG = 15    # 블로그당 RSS에서 가져올 최신 글 수(옛 글도 행으로 보이게)
+MAX_POSTS_PER_BLOG = 10    # 블로그당 RSS 최신 글 수(최신 위주 — 이 글들만 측정, 옛 글 제외)
 MAX_KEYWORDS_PER_ACCOUNT = 3  # 블로그당 대표키워드 측정 상한(네이버 요청량/차단 가드)
 MAX_RANK_SCAN = 30         # 이 순위까지 탐색(넘으면 권외=99)
 OUT_OF_RANK = 99
@@ -935,97 +935,92 @@ def dump_keyword(keyword, blog_id="", website_host=""):
 
 
 # ── 메인 ─────────────────────────────────────────────────
-def run():
+def _process_blog(acc, kw_by_acc):
+    """블로그 1개 전체 처리: 최신글 동기화 → '그 글들만' 측정(옛 글 제외) + 웹사이트 + 대표키워드.
+    스레드 1개가 블로그 1개를 담당(병렬 모드) — 블로그 내부는 순차라 네이버 부하가 과하지 않음.
+    반환 (글측정수, 웹측정수, 키워드측정수)."""
+    name = acc.get("name", "?")
+    blog_id = acc.get("blog_id") or parse_blog_url(acc.get("blog_url", ""))[0] or ""
+    if not blog_id:
+        return (0, 0, 0)
+    pm = wm = km = 0
+
+    # (A) RSS 최신 N글 동기화 → 그 글들만 측정. (sb_insert가 id/keyword_manual 포함 행을 돌려줌)
+    try:
+        rss = fetch_rss_posts(blog_id)
+    except Exception as exc:
+        print(f"  RSS 실패 {name}: {exc}")
+        rss = []
+    rows = [
+        {"blog_account_id": acc["id"], "post_url": p["url"], "title": p["title"],
+         "keyword": derive_keyword(p["title"], p.get("tags") or []), "published_date": p["published_date"]}
+        for p in rss if p["url"]
+    ]
+    if rows:
+        upserted = sb_insert("blog_posts", rows, on_conflict="blog_account_id,post_url")
+        for post in upserted:
+            keyword = post.get("keyword_manual") or post.get("keyword") or ""
+            if not keyword:
+                continue
+            ti, bl, ti_s, bl_s = measure_rank(keyword, blog_id, post.get("post_url", ""))
+            recs = [r for r in (post.get("measurements") or []) if r.get("date") != TODAY]
+            recs.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s})
+            sb_patch("blog_posts", {"id": f"eq.{post['id']}"}, {"measurements": recs})
+            pm += 1
+
+    # (B) 웹사이트(업체 단위) — url/대표키워드 있을 때만.
+    host = (acc.get("website_url") or "").strip()
+    rep = (acc.get("rep_keyword") or "").strip()
+    if host and rep:
+        we, st = measure_web_rank(rep, host)
+        recs = [r for r in (acc.get("website_measurements") or []) if r.get("date") != TODAY]
+        recs.append({"date": TODAY, "we": we, "status": st})
+        sb_patch("blog_accounts", {"id": f"eq.{acc['id']}"}, {"website_measurements": recs})
+        wm += 1
+
+    # (C) 대표키워드(blog_keywords) — log_no 없이 = 블로그 단위 매칭.
+    for row in kw_by_acc.get(acc["id"], [])[:MAX_KEYWORDS_PER_ACCOUNT]:
+        kw = (row.get("keyword") or "").strip()
+        if not kw:
+            continue
+        ti, bl, ti_s, bl_s = measure_rank(kw, blog_id, "")
+        recs = [r for r in (row.get("measurements") or []) if r.get("date") != TODAY]
+        recs.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s})
+        sb_patch("blog_keywords", {"id": f"eq.{row['id']}"}, {"measurements": recs})
+        km += 1
+
+    print(f"  ✓ {name}: 글 {pm} / 웹 {wm} / 키워드 {km}")
+    return (pm, wm, km)
+
+
+def run(fast=False, workers=8):
     need_config()
-    print(f"=== 블로그 순위 크롤링 시작 {TODAY} / 블로그탭 측정: {'공식 API' if USE_API else 'HTML 폴백'} ===")
+    global REQUEST_DELAY
+    if fast:
+        REQUEST_DELAY = 0.2   # 병렬이라 요청 간 간격을 줄임(블로그별 순차는 유지).
+    print(f"=== 크롤링 시작 {TODAY} / 블로그탭:{'공식 API' if USE_API else 'HTML'} / "
+          f"{'병렬x'+str(workers) if fast else '순차'} / 최신 {MAX_POSTS_PER_BLOG}글 ===")
     if not USE_API:
-        print("※ NAVER_CLIENT_ID/SECRET 가 없어 HTML 폴백을 씁니다. 안정적인 순위를 위해 공식 API 등록을 권장합니다.")
+        print("※ NAVER_CLIENT_ID/SECRET 없음 → HTML 폴백. 공식 API 등록 권장.")
 
     accounts = sb_get("blog_accounts", {"is_active": "eq.true", "select": "*"})
     print(f"활성 블로그 {len(accounts)}개")
-
-    for acc in accounts:
-        blog_id = acc.get("blog_id") or parse_blog_url(acc.get("blog_url", ""))[0] or ""
-        if not blog_id:
-            continue
-        try:
-            rss = fetch_rss_posts(blog_id)
-        except Exception as exc:
-            print(f"  RSS 실패 {acc['name']}: {exc}")
-            continue
-        rows = [
-            {
-                "blog_account_id": acc["id"], "post_url": p["url"], "title": p["title"],
-                "keyword": derive_keyword(p["title"], p.get("tags") or []), "published_date": p["published_date"],
-            }
-            for p in rss if p["url"]
-        ]
-        if rows:
-            sb_insert("blog_posts", rows, on_conflict="blog_account_id,post_url")
-        print(f"  {acc['name']}: RSS {len(rows)}건 동기화")
-
-    posts = sb_get("blog_posts", {"select": "*"})
-    acc_by_id = {a["id"]: a for a in accounts}
-    measured = 0
-    for post in posts:
-        acc = acc_by_id.get(post["blog_account_id"])
-        if not acc:
-            continue
-        # 수동 지정 키워드(keyword_manual) 우선 — 크롤이 덮어쓰지 않아 계속 유지됨.
-        keyword = post.get("keyword_manual") or post.get("keyword") or ""
-        if not keyword:
-            continue
-        blog_id = acc.get("blog_id") or parse_blog_url(acc.get("blog_url", ""))[0] or ""
-        ti, bl, ti_status, bl_status = measure_rank(keyword, blog_id, post.get("post_url", ""))
-        records = [r for r in (post.get("measurements") or []) if r.get("date") != TODAY]
-        # *_status 는 추가 필드(프론트는 무시해도 무방). fail=구조 파싱 실패, out=권외.
-        records.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_status, "bl_status": bl_status})
-        sb_patch("blog_posts", {"id": f"eq.{post['id']}"}, {"measurements": records})
-        measured += 1
-        print(f"    측정 [{acc['name']}] {keyword}: 통합 {ti}({ti_status}) / 블로그 {bl}({bl_status})")
-
-    # ── 웹사이트(회사 단위) 순위 측정 ──
-    # 글 단위가 아니라 업체 단위 1회 측정 → blog_accounts.website_measurements 에 patch.
-    # website_url/rep_keyword 미설정 업체는 건너뜀('해당없음').
-    web_measured = 0
-    for acc in accounts:
-        host = (acc.get("website_url") or "").strip()
-        kw = (acc.get("rep_keyword") or "").strip()
-        if not host or not kw:
-            continue
-        we, status = measure_web_rank(kw, host)
-        recs = [r for r in (acc.get("website_measurements") or []) if r.get("date") != TODAY]
-        recs.append({"date": TODAY, "we": we, "status": status})
-        # 부분 patch — website_measurements 키만 보내 다른 컬럼 불변.
-        sb_patch("blog_accounts", {"id": f"eq.{acc['id']}"}, {"website_measurements": recs})
-        web_measured += 1
-        print(f"    웹사이트 [{acc['name']}] {kw}: {we if status == 'ok' else status}")
-        time.sleep(REQUEST_DELAY)
-
-    # ── 대표키워드(사용자 지정) 순위 측정 ──
-    # 글 단위(자동키워드)와 별개로, blog_keywords 의 (블로그×키워드)마다 measure_rank 로 ti/bl 측정.
-    # log_no 없이(post_url='') 호출 → blog_id 매칭 = "그 블로그가 이 키워드로 몇 위".
-    kw_measured = 0
     kw_rows = sb_get("blog_keywords", {"select": "*"})
     kw_by_acc = {}
     for row in kw_rows:
         kw_by_acc.setdefault(row["blog_account_id"], []).append(row)
-    for acc in accounts:
-        blog_id = acc.get("blog_id") or parse_blog_url(acc.get("blog_url", ""))[0] or ""
-        if not blog_id:
-            continue
-        for row in kw_by_acc.get(acc["id"], [])[:MAX_KEYWORDS_PER_ACCOUNT]:
-            kw = (row.get("keyword") or "").strip()
-            if not kw:
-                continue
-            ti, bl, ti_status, bl_status = measure_rank(kw, blog_id, "")
-            recs = [r for r in (row.get("measurements") or []) if r.get("date") != TODAY]
-            recs.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_status, "bl_status": bl_status})
-            sb_patch("blog_keywords", {"id": f"eq.{row['id']}"}, {"measurements": recs})
-            kw_measured += 1
-            print(f"    키워드 [{acc['name']}] {kw}: 통합 {ti}({ti_status}) / 블로그 {bl}({bl_status})")
 
-    print(f"=== 완료: 글 {measured}건 / 웹사이트 {web_measured}건 / 대표키워드 {kw_measured}건 측정 ===")
+    if fast:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            results = list(ex.map(lambda a: _process_blog(a, kw_by_acc), accounts))
+    else:
+        results = [_process_blog(a, kw_by_acc) for a in accounts]
+
+    pm = sum(r[0] for r in results)
+    wm = sum(r[1] for r in results)
+    km = sum(r[2] for r in results)
+    print(f"=== 완료: 글 {pm}건 / 웹사이트 {wm}건 / 대표키워드 {km}건 측정 ===")
 
 
 if __name__ == "__main__":
@@ -1050,4 +1045,12 @@ if __name__ == "__main__":
         else:
             debug_keyword(kw, blog_id, post_url, website_host)
     else:
-        run()
+        # 전체 실행. --fast = 블로그 병렬(빠름), --workers N = 동시 처리 수(기본 8).
+        fast = "--fast" in args
+        workers = 8
+        if "--workers" in args:
+            try:
+                workers = max(1, int(args[args.index("--workers") + 1]))
+            except (ValueError, IndexError):
+                pass
+        run(fast=fast, workers=workers)
