@@ -9,6 +9,15 @@ export const PER_FEED = 30;
 export function fmtWon(n: number) {
     return n.toLocaleString('ko-KR');
 }
+// 현재 유효 계약일 = 마지막 재계약일(있으면) 아니면 최초 계약일.
+export function latestContractDate(a: Pick<BlogAccount, 'renewals' | 'contract_date'>): string {
+    if (a.renewals && a.renewals.length) {
+        const last = a.renewals[a.renewals.length - 1];
+        if (last && last.date) return last.date;
+    }
+    return a.contract_date || '';
+}
+
 // 누적 계약금액 합계. amounts 있으면 합산, 없으면 레거시 amount 텍스트에서 숫자 파싱.
 export function amountTotal(a: Pick<BlogAccount, 'amounts' | 'amount'>): number {
     if (a.amounts && a.amounts.length) {

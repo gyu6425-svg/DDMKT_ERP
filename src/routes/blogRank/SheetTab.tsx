@@ -1,76 +1,14 @@
 import { useMemo, useState } from 'react';
-import { deleteBlogAccount, updateBlogAccount, type BlogAccount, type BlogPost } from '../../api/blogRank';
+import { deleteBlogAccount, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { crawlBlog } from '../../api/crawlBlog';
-import { amountTotal, fmtWon, lastM, progOf, PER_SHEET } from './helpers';
+import { amountTotal, fmtWon, latestContractDate, lastM, progOf, PER_SHEET } from './helpers';
 import { Pager, Tag } from './ui';
 import { AccountEditModal } from './AccountEditModal';
 import { AmountModal } from './AmountModal';
+import { ContractModal } from './ContractModal';
 import { ImportModal } from './ImportModal';
 import { NoteModal } from './NoteModal';
 import { openBlogReport } from './report';
-
-// 표에서 바로 수정하는 셀(계약일·금액 등). 클릭→입력, Enter/포커스아웃 저장, Esc 취소.
-function InlineField({
-    value,
-    onSave,
-    placeholder,
-    width = 'min-w-[78px]',
-}: {
-    value: string | null;
-    onSave: (v: string) => Promise<void>;
-    placeholder?: string;
-    width?: string;
-}) {
-    const [editing, setEditing] = useState(false);
-    const [val, setVal] = useState('');
-    const [saving, setSaving] = useState(false);
-    const commit = async () => {
-        if (saving) return;
-        const next = val.trim();
-        if (next === (value ?? '')) {
-            setEditing(false);
-            return;
-        }
-        setSaving(true);
-        await onSave(next);
-        setSaving(false);
-        setEditing(false);
-    };
-    if (editing) {
-        return (
-            <input
-                autoFocus
-                className={`h-7 ${width} rounded border border-[#a78bfa] bg-white px-1.5 text-xs`}
-                disabled={saving}
-                onBlur={() => void commit()}
-                onChange={(e) => setVal(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        void commit();
-                    } else if (e.key === 'Escape') {
-                        setEditing(false);
-                    }
-                }}
-                placeholder={placeholder}
-                value={val}
-            />
-        );
-    }
-    return (
-        <button
-            className={`${width} rounded px-1.5 py-1 text-left text-xs hover:bg-[#f1f5f9] ${value ? 'text-[#475569]' : 'text-[#cbd5e1]'}`}
-            onClick={() => {
-                setVal(value ?? '');
-                setEditing(true);
-            }}
-            title="클릭해서 바로 수정"
-            type="button"
-        >
-            {value || placeholder || '—'}
-        </button>
-    );
-}
 
 export function SheetTab({
     accounts,
@@ -95,6 +33,7 @@ export function SheetTab({
     const [editAcc, setEditAcc] = useState<BlogAccount | null>(null);
     const [noteAcc, setNoteAcc] = useState<BlogAccount | null>(null);
     const [amountAcc, setAmountAcc] = useState<BlogAccount | null>(null);
+    const [contractAcc, setContractAcc] = useState<BlogAccount | null>(null);
     const [crawlingId, setCrawlingId] = useState<string | null>(null);
 
     // 서버리스 즉시 크롤 — 터미널 없이 이 블로그의 RSS+순위 측정·기록.
@@ -358,15 +297,19 @@ export function SheetTab({
                                             </a>
                                         </td>
                                         <td className="px-2 py-2">
-                                            <InlineField
-                                                onSave={async (v) => {
-                                                    await updateBlogAccount(a.id, { contract_date: v || null });
-                                                    await onReload();
-                                                }}
-                                                placeholder="계약일"
-                                                value={a.contract_date}
-                                                width="min-w-[82px]"
-                                            />
+                                            <button
+                                                className={`min-w-[82px] rounded px-1.5 py-1 text-left text-xs hover:bg-[#f1f5f9] ${latestContractDate(a) ? 'text-[#475569]' : 'text-[#cbd5e1]'}`}
+                                                onClick={() => setContractAcc(a)}
+                                                title="클릭해서 계약일·재계약 관리"
+                                                type="button"
+                                            >
+                                                {latestContractDate(a) || '+ 계약일'}
+                                                {a.renewals && a.renewals.length ? (
+                                                    <span className="ml-1 rounded bg-[#ede9fe] px-1 text-[9px] font-semibold text-[#6d28d9]">
+                                                        재{a.renewals.length}
+                                                    </span>
+                                                ) : null}
+                                            </button>
                                         </td>
                                         <td className="px-2 py-2">
                                             <button
@@ -548,6 +491,14 @@ export function SheetTab({
                 <AmountModal
                     account={amountAcc}
                     onClose={() => setAmountAcc(null)}
+                    onReload={onReload}
+                    onToast={onToast}
+                />
+            ) : null}
+            {contractAcc ? (
+                <ContractModal
+                    account={contractAcc}
+                    onClose={() => setContractAcc(null)}
                     onReload={onReload}
                     onToast={onToast}
                 />
