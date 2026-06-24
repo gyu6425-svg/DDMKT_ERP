@@ -233,24 +233,13 @@ var KK_LINK = (window.location && window.location.href && window.location.href.i
 function reportUrl(){
   return (window.location && window.location.href && window.location.href.indexOf('about:')!==0) ? window.location.href : KK_LINK;
 }
+// 카카오톡 발송 = 카카오 공유 picker(PC: 친구/채팅 선택 → 공유하기). 원래 동작 그대로.
 function sendKakao(){
-  var url = reportUrl();
-  var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
-  // 모바일 = 휴대폰 기본 공유 시트(카카오톡 아이콘 바로 보임). 카카오 SDK 모바일웹 변덕 우회.
-  if (isMobile && navigator.share) {
-    navigator.share({ title: '네이버 노출 성과 보고', text: KK_SUMMARY + '\\n' + url, url: url }).catch(function(){});
-    return;
-  }
-  // 데스크톱 = 카카오 공유 picker(친구/채팅 선택).
   if(!KAKAO_JS_KEY){
     alert('카카오톡 발송을 사용하려면 카카오 JavaScript 키 등록이 필요합니다.');
     return;
   }
-  if(!window.Kakao){
-    // SDK 못 쓰면 링크라도 복사.
-    copyLink();
-    return;
-  }
+  if(!window.Kakao){ alert('카카오 SDK 로드 실패(네트워크를 확인하세요).'); return; }
   try {
     if(!Kakao.isInitialized()) Kakao.init(KAKAO_JS_KEY);
     Kakao.Share.sendDefault({
