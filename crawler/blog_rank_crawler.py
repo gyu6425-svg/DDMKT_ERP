@@ -69,6 +69,7 @@ UA = (
 )
 REQUEST_DELAY = 1.0        # 검색 요청 사이 간격(초)
 MAX_POSTS_PER_BLOG = 10    # 블로그당 RSS 최신 글 수(최신 위주 — 이 글들만 측정, 옛 글 제외)
+OLDEST_DATE = "2025-01-01"  # 이 날짜 이전(너무 옛날) 글은 추적 제외 — 최신 1~2년만 추적
 MAX_KEYWORDS_PER_ACCOUNT = 3  # 블로그당 대표키워드 측정 상한(네이버 요청량/차단 가드)
 MAX_RANK_SCAN = 30         # 이 순위까지 탐색(넘으면 권외=99)
 OUT_OF_RANK = 99
@@ -992,6 +993,8 @@ def _process_blog(acc, kw_by_acc):
     except Exception as exc:
         print(f"  RSS 실패 {name}: {exc}")
         rss = []
+    # 너무 옛날 글 제외(최신 1~2년만). published_date 없으면(판단 불가) 유지.
+    rss = [p for p in rss if not p.get("published_date") or p["published_date"] >= OLDEST_DATE]
     rows = [
         {"blog_account_id": acc["id"], "post_url": p["url"], "title": p["title"],
          "keyword": derive_keyword(p["title"], p.get("tags") or []), "published_date": p["published_date"]}
