@@ -103,11 +103,14 @@ export function AmountModal({
                                 value={date}
                             >
                                 <option value="">계약 기간 선택(선택)</option>
-                                {periods.map((p, i) => (
-                                    <option key={i} value={periodLabel(p)}>
-                                        {periodLabel(p)} 건
-                                    </option>
-                                ))}
+                                {periods.map((p, i) => {
+                                    const tag = i === 0 ? '최초계약' : `재계약 ${i}회차`;
+                                    return (
+                                        <option key={i} value={`${tag} · ${periodLabel(p)}`}>
+                                            [{tag}] {periodLabel(p)}
+                                        </option>
+                                    );
+                                })}
                             </select>
                         ) : (
                             <input
