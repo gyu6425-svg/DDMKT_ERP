@@ -343,7 +343,7 @@ export function SheetTab({
                                 const inTen = measured.filter((x) => (lastM(x)?.ti ?? 99) <= 10).length;
                                 const pc = p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
                                 return (
-                                    <tr key={a.id} className="border-b border-[#e2e8f0]">
+                                    <tr key={a.id} className="border-b border-[#e2e8f0] [&>td]:py-4">
                                         <td className="px-3 py-2">
                                             <a
                                                 className="font-semibold text-[#0f172a] hover:text-[#1e40af] hover:underline"
