@@ -29,15 +29,13 @@ export function latestContractDate(a: Pick<BlogAccount, 'contracts' | 'contract_
     return currentContract(a)?.start || '';
 }
 
-// ── 재계약 임박 판정 = 현재 계약의 '종료일'이 다가왔거나 지났는가 ──
-const IMMINENT_DAYS = 30; // 종료일 며칠 전부터 '임박'
-export function isRenewalImminent(a: Pick<BlogAccount, 'contracts' | 'contract_date'>): boolean {
-    const c = currentContract(a);
-    if (!c || !c.end) return false; // 종료일 없으면 판정 불가
-    const endTime = new Date(c.end).getTime();
-    if (Number.isNaN(endTime)) return false;
-    const daysUntil = (endTime - Date.now()) / 86400000;
-    return daysUntil <= IMMINENT_DAYS;
+// ── 재계약 임박 판정(계약 건수 기준) = 잔여 발행 건수가 거의 소진됐는가 ──
+//   2026-06-24: 계약 만료일 기준 → 계약 건수(잔여 건수) 기준으로 변경(사용자 요청).
+//   잔여 ≤ IMMINENT_REMAIN(0 포함) 이면 계약분을 거의 다 발행 → 재계약 준비 시점.
+const IMMINENT_REMAIN = 3; // 잔여 건수가 이 값 이하면 '임박'(기존 lowOnly/빨강 표시 기준과 동일)
+export function isRenewalImminent(a: Pick<BlogAccount, 'goal_count' | 'remain_count'>): boolean {
+    if (a.goal_count == null || a.remain_count == null) return false; // 계약 건수 미입력이면 판정 불가
+    return a.remain_count <= IMMINENT_REMAIN;
 }
 
 // 누적 계약금액 합계. amounts 있으면 합산, 없으면 레거시 amount 텍스트에서 숫자 파싱.

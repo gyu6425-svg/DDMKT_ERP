@@ -413,12 +413,13 @@ export function SheetTab({
                                             )}
                                         </td>
                                         <td className="px-3 py-2 text-center">
+                                            {/* 상태 = 계약 건수(잔여) 기준: 미입력 → 임박(잔여 거의 소진) → 진행 중 */}
                                             {!a.is_active ? (
                                                 <Tag kind="stop">중단</Tag>
+                                            ) : a.goal_count == null ? (
+                                                <Tag kind="muted">계약 건수 미입력</Tag>
                                             ) : isRenewalImminent(a) ? (
                                                 <Tag kind="low">재계약 임박</Tag>
-                                            ) : !latestContractDate(a) ? (
-                                                <Tag kind="muted">계약일 미입력</Tag>
                                             ) : (
                                                 <Tag kind="run">진행 중</Tag>
                                             )}
