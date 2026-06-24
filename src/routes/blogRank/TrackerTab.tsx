@@ -104,18 +104,6 @@ export function TrackerTab({
                     통합 10위 이내만
                 </label>
                 <span className="ml-auto text-xs text-[#64748b]">{filtered.length}건</span>
-                <button
-                    className="rounded-md bg-[#1e40af] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
-                    onClick={() => {
-                        if (!openTrackerReport(filtered, accounts)) {
-                            window.alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.');
-                        }
-                    }}
-                    title="현재 목록(필터 적용) 기준 성과 보고서(인쇄/PDF)"
-                    type="button"
-                >
-                    성과
-                </button>
             </div>
 
             <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
@@ -131,6 +119,7 @@ export function TrackerTab({
                             <th className="px-3 py-2 text-center font-semibold">웹사이트</th>
                             <th className="px-3 py-2 text-center font-semibold">경과</th>
                             <th className="px-3 py-2 text-center font-semibold">측정</th>
+                            <th className="px-3 py-2 text-center font-semibold">성과</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -205,12 +194,29 @@ export function TrackerTab({
                                     <td className="px-3 py-2 text-center text-xs text-[#94a3b8]">
                                         {p.measurements.length}회
                                     </td>
+                                    <td className="px-3 py-2 text-center">
+                                        <button
+                                            className="rounded bg-[#1e40af] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#1e3a8a]"
+                                            onClick={() => {
+                                                const blogPosts = posts.filter(
+                                                    (x) => x.blog_account_id === p.blog_account_id,
+                                                );
+                                                if (!openTrackerReport(blogPosts, accounts)) {
+                                                    window.alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.');
+                                                }
+                                            }}
+                                            title={`${nameOf(p.blog_account_id)} 성과 보고서(이 블로그 전체)`}
+                                            type="button"
+                                        >
+                                            성과
+                                        </button>
+                                    </td>
                                 </tr>
                                 );
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={9}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={10}>
                                     아직 수집된 글이 없습니다 · 파이썬 크롤러 실행 후 표시됩니다
                                 </td>
                             </tr>
