@@ -233,8 +233,20 @@ var KK_LINK = (window.location && window.location.href && window.location.href.i
 function reportUrl(){
   return (window.location && window.location.href && window.location.href.indexOf('about:')!==0) ? window.location.href : KK_LINK;
 }
-// 카카오톡 발송 = 카카오 공유 picker(PC: 친구/채팅 선택 → 공유하기). 원래 동작 그대로.
+// 카카오톡 발송: 모바일=휴대폰 공유시트(카톡 아이콘 바로 보임, 카카오 모바일웹 막다른길 회피),
+//                데스크톱=카카오 공유 picker(친구/채팅 선택 → 공유하기).
 function sendKakao(){
+  var url = reportUrl();
+  var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+  if (isMobile) {
+    if (navigator.share) {
+      navigator.share({ title: '네이버 노출 성과 보고', text: KK_SUMMARY, url: url }).catch(function(){});
+    } else {
+      copyLink();  // 공유시트 없으면 링크 복사로 대체
+    }
+    return;
+  }
+  // 데스크톱: 카카오 공유 picker
   if(!KAKAO_JS_KEY){
     alert('카카오톡 발송을 사용하려면 카카오 JavaScript 키 등록이 필요합니다.');
     return;
