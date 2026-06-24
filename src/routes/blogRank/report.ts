@@ -233,34 +233,16 @@ var KK_LINK = (window.location && window.location.href && window.location.href.i
 function reportUrl(){
   return (window.location && window.location.href && window.location.href.indexOf('about:')!==0) ? window.location.href : KK_LINK;
 }
-// 카카오톡 발송: 모바일=휴대폰 공유시트(카톡 아이콘 바로 보임, 카카오 모바일웹 막다른길 회피),
-//                데스크톱=카카오 공유 picker(친구/채팅 선택 → 공유하기).
+// 카카오톡 발송 = '앱 공유 메시지'(받는 사람 동의 페이지 유발) 대신 '그냥 링크'로 보낸다.
+//   공유 시트(navigator.share)에서 카카오톡 선택 → 일반 링크 메시지 → 받는 사람은 동의 없이 바로 열림.
+//   공유 시트 미지원 환경이면 링크 복사로 대체.
 function sendKakao(){
   var url = reportUrl();
-  var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
-  if (isMobile) {
-    if (navigator.share) {
-      navigator.share({ title: '네이버 노출 성과 보고', text: KK_SUMMARY, url: url }).catch(function(){});
-    } else {
-      copyLink();  // 공유시트 없으면 링크 복사로 대체
-    }
-    return;
+  if (navigator.share) {
+    navigator.share({ title: '네이버 노출 성과 보고', text: KK_SUMMARY, url: url }).catch(function(){});
+  } else {
+    copyLink();
   }
-  // 데스크톱: 카카오 공유 picker
-  if(!KAKAO_JS_KEY){
-    alert('카카오톡 발송을 사용하려면 카카오 JavaScript 키 등록이 필요합니다.');
-    return;
-  }
-  if(!window.Kakao){ alert('카카오 SDK 로드 실패(네트워크를 확인하세요).'); return; }
-  try {
-    if(!Kakao.isInitialized()) Kakao.init(KAKAO_JS_KEY);
-    Kakao.Share.sendDefault({
-      objectType: 'text',
-      text: KK_SUMMARY,
-      link: { webUrl: KK_LINK, mobileWebUrl: KK_LINK },
-      buttonTitle: '성과 보고서 보기'
-    });
-  } catch(e){ alert('카카오 공유 오류: ' + (e && e.message ? e.message : e)); }
 }
 // 링크 복사 — 호스팅된 보고서 주소(/r/:id)를 복사. 카톡 등 어디든 붙여넣어 전송(모바일/PC 공통, 가장 확실).
 function copyLink(){
