@@ -91,3 +91,14 @@ create policy "blog_posts auth" on public.blog_posts
 drop policy if exists "blog_keywords auth" on public.blog_keywords;
 create policy "blog_keywords auth" on public.blog_keywords
     for all to authenticated using (true) with check (true);
+
+-- ── 성과 보고서 공유(카카오톡 링크용) ───────────────────
+-- 프론트가 만든 보고서 HTML 을 저장 → /r/:id 함수가 그대로 서빙(고객사에게 보낼 고정 링크).
+-- 저장/조회는 서버리스(service_role)만. RLS 켜고 정책 없음 = anon/authenticated 직접 접근 차단.
+create table if not exists public.report_shares (
+    id uuid primary key default gen_random_uuid(),
+    created_at timestamptz not null default now(),
+    title text,
+    html text not null
+);
+alter table public.report_shares enable row level security;

@@ -209,9 +209,11 @@ export function TrackerTab({
                                                 const blogPosts = posts.filter(
                                                     (x) => x.blog_account_id === p.blog_account_id,
                                                 );
-                                                if (!openTrackerReport(blogPosts, accounts)) {
-                                                    window.alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.');
-                                                }
+                                                void openTrackerReport(blogPosts, accounts).then((ok) => {
+                                                    if (!ok) {
+                                                        window.alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.');
+                                                    }
+                                                });
                                             }}
                                             title={`${nameOf(p.blog_account_id)} 성과 보고서(이 블로그 전체)`}
                                             type="button"

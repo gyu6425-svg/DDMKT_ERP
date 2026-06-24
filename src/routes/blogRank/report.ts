@@ -223,7 +223,10 @@ export function buildTrackerReportHtml(posts: BlogPost[], accounts: BlogAccount[
 <script>
 var KAKAO_JS_KEY = ${jsLit(KAKAO_JS_KEY)};
 var KK_SUMMARY = ${jsLit(kkSummary)};
-var KK_LINK = ${jsLit(appUrl)};
+// 호스팅된 보고서(/r/:id)에서 열렸으면 그 페이지 주소를 공유(고객이 링크로 실제 화면 확인).
+//   인라인 폴백(about:blank)일 땐 앱 주소로 대체.
+var KK_LINK = (window.location && window.location.href && window.location.href.indexOf('about:') !== 0)
+  ? window.location.href : ${jsLit(appUrl)};
 function sendKakao(){
   if(!KAKAO_JS_KEY){
     alert('카카오톡 발송을 사용하려면 먼저 카카오 JavaScript 키 등록이 필요합니다.\\n\\n1) developers.kakao.com 에서 애플리케이션 생성\\n2) [앱 키]의 JavaScript 키 복사\\n3) [앱 설정 > 플랫폼 > Web]에 이 사이트 도메인 등록\\n4) 받은 키를 report.ts 의 KAKAO_JS_KEY 에 넣고 배포\\n\\n그러면 이 버튼이 카카오톡 공유로 작동합니다.');
@@ -244,10 +247,34 @@ setTimeout(function(){window.focus();},100);
 </body></html>`;
 }
 
-export function openTrackerReport(posts: BlogPost[], accounts: BlogAccount[]): boolean {
+// 성과 보고서를 '호스팅'(/r/:id)으로 열어 카톡으로 보낼 공유 링크가 생기게 한다.
+//   1) 사용자 클릭 즉시 새 창 열기(팝업차단 회피) → 2) HTML 을 서버리스에 저장(공유 id) →
+//   3) 그 창을 /r/{id} 로 이동. 저장 실패 시 인라인(document.write)으로라도 보여준다(폴백).
+export async function openTrackerReport(posts: BlogPost[], accounts: BlogAccount[]): Promise<boolean> {
     const w = window.open('', '_blank');
     if (!w) return false;
-    w.document.write(buildTrackerReportHtml(posts, accounts));
-    w.document.close();
-    return true;
+    w.document.write(
+        '<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>성과 보고서</title></head>' +
+            '<body style="font-family:\'Apple SD Gothic Neo\',\'Malgun Gothic\',sans-serif;padding:48px;color:#475569;font-size:15px">성과 보고서를 생성하는 중입니다…</body></html>',
+    );
+    const html = buildTrackerReportHtml(posts, accounts);
+    try {
+        const res = await fetch('/api/report-share', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ html, title: '순위 트래커 성과 보고서' }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+        if (res.ok && data.id) {
+            w.location.href = `/r/${data.id}`;
+            return true;
+        }
+        throw new Error(data.error || `share ${res.status}`);
+    } catch {
+        // 호스팅 실패 → 인라인으로라도 보고서 표시(카톡 링크는 앱 주소로 폴백).
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+        return true;
+    }
 }
