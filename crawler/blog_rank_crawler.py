@@ -740,6 +740,21 @@ def _primary_blog_posts(node):
     return out
 
 
+def _block_area(j):
+    """블록 섹션 코드(meta.area 우선, 없으면 refs.blockId)."""
+    a = (j.get("meta") or {}).get("area", "")
+    if not a:
+        a = (j.get("refs") or {}).get("blockId", "")
+    return a or ""
+
+
+def _is_web_area(area):
+    """web* 섹션 = '웹사이트/문서' 탭. 통합탭(인기글) 순위와 별개 → 통합탭 카운트에서 제외.
+    2026-06-24 실측(김포 경호업체): web_gen 카드(sks303040 문서)가 인기글 위에 잡혀 더맨시스템을
+    2위로 밀어냄. 사용자 확인: 그 위치는 '웹사이트탭'이라 통합탭에서 빼고 존재 여부만 표기."""
+    return area.lower().startswith("web")
+
+
 # ── 통합탭(ti): 광고만 제외하고 '화면에 보이는 결과 카드 전부'를 문서(화면)순으로 카운트 ──
 # 2026-06-23: 사용자 요청 — 인기글(urB_coR) 섹션만 보던 것을 전 섹션으로 확장. JS rankInPopular 와 1:1.
 #   섹션마다 clickLog.r 이 1부터 재시작 → r 정렬 금지, 블록 등장(=화면) 순서로 한 칸씩 카운트.
@@ -747,7 +762,7 @@ def _primary_blog_posts(node):
 #   파워링크 광고는 bootstrap JSON 밖(서버렌더)이라 블록에 없고, ader 링크는 안전망으로 추가 제외.
 #   매칭은 카드 '대표글'(_primary_blog_posts)로만 — 관련글 묶음(afterArticles 등) 링크에 순위 전염 방지.
 def _rank_in_popular(html_text, blog_id, log_no=""):
-    """통합검색 HTML → (rank, status). 광고 제외, 보이는 결과 전부 문서순 카운트."""
+    """통합검색 HTML → (rank, status). 광고·웹사이트(문서)탭 제외, 보이는 결과 전부 문서순 카운트."""
     blocks = extract_bootstrap_json(html_text)
     if not blocks:
         return OUT_OF_RANK, "fail"      # JSON 없음 = 차단/구조변경 → 권외와 구분
@@ -759,6 +774,8 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
         except Exception:
             continue
         if "ader.naver.com" in b:            # 광고(ader) 제외
+            continue
+        if _is_web_area(_block_area(j)):     # 웹사이트(문서)탭 섹션 제외 — 통합탭 순위 아님
             continue
         if _block_min_r(j) >= 999:           # 비-결과 블록(AI/이미지/연관검색어) 제외
             continue
@@ -774,16 +791,40 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
     return OUT_OF_RANK, "out"
 
 
+def _website_present(html_text, blog_id, log_no=""):
+    """통합검색 HTML 의 '웹사이트(문서)탭'(web* 섹션)에 우리 글/블로그가 있으면 '있음', 없으면 '없음'.
+    같은 통합탭 HTML 에서 추출(추가 요청 X). 차단/빈응답이면 'fail'."""
+    blocks = extract_bootstrap_json(html_text)
+    if not blocks:
+        return "fail"
+    for b in blocks:
+        try:
+            j = json.loads(b)
+        except Exception:
+            continue
+        if "ader.naver.com" in b:
+            continue
+        if not _is_web_area(_block_area(j)):     # 웹사이트(문서) 섹션만 본다
+            continue
+        for bid, lno in _primary_blog_posts(j):
+            if (log_no and lno == log_no) or (not log_no and bid == blog_id):
+                return "있음"
+    return "없음"
+
+
 def measure_integrated_popular(keyword, blog_id, log_no=""):
+    """통합탭 1회 조회 → (ti, ti_status, ws). ws = 웹사이트(문서)탭 존재 여부('있음'/'없음'/'fail')."""
     url = f"https://m.search.naver.com/search.naver?query={quote(keyword)}"
     try:
         code, html_text = _fetch_html(url)
         if code != 200:
-            return OUT_OF_RANK, "fail"
+            return OUT_OF_RANK, "fail", "fail"
     except Exception as exc:
         print(f"    [통합탭 실패] {keyword}: {exc}")
-        return OUT_OF_RANK, "fail"
-    return _rank_in_popular(html_text, blog_id, log_no)
+        return OUT_OF_RANK, "fail", "fail"
+    ti, ti_status = _rank_in_popular(html_text, blog_id, log_no)
+    ws = _website_present(html_text, blog_id, log_no)
+    return ti, ti_status, ws
 
 
 # ── 블로그탭(bl): 진짜 블로그탭(ssc=tab.m_blog.all) HTML 파싱 ──
@@ -837,14 +878,14 @@ def measure_rank(keyword, blog_id, post_url):
         bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
     time.sleep(REQUEST_DELAY)
 
-    # 통합탭(ti): 화면순위. 마찬가지로 fail 이면 1회 재시도.
-    ti, ti_status = measure_integrated_popular(keyword, blog_id, log_no)
+    # 통합탭(ti)+웹사이트탭 존재(ws): 한 번 조회로 둘 다. 마찬가지로 fail 이면 1회 재시도.
+    ti, ti_status, ws = measure_integrated_popular(keyword, blog_id, log_no)
     if ti_status == "fail":
         time.sleep(REQUEST_DELAY * 2)
-        ti, ti_status = measure_integrated_popular(keyword, blog_id, log_no)
+        ti, ti_status, ws = measure_integrated_popular(keyword, blog_id, log_no)
     time.sleep(REQUEST_DELAY)
 
-    return ti, bl, ti_status, bl_status
+    return ti, bl, ti_status, bl_status, ws
 
 
 # ── 디버그: 키워드 하나로 실제 순위 검증 ────────────────
@@ -852,10 +893,10 @@ def debug_keyword(keyword, blog_id, post_url="", website_host=""):
     log_no = extract_log_no(post_url)
     print(f"[디버그] 키워드: {keyword} / 블로그ID: {blog_id} / logNo: {log_no or '(없음)'}")
     bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
-    ti, ti_status = measure_integrated_popular(keyword, blog_id, log_no)
+    ti, ti_status, ws = measure_integrated_popular(keyword, blog_id, log_no)
     ti_disp = ti if ti_status == "ok" else ti_status
     bl_disp = bl if bl_status == "ok" else bl_status
-    print(f"\n결과 → 통합탭(인기글): {ti_disp} / 블로그탭: {bl_disp}")
+    print(f"\n결과 → 통합탭(인기글): {ti_disp} / 블로그탭: {bl_disp} / 웹사이트탭: {ws}")
     if website_host:
         we, status = measure_web_rank(keyword, website_host)
         print(f"웹사이트({norm_host(website_host)}): {we if status == 'ok' else status}")
@@ -1043,9 +1084,9 @@ def _process_blog(acc, kw_by_acc):
             tr = next((r for r in (post.get("measurements") or []) if r.get("date") == TODAY), None)
             if tr and tr.get("ti_status") != "fail" and tr.get("bl_status") != "fail":
                 continue
-            ti, bl, ti_s, bl_s = measure_rank(keyword, blog_id, post.get("post_url", ""))
+            ti, bl, ti_s, bl_s, ws = measure_rank(keyword, blog_id, post.get("post_url", ""))
             recs = [r for r in (post.get("measurements") or []) if r.get("date") != TODAY]
-            recs.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s})
+            recs.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s, "ws": ws})
             sb_patch("blog_posts", {"id": f"eq.{post['id']}"}, {"measurements": recs})
             pm += 1
 
@@ -1064,9 +1105,9 @@ def _process_blog(acc, kw_by_acc):
         kw = (row.get("keyword") or "").strip()
         if not kw:
             continue
-        ti, bl, ti_s, bl_s = measure_rank(kw, blog_id, "")
+        ti, bl, ti_s, bl_s, ws = measure_rank(kw, blog_id, "")
         recs = [r for r in (row.get("measurements") or []) if r.get("date") != TODAY]
-        recs.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s})
+        recs.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s, "ws": ws})
         sb_patch("blog_keywords", {"id": f"eq.{row['id']}"}, {"measurements": recs})
         km += 1
 

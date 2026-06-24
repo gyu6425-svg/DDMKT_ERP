@@ -124,6 +124,18 @@ function primaryBlogPosts(node) {
     return out;
 }
 
+// 블록 섹션 코드(meta.area 우선, 없으면 refs.blockId).
+function blockArea(j) {
+    const a = (j && j.meta && j.meta.area) || (j && j.refs && j.refs.blockId) || '';
+    return a || '';
+}
+// web* 섹션 = '웹사이트/문서' 탭. 통합탭(인기글) 순위와 별개 → 통합탭 카운트에서 제외(파이썬 _is_web_area 1:1).
+//   2026-06-24 실측(김포 경호업체): web_gen(sks303040 문서)이 인기글 위에 잡혀 더맨시스템을 2위로
+//   밀어냄. 사용자 확인: 그 위치는 '웹사이트탭' → 통합탭에서 빼고 존재 여부만 표기.
+function isWebArea(area) {
+    return area.toLowerCase().startsWith('web');
+}
+
 // 통합탭(ti): 광고(ader/파워링크)만 제외하고, 화면에 보이는 '모든 결과 카드'를 문서(=화면) 순서대로
 // 카운트한 위치 = 순위. (2026-06-23: 사용자 요청 — 인기글 섹션만 보던 것을 전 섹션으로 확장.
 //   urB_coR·urB_boR 등 섹션마다 r 이 1부터 재시작하므로 r 정렬 금지, 블록 등장 순서로 카운트.)
@@ -142,6 +154,7 @@ export function rankInPopular(html, blogId, logNo = '') {
             continue;
         }
         if (b.includes('ader.naver.com')) continue; // 광고(ader) 제외
+        if (isWebArea(blockArea(j))) continue; // 웹사이트(문서)탭 섹션 제외 — 통합탭 순위 아님
         if (blockMinR(j) >= 999) continue; // 비-결과 블록(AI/이미지/연관검색어) 제외
         rank += 1; // 화면에 보이는 결과 카드 한 칸
         // logNo 있으면 '그 글'만 매칭(통합탭도 글 단위) — 같은 블로그 다른 글에 순위 오인 방지.
@@ -154,6 +167,27 @@ export function rankInPopular(html, blogId, logNo = '') {
         }
     }
     return { rank: OUT_OF_RANK, status: 'out' };
+}
+
+// 웹사이트(문서)탭 존재 여부 — 통합검색 HTML 의 web* 섹션에 우리 글/블로그가 있으면 '있음', 없으면 '없음'.
+//   같은 통합탭 HTML 에서 추출(추가 요청 X). 차단/빈응답이면 'fail'. (파이썬 _website_present 1:1)
+export function websitePresent(html, blogId, logNo = '') {
+    const blocks = extractBootstrapJson(html);
+    if (!blocks.length) return 'fail';
+    for (const b of blocks) {
+        let j;
+        try {
+            j = JSON.parse(b);
+        } catch {
+            continue;
+        }
+        if (b.includes('ader.naver.com')) continue;
+        if (!isWebArea(blockArea(j))) continue; // 웹사이트(문서) 섹션만
+        for (const [bid, lno] of primaryBlogPosts(j)) {
+            if ((logNo && lno === logNo) || (!logNo && bid === blogId)) return '있음';
+        }
+    }
+    return '없음';
 }
 
 // 블로그탭(bl): 진짜 블로그탭(ssc=tab.m_blog.all) blog 블록의 글 r순 → {rank,status}

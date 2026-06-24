@@ -5,7 +5,7 @@
 // env 필요: SUPABASE_URL, SUPABASE_SERVICE_KEY (Cloudflare Pages 환경변수, 브라우저 노출 0).
 
 // @ts-expect-error — .mjs 단일소스(파서). 타입 없이 import.
-import { rankInPopular, rankInBlogtab, TI_URL, BL_URL, MOBILE_UA, OUT_OF_RANK } from '../lib/naverRank.mjs';
+import { rankInPopular, rankInBlogtab, websitePresent, TI_URL, BL_URL, MOBILE_UA, OUT_OF_RANK } from '../lib/naverRank.mjs';
 // @ts-expect-error — .mjs 단일소스(크롤 헬퍼).
 import {
     parseRss,
@@ -65,8 +65,8 @@ async function fetchText(url: string): Promise<string | null> {
 // 측정 1개(통합 또는 블로그탭) — 파싱 실패(네이버 일시차단/빈응답)면 잠깐 쉬고 1회 재시도.
 async function measureOne(
     url: string,
-    parse: (html: string) => { rank: number; status: string },
-): Promise<{ rank: number; status: string }> {
+    parse: (html: string) => { rank: number; status: string; ws?: string },
+): Promise<{ rank: number; status: string; ws?: string }> {
     const html = await fetchText(url);
     let r = html ? parse(html) : { rank: OUT_OF_RANK, status: 'fail' };
     if (r.status === 'fail') {
@@ -79,9 +79,13 @@ async function measureOne(
 
 async function measure(keyword: string, blogId: string, logNo: string) {
     // 동시요청을 줄이려 통합→블로그 순차로(폭주 시 차단 완화).
-    const ti = await measureOne(TI_URL(keyword), (h) => rankInPopular(h, blogId, logNo));
+    // 통합탭 HTML 1회로 ti(인기글 순위, web섹션 제외) + ws(웹사이트/문서탭 존재) 둘 다 산출.
+    const ti = await measureOne(TI_URL(keyword), (h) => {
+        const r = rankInPopular(h, blogId, logNo);
+        return { rank: r.rank, status: r.status, ws: websitePresent(h, blogId, logNo) };
+    });
     const bl = await measureOne(BL_URL(keyword), (h) => rankInBlogtab(h, blogId, logNo));
-    return { ti: ti.rank, ti_status: ti.status, bl: bl.rank, bl_status: bl.status };
+    return { ti: ti.rank, ti_status: ti.status, ws: ti.ws ?? 'fail', bl: bl.rank, bl_status: bl.status };
 }
 
 export async function onRequestPost({ request, env }: FunctionContext) {

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { rankInBlogtab, rankInPopular } from './naverRank.mjs';
+import { rankInBlogtab, rankInPopular, websitePresent } from './naverRank.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DUMPS = join(HERE, '..', '..', 'crawler', 'dumps');
@@ -23,16 +23,23 @@ const CASES = [
     ['유리교체 통합탭(하위섹션 블로그)', (h) => rankInPopular(h, 'ist3ist3'), '통합탭_유리교체_2026_06_23.html', 9, 'ok'],
     ['유리교체 통합탭(하위섹션 끝블로그)', (h) => rankInPopular(h, 'kimdo3040'), '통합탭_유리교체_2026_06_23.html', 13, 'ok'],
     // 통합탭 글 단위(logNo) 매칭 — 같은 블로그 다른 글에 순위 오인 방지. likesign(간판) 실측:
-    //   #1=224066671070(2025), #2=224258926265, 추적글 224291228962 는 미노출(권외).
+    //   #1=224066671070 은 web*(웹사이트/문서) 섹션에만 → 통합탭 권외(웹사이트탭=있음).
+    //   #2=224258926265 는 ugB_bsR(인기글) → web 제외 후 1위. 224291228962 는 미노출(권외).
     ['통합탭 blogId(아무 글이나)', (h) => rankInPopular(h, 'likesign'), '통합탭_likesign_글단위_2026_06_24.html', 1, 'ok'],
-    ['통합탭 글단위 #1글', (h) => rankInPopular(h, 'likesign', '224066671070'), '통합탭_likesign_글단위_2026_06_24.html', 1, 'ok'],
-    ['통합탭 글단위 #2글', (h) => rankInPopular(h, 'likesign', '224258926265'), '통합탭_likesign_글단위_2026_06_24.html', 2, 'ok'],
+    ['통합탭 글단위 #1글(web섹션,권외)', (h) => rankInPopular(h, 'likesign', '224066671070'), '통합탭_likesign_글단위_2026_06_24.html', 99, 'out'],
+    ['통합탭 글단위 #2글', (h) => rankInPopular(h, 'likesign', '224258926265'), '통합탭_likesign_글단위_2026_06_24.html', 1, 'ok'],
     ['통합탭 글단위 추적글(권외)', (h) => rankInPopular(h, 'likesign', '224291228962'), '통합탭_likesign_글단위_2026_06_24.html', 99, 'out'],
     // 칠곡 업소용가구(pjyysh) 실측 — 카드 대표글은 5/15글(224286383537)=5위, 6/11글(224312956224)은
     //   같은 카드의 afterArticles(관련글) 안에만 등장 → 권외여야 함(발행일 다른 글에 순위 전염 금지).
     ['통합탭 글단위 카드대표글(5/15)', (h) => rankInPopular(h, 'pjyysh', '224286383537'), '통합탭_칠곡업소용가구_글단위_2026_06_24.html', 5, 'ok'],
     ['통합탭 글단위 관련글(6/11,권외)', (h) => rankInPopular(h, 'pjyysh', '224312956224'), '통합탭_칠곡업소용가구_글단위_2026_06_24.html', 99, 'out'],
     ['통합탭 blogId(칠곡 pjyysh)', (h) => rankInPopular(h, 'pjyysh'), '통합탭_칠곡업소용가구_글단위_2026_06_24.html', 5, 'ok'],
+    // 김포 경호업체(themansystem-) 실측 — web_gen(sks303040 문서) 제외 → ugB_bsR 인기글 1위.
+    //   웹사이트(문서)탭엔 우리 글 없음(sks303040 임) → 웹사이트탭=없음.
+    ['통합탭 더맨시스템(web제외 1위)', (h) => rankInPopular(h, 'themansystem-', '224299201732'), '통합탭_김포경호업체_2026_06_24.html', 1, 'ok'],
+    // 웹사이트(문서)탭 존재 여부 — likesign #1글은 web 섹션에 있음, 더맨시스템은 web 섹션에 없음.
+    ['웹사이트탭 likesign #1글(있음)', (h) => ({ rank: websitePresent(h, 'likesign', '224066671070') === '있음' ? 1 : 99, status: websitePresent(h, 'likesign', '224066671070') }), '통합탭_likesign_글단위_2026_06_24.html', 1, '있음'],
+    ['웹사이트탭 더맨시스템(없음)', (h) => ({ rank: websitePresent(h, 'themansystem-', '224299201732') === '있음' ? 1 : 99, status: websitePresent(h, 'themansystem-', '224299201732') }), '통합탭_김포경호업체_2026_06_24.html', 99, '없음'],
     ['석남동 블로그탭(순위밖)', (h) => rankInBlogtab(h, OUR), '블로그탭B_석남동_누수탐지_2026_06_19.html', 99, 'out'],
 ];
 
