@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { deleteBlogAccount, type BlogAccount, type BlogPost } from '../../api/blogRank';
+import { deleteBlogAccount, updateBlogAccount, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { crawlBlog } from '../../api/crawlBlog';
 import { lastM, progOf, PER_SHEET } from './helpers';
 import { Pager, Tag } from './ui';
@@ -7,6 +7,69 @@ import { AccountEditModal } from './AccountEditModal';
 import { ImportModal } from './ImportModal';
 import { NoteModal } from './NoteModal';
 import { openBlogReport } from './report';
+
+// 표에서 바로 수정하는 셀(계약일·금액 등). 클릭→입력, Enter/포커스아웃 저장, Esc 취소.
+function InlineField({
+    value,
+    onSave,
+    placeholder,
+    width = 'min-w-[78px]',
+}: {
+    value: string | null;
+    onSave: (v: string) => Promise<void>;
+    placeholder?: string;
+    width?: string;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [val, setVal] = useState('');
+    const [saving, setSaving] = useState(false);
+    const commit = async () => {
+        if (saving) return;
+        const next = val.trim();
+        if (next === (value ?? '')) {
+            setEditing(false);
+            return;
+        }
+        setSaving(true);
+        await onSave(next);
+        setSaving(false);
+        setEditing(false);
+    };
+    if (editing) {
+        return (
+            <input
+                autoFocus
+                className={`h-7 ${width} rounded border border-[#a78bfa] bg-white px-1.5 text-xs`}
+                disabled={saving}
+                onBlur={() => void commit()}
+                onChange={(e) => setVal(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void commit();
+                    } else if (e.key === 'Escape') {
+                        setEditing(false);
+                    }
+                }}
+                placeholder={placeholder}
+                value={val}
+            />
+        );
+    }
+    return (
+        <button
+            className={`${width} rounded px-1.5 py-1 text-left text-xs hover:bg-[#f1f5f9] ${value ? 'text-[#475569]' : 'text-[#cbd5e1]'}`}
+            onClick={() => {
+                setVal(value ?? '');
+                setEditing(true);
+            }}
+            title="클릭해서 바로 수정"
+            type="button"
+        >
+            {value || placeholder || '—'}
+        </button>
+    );
+}
 
 export function SheetTab({
     accounts,
@@ -247,6 +310,8 @@ export function SheetTab({
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">업체</th>
+                            <th className="px-3 py-2 font-semibold">계약일</th>
+                            <th className="px-3 py-2 font-semibold">계약금액</th>
                             <th className="px-3 py-2 font-semibold">담당</th>
                             <th className="px-3 py-2 font-semibold">기자단</th>
                             <th
@@ -289,18 +354,28 @@ export function SheetTab({
                                             >
                                                 {a.name}
                                             </a>
-                                            {a.contract_date || a.amount ? (
-                                                <div className="mt-0.5 flex flex-wrap gap-1.5 text-[11px] text-[#64748b]">
-                                                    {a.contract_date ? (
-                                                        <span>📅 {a.contract_date}</span>
-                                                    ) : null}
-                                                    {a.amount ? (
-                                                        <span className="font-semibold text-[#475569]">
-                                                            💰 {a.amount}
-                                                        </span>
-                                                    ) : null}
-                                                </div>
-                                            ) : null}
+                                        </td>
+                                        <td className="px-2 py-2">
+                                            <InlineField
+                                                onSave={async (v) => {
+                                                    await updateBlogAccount(a.id, { contract_date: v || null });
+                                                    await onReload();
+                                                }}
+                                                placeholder="계약일"
+                                                value={a.contract_date}
+                                                width="min-w-[82px]"
+                                            />
+                                        </td>
+                                        <td className="px-2 py-2">
+                                            <InlineField
+                                                onSave={async (v) => {
+                                                    await updateBlogAccount(a.id, { amount: v || null });
+                                                    await onReload();
+                                                }}
+                                                placeholder="금액"
+                                                value={a.amount}
+                                                width="min-w-[84px]"
+                                            />
                                         </td>
                                         <td className="px-3 py-2">
                                             {a.manager ? (
@@ -380,7 +455,7 @@ export function SheetTab({
                                         <td className="px-3 py-2">
                                             <div className="flex items-center gap-1">
                                                 <span
-                                                    className="block max-w-[140px] truncate text-xs text-[#94a3b8]"
+                                                    className="block max-w-[72px] truncate text-xs text-[#94a3b8]"
                                                     title={a.note || ''}
                                                 >
                                                     {a.note || '—'}
@@ -433,7 +508,7 @@ export function SheetTab({
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={11}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={13}>
                                     등록된 블로그가 없습니다 · '시트 붙여넣기 등록'으로 추가하세요
                                 </td>
                             </tr>
