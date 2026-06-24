@@ -252,7 +252,7 @@ function sendKakao(){
 // 링크 복사 — 호스팅된 보고서 주소(/r/:id)를 복사. 카톡 등 어디든 붙여넣어 전송(모바일/PC 공통, 가장 확실).
 function copyLink(){
   var url = (window.location && window.location.href && window.location.href.indexOf('about:')!==0) ? window.location.href : KK_LINK;
-  function done(){ alert('보고서 링크를 복사했습니다.\n카카오톡 대화창에 붙여넣어 보내세요.\n\n' + url); }
+  function done(){ alert('보고서 링크를 복사했습니다.\\n카카오톡 대화창에 붙여넣어 보내세요.\\n\\n' + url); }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(done, function(){ window.prompt('이 링크를 길게 눌러 복사하세요:', url); });
   } else {
