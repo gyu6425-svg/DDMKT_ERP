@@ -28,6 +28,18 @@ const tiSortKey = (m: BlogMeasurement | null): number => {
 
 const kwOf = (p: BlogPost): string => p.keyword_manual || p.keyword || '';
 
+// 보고서 링크 = '측정에 쓴 바로 그 네이버 검색'으로 연결해야 고객이 보는 순위 = 보고서 순위.
+//   crawler/functions 의 측정 URL(TI_URL/BL_URL, m.search.naver.com)과 반드시 동일해야 한다.
+//   PC search.naver.com 으로 보내면 모바일 측정값과 순위가 달라져 신뢰가 깨짐 → m.search 고정.
+const tiSearchUrl = (kw: string): string =>
+    `https://m.search.naver.com/search.naver?query=${encodeURIComponent(kw)}`;
+const blSearchUrl = (kw: string): string =>
+    `https://m.search.naver.com/search.naver?ssc=tab.m_blog.all&query=${encodeURIComponent(kw)}`;
+
+// 카카오톡 공유(JavaScript SDK) 앱 키. developers.kakao.com 앱의 JavaScript 키를 넣으면 버튼 작동.
+//   비어 있으면 버튼이 '설정 안내' 알림만 띄운다(키 없이 발송 불가).
+const KAKAO_JS_KEY = '';
+
 export function buildBlogReportHtml(account: BlogAccount, posts: BlogPost[]): string {
     const today = todayKST();
     const rows = [...posts].sort((a, b) => tiSortKey(lastM(a)) - tiSortKey(lastM(b)));
@@ -138,20 +150,37 @@ export function buildTrackerReportHtml(posts: BlogPost[], accounts: BlogAccount[
                 const m = lastM(p);
                 const ranked = m && m.ti_status !== 'fail' && m.ti_status !== 'out' && m.ti <= 30;
                 const url = p.post_url || acc?.blog_url || '';
+                const kw = kwOf(p);
+                // 블로그 주소 클릭 → (키워드 있으면) 네이버 통합검색으로 이동: 고객이 실제 노출 순위를 직접 확인.
+                const addrCell = url
+                    ? `<a href="${escapeHtml(kw ? tiSearchUrl(kw) : url)}" target="_blank" rel="noopener" title="${kw ? '네이버 통합검색에서 이 키워드 순위 확인' : '블로그로 이동'}">${escapeHtml(url)}</a>`
+                    : '—';
+                // 순위 숫자도 각 탭(통합/블로그) 네이버 검색으로 연결 — 측정과 동일한 화면.
+                const tiCell = kw
+                    ? `<a class="ranklink" href="${escapeHtml(tiSearchUrl(kw))}" target="_blank" rel="noopener" title="네이버 통합검색에서 순위 확인">${escapeHtml(fmtRank(m, 'ti'))}</a>`
+                    : escapeHtml(fmtRank(m, 'ti'));
+                const blCell = kw
+                    ? `<a class="ranklink" href="${escapeHtml(blSearchUrl(kw))}" target="_blank" rel="noopener" title="네이버 블로그탭에서 순위 확인">${escapeHtml(fmtRank(m, 'bl'))}</a>`
+                    : escapeHtml(fmtRank(m, 'bl'));
                 return `<tr class="${ranked ? '' : 'muted'}">
 <td>${escapeHtml(acc?.name || '—')}</td>
-<td class="title">${
-                    url
-                        ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a>`
-                        : '—'
-                }</td>
+<td class="title">${addrCell}</td>
 <td class="date">${escapeHtml(p.published_date || '—')}</td>
-<td class="kw">${escapeHtml(kwOf(p) || '—')}</td>
-<td class="rank">${escapeHtml(fmtRank(m, 'ti'))}</td>
-<td>${escapeHtml(fmtRank(m, 'bl'))}</td>
+<td class="kw">${escapeHtml(kw || '—')}</td>
+<td class="rank">${tiCell}</td>
+<td>${blCell}</td>
 </tr>`;
             })
             .join('') || '<tr><td colspan="6" class="empty">표시할 글이 없습니다.</td></tr>';
+
+    // 카카오 공유용 요약/링크(보고서 팝업 스크립트에 주입).
+    const reportName = (rows[0] && accById.get(rows[0].blog_account_id)?.name) || '성과 보고';
+    const kkSummary = `[${reportName}] 네이버 노출 성과 보고 (기준일 ${today})\n통합탭 10위 이내 ${top10}개 · 측정 ${measured.length}개\n자세한 순위는 첨부 리포트를 확인해 주세요.`;
+    const appUrl =
+        (typeof window !== 'undefined' && window.location && window.location.origin) ||
+        'https://ddmkt-erp.pages.dev';
+    // 인라인 <script> 안전 주입: JSON.stringify 는 '/' 를 escape 안 하므로 '<'(즉 </script>)만 추가로 막는다.
+    const jsLit = (v: unknown): string => JSON.stringify(v).replace(/</g, '\\u003c');
 
     return `<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <title>순위 트래커 성과 보고서</title>
@@ -170,13 +199,18 @@ export function buildTrackerReportHtml(posts: BlogPost[], accounts: BlogAccount[
   tr.muted td { color:#94a3b8; }
   td.title { max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   td.title a { color:#1e40af; text-decoration:none; } td.title a:hover { text-decoration:underline; }
+  a.ranklink { color:inherit; text-decoration:none; } a.ranklink:hover { text-decoration:underline; }
   td.date,td.kw { white-space:nowrap; }
   .empty { text-align:center; color:#94a3b8; padding:28px; }
   .foot { margin-top:22px; color:#94a3b8; font-size:11px; }
-  .btns { margin:18px 0; } .btns button { font-size:14px; padding:8px 16px; border-radius:8px; border:0; background:#1e40af; color:#fff; font-weight:700; cursor:pointer; }
+  .btns { margin:18px 0; display:flex; gap:8px; } .btns button { font-size:14px; padding:8px 16px; border-radius:8px; border:0; background:#1e40af; color:#fff; font-weight:700; cursor:pointer; }
+  .btns button.kakao { background:#FEE500; color:#191600; display:inline-flex; align-items:center; gap:6px; }
   @media print { .btns { display:none; } body { padding:0; } }
 </style></head><body>
-<div class="btns"><button onclick="window.print()">인쇄 / PDF로 저장</button></div>
+<div class="btns">
+  <button onclick="window.print()">인쇄 / PDF로 저장</button>
+  <button class="kakao" onclick="sendKakao()"><span aria-hidden="true">💬</span> 카카오톡 발송</button>
+</div>
 <div class="head"><h1>순위 트래커 성과 보고서</h1>
 <div class="sub">네이버 통합검색/블로그탭 노출 순위 · 기준일 ${escapeHtml(today)}</div></div>
 <div class="kpi">총 ${rows.length}개 글 · 통합탭 <span>10위 이내 ${top10}개</span> (측정 ${measured.length}개)</div>
@@ -184,8 +218,29 @@ export function buildTrackerReportHtml(posts: BlogPost[], accounts: BlogAccount[
   <thead><tr><th>업체명</th><th>블로그 주소</th><th>발행 날짜</th><th>키워드</th><th>통합탭 순위</th><th>블로그탭 순위</th></tr></thead>
   <tbody>${tableRows}</tbody>
 </table>
-<div class="foot">통합탭=네이버 통합검색 노출 순위 · 블로그탭=블로그 카테고리 순위 · '권외'는 30위 밖 · 측정일이 오래됐으면 측정 후 출력하세요.</div>
-<script>setTimeout(function(){window.focus();},100);</script>
+<div class="foot">통합탭=네이버 통합검색 노출 순위 · 블로그탭=블로그 카테고리 순위 · 순위/주소를 누르면 네이버 검색이 열려 실제 노출 순위를 확인할 수 있습니다 · '권외'는 30위 밖 · 측정일이 오래됐으면 측정 후 출력하세요.</div>
+<script src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.4/kakao.min.js" crossorigin="anonymous"></script>
+<script>
+var KAKAO_JS_KEY = ${jsLit(KAKAO_JS_KEY)};
+var KK_SUMMARY = ${jsLit(kkSummary)};
+var KK_LINK = ${jsLit(appUrl)};
+function sendKakao(){
+  if(!KAKAO_JS_KEY){
+    alert('카카오톡 발송을 사용하려면 먼저 카카오 JavaScript 키 등록이 필요합니다.\\n\\n1) developers.kakao.com 에서 애플리케이션 생성\\n2) [앱 키]의 JavaScript 키 복사\\n3) [앱 설정 > 플랫폼 > Web]에 이 사이트 도메인 등록\\n4) 받은 키를 report.ts 의 KAKAO_JS_KEY 에 넣고 배포\\n\\n그러면 이 버튼이 카카오톡 공유로 작동합니다.');
+    return;
+  }
+  if(!window.Kakao){ alert('카카오 SDK 로드 실패(네트워크를 확인하세요).'); return; }
+  try {
+    if(!Kakao.isInitialized()) Kakao.init(KAKAO_JS_KEY);
+    Kakao.Share.sendDefault({
+      objectType: 'text',
+      text: KK_SUMMARY,
+      link: { webUrl: KK_LINK, mobileWebUrl: KK_LINK }
+    });
+  } catch(e){ alert('카카오 공유 오류: ' + (e && e.message ? e.message : e)); }
+}
+setTimeout(function(){window.focus();},100);
+</script>
 </body></html>`;
 }
 
