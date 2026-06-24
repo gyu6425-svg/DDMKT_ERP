@@ -43,6 +43,12 @@ export type ContractRenewal = {
     note?: string;
 };
 
+// 값+날짜 변경 이력 1건(주 발행·기자단처럼 '바뀐 값'을 날짜와 함께 누적). 마지막 항목 = 현재값.
+export type HistoryEntry = {
+    value: string;
+    date?: string;
+};
+
 export type BlogAccount = {
     id: string;
     created_at: string;
@@ -53,11 +59,13 @@ export type BlogAccount = {
     blog_id: string | null;
     goal_count: number | null;
     remain_count: number | null;
-    weekly: string | null;
+    weekly: string | null; // 주 발행(현재값 = weekly_history 마지막)
+    weekly_history: HistoryEntry[] | null; // 주 발행 변경 이력(값+날짜)
     note: string | null; // 특이사항
     contract_date: string | null; // 최초 계약일자
     renewals: ContractRenewal[] | null; // 재계약 히스토리(날짜 누적)
-    reporter: string | null; // 기자단
+    reporter: string | null; // 기자단(현재값 = reporter_history 마지막)
+    reporter_history: HistoryEntry[] | null; // 기자단 변경 이력(값+날짜)
     amount: string | null; // 금액(레거시 단일값 — amounts 없을 때만 폴백 표시)
     amounts: AmountEntry[] | null; // 누적 계약금액 내역(합산 표시). 추가 계약마다 한 건씩 쌓임.
     login_id: string | null; // 아이디

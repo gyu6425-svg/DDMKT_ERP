@@ -9,6 +9,12 @@ export const PER_FEED = 30;
 export function fmtWon(n: number) {
     return n.toLocaleString('ko-KR');
 }
+// 값+날짜 이력의 현재값 = 마지막 항목(있으면) 아니면 레거시 단일값.
+export function currentField(history: { value: string }[] | null, legacy: string | null): string {
+    if (history && history.length) return history[history.length - 1].value;
+    return legacy || '';
+}
+
 // 현재 유효 계약일 = 마지막 재계약일(있으면) 아니면 최초 계약일.
 export function latestContractDate(a: Pick<BlogAccount, 'renewals' | 'contract_date'>): string {
     if (a.renewals && a.renewals.length) {

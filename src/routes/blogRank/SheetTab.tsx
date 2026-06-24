@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { deleteBlogAccount, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { crawlBlog } from '../../api/crawlBlog';
-import { amountTotal, fmtWon, latestContractDate, lastM, progOf, PER_SHEET } from './helpers';
+import { amountTotal, currentField, fmtWon, latestContractDate, lastM, progOf, PER_SHEET } from './helpers';
 import { Pager, Tag } from './ui';
 import { AccountEditModal } from './AccountEditModal';
 import { AmountModal } from './AmountModal';
 import { ContractModal } from './ContractModal';
+import { FieldHistoryModal } from './FieldHistoryModal';
 import { ImportModal } from './ImportModal';
 import { NoteModal } from './NoteModal';
 import { openBlogReport } from './report';
@@ -34,6 +35,8 @@ export function SheetTab({
     const [noteAcc, setNoteAcc] = useState<BlogAccount | null>(null);
     const [amountAcc, setAmountAcc] = useState<BlogAccount | null>(null);
     const [contractAcc, setContractAcc] = useState<BlogAccount | null>(null);
+    const [weeklyAcc, setWeeklyAcc] = useState<BlogAccount | null>(null);
+    const [reporterAcc, setReporterAcc] = useState<BlogAccount | null>(null);
     const [crawlingId, setCrawlingId] = useState<string | null>(null);
 
     // 서버리스 즉시 크롤 — 터미널 없이 이 블로그의 RSS+순위 측정·기록.
@@ -330,14 +333,21 @@ export function SheetTab({
                                                 <span className="text-xs text-[#94a3b8]">미지정</span>
                                             )}
                                         </td>
-                                        <td className="px-3 py-2">
-                                            {a.reporter ? (
-                                                <span className="rounded bg-[#ede9fe] px-2 py-0.5 text-[11px] font-semibold text-[#6d28d9]">
-                                                    {a.reporter}
-                                                </span>
-                                            ) : (
-                                                <span className="text-xs text-[#94a3b8]">—</span>
-                                            )}
+                                        <td className="px-2 py-2">
+                                            <button
+                                                className="rounded px-1.5 py-1 text-xs hover:bg-[#f1f5f9]"
+                                                onClick={() => setReporterAcc(a)}
+                                                title="클릭해서 기자단 변경·이력 관리"
+                                                type="button"
+                                            >
+                                                {currentField(a.reporter_history, a.reporter) ? (
+                                                    <span className="rounded bg-[#ede9fe] px-2 py-0.5 text-[11px] font-semibold text-[#6d28d9]">
+                                                        {currentField(a.reporter_history, a.reporter)}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[#cbd5e1]">+ 기자단</span>
+                                                )}
+                                            </button>
                                         </td>
                                         <td className="px-3 py-2">
                                             {p == null ? (
@@ -370,8 +380,15 @@ export function SheetTab({
                                                 </span>
                                             )}
                                         </td>
-                                        <td className="px-3 py-2 text-center text-xs text-[#64748b]">
-                                            {a.weekly || '—'}
+                                        <td className="px-2 py-2 text-center">
+                                            <button
+                                                className={`rounded px-1.5 py-1 text-xs hover:bg-[#f1f5f9] ${currentField(a.weekly_history, a.weekly) ? 'text-[#64748b]' : 'text-[#cbd5e1]'}`}
+                                                onClick={() => setWeeklyAcc(a)}
+                                                title="클릭해서 주 발행 변경·이력 관리"
+                                                type="button"
+                                            >
+                                                {currentField(a.weekly_history, a.weekly) || '+ 주 발행'}
+                                            </button>
                                         </td>
                                         <td className="px-3 py-2 text-center text-sm font-semibold">
                                             {myPosts.length}
@@ -501,6 +518,34 @@ export function SheetTab({
                     onClose={() => setContractAcc(null)}
                     onReload={onReload}
                     onToast={onToast}
+                />
+            ) : null}
+            {weeklyAcc ? (
+                <FieldHistoryModal
+                    account={weeklyAcc}
+                    label="주 발행"
+                    legacyCol="weekly"
+                    legacyValue={weeklyAcc.weekly}
+                    history={weeklyAcc.weekly_history}
+                    historyCol="weekly_history"
+                    onClose={() => setWeeklyAcc(null)}
+                    onReload={onReload}
+                    onToast={onToast}
+                    placeholder="예: 주 5회"
+                />
+            ) : null}
+            {reporterAcc ? (
+                <FieldHistoryModal
+                    account={reporterAcc}
+                    label="기자단"
+                    legacyCol="reporter"
+                    legacyValue={reporterAcc.reporter}
+                    history={reporterAcc.reporter_history}
+                    historyCol="reporter_history"
+                    onClose={() => setReporterAcc(null)}
+                    onReload={onReload}
+                    onToast={onToast}
+                    placeholder="예: A팀"
                 />
             ) : null}
         </div>

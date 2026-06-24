@@ -29,6 +29,8 @@ alter table public.blog_accounts add column if not exists rep_keyword text;    -
 alter table public.blog_accounts add column if not exists contact text;        -- 연락처
 alter table public.blog_accounts add column if not exists contract_date text;  -- 최초 계약일자
 alter table public.blog_accounts add column if not exists renewals jsonb not null default '[]'::jsonb; -- 재계약 히스토리 [{date,note?}]
+alter table public.blog_accounts add column if not exists weekly_history jsonb not null default '[]'::jsonb;   -- 주 발행 변경이력 [{value,date?}]
+alter table public.blog_accounts add column if not exists reporter_history jsonb not null default '[]'::jsonb; -- 기자단 변경이력 [{value,date?}]
 alter table public.blog_accounts add column if not exists reporter text;       -- 기자단
 alter table public.blog_accounts add column if not exists amount text;         -- 금액(레거시 단일)
 alter table public.blog_accounts add column if not exists amounts jsonb not null default '[]'::jsonb; -- 누적 계약금액 [{amount,date?,note?}]
