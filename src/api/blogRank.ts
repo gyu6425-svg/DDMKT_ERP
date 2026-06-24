@@ -30,6 +30,13 @@ export type WebMeasurement = {
     status: 'ok' | 'out' | 'fail' | 'skip';
 };
 
+// 누적 계약금액 1건. amount=원 단위 숫자, date=계약일(선택), note=메모(선택).
+export type AmountEntry = {
+    amount: number;
+    date?: string;
+    note?: string;
+};
+
 export type BlogAccount = {
     id: string;
     created_at: string;
@@ -44,7 +51,8 @@ export type BlogAccount = {
     note: string | null; // 특이사항
     contract_date: string | null; // 계약일자
     reporter: string | null; // 기자단
-    amount: string | null; // 금액
+    amount: string | null; // 금액(레거시 단일값 — amounts 없을 때만 폴백 표시)
+    amounts: AmountEntry[] | null; // 누적 계약금액 내역(합산 표시). 추가 계약마다 한 건씩 쌓임.
     login_id: string | null; // 아이디
     login_pw: string | null; // 비밀번호
     manage_sheet_url: string | null; // 발행 관리시트

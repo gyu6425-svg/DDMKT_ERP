@@ -29,7 +29,8 @@ alter table public.blog_accounts add column if not exists rep_keyword text;    -
 alter table public.blog_accounts add column if not exists contact text;        -- 연락처
 alter table public.blog_accounts add column if not exists contract_date text;  -- 계약일자
 alter table public.blog_accounts add column if not exists reporter text;       -- 기자단
-alter table public.blog_accounts add column if not exists amount text;         -- 금액
+alter table public.blog_accounts add column if not exists amount text;         -- 금액(레거시 단일)
+alter table public.blog_accounts add column if not exists amounts jsonb not null default '[]'::jsonb; -- 누적 계약금액 [{amount,date?,note?}]
 alter table public.blog_accounts add column if not exists login_id text;       -- 아이디(별도 '계정 보기'에서만 노출)
 alter table public.blog_accounts add column if not exists login_pw text;       -- 비밀번호(별도 '계정 보기'에서만 노출)
 alter table public.blog_accounts add column if not exists manage_sheet_url text; -- 발행 관리시트

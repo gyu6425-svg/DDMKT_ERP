@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { deleteBlogAccount, updateBlogAccount, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { crawlBlog } from '../../api/crawlBlog';
-import { lastM, progOf, PER_SHEET } from './helpers';
+import { amountTotal, fmtWon, lastM, progOf, PER_SHEET } from './helpers';
 import { Pager, Tag } from './ui';
 import { AccountEditModal } from './AccountEditModal';
+import { AmountModal } from './AmountModal';
 import { ImportModal } from './ImportModal';
 import { NoteModal } from './NoteModal';
 import { openBlogReport } from './report';
@@ -93,6 +94,7 @@ export function SheetTab({
     const [importOpen, setImportOpen] = useState(false);
     const [editAcc, setEditAcc] = useState<BlogAccount | null>(null);
     const [noteAcc, setNoteAcc] = useState<BlogAccount | null>(null);
+    const [amountAcc, setAmountAcc] = useState<BlogAccount | null>(null);
     const [crawlingId, setCrawlingId] = useState<string | null>(null);
 
     // 서버리스 즉시 크롤 — 터미널 없이 이 블로그의 RSS+순위 측정·기록.
@@ -367,15 +369,14 @@ export function SheetTab({
                                             />
                                         </td>
                                         <td className="px-2 py-2">
-                                            <InlineField
-                                                onSave={async (v) => {
-                                                    await updateBlogAccount(a.id, { amount: v || null });
-                                                    await onReload();
-                                                }}
-                                                placeholder="금액"
-                                                value={a.amount}
-                                                width="min-w-[84px]"
-                                            />
+                                            <button
+                                                className={`min-w-[84px] rounded px-1.5 py-1 text-left text-xs hover:bg-[#f1f5f9] ${amountTotal(a) ? 'font-semibold text-[#475569]' : 'text-[#cbd5e1]'}`}
+                                                onClick={() => setAmountAcc(a)}
+                                                title="클릭해서 계약금액 추가·관리"
+                                                type="button"
+                                            >
+                                                {amountTotal(a) ? `${fmtWon(amountTotal(a))}원` : '+ 금액'}
+                                            </button>
                                         </td>
                                         <td className="px-3 py-2">
                                             {a.manager ? (
@@ -539,6 +540,14 @@ export function SheetTab({
                 <NoteModal
                     account={noteAcc}
                     onClose={() => setNoteAcc(null)}
+                    onReload={onReload}
+                    onToast={onToast}
+                />
+            ) : null}
+            {amountAcc ? (
+                <AmountModal
+                    account={amountAcc}
+                    onClose={() => setAmountAcc(null)}
                     onReload={onReload}
                     onToast={onToast}
                 />

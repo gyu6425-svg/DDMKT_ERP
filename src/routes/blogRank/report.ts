@@ -1,5 +1,5 @@
 import { todayKST, type BlogAccount, type BlogMeasurement, type BlogPost } from '../../api/blogRank';
-import { lastM } from './helpers';
+import { amountTotal, fmtWon, lastM } from './helpers';
 
 const escapeHtml = (v: unknown): string =>
     String(v ?? '')
@@ -96,7 +96,7 @@ export function buildBlogReportHtml(account: BlogAccount, posts: BlogPost[]): st
 </div>
 <div class="meta">
   <div>계약일자 <b>${escapeHtml(account.contract_date || '—')}</b></div>
-  <div>계약금액 <b>${escapeHtml(account.amount || '—')}</b></div>
+  <div>계약금액 <b>${amountTotal(account) ? `${fmtWon(amountTotal(account))}원` : '—'}</b></div>
   <div>주 발행 <b>${escapeHtml(account.weekly || '—')}</b></div>
 </div>
 <div class="kpi">총 ${rows.length}개 키워드 추적 · 네이버 통합탭 <span>1페이지(10위 이내) 노출 ${top10}개</span> · 30위 이내 ${top30}개 (측정 ${measured.length}개)</div>

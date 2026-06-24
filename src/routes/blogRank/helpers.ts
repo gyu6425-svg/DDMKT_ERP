@@ -5,6 +5,19 @@ export type Tab = 'dashboard' | 'sheet' | 'tracker' | 'writer';
 export const PER_SHEET = 20;
 export const PER_FEED = 30;
 
+// 원 단위 숫자 → '1,234,000'
+export function fmtWon(n: number) {
+    return n.toLocaleString('ko-KR');
+}
+// 누적 계약금액 합계. amounts 있으면 합산, 없으면 레거시 amount 텍스트에서 숫자 파싱.
+export function amountTotal(a: Pick<BlogAccount, 'amounts' | 'amount'>): number {
+    if (a.amounts && a.amounts.length) {
+        return a.amounts.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    }
+    const m = (a.amount || '').replace(/[^\d]/g, '');
+    return m ? Number(m) : 0;
+}
+
 export function lastM(post: BlogPost) {
     return post.measurements.length ? post.measurements[post.measurements.length - 1] : null;
 }
