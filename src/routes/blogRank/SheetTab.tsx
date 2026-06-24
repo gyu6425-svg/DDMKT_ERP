@@ -9,6 +9,7 @@ import { ContractModal } from './ContractModal';
 import { FieldHistoryModal } from './FieldHistoryModal';
 import { ImportModal } from './ImportModal';
 import { NoteModal } from './NoteModal';
+import { ProgressModal } from './ProgressModal';
 import { openBlogReport } from './report';
 
 export function SheetTab({
@@ -37,6 +38,7 @@ export function SheetTab({
     const [contractAcc, setContractAcc] = useState<BlogAccount | null>(null);
     const [weeklyAcc, setWeeklyAcc] = useState<BlogAccount | null>(null);
     const [reporterAcc, setReporterAcc] = useState<BlogAccount | null>(null);
+    const [progressAcc, setProgressAcc] = useState<BlogAccount | null>(null);
     const [crawlingId, setCrawlingId] = useState<string | null>(null);
 
     // 서버리스 즉시 크롤 — 터미널 없이 이 블로그의 RSS+순위 측정·기록.
@@ -350,23 +352,31 @@ export function SheetTab({
                                             </button>
                                         </td>
                                         <td className="px-3 py-2">
-                                            {p == null ? (
-                                                <span className="text-xs text-[#94a3b8]">계약건수 미입력</span>
-                                            ) : (
-                                                <div className="min-w-[120px]">
-                                                    <div className="flex items-baseline justify-between gap-2">
-                                                        <span className="text-sm font-bold" style={{ color: pc }}>
-                                                            {p}%
-                                                        </span>
-                                                        <span className="text-[10px] text-[#94a3b8]">
-                                                            {(a.goal_count || 0) - (a.remain_count || 0)}/{a.goal_count}건
-                                                        </span>
+                                            <button
+                                                className="w-full rounded px-1 py-1 text-left hover:bg-[#f1f5f9]"
+                                                onClick={() => setProgressAcc(a)}
+                                                title="클릭해서 진행률 관리(1건 완료)"
+                                                type="button"
+                                            >
+                                                {p == null ? (
+                                                    <span className="text-xs text-[#94a3b8]">계약건수 미입력</span>
+                                                ) : (
+                                                    <div className="min-w-[110px]">
+                                                        <div className="flex items-baseline justify-between gap-2">
+                                                            <span className="text-sm font-bold" style={{ color: pc }}>
+                                                                {p}%
+                                                            </span>
+                                                            <span className="text-[10px] text-[#94a3b8]">
+                                                                {(a.goal_count || 0) - (a.remain_count || 0)}/
+                                                                {a.goal_count}건
+                                                            </span>
+                                                        </div>
+                                                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#eef2f7]">
+                                                            <div style={{ background: pc, width: `${p}%`, height: '100%' }} />
+                                                        </div>
                                                     </div>
-                                                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#eef2f7]">
-                                                        <div style={{ background: pc, width: `${p}%`, height: '100%' }} />
-                                                    </div>
-                                                </div>
-                                            )}
+                                                )}
+                                            </button>
                                         </td>
                                         <td className="px-3 py-2 text-center">
                                             {a.remain_count == null ? (
@@ -546,6 +556,14 @@ export function SheetTab({
                     onReload={onReload}
                     onToast={onToast}
                     placeholder="예: A팀"
+                />
+            ) : null}
+            {progressAcc ? (
+                <ProgressModal
+                    account={progressAcc}
+                    onClose={() => setProgressAcc(null)}
+                    onReload={onReload}
+                    onToast={onToast}
                 />
             ) : null}
         </div>
