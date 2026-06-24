@@ -230,12 +230,27 @@ var KK_SUMMARY = ${jsLit(kkSummary)};
 //   인라인 폴백(about:blank)일 땐 앱 주소로 대체.
 var KK_LINK = (window.location && window.location.href && window.location.href.indexOf('about:') !== 0)
   ? window.location.href : ${jsLit(appUrl)};
+function reportUrl(){
+  return (window.location && window.location.href && window.location.href.indexOf('about:')!==0) ? window.location.href : KK_LINK;
+}
 function sendKakao(){
-  if(!KAKAO_JS_KEY){
-    alert('카카오톡 발송을 사용하려면 먼저 카카오 JavaScript 키 등록이 필요합니다.\\n\\n1) developers.kakao.com 에서 애플리케이션 생성\\n2) [앱 키]의 JavaScript 키 복사\\n3) [앱 설정 > 플랫폼 > Web]에 이 사이트 도메인 등록\\n4) 받은 키를 report.ts 의 KAKAO_JS_KEY 에 넣고 배포\\n\\n그러면 이 버튼이 카카오톡 공유로 작동합니다.');
+  var url = reportUrl();
+  var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+  // 모바일 = 휴대폰 기본 공유 시트(카카오톡 아이콘 바로 보임). 카카오 SDK 모바일웹 변덕 우회.
+  if (isMobile && navigator.share) {
+    navigator.share({ title: '네이버 노출 성과 보고', text: KK_SUMMARY + '\\n' + url, url: url }).catch(function(){});
     return;
   }
-  if(!window.Kakao){ alert('카카오 SDK 로드 실패(네트워크를 확인하세요).'); return; }
+  // 데스크톱 = 카카오 공유 picker(친구/채팅 선택).
+  if(!KAKAO_JS_KEY){
+    alert('카카오톡 발송을 사용하려면 카카오 JavaScript 키 등록이 필요합니다.');
+    return;
+  }
+  if(!window.Kakao){
+    // SDK 못 쓰면 링크라도 복사.
+    copyLink();
+    return;
+  }
   try {
     if(!Kakao.isInitialized()) Kakao.init(KAKAO_JS_KEY);
     Kakao.Share.sendDefault({
