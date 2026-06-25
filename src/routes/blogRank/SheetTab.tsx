@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { deleteBlogAccount, todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { crawlBlog } from '../../api/crawlBlog';
-import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDate, lastM, progOf, PER_SHEET } from './helpers';
+import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDate, lastM, progOf, PER_SHEET, renewLevel } from './helpers';
 import { Pager, Tag } from './ui';
 import { AccountEditModal } from './AccountEditModal';
 import { AmountModal } from './AmountModal';
@@ -322,7 +322,14 @@ export function SheetTab({
                                             ) : (
                                                 <span
                                                     className="text-sm font-bold"
-                                                    style={{ color: a.remain_count <= 3 ? '#dc2626' : '#0f172a' }}
+                                                    style={{
+                                                        color:
+                                                            a.remain_count <= 1
+                                                                ? '#dc2626' // 1건↓ 빨강
+                                                                : a.remain_count <= 3
+                                                                  ? '#d97706' // 2~3건 노랑
+                                                                  : '#0f172a',
+                                                    }}
                                                 >
                                                     {a.remain_count}
                                                 </span>
@@ -357,7 +364,7 @@ export function SheetTab({
                                             ) : a.goal_count == null ? (
                                                 <Tag kind="muted">계약 건수 미입력</Tag>
                                             ) : isRenewalImminent(a) ? (
-                                                <Tag kind="low">재계약 임박</Tag>
+                                                <Tag kind={renewLevel(a) === 'red' ? 'urgent' : 'low'}>재계약 임박</Tag>
                                             ) : (
                                                 <Tag kind="run">진행 중</Tag>
                                             )}

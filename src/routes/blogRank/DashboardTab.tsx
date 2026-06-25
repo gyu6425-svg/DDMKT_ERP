@@ -1,5 +1,5 @@
 import type { BlogAccount, BlogPost } from '../../api/blogRank';
-import { lastM, prevM, type Tab } from './helpers';
+import { lastM, prevM, renewLevel, type Tab } from './helpers';
 import { Empty, Kpi, Panel, Tag } from './ui';
 
 export function DashboardTab({
@@ -19,14 +19,26 @@ export function DashboardTab({
     const lowCnt = accounts.filter((a) => a.remain_count != null && a.remain_count <= 3 && a.is_active).length;
     const stopCnt = accounts.filter((a) => !a.is_active).length;
 
+    // 재계약 임박(잔여 ≤3, 활성) + 진행 중단. 잔여 1건↓=빨강(매우 임박), 2~3건=노랑. 빨강 1건부터 최상단.
     const attn = accounts
         .filter((a) => (a.remain_count != null && a.remain_count <= 3 && a.is_active) || !a.is_active)
-        .map((a) => ({
-            account: a,
-            label: !a.is_active ? '중단' : '재계약',
-            tag: !a.is_active ? 'stop' : 'low',
-            why: !a.is_active ? a.note || '진행 중단' : `잔여 ${a.remain_count}건 · 재계약 시점 임박`,
-        }));
+        .map((a) => {
+            const level = a.is_active ? renewLevel(a) : null;
+            return {
+                account: a,
+                label: !a.is_active ? '중단' : '재계약',
+                tag: (!a.is_active ? 'stop' : level === 'red' ? 'urgent' : 'low') as 'stop' | 'urgent' | 'low',
+                why: !a.is_active
+                    ? a.note || '진행 중단'
+                    : `잔여 ${a.remain_count}건 · 재계약 ${level === 'red' ? '매우 임박' : '임박'}`,
+            };
+        })
+        // 활성 재계약은 잔여 적을수록(=빨강 1건) 위로, 진행 중단은 맨 뒤.
+        .sort((x, y) => {
+            const kx = x.account.is_active ? x.account.remain_count ?? 999 : 1e6;
+            const ky = y.account.is_active ? y.account.remain_count ?? 999 : 1e6;
+            return kx - ky;
+        });
 
     const moves = posts
         .filter((p) => p.measurements.length >= 2)
@@ -93,7 +105,7 @@ export function DashboardTab({
             </Panel> */}
 
             <div className="grid gap-4 lg:grid-cols-2">
-                <Panel title="오늘 챙겨야 할 블로그" sub="잔여 임박 · 진행 중단">
+                <Panel title="재계약 임박 블로그" sub="잔여 1건↓ 빨강 · 2~3건 노랑 · 진행 중단">
                     {attn.length ? (
                         <div className="grid gap-1">
                             {attn.map(({ account, label, tag, why }) => (
@@ -107,12 +119,12 @@ export function DashboardTab({
                                         <span className="block text-sm font-semibold">{account.name}</span>
                                         <span className="block truncate text-xs text-[#94a3b8]">{why}</span>
                                     </span>
-                                    <Tag kind={tag as 'stop' | 'low'}>{label}</Tag>
+                                    <Tag kind={tag}>{label}</Tag>
                                 </button>
                             ))}
                         </div>
                     ) : (
-                        <Empty text="지금은 챙길 블로그가 없어요" />
+                        <Empty text="재계약 임박 블로그가 없어요" />
                     )}
                 </Panel>
 

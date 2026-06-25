@@ -32,10 +32,21 @@ export function latestContractDate(a: Pick<BlogAccount, 'contracts' | 'contract_
 // ── 재계약 임박 판정(계약 건수 기준) = 잔여 발행 건수가 거의 소진됐는가 ──
 //   2026-06-24: 계약 만료일 기준 → 계약 건수(잔여 건수) 기준으로 변경(사용자 요청).
 //   잔여 ≤ IMMINENT_REMAIN(0 포함) 이면 계약분을 거의 다 발행 → 재계약 준비 시점.
-const IMMINENT_REMAIN = 3; // 잔여 건수가 이 값 이하면 '임박'(기존 lowOnly/빨강 표시 기준과 동일)
+const IMMINENT_REMAIN = 3; // 잔여 건수가 이 값 이하면 '임박'
+const URGENT_REMAIN = 1; // 잔여 1건 이하 = 매우 임박(빨강)
 export function isRenewalImminent(a: Pick<BlogAccount, 'goal_count' | 'remain_count'>): boolean {
     if (a.goal_count == null || a.remain_count == null) return false; // 계약 건수 미입력이면 판정 불가
     return a.remain_count <= IMMINENT_REMAIN;
+}
+
+// 잔여 건수 → 재계약 경고 레벨. 1건 이하=빨강(매우 임박), 2~3건=노랑(임박), 그 외 null.
+//   2026-06-25 사용자 요청: 3건부터 노랑, 1건부터 빨강.
+export type RenewLevel = 'red' | 'yellow' | null;
+export function renewLevel(a: Pick<BlogAccount, 'goal_count' | 'remain_count'>): RenewLevel {
+    if (a.goal_count == null || a.remain_count == null) return null;
+    if (a.remain_count <= URGENT_REMAIN) return 'red';
+    if (a.remain_count <= IMMINENT_REMAIN) return 'yellow';
+    return null;
 }
 
 // 누적 계약금액 합계. amounts 있으면 합산, 없으면 레거시 amount 텍스트에서 숫자 파싱.
