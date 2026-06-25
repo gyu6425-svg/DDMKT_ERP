@@ -69,7 +69,7 @@ export function GuideAddForm({
                 onClick={() => setOpen((o) => !o)}
                 type="button"
             >
-                <span>＋ 블로그 추가 (가이드 입력)</span>
+                <span>＋ 업체 추가 (가이드 입력)</span>
                 <span className="text-xs text-[#94a3b8]">{open ? '접기 ▲' : '펼치기 ▼'}</span>
             </button>
             {open ? (
