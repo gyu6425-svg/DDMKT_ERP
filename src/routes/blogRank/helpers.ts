@@ -1,6 +1,6 @@
 import type { BlogAccount, BlogPost, WebMeasurement } from '../../api/blogRank';
 
-export type Tab = 'dashboard' | 'sheet' | 'tracker' | 'writer';
+export type Tab = 'dashboard' | 'sheet' | 'tracker' | 'crawl' | 'writer';
 
 export const PER_SHEET = 20;
 export const PER_FEED = 30;

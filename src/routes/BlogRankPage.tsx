@@ -6,6 +6,7 @@ import type { Tab } from './blogRank/helpers';
 import { DashboardTab } from './blogRank/DashboardTab';
 import { SheetTab } from './blogRank/SheetTab';
 import { TrackerTab } from './blogRank/TrackerTab';
+import { CrawlStatusTab } from './blogRank/CrawlStatusTab';
 
 function BlogRankPage() {
     const { isAdmin, loading: authLoading } = useAuth();
@@ -16,7 +17,7 @@ function BlogRankPage() {
     // 탭을 URL 쿼리(?tab=)에 저장 → 새로고침해도 현재 탭 유지.
     const [tab, setTab] = useState<Tab>(() => {
         const t = new URLSearchParams(window.location.search).get('tab');
-        return t === 'sheet' || t === 'tracker' || t === 'writer' ? t : 'dashboard';
+        return t === 'sheet' || t === 'tracker' || t === 'crawl' || t === 'writer' ? t : 'dashboard';
     });
     const [toast, setToast] = useState('');
 
@@ -104,6 +105,7 @@ function BlogRankPage() {
                         ['dashboard', '대시보드'],
                         ['sheet', '블로그 관리 시트'],
                         ['tracker', '순위 트래커'],
+                        ['crawl', '크롤링 현황'],
                         ['writer', '블로그 작성기'],
                     ] as const
                 ).map(([key, label]) => (
@@ -131,11 +133,14 @@ function BlogRankPage() {
                     posts={posts}
                     onReload={load}
                     onToast={showToast}
-                    onGoTracker={() => setTab('tracker')}
+                    onGoCrawl={() => setTab('crawl')}
                 />
             ) : null}
             {tab === 'tracker' ? (
                 <TrackerTab accounts={accounts} posts={posts} onReload={load} />
+            ) : null}
+            {tab === 'crawl' ? (
+                <CrawlStatusTab accounts={accounts} posts={posts} onReload={load} onToast={showToast} />
             ) : null}
             {tab === 'writer' ? <BlogPage /> : null}
 

@@ -17,13 +17,13 @@ export function SheetTab({
     posts,
     onReload,
     onToast,
-    onGoTracker,
+    onGoCrawl,
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
     onReload: () => Promise<void>;
     onToast: (message: string) => void;
-    onGoTracker: () => void;
+    onGoCrawl: () => void;
 }) {
     const [q, setQ] = useState('');
     const [mgr, setMgr] = useState('');
@@ -90,44 +90,6 @@ export function SheetTab({
         onToast(`삭제 완료 · ${targets.length - failed}개${failed ? ` (실패 ${failed})` : ''}`);
     };
 
-    const [bulkCrawlBusy, setBulkCrawlBusy] = useState(false);
-    const [crawlDone, setCrawlDone] = useState<{ ok: number; failed: number } | null>(null);
-    // 전체 측정 — 현재 표(필터 적용)에 보이는 업체를 위에서부터 차례로 즉시 크롤(RSS+순위 측정).
-    const bulkCrawl = async () => {
-        const targets = filtered;
-        if (!targets.length || bulkCrawlBusy) {
-            return;
-        }
-        if (
-            !window.confirm(
-                `현재 목록의 ${targets.length}개 업체를 모두 측정할까요?\n순서대로 진행되며 시간이 다소 걸릴 수 있습니다.`,
-            )
-        ) {
-            return;
-        }
-        setBulkCrawlBusy(true);
-        let done = 0;
-        let failed = 0;
-        for (const a of targets) {
-            setCrawlingId(a.id);
-            onToast(`전체 측정 중... (${done + 1}/${targets.length}) ${a.name}`);
-            try {
-                // 업체당 남은 글이 없을 때까지 분할 측정(최대 4패스 — 전체 소요시간 제한).
-                let r = await crawlBlog(a.id);
-                for (let pass = 1; r.postsRemaining > 0 && pass < 4; pass += 1) {
-                    r = await crawlBlog(a.id);
-                }
-            } catch {
-                failed += 1;
-            }
-            done += 1;
-        }
-        setCrawlingId(null);
-        await onReload();
-        setBulkCrawlBusy(false);
-        setCrawlDone({ ok: done - failed, failed });
-    };
-
     const managers = useMemo(
         () => [...new Set(accounts.map((a) => a.manager).filter(Boolean))] as string[],
         [accounts],
@@ -166,37 +128,6 @@ export function SheetTab({
 
     return (
         <div className="grid gap-3">
-            {crawlDone ? (
-                <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#a7f3d0] bg-[#ecfdf5] px-4 py-3">
-                    <span className="text-lg">✅</span>
-                    <div className="mr-auto">
-                        <div className="text-sm font-bold text-[#065f46]">자동 측정이 완료되었습니다</div>
-                        <div className="text-xs text-[#047857]">
-                            {crawlDone.ok}개 측정 완료
-                            {crawlDone.failed ? ` · 실패 ${crawlDone.failed}개` : ''} · 순위 트래커에서 결과를
-                            확인하세요
-                        </div>
-                    </div>
-                    <button
-                        className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-md bg-[#059669] px-4 text-sm font-semibold text-white"
-                        onClick={() => {
-                            setCrawlDone(null);
-                            onGoTracker();
-                        }}
-                        type="button"
-                    >
-                        순위 트래커 보러가기
-                    </button>
-                    <button
-                        aria-label="닫기"
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[#047857] hover:bg-[#d1fae5]"
-                        onClick={() => setCrawlDone(null)}
-                        type="button"
-                    >
-                        ✕
-                    </button>
-                </div>
-            ) : null}
             <div className="flex flex-wrap items-center gap-2">
                 <input
                     className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
@@ -233,17 +164,16 @@ export function SheetTab({
                     시트 붙여넣기 등록
                 </button>
                 <button
-                    className="inline-flex h-9 items-center rounded-md bg-[#059669] px-3 text-xs font-semibold text-white hover:bg-[#047857] disabled:opacity-50"
-                    disabled={bulkCrawlBusy || bulkBusy || filtered.length === 0}
-                    onClick={() => void bulkCrawl()}
-                    title="현재 목록의 모든 업체를 위에서부터 차례로 측정"
+                    className="inline-flex h-9 items-center rounded-md bg-[#059669] px-3 text-xs font-semibold text-white hover:bg-[#047857]"
+                    onClick={onGoCrawl}
+                    title="크롤링 현황 페이지로 이동 — 전체 측정 시작/진행률 확인"
                     type="button"
                 >
-                    {bulkCrawlBusy ? '측정 중…' : '전체 측정'}
+                    전체 측정
                 </button>
                 <button
                     className="inline-flex h-9 items-center rounded-md border border-[#fca5a5] bg-white px-3 text-xs font-semibold text-[#dc2626] disabled:opacity-50"
-                    disabled={bulkBusy || bulkCrawlBusy || filtered.length === 0}
+                    disabled={bulkBusy || filtered.length === 0}
                     onClick={() => void bulkDelete()}
                     type="button"
                 >
@@ -446,7 +376,7 @@ export function SheetTab({
                                             <div className="flex justify-center gap-1">
                                                 <button
                                                     className="rounded bg-[#059669] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#047857] disabled:opacity-50"
-                                                    disabled={crawlingId === a.id || bulkCrawlBusy}
+                                                    disabled={crawlingId === a.id}
                                                     onClick={() => void doCrawl(a)}
                                                     title="터미널 없이 이 블로그 RSS+순위를 지금 측정"
                                                     type="button"
