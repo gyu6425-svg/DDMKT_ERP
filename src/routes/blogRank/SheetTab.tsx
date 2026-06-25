@@ -5,6 +5,7 @@ import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDat
 import { Pager, Tag } from './ui';
 import { AccountEditModal } from './AccountEditModal';
 import { AmountModal } from './AmountModal';
+import { GuideAddForm } from './GuideAddForm';
 import { ContractModal } from './ContractModal';
 import { FieldHistoryModal } from './FieldHistoryModal';
 import { ImportModal } from './ImportModal';
@@ -128,6 +129,7 @@ export function SheetTab({
 
     return (
         <div className="grid gap-3">
+            <GuideAddForm onReload={onReload} onToast={onToast} />
             <div className="flex flex-wrap items-center gap-2">
                 <input
                     className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
