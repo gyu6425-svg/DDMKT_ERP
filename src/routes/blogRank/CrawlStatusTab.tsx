@@ -257,9 +257,9 @@ export function CrawlStatusTab({
                 </div>
             </div>
 
-            {/* KPI */}
+            {/* KPI — '지금'(현재 크롤 세션) 기준 실시간 카운트. 측정 수는 crawl_status(이번 run done)로 즉시 반영. */}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Card label="오늘 측정한 글" value={counts.posts} color="#0f172a" />
+                <Card label="지금 측정한 글" value={csLive && cs ? cs.done : counts.posts} color="#0f172a" />
                 <Card label="통합탭 노출" value={counts.tiOk} color="#059669" />
                 <Card label="블로그탭 노출" value={counts.blOk} color="#1e40af" />
                 <Card label="실패 글" value={counts.failPosts} color={counts.failPosts ? '#dc2626' : '#94a3b8'} />
