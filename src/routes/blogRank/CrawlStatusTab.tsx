@@ -112,6 +112,10 @@ export function CrawlStatusTab({
     // 최근 90초 내 업데이트면 '진행 중'으로 본다(크롤이 죽어도 영원히 진행중으로 안 남게).
     const csLive = cs && cs.running && Date.now() - new Date(cs.updated_at).getTime() < 90000;
     const csPct = cs && cs.total ? Math.round((cs.done / cs.total) * 100) : 0;
+    // 게이지: 크롤 도는 중이면 '크롤 진행(done/total)'을, 아니면 'DB 오늘 측정된 블로그'를 표시.
+    const gaugeDone = csLive && cs ? cs.done : measuredBlogs;
+    const gaugeTotal = csLive && cs ? cs.total : active.length;
+    const gaugePct = gaugeTotal ? Math.round((gaugeDone / gaugeTotal) * 100) : 0;
 
     // ── 웹에서 전체 측정(서버리스) ──
     const [running, setRunning] = useState(false);
@@ -245,8 +249,13 @@ export function CrawlStatusTab({
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                 <div className="mb-1 flex items-center justify-between text-xs">
                     <span className="font-semibold text-[#1e40af]">
-                        블로그 {measuredBlogs}/{active.length} 측정됨
-                        {running && currentId ? (
+                        블로그 {gaugeDone}/{gaugeTotal} {csLive ? '측정 중' : '측정됨'}
+                        {csLive && cs?.current_blog ? (
+                            <>
+                                {' · '}
+                                <span className="animate-pulse">●</span> 현재: <b>{cs.current_blog}</b>
+                            </>
+                        ) : running && currentId ? (
                             <>
                                 {' · '}
                                 <span className="animate-pulse">●</span> 측정 중:{' '}
@@ -254,12 +263,12 @@ export function CrawlStatusTab({
                             </>
                         ) : null}
                     </span>
-                    <span className="font-bold text-[#0f172a]">{pct}%</span>
+                    <span className="font-bold text-[#0f172a]">{gaugePct}%</span>
                 </div>
                 <div className="h-4 overflow-hidden rounded-full bg-[#eef2f7]">
                     <div
                         className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${pct}%`, background: pct === 100 ? '#059669' : '#1e40af' }}
+                        style={{ width: `${gaugePct}%`, background: csLive ? '#1e40af' : gaugePct === 100 ? '#059669' : '#1e40af' }}
                     />
                 </div>
             </div>
