@@ -112,10 +112,21 @@ export function CrawlStatusTab({
     // 최근 90초 내 업데이트면 '진행 중'으로 본다(크롤이 죽어도 영원히 진행중으로 안 남게).
     const csLive = cs && cs.running && Date.now() - new Date(cs.updated_at).getTime() < 90000;
     const csPct = cs && cs.total ? Math.round((cs.done / cs.total) * 100) : 0;
-    // 게이지: 크롤 도는 중이면 '크롤 진행(done/total)'을, 아니면 'DB 오늘 측정된 블로그'를 표시.
-    const gaugeDone = csLive && cs ? cs.done : measuredBlogs;
-    const gaugeTotal = csLive && cs ? cs.total : active.length;
+
+    // 하단 게이지 = '전체 측정량'(오늘 전체 글 측정 진행). 크롤 중이면 crawl_status(글 단위 done/total),
+    //   아니면 DB 기준 오늘 측정된 글 / 추적 글 전체.
+    const totalPosts = posts.length;
+    const gaugeDone = csLive && cs ? cs.done : counts.posts;
+    const gaugeTotal = csLive && cs ? cs.total : totalPosts;
     const gaugePct = gaugeTotal ? Math.round((gaugeDone / gaugeTotal) * 100) : 0;
+
+    // 상단 게이지 = '현재 측정 중인 블로그'의 실시간 진행(그 블로그 오늘 측정 글 / 그 블로그 전체 글).
+    //   current_blog 는 '업체명 · 라운드 N' 형태 → 앞의 업체명만 떼어 매칭.
+    const curName = (cs?.current_blog || '').split('·')[0].trim();
+    const curAcc = curName ? accounts.find((a) => a.name === curName) ?? null : null;
+    const curTotalPosts = curAcc ? posts.filter((p) => p.blog_account_id === curAcc.id).length : 0;
+    const curMeasured = curAcc ? blogRows.find((r) => r.a.id === curAcc.id)?.measured ?? 0 : 0;
+    const curPct = curTotalPosts ? Math.round((curMeasured / curTotalPosts) * 100) : 0;
 
     // ── 웹에서 전체 측정(서버리스) ──
     const [running, setRunning] = useState(false);
@@ -173,7 +184,7 @@ export function CrawlStatusTab({
 
     return (
         <div className="grid gap-4">
-            {/* PC 크롤러 실시간 진행 배너 */}
+            {/* PC 크롤러 실시간 진행 배너 — 상단 = '현재 측정 중인 블로그'의 실시간 진행률 */}
             {csLive && cs ? (
                 <div className="rounded-xl border border-[#bfdbfe] bg-[#eff6ff] p-4">
                     <div className="mb-1 flex items-center justify-between text-sm">
@@ -184,13 +195,13 @@ export function CrawlStatusTab({
                             ) : null}
                         </span>
                         <span className="font-bold text-[#0f172a]">
-                            {cs.done}/{cs.total} · {csPct}%
+                            {curAcc ? `${curMeasured}/${curTotalPosts}글 · ${curPct}%` : `${csPct}%`}
                         </span>
                     </div>
                     <div className="h-3 overflow-hidden rounded-full bg-white">
                         <div
                             className="h-full rounded-full bg-[#1e40af] transition-all duration-500"
-                            style={{ width: `${csPct}%` }}
+                            style={{ width: `${curAcc ? curPct : csPct}%` }}
                         />
                     </div>
                 </div>
@@ -245,17 +256,12 @@ export function CrawlStatusTab({
                 <Card label="실패 글" value={counts.failPosts} color={counts.failPosts ? '#dc2626' : '#94a3b8'} />
             </div>
 
-            {/* 게이지: 측정된 블로그 / 전체 */}
+            {/* 하단 게이지: 전체 측정량(오늘 전체 글 측정 진행) */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                 <div className="mb-1 flex items-center justify-between text-xs">
                     <span className="font-semibold text-[#1e40af]">
-                        블로그 {gaugeDone}/{gaugeTotal} {csLive ? '측정 중' : '측정됨'}
-                        {csLive && cs?.current_blog ? (
-                            <>
-                                {' · '}
-                                <span className="animate-pulse">●</span> 현재: <b>{cs.current_blog}</b>
-                            </>
-                        ) : running && currentId ? (
+                        전체 측정량 {gaugeDone}/{gaugeTotal}글 {csLive ? '진행 중' : '측정됨'}
+                        {running && currentId ? (
                             <>
                                 {' · '}
                                 <span className="animate-pulse">●</span> 측정 중:{' '}
