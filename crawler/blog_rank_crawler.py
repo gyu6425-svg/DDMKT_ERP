@@ -69,10 +69,10 @@ UA = (
     "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 )
-REQUEST_DELAY = float(os.environ.get("CRAWL_DELAY", "2.0"))  # 검색 요청 사이 간격(초). 차단 회피 위해 2초 기본. env CRAWL_DELAY 로 조절.
-BLOCK_REST_EVERY = int(os.environ.get("CRAWL_REST_EVERY", "8"))   # N개 블로그마다 긴 휴식(누적 레이트리밋 예방)
-BLOCK_REST_SEC = float(os.environ.get("CRAWL_REST_SEC", "25"))    # 그 휴식 길이(초, 지터 포함)
-MAX_POSTS_PER_BLOG = 10    # 블로그당 RSS 최신 글 수(최신 위주 — 이 글들만 측정, 옛 글 제외)
+REQUEST_DELAY = float(os.environ.get("CRAWL_DELAY", "3.5"))  # 검색 요청 사이 간격(초). 차단 회피. 2026-06-25 2→3.5(403 다발).
+BLOCK_REST_EVERY = int(os.environ.get("CRAWL_REST_EVERY", "6"))   # N개 블로그마다 긴 휴식(누적 레이트리밋 예방). 8→6.
+BLOCK_REST_SEC = float(os.environ.get("CRAWL_REST_SEC", "40"))    # 그 휴식 길이(초, 지터 포함). 25→40.
+MAX_POSTS_PER_BLOG = 5    # 블로그당 RSS 최신 글 수(최신 위주 — 이 글들만 측정, 옛 글 제외). 2026-06-25 10→5(속도)
 
 
 def _pause(base=None):
@@ -1047,17 +1047,32 @@ def measure_blogtab_real(keyword, blog_id, log_no=""):
     return _rank_in_blogtab(html_text, blog_id, log_no)
 
 
+def measure_blogtab_api(keyword, blog_id, log_no=""):
+    """블로그탭을 네이버 공식 검색 API(blog.json)로 측정 — m.search SERP 스크래핑이 아니라 openapi 호출이라
+    IP 차단(403)을 거의 안 받고 즉시. (rank, status) 반환. MAX_RANK_SCAN(30) 초과면 권외.
+    ※ 공식 API 정렬은 화면 블로그탭과 다소 다를 수 있음(정확도 일부 양보 — 2026-06-25 사용자 선택: 차단·속도 우선)."""
+    try:
+        rank = measure_blog_rank_api(keyword, blog_id, log_no)
+    except Exception as exc:
+        print(f"    [블로그탭 API 실패] {keyword}: {exc}")
+        return OUT_OF_RANK, "fail"
+    return (rank, "ok") if rank < OUT_OF_RANK else (OUT_OF_RANK, "out")
+
+
 def measure_rank(keyword, blog_id, post_url):
     log_no = extract_log_no(post_url)
 
-    # 블로그탭(bl): 진짜 블로그탭 HTML 파싱. fail(차단/빈응답)이면 잠깐 쉬고 1회 재시도(권외와 구분 위해).
-    bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
-    if bl_status == "fail":
-        _pause(REQUEST_DELAY * 2)
+    # 블로그탭(bl): 공식 검색 API 우선(openapi — IP차단 회피·즉시, SERP 스크래핑 절반 제거). 키 없으면 HTML 폴백.
+    if USE_API:
+        bl, bl_status = measure_blogtab_api(keyword, blog_id, log_no)
+    else:
         bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
-    _pause()
+        if bl_status == "fail":
+            _pause(REQUEST_DELAY * 2)
+            bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
+        _pause()
 
-    # 통합탭(ti)+웹사이트탭 존재(ws): 한 번 조회로 둘 다. 마찬가지로 fail 이면 1회 재시도.
+    # 통합탭(ti)+웹사이트탭 존재(ws): 한 번 조회로 둘 다(공식 API 없음 → SERP 스크래핑). fail 이면 1회 재시도.
     ti, ti_status, ws = measure_integrated_popular(keyword, blog_id, log_no)
     if ti_status == "fail":
         _pause(REQUEST_DELAY * 2)
@@ -1065,6 +1080,27 @@ def measure_rank(keyword, blog_id, post_url):
     _pause()
 
     return ti, bl, ti_status, bl_status, ws
+
+
+def _skip_stable(measurements, today):
+    """요청 절감(2026-06-25) — 직전 측정 2회가 동일(ti·bl 같고 실패 아님)하고 3일 이내면 오늘 측정 스킵.
+    변동 가능성 낮은 안정 글은 매일 안 재고, 3일 넘으면 다시 점검. 이력 2건 미만이면 측정."""
+    recs = sorted(
+        [m for m in (measurements or []) if m.get("date") and m["date"] < today],
+        key=lambda m: m.get("date", ""), reverse=True,
+    )
+    if len(recs) < 2:
+        return False
+    a, b = recs[0], recs[1]
+    if a.get("ti_status") == "fail" or a.get("bl_status") == "fail":
+        return False
+    if not (a.get("ti") == b.get("ti") and a.get("bl") == b.get("bl")):
+        return False
+    try:
+        age = (datetime.date.fromisoformat(today) - datetime.date.fromisoformat(a["date"])).days
+        return age <= 3
+    except Exception:
+        return False
 
 
 # ── 디버그: 키워드 하나로 실제 순위 검증 ────────────────
@@ -1409,6 +1445,9 @@ def run_breadth(force=False, max_posts=None):
             row = item["row"]
             tr = next((r for r in (row.get("measurements") or []) if r.get("date") == TODAY), None)
             if not force and tr and tr.get("ti_status") != "fail" and tr.get("bl_status") != "fail":
+                done += 1
+                continue
+            if not force and _skip_stable(row.get("measurements"), TODAY):  # 변동 없는 안정 글 → 스킵(요청 절감)
                 done += 1
                 continue
             kw = (row.get("keyword_manual") or "").strip()

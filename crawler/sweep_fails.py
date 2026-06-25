@@ -73,7 +73,7 @@ def main():
             break
         prev = fails
         print(f"  non-force 재측정 시작(실패분만)…", flush=True)
-        c.run(force=False)          # 성공분 skip, 실패분만 재측정
+        c.run_breadth(force=False)  # 라운드로빈·성공분 skip, 실패분만 재측정(MAX_POSTS_PER_BLOG=5)
         time.sleep(5)
     final = _today_fail_count()
     print(f"\n[완료] 남은 실패 {final}건", flush=True)
