@@ -47,10 +47,18 @@ export function DashboardTab({
             return kx - ky;
         });
 
+    // 최근 순위 변동 = 직전 측정(=이전 크롤) vs 최신 측정(=다음 크롤)의 통합탭 순위 차이.
+    //   measurements 는 날짜당 1건이라 '이전 04시 크롤 ↔ 다음 04시 크롤' 비교가 됨(지금 측정도 그날 1건만 갱신).
+    //   두 측정이 모두 '순위 잡힘(ok)'이고, 순위가 2 이상 차이날 때만 표시(노이즈·권외/실패 제외).
     const moves = posts
         .filter((p) => p.measurements.length >= 2)
-        .map((p) => ({ p, d: (prevM(p)?.ti ?? 0) - (lastM(p)?.ti ?? 0) }))
-        .filter((x) => x.d !== 0)
+        .map((p) => {
+            const prev = prevM(p);
+            const last = lastM(p);
+            const bothRanked = !!prev && !!last && prev.ti_status === 'ok' && last.ti_status === 'ok';
+            return { p, d: bothRanked ? prev!.ti - last!.ti : 0 };
+        })
+        .filter((x) => Math.abs(x.d) >= 2)
         .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
         .slice(0, 6);
 
@@ -142,7 +150,7 @@ export function DashboardTab({
                     )}
                 </Panel>
 
-                <Panel title="최근 순위 변동" sub="이전 대비 통합탭 순위 변화">
+                <Panel title="최근 순위 변동" sub="이전 크롤 대비 통합탭 순위 2 이상 변동">
                     {moves.length ? (
                         <div className="grid gap-1">
                             {moves.map(({ p, d }) => (
@@ -169,7 +177,7 @@ export function DashboardTab({
                             ))}
                         </div>
                     ) : (
-                        <Empty text="측정이 2회 이상이면 변동이 표시됩니다" />
+                        <Empty text="이전 크롤 대비 통합탭 순위가 2 이상 바뀐 글이 여기 표시됩니다" />
                     )}
                 </Panel>
             </div>
