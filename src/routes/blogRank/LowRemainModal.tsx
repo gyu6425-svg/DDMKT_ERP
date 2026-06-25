@@ -5,11 +5,11 @@ import { renewLevel } from './helpers';
 export function LowRemainModal({
     accounts,
     onClose,
-    onGoSheet,
+    onGoBlog,
 }: {
     accounts: BlogAccount[];
     onClose: () => void;
-    onGoSheet: () => void;
+    onGoBlog: (name: string) => void;
 }) {
     const list = accounts
         .filter((a) => a.is_active && a.remain_count != null && a.remain_count <= 3)
@@ -33,7 +33,7 @@ export function LowRemainModal({
                             <button
                                 className="flex items-center justify-between rounded-md border border-[#f1f5f9] px-3 py-2.5 text-left hover:bg-[#f8fafc]"
                                 key={a.id}
-                                onClick={onGoSheet}
+                                onClick={() => onGoBlog(a.name)}
                                 type="button"
                             >
                                 <span className="min-w-0">

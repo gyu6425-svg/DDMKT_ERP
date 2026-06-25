@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { deleteBlogAccount, todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { crawlBlog } from '../../api/crawlBlog';
 import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDate, lastM, progOf, PER_SHEET, renewLevel } from './helpers';
@@ -21,6 +21,7 @@ export function SheetTab({
     onToast,
     onGoCrawl,
     onGoTrackerBlog,
+    initialQ = '',
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
@@ -28,8 +29,13 @@ export function SheetTab({
     onToast: (message: string) => void;
     onGoCrawl: () => void;
     onGoTrackerBlog: (blogAccountId: string) => void;
+    initialQ?: string; // 대시보드 '재계약 임박' 블로그 클릭으로 들어오면 그 업체명으로 검색 시작
 }) {
-    const [q, setQ] = useState('');
+    const [q, setQ] = useState(initialQ);
+    // 대시보드 '재계약 임박' 블로그 클릭으로 진입하면 그 업체명으로 검색 채움(마운트 타이밍 무관).
+    useEffect(() => {
+        if (initialQ) setQ(initialQ);
+    }, [initialQ]);
     const [mgr, setMgr] = useState('');
     const [lowOnly, setLowOnly] = useState(false);
     const [sortKey, setSortKey] = useState<'remain' | 'prog'>('remain');

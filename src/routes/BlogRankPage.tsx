@@ -23,9 +23,11 @@ function BlogRankPage() {
     // 대시보드/시트에서 트래커로 보낼 때의 초기 필터. 일반 탭 이동 시엔 해제.
     const [trackerInOnly, setTrackerInOnly] = useState(false); // 통합 10위 이내만
     const [trackerCo, setTrackerCo] = useState(''); // 특정 업체만(시트 업체명 클릭)
+    const [sheetQ, setSheetQ] = useState(''); // 시트 검색 초기값(대시보드 재계약 임박 클릭)
     const goTab = (key: Tab) => {
         setTrackerInOnly(false);
         setTrackerCo('');
+        setSheetQ('');
         setTab(key);
     };
 
@@ -141,6 +143,10 @@ function BlogRankPage() {
                         setTrackerInOnly(true);
                         setTab('tracker');
                     }}
+                    onGoSheetBlog={(name) => {
+                        setSheetQ(name);
+                        setTab('sheet');
+                    }}
                 />
             ) : null}
             {tab === 'sheet' ? (
@@ -155,6 +161,7 @@ function BlogRankPage() {
                         setTrackerInOnly(false);
                         setTab('tracker');
                     }}
+                    initialQ={sheetQ}
                 />
             ) : null}
             {tab === 'tracker' ? (

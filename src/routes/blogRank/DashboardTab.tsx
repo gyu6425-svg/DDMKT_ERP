@@ -9,11 +9,13 @@ export function DashboardTab({
     posts,
     onGo,
     onGoTracker10,
+    onGoSheetBlog,
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
     onGo: (tab: Tab) => void;
     onGoTracker10: () => void;
+    onGoSheetBlog: (name: string) => void;
 }) {
     const [showLow, setShowLow] = useState(false);
     const withGoal = accounts.filter((a) => a.goal_count != null && a.remain_count != null);
@@ -124,7 +126,7 @@ export function DashboardTab({
                                 <button
                                     className="flex items-center justify-between rounded-md px-2 py-2 text-left hover:bg-[#f8fafc]"
                                     key={account.id}
-                                    onClick={() => onGo('sheet')}
+                                    onClick={() => onGoSheetBlog(account.name)}
                                     type="button"
                                 >
                                     <span className="min-w-0">
@@ -176,9 +178,9 @@ export function DashboardTab({
                 <LowRemainModal
                     accounts={accounts}
                     onClose={() => setShowLow(false)}
-                    onGoSheet={() => {
+                    onGoBlog={(name) => {
                         setShowLow(false);
-                        onGo('sheet');
+                        onGoSheetBlog(name);
                     }}
                 />
             ) : null}
