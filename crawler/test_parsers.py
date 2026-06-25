@@ -73,6 +73,15 @@ PERPOST4_CASES = [
     ("통합탭 안산 design_do_(섹션내 1위)", "design_do_", "224266735547", 1, "ok"),
 ]
 
+# 경기광주 인테리어필름(vision1803) 실측 2026-06-25 — urB_coR 상단: 당근(1위) → vision1803 '프로필 카드'(2위).
+#   같은 글(224323414074)이 아래 urB_boR 군집엔 1위로도 있으나, 화면 통합탭 순위는 상단 프로필 카드 = 2위.
+#   글번호 없는 프로필 카드를 못 잡아 군집의 1위로 오인하던 버그 수정. blogId/글단위 모두 2 여야 함.
+PERPOST_DUMP5 = "통합탭_경기광주인테리어필름_2026_06_25.html"
+PERPOST5_CASES = [
+    ("통합탭 경기광주 vision1803(프로필 2위, 글단위)", "vision1803", "224323414074", 2, "ok"),
+    ("통합탭 경기광주 vision1803(프로필 2위, blogId)", "vision1803", "", 2, "ok"),
+]
+
 # 웹사이트(문서)탭 존재 여부 — (덤프, blog_id, log_no, 기대) likesign #1글=있음, 더맨시스템=없음.
 WEBSITE_CASES = [
     ("웹사이트탭 likesign #1글", PERPOST_DUMP, "likesign", "224066671070", "있음"),
@@ -204,6 +213,16 @@ def main():
             rank, status = c._rank_in_popular(_read(PERPOST_DUMP4), bid, lno)
         except FileNotFoundError:
             print(f"  SKIP  {desc}: 덤프 없음({PERPOST_DUMP4})")
+            continue
+        ok = (rank == exp_rank and status == exp_status)
+        print(f"  {'PASS' if ok else 'FAIL'}  {desc}: rank={rank} status={status} (기대 {exp_rank}/{exp_status})")
+        if not ok:
+            failed += 1
+    for desc, bid, lno, exp_rank, exp_status in PERPOST5_CASES:
+        try:
+            rank, status = c._rank_in_popular(_read(PERPOST_DUMP5), bid, lno)
+        except FileNotFoundError:
+            print(f"  SKIP  {desc}: 덤프 없음({PERPOST_DUMP5})")
             continue
         ok = (rank == exp_rank and status == exp_status)
         print(f"  {'PASS' if ok else 'FAIL'}  {desc}: rank={rank} status={status} (기대 {exp_rank}/{exp_status})")

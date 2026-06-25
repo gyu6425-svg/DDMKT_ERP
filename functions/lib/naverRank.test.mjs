@@ -45,6 +45,11 @@ const CASES = [
     // 안산 푸르지오9차인테리어(design_do_) 실측 — 위 urB_coR(오늘의집/부동산=웹사이트/문서) 섹션 다음
     //   urB_boR(블로그) 섹션의 첫 카드 → 섹션내 1위(누적이면 6위로 오인).
     ['통합탭 안산 design_do_(섹션내 1위)', (h) => rankInPopular(h, 'design_do_', '224266735547'), '통합탭_안산푸르지오9차_2026_06_24.html', 1, 'ok'],
+    // 경기광주 인테리어필름(vision1803) 실측 2026-06-25 — urB_coR 상단: 당근(1위) → vision1803 '프로필 카드'(2위).
+    //   같은 글이 아래 urB_boR 군집에도 1위로 있으나 화면 통합탭 순위는 상단 프로필 카드 = 2위. 글번호 없는
+    //   프로필 카드를 못 잡아 군집 1위로 오인하던 버그 수정. blogId/글단위 모두 2.
+    ['통합탭 경기광주 vision1803(프로필 2위, 글단위)', (h) => rankInPopular(h, 'vision1803', '224323414074'), '통합탭_경기광주인테리어필름_2026_06_25.html', 2, 'ok'],
+    ['통합탭 경기광주 vision1803(프로필 2위, blogId)', (h) => rankInPopular(h, 'vision1803'), '통합탭_경기광주인테리어필름_2026_06_25.html', 2, 'ok'],
     // 웹사이트(문서)탭 존재 여부 — likesign #1글은 web 섹션에 있음, 더맨시스템은 web 섹션에 없음.
     ['웹사이트탭 likesign #1글(있음)', (h) => ({ rank: websitePresent(h, 'likesign', '224066671070') === '있음' ? 1 : 99, status: websitePresent(h, 'likesign', '224066671070') }), '통합탭_likesign_글단위_2026_06_24.html', 1, '있음'],
     ['웹사이트탭 더맨시스템(없음)', (h) => ({ rank: websitePresent(h, 'themansystem-', '224299201732') === '있음' ? 1 : 99, status: websitePresent(h, 'themansystem-', '224299201732') }), '통합탭_김포경호업체_2026_06_24.html', 99, '없음'],

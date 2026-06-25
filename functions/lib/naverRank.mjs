@@ -97,6 +97,10 @@ function iterBlogPosts(node) {
 //   afterArticles('이 블로그 다른 글') 안에 6/11글이 먼저 등장 → raw 첫 링크(6/11글) 매칭이 6월글에
 //   5위를 잘못 부여. 발행일 다른 글끼리 순위 전염되던 버그 → 대표 네비링크로만 매칭.
 const BLOG_POST_RE = /blog\.naver\.com\/([^/?#"\\]+)\/(\d{6,})/; // 글 단위 매칭용(blogId+logNo)
+// 블로그 '프로필(홈) 링크' — 글번호 없는 blog.naver.com/<id>. 통합탭 상단 대표 카드가 특정 글이 아니라
+//   블로그 홈으로 링크되는 경우(경기광주 인테리어필름 vision1803 = 화면 2위 프로필 카드)를 잡는다.
+//   id 뒤가 /?# 또는 끝이라야 함(PostView.naver 등은 '.'에서 끊겨 매칭 안 됨). 파이썬 _BLOG_HOME_RE 1:1.
+const BLOG_HOME_RE = /(?:m\.)?blog\.naver\.com\/([A-Za-z0-9_-]+)(?=[/?#]|$)/;
 const PRIMARY_NAV_FIELDS = new Set(['href', 'titleHref', 'contentHref']); // 카드 본문 이동 링크
 const PRIMARY_EXCLUDE_KEYS = new Set([
     'afterArticles', 'clusters', 'series', 'relatedContents', 'subItems',
@@ -122,6 +126,50 @@ function primaryBlogPosts(node) {
     };
     walk(node);
     return out;
+}
+
+// 블록(카드) 1개에서 { posts:[[bid,lno]...], profiles:Set(bid) }. (파이썬 _block_blog_entries 1:1)
+//   profiles = 블로그 홈 링크만 있고 그 블로그 글 링크는 없는 '프로필 카드'(통합탭 상단 대표 카드).
+//   같은 블록에 그 블로그 글 링크가 있으면 profiles 에서 뺀다 → 칠곡식 '같은 블로그 다른 글' 순위 전염 방지.
+function blockBlogEntries(node) {
+    const posts = [];
+    const home = new Set();
+    const walk = (o) => {
+        if (Array.isArray(o)) {
+            for (const x of o) walk(x);
+        } else if (o && typeof o === 'object') {
+            for (const [k, v] of Object.entries(o)) {
+                if (PRIMARY_EXCLUDE_KEYS.has(k)) continue;
+                if (typeof v === 'string') {
+                    if (PRIMARY_NAV_FIELDS.has(k)) {
+                        const m = v.match(BLOG_POST_RE);
+                        if (m) {
+                            posts.push([m[1], m[2]]);
+                        } else {
+                            const mh = v.match(BLOG_HOME_RE);
+                            if (mh) home.add(mh[1]);
+                        }
+                    }
+                } else {
+                    walk(v);
+                }
+            }
+        }
+    };
+    walk(node);
+    const postIds = new Set(posts.map((p) => p[0]));
+    const profiles = new Set([...home].filter((id) => !postIds.has(id)));
+    return { posts, profiles };
+}
+
+// 이 카드가 우리 블로그/글이면 true. (파이썬 _entry_match 1:1)
+//   logNo 있으면: 그 글(정확 일치) 또는 그 블로그 '프로필 카드'면 매칭. 없으면: 그 블로그 글/프로필이면 매칭.
+function entryMatch(blogId, logNo, posts, profiles) {
+    if (logNo) {
+        if (posts.some(([, lno]) => lno === logNo)) return true;
+        return profiles.has(blogId);
+    }
+    return posts.some(([bid]) => bid === blogId) || profiles.has(blogId);
 }
 
 // 블록 섹션 코드(meta.area 우선, 없으면 refs.blockId).
@@ -224,13 +272,8 @@ export function rankInPopular(html, blogId, logNo = '') {
             }
         } else {
             rank += 1; // 같은 섹션 안에서 보이는 카드 한 칸
-            for (const [bid, lno] of primaryBlogPosts(j)) {
-                if (logNo) {
-                    if (lno === logNo) return { rank, status: 'ok' };
-                } else if (bid === blogId) {
-                    return { rank, status: 'ok' };
-                }
-            }
+            const { posts, profiles } = blockBlogEntries(j);
+            if (entryMatch(blogId, logNo, posts, profiles)) return { rank, status: 'ok' };
         }
     }
     return { rank: OUT_OF_RANK, status: 'out' };

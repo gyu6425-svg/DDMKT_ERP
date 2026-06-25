@@ -677,6 +677,10 @@ def measure_web_rank(keyword, website_host):
 # 각 JSON 블록 = 한 모듈/글. meta.area 로 섹션을 구분하고 clickLog...r 이 화면 절대순위.
 # 실측 검증(dumps/): 석남동 ti=3·bl=순위밖, 인천석남동 ti=1.
 _BLOG_POST_RE = re.compile(r"blog\.naver\.com/([^/?#\"\\]+)/(\d{6,})")  # 글 단위 매칭용(blogId+logNo)
+# 블로그 '프로필(홈) 링크' — 글번호 없는 blog.naver.com/<id>. 통합탭 상단 대표 카드가 특정 글이 아니라
+#   블로그 홈으로 링크되는 경우(예: 경기광주 인테리어필름 vision1803 = 화면 2위 프로필 카드)를 잡는다.
+#   id 뒤가 /?# 또는 끝이라야 함(PostView.naver 같은 건 '.'에서 끊겨 매칭 안 됨).
+_BLOG_HOME_RE = re.compile(r"(?:m\.)?blog\.naver\.com/([A-Za-z0-9_-]+)(?=[/?#]|$)")
 
 
 def _block_min_r(node):
@@ -759,6 +763,53 @@ def _primary_blog_posts(node):
 
     walk(node)
     return out
+
+
+def _block_blog_entries(node):
+    """블록(카드) 1개에서 (posts, profiles) 를 뽑는다.
+      posts    = {(blog_id, log_no)}  — 글 링크(글번호 있음, 카드 대표글)
+      profiles = {blog_id}            — '블로그 프로필(홈) 링크'만 있고 그 블로그의 글 링크는 없는 카드
+    profiles = 통합탭 상단의 '블로그 프로필 카드'(특정 글이 아니라 블로그 자체가 한 칸 차지).
+      단, 같은 블록에 그 블로그의 글 링크가 있으면(=일반 글 카드의 작성자 프로필 링크) profiles 에서 뺀다
+      → 칠곡처럼 '같은 블로그 다른 글'에 순위가 전염되는 버그 방지(글 카드는 글번호로만 매칭).
+    관련글 묶음(afterArticles/clusters/...) 하위는 제외."""
+    posts = set()
+    home = set()
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in _PRIMARY_EXCLUDE_KEYS:
+                    continue
+                if isinstance(v, str):
+                    if k in _PRIMARY_NAV_FIELDS:
+                        m = _BLOG_POST_RE.search(v)
+                        if m:
+                            posts.add((m.group(1), m.group(2)))
+                        else:
+                            mh = _BLOG_HOME_RE.search(v)
+                            if mh:
+                                home.add(mh.group(1))
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for x in o:
+                walk(x)
+
+    walk(node)
+    profiles = home - {bid for bid, _ in posts}
+    return posts, profiles
+
+
+def _entry_match(blog_id, log_no, posts, profiles):
+    """이 카드가 우리 블로그/글이면 True.
+    log_no 있으면: 그 글(정확 일치) 또는 그 블로그의 '프로필 카드'(글번호 없는 대표 카드)면 매칭.
+    log_no 없으면: 그 블로그의 글이거나 프로필 카드면 매칭."""
+    if log_no:
+        if any(lno == log_no for _, lno in posts):
+            return True
+        return blog_id in profiles
+    return any(bid == blog_id for bid, _ in posts) or (blog_id in profiles)
 
 
 def _block_area(j):
@@ -867,9 +918,9 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
                         return rank, "ok"
         else:
             rank += 1                        # 같은 섹션 안에서 보이는 카드 한 칸
-            for bid, lno in _primary_blog_posts(j):
-                if (log_no and lno == log_no) or (not log_no and bid == blog_id):
-                    return rank, "ok"
+            posts, profiles = _block_blog_entries(j)
+            if _entry_match(blog_id, log_no, posts, profiles):
+                return rank, "ok"
     return OUT_OF_RANK, "out"
 
 
