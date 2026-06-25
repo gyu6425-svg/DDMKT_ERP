@@ -9,7 +9,7 @@ import {
     type BlogMeasurement,
     type BlogPost,
 } from '../../api/blogRank';
-import { searchRank, type RankSearchResult } from '../../api/rankSearch';
+import { searchRankPC, type RankSearchResult } from '../../api/rankSearch';
 import { fmtRank } from './helpers';
 
 export function PostSearchCell({
@@ -45,7 +45,7 @@ export function PostSearchCell({
         setErr('');
         try {
             // 이 '글' 단위로 측정(블로그탭은 logNo 매칭) — 6월글이면 6월글 순위, 5월글이면 5월글 순위.
-            setRes(await searchRank(q, blogId, extractLogNo(post.post_url || '')));
+            setRes(await searchRankPC(q, blogId, extractLogNo(post.post_url || '')));
         } catch (e) {
             setErr(e instanceof Error ? e.message : '검색 실패');
             setRes(null);
@@ -76,7 +76,7 @@ export function PostSearchCell({
         let measured = false;
         if (effective && blogId) {
             try {
-                const r = await searchRank(effective, blogId, extractLogNo(post.post_url || ''));
+                const r = await searchRankPC(effective, blogId, extractLogNo(post.post_url || ''));
                 next = [
                     ...next,
                     { date: today, ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status },

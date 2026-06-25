@@ -18,6 +18,25 @@ alter table public.crawl_status enable row level security;
 drop policy if exists "crawl_status read" on public.crawl_status;
 create policy "crawl_status read" on public.crawl_status for select to authenticated using (true);
 
+-- ── 즉시 검색(PC 경유) 요청 큐 ──────────────────────────
+-- 검색 버튼이 Cloudflare(데이터센터 IP)로 네이버를 조회하면 통합탭이 다르게 나옴 → PC IP로 측정하려고
+-- 요청을 이 테이블에 쌓고, PC의 상시 리스너(crawler/run_listener.py)가 처리해 결과를 채운다.
+create table if not exists public.measure_requests (
+    id uuid primary key default gen_random_uuid(),
+    created_at timestamptz not null default now(),
+    keyword text not null,
+    blog_id text not null,
+    log_no text,
+    status text not null default 'pending',     -- pending | processing | done | fail
+    ti int, bl int, ti_status text, bl_status text, ws text,
+    done_at timestamptz
+);
+alter table public.measure_requests enable row level security;
+drop policy if exists "mr insert" on public.measure_requests;
+drop policy if exists "mr select" on public.measure_requests;
+create policy "mr insert" on public.measure_requests for insert to authenticated with check (true);
+create policy "mr select" on public.measure_requests for select to authenticated using (true);
+
 -- ── 관리 블로그(업체) ────────────────────────────────────
 create table if not exists public.blog_accounts (
     id uuid primary key default gen_random_uuid(),
