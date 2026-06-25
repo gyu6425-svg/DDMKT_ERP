@@ -89,6 +89,7 @@ export function CrawlStatusTab({
 
     // ── PC 크롤러 실시간 진행(crawl_status 폴링, 5초) ──
     const [cs, setCs] = useState<CrawlStatus | null>(null);
+    const prevDoneRef = useRef(-1);
     useEffect(() => {
         const fetchCs = async () => {
             const { data } = await supabase
@@ -96,7 +97,13 @@ export function CrawlStatusTab({
                 .select('updated_at,running,phase,current_blog,done,total')
                 .eq('id', 1)
                 .maybeSingle();
-            setCs((data as CrawlStatus) ?? null);
+            const next = (data as CrawlStatus) ?? null;
+            setCs(next);
+            // 진행(done)이 바뀌면 측정 데이터도 즉시 갱신 → 아래 KPI/칩(완료·실패·대기)/표가 실시간으로 따라감.
+            if (next && next.done !== prevDoneRef.current) {
+                prevDoneRef.current = next.done;
+                void reloadRef.current().then(() => setLastAt(new Date().toLocaleTimeString('ko-KR')));
+            }
         };
         void fetchCs();
         const id = window.setInterval(() => void fetchCs(), 5000);
