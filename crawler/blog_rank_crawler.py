@@ -1195,7 +1195,14 @@ def run(fast=False, workers=4):
         print("※ NAVER_CLIENT_ID/SECRET 없음 → HTML 폴백. 공식 API 등록 권장.")
 
     accounts = sb_get("blog_accounts", {"is_active": "eq.true", "select": "*"})
-    print(f"활성 블로그 {len(accounts)}개")
+
+    # 진행률 100%(계약 건수 모두 발행=remain 0)인 블로그는 후순위 — 아직 진행 중인 곳부터 측정.
+    def _done(a):
+        g, r = a.get("goal_count"), a.get("remain_count")
+        return g is not None and r is not None and g > 0 and r == 0
+    accounts.sort(key=lambda a: 1 if _done(a) else 0)  # 안정정렬: 완료 블로그만 뒤로
+    n_done = sum(1 for a in accounts if _done(a))
+    print(f"활성 블로그 {len(accounts)}개 (진행중 {len(accounts) - n_done} 먼저 · 완료 {n_done} 후순위)")
     kw_rows = sb_get("blog_keywords", {"select": "*"})
     kw_by_acc = {}
     for row in kw_rows:
