@@ -1062,15 +1062,14 @@ def measure_blogtab_api(keyword, blog_id, log_no=""):
 def measure_rank(keyword, blog_id, post_url):
     log_no = extract_log_no(post_url)
 
-    # 블로그탭(bl): 공식 검색 API 우선(openapi — IP차단 회피·즉시, SERP 스크래핑 절반 제거). 키 없으면 HTML 폴백.
-    if USE_API:
-        bl, bl_status = measure_blogtab_api(keyword, blog_id, log_no)
-    else:
+    # 블로그탭(bl): 진짜 블로그탭 HTML 파싱(실제 화면 순위). 공식 API 는 정렬이 화면과 달라(부정확) 안 씀.
+    #   2026-06-25 사용자 확인: API 가 화면과 다른 순위(더맨시스템 공공기관청소경비 API 3위≠실제) → 스크래핑 복귀.
+    #   차단은 시간분산(--spread 청크+갭)·5글로 완화. fail 이면 잠깐 쉬고 1회 재시도.
+    bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
+    if bl_status == "fail":
+        _pause(REQUEST_DELAY * 2)
         bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
-        if bl_status == "fail":
-            _pause(REQUEST_DELAY * 2)
-            bl, bl_status = measure_blogtab_real(keyword, blog_id, log_no)
-        _pause()
+    _pause()
 
     # 통합탭(ti)+웹사이트탭 존재(ws): 한 번 조회로 둘 다(공식 API 없음 → SERP 스크래핑). fail 이면 1회 재시도.
     ti, ti_status, ws = measure_integrated_popular(keyword, blog_id, log_no)
