@@ -120,13 +120,16 @@ export function CrawlStatusTab({
     const gaugeTotal = csLive && cs ? cs.total : totalPosts;
     const gaugePct = gaugeTotal ? Math.round((gaugeDone / gaugeTotal) * 100) : 0;
 
-    // 상단 게이지 = '현재 측정 중인 블로그'의 실시간 진행(그 블로그 오늘 측정 글 / 그 블로그 전체 글).
-    //   current_blog 는 '업체명 · 라운드 N' 형태 → 앞의 업체명만 떼어 매칭.
+    // 상단 게이지 = 라운드로빈 '이번 라운드' 진행. 라운드 N = 전체 블로그의 N번째 최신글을 1개씩 도는 중.
+    //   current_blog 형태 '업체명 · 라운드 N' → 업체명/라운드번호 파싱. 이번 라운드에서 몇 블로그 돌았는지 표시.
     const curName = (cs?.current_blog || '').split('·')[0].trim();
-    const curAcc = curName ? accounts.find((a) => a.name === curName) ?? null : null;
-    const curTotalPosts = curAcc ? posts.filter((p) => p.blog_account_id === curAcc.id).length : 0;
-    const curMeasured = curAcc ? blogRows.find((r) => r.a.id === curAcc.id)?.measured ?? 0 : 0;
-    const curPct = curTotalPosts ? Math.round((curMeasured / curTotalPosts) * 100) : 0;
+    const roundNo = Number((cs?.current_blog || '').match(/라운드\s*(\d+)/)?.[1] || 0);
+    const postCountByBlog = new Map<string, number>();
+    for (const p of posts) postCountByBlog.set(p.blog_account_id, (postCountByBlog.get(p.blog_account_id) || 0) + 1);
+    // 이번 라운드에 참여하는 블로그 = N번째 글이 있는(=총 글 ≥ N) 활성 블로그. 라운드 완료 블로그 = 오늘 N글 이상 측정.
+    const roundTotal = roundNo ? active.filter((a) => (postCountByBlog.get(a.id) || 0) >= roundNo).length : 0;
+    const roundDone = roundNo ? blogRows.filter((r) => r.measured >= roundNo).length : 0;
+    const roundPct = roundTotal ? Math.round((roundDone / roundTotal) * 100) : 0;
 
     // ── 웹에서 전체 측정(서버리스) ──
     const [running, setRunning] = useState(false);
@@ -184,24 +187,30 @@ export function CrawlStatusTab({
 
     return (
         <div className="grid gap-4">
-            {/* PC 크롤러 실시간 진행 배너 — 상단 = '현재 측정 중인 블로그'의 실시간 진행률 */}
+            {/* PC 크롤러 실시간 진행 배너 — 상단 = 라운드로빈 '이번 라운드' 진행(전체 블로그 1개씩) */}
             {csLive && cs ? (
                 <div className="rounded-xl border border-[#bfdbfe] bg-[#eff6ff] p-4">
                     <div className="mb-1 flex items-center justify-between text-sm">
                         <span className="font-bold text-[#1e40af]">
-                            <span className="mr-1 animate-pulse">●</span> 크롤러 진행 중
-                            {cs.current_blog ? (
-                                <span className="ml-2 font-semibold text-[#0f172a]">현재: {cs.current_blog}</span>
+                            <span className="mr-1 animate-pulse">●</span>
+                            {roundNo ? ` 라운드 ${roundNo} 진행 중` : ' 크롤러 진행 중'}
+                            {roundNo ? (
+                                <span className="ml-2 text-xs font-semibold text-[#475569]">
+                                    완료 {roundNo - 1}회
+                                </span>
+                            ) : null}
+                            {curName ? (
+                                <span className="ml-2 font-semibold text-[#0f172a]">현재: {curName}</span>
                             ) : null}
                         </span>
                         <span className="font-bold text-[#0f172a]">
-                            {curAcc ? `${curMeasured}/${curTotalPosts}글 · ${curPct}%` : `${csPct}%`}
+                            {roundNo ? `${roundDone}/${roundTotal} 블로그 · ${roundPct}%` : `${csPct}%`}
                         </span>
                     </div>
                     <div className="h-3 overflow-hidden rounded-full bg-white">
                         <div
                             className="h-full rounded-full bg-[#1e40af] transition-all duration-500"
-                            style={{ width: `${curAcc ? curPct : csPct}%` }}
+                            style={{ width: `${roundNo ? roundPct : csPct}%` }}
                         />
                     </div>
                 </div>
