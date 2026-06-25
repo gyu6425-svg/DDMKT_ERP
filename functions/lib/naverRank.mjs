@@ -279,10 +279,12 @@ export function rankInBlogtab(html, blogId, logNo = '') {
             }
         }
     }
-    posts.sort((a, b) => a[0] - b[0]);
-    for (let i = 0; i < posts.length; i++) {
-        const [, pid, plog] = posts[i];
-        if ((logNo && plog === logNo) || (!logNo && pid === blogId)) return { rank: i + 1, status: 'ok' };
+    // 블로그탭은 단일 랭킹 리스트라 '그 글의 clickLog r'이 곧 화면 순위(파이썬 _rank_in_blogtab 1:1).
+    //   수집 글들의 '몇 번째'(position)가 아님 — contentHref 글만 모으면 중간 글을 놓쳐 순위가 작게 나오는
+    //   버그(미유외과 r=12를 4위로 오인). 2026-06-25 사용자 확인: r 값이 실제 순위.
+    posts.sort((a, b) => a[0] - b[0]); // 블로그 단위(logNo 없음)일 때 최소 r(가장 좋은 순위) 먼저
+    for (const [r, pid, plog] of posts) {
+        if ((logNo && plog === logNo) || (!logNo && pid === blogId)) return { rank: r, status: 'ok' };
     }
     return { rank: OUT_OF_RANK, status: 'out' };
 }

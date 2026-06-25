@@ -49,6 +49,8 @@ const CASES = [
     ['웹사이트탭 likesign #1글(있음)', (h) => ({ rank: websitePresent(h, 'likesign', '224066671070') === '있음' ? 1 : 99, status: websitePresent(h, 'likesign', '224066671070') }), '통합탭_likesign_글단위_2026_06_24.html', 1, '있음'],
     ['웹사이트탭 더맨시스템(없음)', (h) => ({ rank: websitePresent(h, 'themansystem-', '224299201732') === '있음' ? 1 : 99, status: websitePresent(h, 'themansystem-', '224299201732') }), '통합탭_김포경호업체_2026_06_24.html', 99, '없음'],
     ['석남동 블로그탭(순위밖)', (h) => rankInBlogtab(h, OUR), '블로그탭B_석남동_누수탐지_2026_06_19.html', 99, 'out'],
+    // 블로그탭 순위 = 그 글의 clickLog r(화면순위). 미유외과 7월진료 글 r=12(실제 12위) — position(4) 아님.
+    ['미유외과 블로그탭(r=12)', (h) => rankInBlogtab(h, 'meuclinic', '224325467804'), '블로그탭_미유외과7월진료_2026_06_25.html', 12, 'ok'],
 ];
 
 let failed = 0;

@@ -32,6 +32,9 @@ CASES = [
     ("유리교체 통합탭(블로그섹션 1위)", c._rank_in_popular, "통합탭_유리교체_2026_06_23.html", "ist3ist3", 1, "ok"),
     ("유리교체 통합탭(블로그섹션 5위)", c._rank_in_popular, "통합탭_유리교체_2026_06_23.html", "kimdo3040", 5, "ok"),
     ("석남동 블로그탭(순위밖)", c._rank_in_blogtab, "블로그탭B_석남동_누수탐지_2026_06_19.html", OUR, c.OUT_OF_RANK, "out"),
+    # 블로그탭 순위 = 그 글의 clickLog r(=화면순위). 미유외과 7월진료 글 r=12(실제 12위). position(4) 아님.
+    ("미유외과 블로그탭(r=12)", lambda h, _bid: c._rank_in_blogtab(h, "meuclinic", "224325467804"),
+     "블로그탭_미유외과7월진료_2026_06_25.html", "meuclinic", 12, "ok"),
 ]
 
 # 통합탭 글 단위(logNo) 매칭 — 같은 블로그 다른 글에 순위 오인 방지. likesign(간판) 실측:

@@ -919,10 +919,13 @@ def _rank_in_blogtab(html_text, blog_id, log_no=""):
                 seen.add((pid, plog))
                 posts.append((r, pid, plog))
 
-    posts.sort(key=lambda x: x[0])
-    for idx, (r, pid, plog) in enumerate(posts, start=1):
+    # 블로그탭은 단일 랭킹 리스트라 '그 글의 clickLog r'이 곧 화면 순위다. 수집 글들의 '몇 번째'(position)가
+    #   아니다 — contentHref 글만 모으면 중간 글(r=1,3,4..)을 놓쳐 순위가 작게 나오는 버그(미유외과 r=12를
+    #   4위로 오인). 2026-06-25 사용자 확인: r 값이 실제 순위. log_no 있으면 그 글 r, 없으면 최소 r(대표글).
+    posts.sort(key=lambda x: x[0])  # 블로그 단위(log_no 없음)일 때 최소 r(가장 좋은 순위) 먼저
+    for r, pid, plog in posts:
         if (log_no and plog == log_no) or (not log_no and pid == blog_id):
-            return idx, "ok"
+            return r, "ok"
     return OUT_OF_RANK, "out"
 
 
