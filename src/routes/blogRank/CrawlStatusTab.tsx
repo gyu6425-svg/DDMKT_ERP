@@ -71,9 +71,6 @@ export function CrawlStatusTab({
         return c;
     }, [blogRows]);
 
-    const measuredBlogs = counts.done + counts.partial + counts.fail;
-    const pct = active.length ? Math.round((measuredBlogs / active.length) * 100) : 0;
-
     // ── 자동 새로고침(실시간) ──
     const [auto, setAuto] = useState(true);
     const [lastAt, setLastAt] = useState('');
