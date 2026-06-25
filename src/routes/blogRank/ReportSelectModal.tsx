@@ -61,6 +61,7 @@ export function ReportSelectModal({
                             <tr className="border-b border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                                 <th className="w-8 px-2 py-2"></th>
                                 <th className="px-2 py-2">키워드</th>
+                                <th className="px-2 py-2">발행일</th>
                                 <th className="px-2 py-2 text-center">통합탭</th>
                                 <th className="px-2 py-2 text-center">블로그탭</th>
                                 <th className="px-2 py-2">제목</th>
@@ -87,6 +88,9 @@ export function ReportSelectModal({
                                             <td className="px-2 py-2 font-semibold text-[#7c3aed]">
                                                 {p.keyword_manual || p.keyword || '—'}
                                             </td>
+                                            <td className="whitespace-nowrap px-2 py-2 text-[#64748b]">
+                                                {p.published_date || '—'}
+                                            </td>
                                             <td className="px-2 py-2 text-center font-semibold text-[#059669]">
                                                 {m ? fmtRank(m.ti, m.ti_status ?? 'ok') : '측정대기'}
                                             </td>
@@ -101,7 +105,7 @@ export function ReportSelectModal({
                                 })
                             ) : (
                                 <tr>
-                                    <td className="px-2 py-8 text-center text-sm text-[#94a3b8]" colSpan={5}>
+                                    <td className="px-2 py-8 text-center text-sm text-[#94a3b8]" colSpan={6}>
                                         추적 중인 글이 없습니다.
                                     </td>
                                 </tr>

@@ -233,16 +233,20 @@ export function SheetTab({
                                     });
                                 const pc = p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
                                 return (
-                                    <tr key={a.id} className="border-b border-[#e2e8f0] [&>td]:py-4">
-                                        <td
-                                            className="cursor-pointer px-3 py-2 hover:bg-[#f8fafc]"
-                                            onClick={() => onGoTrackerBlog(a.id)}
-                                            title="이 칸(빈 곳) 클릭 → 순위 트래커에서 이 업체만 보기"
-                                        >
+                                    <tr
+                                        key={a.id}
+                                        className="cursor-pointer border-b border-[#e2e8f0] [&>td]:py-4 hover:bg-[#f8fafc]"
+                                        onClick={(e) => {
+                                            // 버튼/링크/입력 등은 각자 동작, 빈 곳만 트래커로 이동.
+                                            if ((e.target as HTMLElement).closest('button, a, input, select, label')) return;
+                                            onGoTrackerBlog(a.id);
+                                        }}
+                                        title="빈 곳 클릭 → 순위 트래커에서 이 업체만 보기"
+                                    >
+                                        <td className="px-3 py-2">
                                             <a
                                                 className="font-semibold text-[#0f172a] hover:text-[#1e40af] hover:underline"
                                                 href={a.blog_url}
-                                                onClick={(e) => e.stopPropagation()}
                                                 rel="noreferrer"
                                                 target="_blank"
                                                 title="블로그로 이동"
