@@ -843,14 +843,19 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
         if area != prev_area:                # 새 섹션 → 순위 1부터 재시작
             rank = 0
             prev_area = area
-        # 블록 안 카드를 'distinct clickLog.r' 단위로 한 칸씩 센다(_ugb_cards). 한 블록에 카드 2장이
-        #   들어있는 경우(예: 당근 2개 r1·r2, 칠곡 사이트 2개)도 누락 없이 각각 카운트.
-        #   (2026-06-25 사용자 요청: 통합탭에 보이는 당근/사이트도 전부 카운트 — 블록단위→카드단위.)
-        #   한 카드의 본문+출처는 같은 r 이라 1장으로 묶이고, afterArticles(관련글)는 제외된다.
+        # ugB_*(한 블록=여러 카드, 예 ugB_bsR) 은 블록 안 카드를 r 순서로 한 칸씩 — 같은 블록의
+        #   다른 카드(예 서천: sd44422 1위 … limebuffet 5위)에 순위가 1로 뭉개지지 않게.
+        # urB_*(블록=카드 1개) 은 블록 등장 순서로 한 칸씩(블록 내부 r 무시 — 화면 위치와 1:1).
         # log_no 있으면 '그 글'만 매칭(통합탭도 글 단위). 없으면 블로그 단위 매칭.
-        for r, prims in _ugb_cards(j):
-            rank += 1
-            for bid, lno in prims:
+        if area.startswith("ugB"):
+            for r, prims in _ugb_cards(j):
+                rank += 1
+                for bid, lno in prims:
+                    if (log_no and lno == log_no) or (not log_no and bid == blog_id):
+                        return rank, "ok"
+        else:
+            rank += 1                        # 같은 섹션 안에서 보이는 카드 한 칸
+            for bid, lno in _primary_blog_posts(j):
                 if (log_no and lno == log_no) or (not log_no and bid == blog_id):
                     return rank, "ok"
     return OUT_OF_RANK, "out"

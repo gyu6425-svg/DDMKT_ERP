@@ -212,13 +212,24 @@ export function rankInPopular(html, blogId, logNo = '') {
             rank = 0;
             prevArea = area;
         }
-        // 블록 안 카드를 'distinct clickLog.r' 단위로 한 칸씩(ugbCards). 한 블록에 카드 2장(당근 2개
-        //   r1·r2, 칠곡 사이트 2개)도 누락 없이 각각 카운트. (2026-06-25 사용자 요청: 당근/사이트 전부
-        //   카운트 — 블록단위→카드단위.) 한 카드의 본문+출처는 같은 r 이라 1장, afterArticles 는 제외.
-        for (const [, prims] of ugbCards(j)) {
-            rank += 1;
-            for (const [bid, lno] of prims) {
-                if ((logNo && lno === logNo) || (!logNo && bid === blogId)) return { rank, status: 'ok' };
+        // ugB_*(한 블록=여러 카드, 예 ugB_bsR)은 블록 안 카드를 r 순서로 한 칸씩 — 같은 블록의 다른
+        //   카드(예 서천: sd44422 1위 … limebuffet 5위)에 순위가 1로 뭉개지지 않게.
+        // urB_*(블록=카드 1개)은 블록 등장 순서로 한 칸씩(블록 내부 r 무시 — 화면 위치와 1:1).
+        if (area.startsWith('ugB')) {
+            for (const [, prims] of ugbCards(j)) {
+                rank += 1;
+                for (const [bid, lno] of prims) {
+                    if ((logNo && lno === logNo) || (!logNo && bid === blogId)) return { rank, status: 'ok' };
+                }
+            }
+        } else {
+            rank += 1; // 같은 섹션 안에서 보이는 카드 한 칸
+            for (const [bid, lno] of primaryBlogPosts(j)) {
+                if (logNo) {
+                    if (lno === logNo) return { rank, status: 'ok' };
+                } else if (bid === blogId) {
+                    return { rank, status: 'ok' };
+                }
             }
         }
     }
