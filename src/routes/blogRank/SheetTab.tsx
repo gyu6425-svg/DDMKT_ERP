@@ -12,6 +12,7 @@ import { ImportModal } from './ImportModal';
 import { NoteModal } from './NoteModal';
 import { ProgressModal } from './ProgressModal';
 import { openBlogReport } from './report';
+import { ReportSelectModal } from './ReportSelectModal';
 
 export function SheetTab({
     accounts,
@@ -41,6 +42,7 @@ export function SheetTab({
     const [contractAcc, setContractAcc] = useState<BlogAccount | null>(null);
     const [weeklyAcc, setWeeklyAcc] = useState<BlogAccount | null>(null);
     const [reporterAcc, setReporterAcc] = useState<BlogAccount | null>(null);
+    const [reportAcc, setReportAcc] = useState<BlogAccount | null>(null); // 성과 보고서 글 선택 모달
     const [progressAcc, setProgressAcc] = useState<BlogAccount | null>(null);
     const [crawlingId, setCrawlingId] = useState<string | null>(null);
 
@@ -421,14 +423,8 @@ export function SheetTab({
                                                 </button>
                                                 <button
                                                     className="rounded bg-[#1e40af] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#1e3a8a]"
-                                                    onClick={() => {
-                                                        void openBlogReport(a, postCountOf(a.id)).then((ok) => {
-                                                            if (!ok) {
-                                                                onToast('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.');
-                                                            }
-                                                        });
-                                                    }}
-                                                    title="계약·현재 노출 순위 기반 성과 보고서(인쇄/PDF)"
+                                                    onClick={() => setReportAcc(a)}
+                                                    title="성과 보고서 만들기 — 넣을 글 선택 후 인쇄/PDF·카톡 발송"
                                                     type="button"
                                                 >
                                                     성과
@@ -525,6 +521,19 @@ export function SheetTab({
                     onClose={() => setProgressAcc(null)}
                     onReload={onReload}
                     onToast={onToast}
+                />
+            ) : null}
+            {reportAcc ? (
+                <ReportSelectModal
+                    account={reportAcc}
+                    posts={postCountOf(reportAcc.id)}
+                    onClose={() => setReportAcc(null)}
+                    onReport={(selected) => {
+                        setReportAcc(null);
+                        void openBlogReport(reportAcc, selected).then((ok) => {
+                            if (!ok) onToast('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.');
+                        });
+                    }}
                 />
             ) : null}
         </div>
