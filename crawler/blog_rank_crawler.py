@@ -802,14 +802,26 @@ def _block_blog_entries(node):
 
 
 def _entry_match(blog_id, log_no, posts, profiles):
-    """이 카드가 우리 블로그/글이면 True.
-    log_no 있으면: 그 글(정확 일치) 또는 그 블로그의 '프로필 카드'(글번호 없는 대표 카드)면 매칭.
-    log_no 없으면: 그 블로그의 글이거나 프로필 카드면 매칭."""
+    """이 콘텐츠 카드가 우리 글이면 True. 통합탭은 '글(콘텐츠)' 기준 — 블로그 채널(프로필) 카드는
+    애초에 카운트 대상에서 빠지므로(_is_content_card) profiles 는 매칭에 쓰지 않는다(strict).
+    log_no 있으면 그 글만, 없으면 그 블로그의 아무 글이나."""
     if log_no:
-        if any(lno == log_no for _, lno in posts):
-            return True
-        return blog_id in profiles
-    return any(bid == blog_id for bid, _ in posts) or (blog_id in profiles)
+        return any(lno == log_no for _, lno in posts)
+    return any(bid == blog_id for bid, _ in posts)
+
+
+def _is_content_card(j, raw):
+    """통합탭에서 '카운트 대상'인 콘텐츠 카드인지 — 네이버 블로그 글 또는 카페 글이면 True.
+    제외(통합탭 순위 아님): 외부 웹사이트(당근 daangn / forwarder.kr / 114.co.kr / work24 등 '관련문서'
+      묶음 = 웹사이트탭), 블로그 '채널/프로필' 카드(글번호 없는 blog.naver.com/<id> 홈), 이미지/연관검색어.
+    2026-06-25 사용자 확정(경기광주·용산 인테리어필름): 통합탭 = 위 웹사이트 묶음을 뺀, 블로그·카페 글이
+      나열되는 영역에서의 위치. (예: 용산 = 아카데미디자인필름이 1위인 영역.)"""
+    posts, _ = _block_blog_entries(j)
+    if posts:                      # 네이버 블로그 '글'(글번호 있음) = 콘텐츠
+        return True
+    if "cafe.naver.com" in raw:    # 네이버 카페 글 = 콘텐츠(순위 칸 차지)
+        return True
+    return False
 
 
 def _block_area(j):
@@ -903,6 +915,8 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
             continue
         if _block_min_r(j) >= 999:           # 비-결과 블록(AI/이미지/연관검색어) 제외
             continue
+        if not _is_content_card(j, b):       # 외부 웹사이트(당근/사이트=관련문서 묶음)·블로그 채널카드 제외
+            continue                         #   = 통합탭(블로그·카페 콘텐츠 목록) 순위 아님
         if area != prev_area:                # 새 섹션 → 순위 1부터 재시작
             rank = 0
             prev_area = area

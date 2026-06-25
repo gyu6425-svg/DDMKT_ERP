@@ -160,7 +160,7 @@ export function PostSearchCell({
                 </div>
             )}
             {post.keyword_manual ? (
-                <div className="mt-1 text-[10px] font-semibold text-[#7c3aed]">수동 키워드 #{post.keyword_manual}</div>
+                <div className="mt-1 text-[12px] font-semibold text-[#7c3aed]">수동 키워드 #{post.keyword_manual}</div>
             ) : null}
             {res ? (
                 <div className="mt-1 text-[11px] font-semibold text-[#0f172a]">

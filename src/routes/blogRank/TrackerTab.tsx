@@ -135,7 +135,7 @@ export function TrackerTab({
                                               })
                                             : '—'}
                                     </td>
-                                    <td className="px-3 py-2 text-xs font-semibold text-[#475569]">
+                                    <td className="px-3 py-2 text-[13px] font-semibold text-[#475569]">
                                         {nameOf(p.blog_account_id)}
                                     </td>
                                     <td className="px-3 py-2">
@@ -147,7 +147,7 @@ export function TrackerTab({
                                                         {p.title || '제목 없음'}
                                                     </div>
                                                     {p.keyword_manual || p.keyword ? (
-                                                        <span className="mt-1 inline-block rounded bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-semibold text-[#7c3aed]">
+                                                        <span className="mt-1 inline-block rounded bg-[#ede9fe] px-1.5 py-0.5 text-[12px] font-semibold text-[#7c3aed]">
                                                             #{p.keyword_manual || p.keyword}
                                                             {p.keyword_manual ? ' (수정됨)' : ''}
                                                         </span>

@@ -162,14 +162,22 @@ function blockBlogEntries(node) {
     return { posts, profiles };
 }
 
-// 이 카드가 우리 블로그/글이면 true. (파이썬 _entry_match 1:1)
-//   logNo 있으면: 그 글(정확 일치) 또는 그 블로그 '프로필 카드'면 매칭. 없으면: 그 블로그 글/프로필이면 매칭.
+// 이 콘텐츠 카드가 우리 글이면 true (파이썬 _entry_match 1:1). 통합탭은 '글' 기준 — 블로그 채널(프로필)
+//   카드는 isContentCard 에서 카운트 제외되므로 profiles 는 매칭에 쓰지 않는다(strict).
 function entryMatch(blogId, logNo, posts, profiles) {
-    if (logNo) {
-        if (posts.some(([, lno]) => lno === logNo)) return true;
-        return profiles.has(blogId);
-    }
-    return posts.some(([bid]) => bid === blogId) || profiles.has(blogId);
+    if (logNo) return posts.some(([, lno]) => lno === logNo);
+    return posts.some(([bid]) => bid === blogId);
+}
+
+// 통합탭 '카운트 대상' 콘텐츠 카드인지 — 네이버 블로그 글 또는 카페 글이면 true (파이썬 _is_content_card 1:1).
+//   제외: 외부 웹사이트(당근/forwarder.kr/114.co.kr/work24 등 '관련문서' 묶음 = 웹사이트탭), 블로그
+//   채널/프로필 카드(글번호 없는 홈), 이미지/연관검색어. 2026-06-25 사용자 확정(경기광주·용산):
+//   통합탭 = 위 웹사이트 묶음을 뺀 블로그·카페 글 영역의 위치.
+function isContentCard(j, raw) {
+    const { posts } = blockBlogEntries(j);
+    if (posts.length) return true;          // 네이버 블로그 '글'
+    if (raw.includes('cafe.naver.com')) return true; // 네이버 카페 '글'
+    return false;
 }
 
 // 블록 섹션 코드(meta.area 우선, 없으면 refs.blockId).
@@ -255,6 +263,7 @@ export function rankInPopular(html, blogId, logNo = '') {
         const area = blockArea(j);
         if (isWebArea(area)) continue; // 웹사이트(문서)탭 섹션 제외 — 통합탭 순위 아님
         if (blockMinR(j) >= 999) continue; // 비-결과 블록(AI/이미지/연관검색어) 제외
+        if (!isContentCard(j, b)) continue; // 외부 웹사이트(당근/사이트)·블로그 채널카드 제외 = 통합탭 콘텐츠 아님
         if (area !== prevArea) {
             // 새 섹션 → 순위 1부터 재시작
             rank = 0;
