@@ -1545,9 +1545,15 @@ def run_spread(force=False, max_posts=None, chunk_size=5, gap_min=6, deadline=No
                 wait = gap_min * 60
             if wait > 0:
                 print(f"  …IP 휴식 {wait / 60:.0f}분 (다음 청크 대기)", flush=True)
-                set_crawl_status(running=True, phase="rest", done=0, total=0,
-                                 current_blog=f"청크 {i + 1}/{nch} 완료 · IP 휴식 중")
-                time.sleep(wait)
+                rest_end = datetime.datetime.now() + datetime.timedelta(seconds=wait)
+                while True:                                  # 휴식 중에도 45초마다 갱신 → 현황 배너 유지(카운트다운)
+                    remain = (rest_end - datetime.datetime.now()).total_seconds()
+                    if remain <= 0:
+                        break
+                    mins = int(remain // 60) + 1
+                    set_crawl_status(running=True, phase="rest", done=i + 1, total=nch,
+                                     current_blog=f"청크 {i + 1}/{nch} 완료 · 다음 청크까지 {mins}분 휴식")
+                    time.sleep(min(45, remain))
     set_crawl_status(running=False, phase="done", current_blog="")
     print("=== 시간분산 크롤 전체 완료 ===", flush=True)
 

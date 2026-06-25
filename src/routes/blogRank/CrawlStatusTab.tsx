@@ -107,7 +107,10 @@ export function CrawlStatusTab({
         return () => window.clearInterval(id);
     }, []);
     // 최근 90초 내 업데이트면 '진행 중'으로 본다(크롤이 죽어도 영원히 진행중으로 안 남게).
-    const csLive = cs && cs.running && Date.now() - new Date(cs.updated_at).getTime() < 90000;
+    // 라이브 판정: 측정 중은 90초, '휴식(분산 청크 사이 갭)'은 갱신이 뜸하므로 30분까지 인정 → 휴식 갭에도 배너 유지.
+    const csAge = cs ? Date.now() - new Date(cs.updated_at).getTime() : Infinity;
+    const csResting = !!cs && cs.running && cs.phase === 'rest';
+    const csLive = !!cs && cs.running && (csAge < 90000 || (csResting && csAge < 1800000));
     const csPct = cs && cs.total ? Math.round((cs.done / cs.total) * 100) : 0;
 
     // 하단 게이지 = '전체 측정량'(오늘 전체 글 측정 진행). 크롤 중이면 crawl_status(글 단위 done/total),
@@ -184,30 +187,32 @@ export function CrawlStatusTab({
 
     return (
         <div className="grid gap-4">
-            {/* PC 크롤러 실시간 진행 배너 — 상단 = 라운드로빈 '이번 라운드' 진행(전체 블로그 1개씩) */}
+            {/* PC 크롤러 실시간 진행 배너 — 측정 중이면 진행률, 청크 사이 '휴식 갭'이면 휴식 안내(차단 예방) */}
             {csLive && cs ? (
-                <div className="rounded-xl border border-[#bfdbfe] bg-[#eff6ff] p-4">
+                <div
+                    className={`rounded-xl border p-4 ${
+                        csResting ? 'border-[#fcd34d] bg-[#fffbeb]' : 'border-[#bfdbfe] bg-[#eff6ff]'
+                    }`}
+                >
                     <div className="mb-1 flex items-center justify-between text-sm">
-                        <span className="font-bold text-[#1e40af]">
-                            <span className="mr-1 animate-pulse">●</span>
-                            {roundNo ? ` 라운드 ${roundNo} 진행 중` : ' 크롤러 진행 중'}
-                            {roundNo ? (
-                                <span className="ml-2 text-xs font-semibold text-[#475569]">
-                                    완료 {roundNo - 1}회
-                                </span>
-                            ) : null}
-                            {curName ? (
-                                <span className="ml-2 font-semibold text-[#0f172a]">현재: {curName}</span>
-                            ) : null}
+                        <span className={`font-bold ${csResting ? 'text-[#b45309]' : 'text-[#1e40af]'}`}>
+                            <span className="mr-1 animate-pulse">{csResting ? '⏸' : '●'}</span>
+                            {csResting
+                                ? ` 차단 예방 휴식 중 — ${cs.current_blog || ''}`
+                                : roundNo
+                                  ? ` 라운드 ${roundNo} 진행 중 · 완료 ${roundNo - 1}회${curName ? ` · 현재: ${curName}` : ''}`
+                                  : ` 크롤러 진행 중${curName ? ` · 현재: ${curName}` : ''}`}
                         </span>
                         <span className="font-bold text-[#0f172a]">
-                            {roundNo ? `${roundDone}/${roundTotal} 블로그 · ${roundPct}%` : `${csPct}%`}
+                            {csResting ? '휴식' : roundNo ? `${roundDone}/${roundTotal} 블로그 · ${roundPct}%` : `${csPct}%`}
                         </span>
                     </div>
-                    <div className="h-3 overflow-hidden rounded-full bg-white">
+                    <div className={`h-3 overflow-hidden rounded-full ${csResting ? 'bg-[#fef3c7]' : 'bg-white'}`}>
                         <div
-                            className="h-full rounded-full bg-[#1e40af] transition-all duration-500"
-                            style={{ width: `${roundNo ? roundPct : csPct}%` }}
+                            className={`h-full rounded-full transition-all duration-500 ${
+                                csResting ? 'animate-pulse bg-[#d97706]' : 'bg-[#1e40af]'
+                            }`}
+                            style={{ width: `${csResting ? 100 : roundNo ? roundPct : csPct}%` }}
                         />
                     </div>
                 </div>
