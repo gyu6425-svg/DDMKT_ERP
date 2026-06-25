@@ -112,12 +112,14 @@ export function CrawlStatusTab({
     const csResting = !!cs && cs.running && cs.phase === 'rest';
     const csLive = !!cs && cs.running && (csAge < 90000 || (csResting && csAge < 1800000));
     const csPct = cs && cs.total ? Math.round((cs.done / cs.total) * 100) : 0;
+    // 크롤러가 current_blog 에 실어 보낸 예상 완료시각('완료 ~HH:MM') 파싱.
+    const etaStr = (cs?.current_blog || '').match(/완료\s*~\s*(\d{1,2}:\d{2})/)?.[1] || '';
 
-    // 하단 게이지 = '전체 측정량'(오늘 전체 글 측정 진행). 크롤 중이면 crawl_status(글 단위 done/total),
-    //   아니면 DB 기준 오늘 측정된 글 / 추적 글 전체.
-    const totalPosts = posts.length;
-    const gaugeDone = csLive && cs ? cs.done : counts.posts;
-    const gaugeTotal = csLive && cs ? cs.total : totalPosts;
+    // 하단 게이지 = '전체 블로그' 진행률(예: 0/64). 청크 단위가 아니라 활성 블로그 전체 중 오늘 측정된 블로그 수.
+    //   칩(완료/일부실패/실패)과 동일 소스라 현재 크롤 진행이 그대로 반영됨.
+    const measuredBlogs = counts.done + counts.partial + counts.fail;
+    const gaugeDone = measuredBlogs;
+    const gaugeTotal = active.length;
     const gaugePct = gaugeTotal ? Math.round((gaugeDone / gaugeTotal) * 100) : 0;
 
     // 상단 게이지 = 라운드로빈 '이번 라운드' 진행. 라운드 N = 전체 블로그의 N번째 최신글을 1개씩 도는 중.
@@ -198,12 +200,13 @@ export function CrawlStatusTab({
                         <span className={`font-bold ${csResting ? 'text-[#b45309]' : 'text-[#1e40af]'}`}>
                             <span className="mr-1 animate-pulse">{csResting ? '⏸' : '●'}</span>
                             {csResting
-                                ? ` 차단 예방 휴식 중 — ${cs.current_blog || ''}`
+                                ? ` 차단 예방 휴식 중 — ${(cs.current_blog || '').replace(/\s*·\s*완료\s*~\s*\d{1,2}:\d{2}\s*$/, '')}`
                                 : roundNo
                                   ? ` 라운드 ${roundNo} 진행 중 · 완료 ${roundNo - 1}회${curName ? ` · 현재: ${curName}` : ''}`
                                   : ` 크롤러 진행 중${curName ? ` · 현재: ${curName}` : ''}`}
                         </span>
                         <span className="font-bold text-[#0f172a]">
+                            {etaStr ? <span className="mr-2 font-semibold text-[#7c3aed]">예상 완료 {etaStr}</span> : null}
                             {csResting ? '휴식' : roundNo ? `${roundDone}/${roundTotal} 블로그 · ${roundPct}%` : `${csPct}%`}
                         </span>
                     </div>
@@ -267,11 +270,11 @@ export function CrawlStatusTab({
                 <Card label="실패 글" value={counts.failPosts} color={counts.failPosts ? '#dc2626' : '#94a3b8'} />
             </div>
 
-            {/* 하단 게이지: 전체 측정량(오늘 전체 글 측정 진행) */}
+            {/* 하단 게이지: 전체 블로그 진행률(활성 블로그 중 오늘 측정된 블로그) */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                 <div className="mb-1 flex items-center justify-between text-xs">
                     <span className="font-semibold text-[#1e40af]">
-                        전체 측정량 {gaugeDone}/{gaugeTotal}글 {csLive ? '진행 중' : '측정됨'}
+                        전체 블로그 {gaugeDone}/{gaugeTotal} 측정 {csLive ? '진행 중' : '완료'}
                         {running && currentId ? (
                             <>
                                 {' · '}

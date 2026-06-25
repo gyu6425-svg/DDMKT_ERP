@@ -73,6 +73,7 @@ REQUEST_DELAY = float(os.environ.get("CRAWL_DELAY", "3.5"))  # 검색 요청 사
 BLOCK_REST_EVERY = int(os.environ.get("CRAWL_REST_EVERY", "6"))   # N개 블로그마다 긴 휴식(누적 레이트리밋 예방). 8→6.
 BLOCK_REST_SEC = float(os.environ.get("CRAWL_REST_SEC", "40"))    # 그 휴식 길이(초, 지터 포함). 25→40.
 MAX_POSTS_PER_BLOG = 5    # 블로그당 RSS 최신 글 수(최신 위주 — 이 글들만 측정, 옛 글 제외). 2026-06-25 10→5(속도)
+ETA_HINT = ""             # 시간분산 크롤 예상 완료 힌트("완료 ~HH:MM"). run_spread 가 갱신, current_blog 에 실어 보냄
 
 
 def _pause(base=None):
@@ -1470,7 +1471,7 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
             ok += 0 if (ti_s == "fail" or bl_s == "fail") else 1
             fail += 1 if (ti_s == "fail" or bl_s == "fail") else 0
             set_crawl_status(running=True, phase="crawl", done=done, total=total, ok=ok, fail=fail,
-                             current_blog=f"{acc.get('name','')} · 라운드 {i + 1}")
+                             current_blog=f"{acc.get('name','')} · 라운드 {i + 1}" + (f" · {ETA_HINT}" if ETA_HINT else ""))
             if BLOCK_REST_EVERY > 0 and done % BLOCK_REST_EVERY == 0 and done < total:
                 rest = BLOCK_REST_SEC + random.uniform(0, BLOCK_REST_SEC * 0.5)
                 print(f"  …{done}/{total} · 차단 예방 휴식 {rest:.0f}초", flush=True)
@@ -1506,7 +1507,7 @@ def run_spread(force=False, max_posts=None, chunk_size=5, gap_min=6, deadline=No
     짧은 시간에 요청이 몰려 차단되던 문제를 근본 회피(요청을 시간축으로 펼침).
       deadline='HH:MM' 주면 그 시각(−margin_min)까지 끝나도록 청크 시작 간격을 자동 분배(예: 04시 시작·09시 마감).
       deadline 없으면 gap_min 고정 갭. blogtab=API(SERP 절반)·5글과 합쳐 무료로 사실상 무차단."""
-    global MAX_POSTS_PER_BLOG
+    global MAX_POSTS_PER_BLOG, ETA_HINT
     if max_posts:
         MAX_POSTS_PER_BLOG = max_posts
     need_config()
@@ -1522,12 +1523,29 @@ def run_spread(force=False, max_posts=None, chunk_size=5, gap_min=6, deadline=No
 
     start = datetime.datetime.now()
     interval = None
+    end = None
     if deadline:
         hh, mm = (int(x) for x in deadline.split(":"))
         end = start.replace(hour=hh, minute=mm, second=0, microsecond=0) - datetime.timedelta(minutes=margin_min)
         if end <= start:
             end = start + datetime.timedelta(hours=4)      # 안전장치
         interval = (end - start).total_seconds() / nch     # 청크 '시작' 간격 균등
+
+    def _eta_hint(done_chunks):
+        """남은 청크로 예상 완료 시각 → '완료 ~HH:MM'. deadline 모드는 마감(end), 아니면 평균 속도 외삽."""
+        if done_chunks >= nch:
+            return ""
+        if end is not None:                                # 마감 모드
+            eta = end
+        elif done_chunks <= 0:                             # 초기 러프 추정(갭 모드)
+            per = gap_min * 60 + chunk_size * MAX_POSTS_PER_BLOG * (REQUEST_DELAY * 2.5)
+            eta = start + datetime.timedelta(seconds=nch * per)
+        else:                                              # 진행 평균으로 외삽
+            elapsed = (datetime.datetime.now() - start).total_seconds()
+            eta = datetime.datetime.now() + datetime.timedelta(seconds=(nch - done_chunks) * (elapsed / done_chunks))
+        return f"완료 ~{eta:%H:%M}"
+
+    ETA_HINT = _eta_hint(0)                                # 시작 추정
     print(f"=== 시간분산 크롤 {nch}청크(블로그 {chunk_size}개씩) · "
           f"{'마감 ' + deadline + f'(-{margin_min}분)' if deadline else f'갭 {gap_min}분'} ===", flush=True)
 
@@ -1536,6 +1554,7 @@ def run_spread(force=False, max_posts=None, chunk_size=5, gap_min=6, deadline=No
             continue
         print(f"[청크 {i + 1}/{nch}] 블로그 {len(group)}개 측정", flush=True)
         run_breadth(force=force, only_ids=set(group))
+        ETA_HINT = _eta_hint(i + 1)                        # 청크 완료마다 예상 완료시각 갱신
         if i < nch - 1:
             if interval is not None:
                 target = start + datetime.timedelta(seconds=interval * (i + 1))
@@ -1551,8 +1570,10 @@ def run_spread(force=False, max_posts=None, chunk_size=5, gap_min=6, deadline=No
                         break
                     mins = int(remain // 60) + 1
                     set_crawl_status(running=True, phase="rest", done=i + 1, total=nch,
-                                     current_blog=f"청크 {i + 1}/{nch} 완료 · 다음 청크까지 {mins}분 휴식")
+                                     current_blog=f"청크 {i + 1}/{nch} 완료 · 다음 청크까지 {mins}분 휴식"
+                                     + (f" · {ETA_HINT}" if ETA_HINT else ""))
                     time.sleep(min(45, remain))
+    ETA_HINT = ""
     set_crawl_status(running=False, phase="done", current_blog="")
     print("=== 시간분산 크롤 전체 완료 ===", flush=True)
 
