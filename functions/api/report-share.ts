@@ -25,7 +25,7 @@ export async function onRequestPost({ request, env }: FunctionContext) {
         }
     }
 
-    let body: { html?: unknown; title?: unknown };
+    let body: { html?: unknown; title?: unknown; ogImage?: unknown };
     try {
         body = (await request.json()) as typeof body;
     } catch {
@@ -36,9 +36,14 @@ export async function onRequestPost({ request, env }: FunctionContext) {
     if (typeof html !== 'string' || !html || html.length > MAX_HTML) {
         return json({ error: 'invalid html' }, 400);
     }
+    // 카톡 썸네일(og:image) base64 PNG — 보고서마다 실제 순위가 박힌 이미지. 너무 크면 버림(폴백=정적 배너).
+    const ogImage =
+        typeof body.ogImage === 'string' && body.ogImage.length > 0 && body.ogImage.length <= 800_000
+            ? body.ogImage
+            : null;
 
     try {
-        const rows = await sbInsert(env, 'report_shares', [{ title, html }]);
+        const rows = await sbInsert(env, 'report_shares', [{ title, html, og_image: ogImage }]);
         const id = Array.isArray(rows) && rows[0] ? rows[0].id : null;
         if (!id) return json({ error: 'insert failed' }, 500);
         return json({ id });

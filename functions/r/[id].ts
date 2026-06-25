@@ -4,6 +4,7 @@
 import { sbGet } from '../lib/crawlLib.mjs';
 
 type FunctionContext = {
+    request: Request;
     params: { id: string | string[] };
     env: Record<string, string | undefined>;
 };
@@ -14,14 +15,27 @@ const notFound = () =>
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
     });
 
-export async function onRequestGet({ params, env }: FunctionContext) {
+export async function onRequestGet({ request, params, env }: FunctionContext) {
     const id = String(Array.isArray(params.id) ? params.id[0] : params.id || '');
     // uuid 형태만 허용(잘못된 경로/인젝션 방지).
     if (!/^[0-9a-f-]{16,40}$/i.test(id)) return notFound();
     try {
-        const rows = await sbGet(env, 'report_shares', { id: `eq.${id}`, select: 'html', limit: '1' });
+        const rows = await sbGet(env, 'report_shares', {
+            id: `eq.${id}`,
+            select: 'html,og_image',
+            limit: '1',
+        });
         if (!Array.isArray(rows) || !rows.length || !rows[0].html) return notFound();
-        return new Response(rows[0].html, {
+        let html = rows[0].html as string;
+        // 저장된 동적 썸네일이 있으면 og:image 를 /og/{id}.png 로 교체(카톡 카드에 실제 순위 이미지).
+        if (rows[0].og_image) {
+            const ogUrl = `${new URL(request.url).origin}/og/${id}.png`;
+            html = html.replace(
+                /<meta property="og:image" content="[^"]*">/,
+                `<meta property="og:image" content="${ogUrl}">`,
+            );
+        }
+        return new Response(html, {
             headers: {
                 'Content-Type': 'text/html; charset=utf-8',
                 'Cache-Control': 'public, max-age=300',

@@ -137,4 +137,6 @@ create table if not exists public.report_shares (
     title text,
     html text not null
 );
+-- 카톡 카드 썸네일(og:image) — 보고서마다 실제 순위가 박힌 PNG(base64). /og/:id.png 가 디코딩해 서빙.
+alter table public.report_shares add column if not exists og_image text;
 alter table public.report_shares enable row level security;

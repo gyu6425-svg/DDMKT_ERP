@@ -175,8 +175,76 @@ setTimeout(function(){window.focus();},100);
 </body></html>`;
 }
 
+// 카톡 링크 카드 썸네일(og:image) — 보고서마다 '실제 순위'가 박힌 이미지를 브라우저 캔버스로 그린다.
+//   AI/외부API 아님. 한글 업체명은 OS 폰트로 렌더(워커에 폰트 불필요). data URL 의 base64 만 반환.
+export function buildOgImageBase64(account: BlogAccount, posts: BlogPost[]): string {
+    if (typeof document === 'undefined') return '';
+    const today = todayKST();
+    const measured = posts.filter((p) => lastM(p)).length;
+    const ranked = (max: number) =>
+        posts.filter((p) => {
+            const m = lastM(p);
+            return !!m && m.ti_status !== 'fail' && m.ti_status !== 'out' && m.ti <= max;
+        }).length;
+    const top10 = ranked(10);
+    const top30 = ranked(30);
+
+    const W = 1200;
+    const H = 630;
+    const cv = document.createElement('canvas');
+    cv.width = W;
+    cv.height = H;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return '';
+    const F = '"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif';
+    ctx.fillStyle = '#eef2f9';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(40, 40, W - 80, H - 80);
+    ctx.fillStyle = '#1e40af';
+    ctx.fillRect(40, 40, 14, H - 80);
+
+    ctx.fillStyle = '#1e40af';
+    ctx.font = `bold 30px ${F}`;
+    ctx.fillText('든든한 마케팅 · 네이버 노출 성과 보고', 92, 122);
+
+    ctx.fillStyle = '#0f172a';
+    ctx.font = `bold 74px ${F}`;
+    let label = `${account.name} 블로그 성과`;
+    while (ctx.measureText(label).width > W - 200 && label.length > 6) label = label.slice(0, -1);
+    ctx.fillText(label, 92, 222);
+
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(92, 262);
+    ctx.lineTo(W - 100, 262);
+    ctx.stroke();
+
+    const stat = (x: number, caption: string, value: number, color: string) => {
+        ctx.fillStyle = '#64748b';
+        ctx.font = `600 34px ${F}`;
+        ctx.fillText(caption, x, 372);
+        ctx.fillStyle = color;
+        ctx.font = `bold 150px ${F}`;
+        ctx.fillText(`${value}`, x, 520);
+        const vw = ctx.measureText(`${value}`).width;
+        ctx.fillStyle = '#475569';
+        ctx.font = `600 46px ${F}`;
+        ctx.fillText('개', x + vw + 14, 520);
+    };
+    stat(92, '통합탭 10위 이내', top10, '#059669');
+    stat(640, '30위 이내', top30, '#1e40af');
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `500 28px ${F}`;
+    ctx.fillText(`측정 ${measured}개 · 기준일 ${today}`, 92, 585);
+
+    return cv.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+}
+
 // 성과 보고서를 '호스팅'(/r/:id)으로 열어 카톡 링크가 생기게 한다(트래커 보고서와 동일 방식).
-//   1) 클릭 즉시 새 창(팝업차단 회피) → 2) HTML 을 서버리스에 저장 → 3) /r/{id} 로 이동. 실패 시 인라인 폴백.
+//   1) 클릭 즉시 새 창(팝업차단 회피) → 2) HTML+썸네일 을 서버리스에 저장 → 3) /r{id} 로 이동. 실패 시 인라인 폴백.
 export async function openBlogReport(account: BlogAccount, posts: BlogPost[]): Promise<boolean> {
     const w = window.open('', '_blank');
     if (!w) return false;
@@ -185,11 +253,12 @@ export async function openBlogReport(account: BlogAccount, posts: BlogPost[]): P
             '<body style="font-family:\'Apple SD Gothic Neo\',\'Malgun Gothic\',sans-serif;padding:48px;color:#475569;font-size:15px">성과 보고서를 생성하는 중입니다…</body></html>',
     );
     const html = buildBlogReportHtml(account, posts);
+    const ogImage = buildOgImageBase64(account, posts); // 실제 순위가 박힌 카톡 썸네일(base64 PNG)
     try {
         const res = await fetch('/api/report-share', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ html, title: `${account.name} 블로그 성과 보고서` }),
+            body: JSON.stringify({ html, title: `${account.name} 블로그 성과 보고서`, ogImage }),
         });
         const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
         if (res.ok && data.id) {
