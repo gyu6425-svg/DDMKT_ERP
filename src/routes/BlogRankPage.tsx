@@ -20,10 +20,12 @@ function BlogRankPage() {
         return t === 'sheet' || t === 'tracker' || t === 'crawl' || t === 'writer' ? t : 'dashboard';
     });
     const [toast, setToast] = useState('');
-    // 대시보드 '통합탭 10위 이내' 카드 → 트래커를 10위 필터 켜진 채로 연다. 일반 탭 이동 시엔 해제.
-    const [trackerInOnly, setTrackerInOnly] = useState(false);
+    // 대시보드/시트에서 트래커로 보낼 때의 초기 필터. 일반 탭 이동 시엔 해제.
+    const [trackerInOnly, setTrackerInOnly] = useState(false); // 통합 10위 이내만
+    const [trackerCo, setTrackerCo] = useState(''); // 특정 업체만(시트 업체명 클릭)
     const goTab = (key: Tab) => {
         setTrackerInOnly(false);
+        setTrackerCo('');
         setTab(key);
     };
 
@@ -148,10 +150,21 @@ function BlogRankPage() {
                     onReload={load}
                     onToast={showToast}
                     onGoCrawl={() => setTab('crawl')}
+                    onGoTrackerBlog={(id) => {
+                        setTrackerCo(id);
+                        setTrackerInOnly(false);
+                        setTab('tracker');
+                    }}
                 />
             ) : null}
             {tab === 'tracker' ? (
-                <TrackerTab accounts={accounts} posts={posts} onReload={load} initialInOnly={trackerInOnly} />
+                <TrackerTab
+                    accounts={accounts}
+                    posts={posts}
+                    onReload={load}
+                    initialInOnly={trackerInOnly}
+                    initialCo={trackerCo}
+                />
             ) : null}
             {tab === 'crawl' ? (
                 <CrawlStatusTab accounts={accounts} posts={posts} onReload={load} onToast={showToast} />

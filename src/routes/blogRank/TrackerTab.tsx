@@ -11,13 +11,15 @@ export function TrackerTab({
     posts,
     onReload,
     initialInOnly = false,
+    initialCo = '',
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
     onReload: () => Promise<void>;
     initialInOnly?: boolean; // 대시보드 '통합탭 10위 이내' 카드에서 들어오면 true 로 시작
+    initialCo?: string; // 시트에서 특정 업체명 클릭으로 들어오면 그 업체만 보이게(blog_account_id)
 }) {
-    const [co, setCo] = useState('');
+    const [co, setCo] = useState(initialCo);
     const [nameQ, setNameQ] = useState('');
     const [month, setMonth] = useState('');
     const [inOnly, setInOnly] = useState(initialInOnly);
@@ -26,6 +28,10 @@ export function TrackerTab({
     useEffect(() => {
         if (initialInOnly) setInOnly(true);
     }, [initialInOnly]);
+    // 시트 업체명 클릭으로 진입하면(initialCo=그 업체) 그 업체만 보이게.
+    useEffect(() => {
+        if (initialCo) setCo(initialCo);
+    }, [initialCo]);
 
     const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
 
