@@ -38,3 +38,7 @@ __pycache__/
 
 # 크롤러 실행 로그
 crawler/*.log
+
+# 임시 크롤/로그 스크립트
+crawler/_*.py
+crawler/_*.log
