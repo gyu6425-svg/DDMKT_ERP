@@ -1,6 +1,23 @@
 -- 블로그 순위 관리(저스트 블로그 이식)용 테이블
 -- Supabase 대시보드 > SQL Editor 에 붙여넣고 실행하세요.
 
+-- ── 크롤 진행 상황(현황 페이지 실시간 표시용) ──────────
+-- 크롤러(service_role)가 단일행(id=1)에 진행 상황을 기록 → '크롤링 현황' 페이지가 읽어 실시간 표시.
+create table if not exists public.crawl_status (
+    id int primary key,
+    updated_at timestamptz not null default now(),
+    running boolean default false,
+    phase text,
+    current_blog text,
+    done int default 0,
+    total int default 0,
+    ok int default 0,
+    fail int default 0
+);
+alter table public.crawl_status enable row level security;
+drop policy if exists "crawl_status read" on public.crawl_status;
+create policy "crawl_status read" on public.crawl_status for select to authenticated using (true);
+
 -- ── 관리 블로그(업체) ────────────────────────────────────
 create table if not exists public.blog_accounts (
     id uuid primary key default gen_random_uuid(),

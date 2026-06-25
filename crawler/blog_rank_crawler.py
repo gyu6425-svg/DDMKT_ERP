@@ -18,6 +18,7 @@
 """
 
 import os
+import datetime
 import random
 import re
 import sys
@@ -439,6 +440,17 @@ def sb_patch(path, params, payload):
     )
     r.raise_for_status()
     return r.json()
+
+
+def set_crawl_status(**fields):
+    """크롤 진행 상황을 crawl_status(단일행 id=1)에 기록 — '크롤링 현황' 페이지 실시간 표시용.
+    실패해도 크롤은 계속(현황 기록은 부가기능)."""
+    try:
+        fields["id"] = 1
+        fields["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        sb_insert("crawl_status", [fields], on_conflict="id")
+    except Exception:
+        pass
 
 
 # 글 본문 하단 해시태그(#…)를 모바일 글 HTML에서 가져온다. RSS <tag>는 주제태그 1개뿐인 경우가 많아
@@ -1123,7 +1135,7 @@ def dump_keyword(keyword, blog_id="", website_host=""):
 
 
 # ── 메인 ─────────────────────────────────────────────────
-def _process_blog(acc, kw_by_acc):
+def _process_blog(acc, kw_by_acc, force=False):
     """블로그 1개 전체 처리: 최신글 동기화 → '그 글들만' 측정(옛 글 제외) + 웹사이트 + 대표키워드.
     스레드 1개가 블로그 1개를 담당(병렬 모드) — 블로그 내부는 순차라 네이버 부하가 과하지 않음.
     반환 (글측정수, 웹측정수, 키워드측정수)."""
@@ -1154,8 +1166,9 @@ def _process_blog(acc, kw_by_acc):
             if not keyword:
                 continue
             # 오늘 이미 성공 측정(ti·bl 둘 다 fail 아님)했으면 skip — 재실행 부하↓·차단 예방.
+            #   force=True(전체 재측정/파서 변경 반영)면 skip 없이 다시 잰다.
             tr = next((r for r in (post.get("measurements") or []) if r.get("date") == TODAY), None)
-            if tr and tr.get("ti_status") != "fail" and tr.get("bl_status") != "fail":
+            if not force and tr and tr.get("ti_status") != "fail" and tr.get("bl_status") != "fail":
                 continue
             ti, bl, ti_s, bl_s, ws = measure_rank(keyword, blog_id, post.get("post_url", ""))
             recs = [r for r in (post.get("measurements") or []) if r.get("date") != TODAY]
@@ -1188,7 +1201,10 @@ def _process_blog(acc, kw_by_acc):
     return (pm, wm, km)
 
 
-def run(fast=False, workers=4):
+def run(fast=False, workers=4, force=False, max_posts=None):
+    global MAX_POSTS_PER_BLOG
+    if max_posts:
+        MAX_POSTS_PER_BLOG = max_posts   # 테스트/수동 크롤에서 최신 N글로 제한
     need_config()
     # 안전 우선: fast 여도 '요청 간격(REQUEST_DELAY)'은 그대로 유지하고 블로그만 병렬(소수 워커).
     # (8워커+0.2초처럼 간격까지 줄이면 네이버가 차단해 fail 폭증 → 절대 줄이지 않음.)
@@ -1214,21 +1230,27 @@ def run(fast=False, workers=4):
     if fast:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            results = list(ex.map(lambda a: _process_blog(a, kw_by_acc), accounts))
+            results = list(ex.map(lambda a: _process_blog(a, kw_by_acc, force=force), accounts))
     else:
         # 순차: N개 블로그마다 긴 휴식 — 요청이 누적되면 네이버가 막판에 레이트리밋(오늘 막판 fail 다발)
         #   하므로 주기적으로 쉬어 누적 부하를 끊는다. 휴식 길이도 지터로 흔든다.
         results = []
+        total = len(accounts)
+        set_crawl_status(running=True, phase="crawl", done=0, total=total, ok=0, fail=0, current_blog="")
         for i, a in enumerate(accounts):
-            results.append(_process_blog(a, kw_by_acc))
-            if BLOCK_REST_EVERY > 0 and (i + 1) % BLOCK_REST_EVERY == 0 and (i + 1) < len(accounts):
+            set_crawl_status(running=True, phase="crawl", done=i, total=total,
+                             current_blog=a.get("name", ""))
+            results.append(_process_blog(a, kw_by_acc, force=force))
+            if BLOCK_REST_EVERY > 0 and (i + 1) % BLOCK_REST_EVERY == 0 and (i + 1) < total:
                 rest = BLOCK_REST_SEC + random.uniform(0, BLOCK_REST_SEC * 0.5)
-                print(f"  …{i + 1}/{len(accounts)} 완료 · 차단 예방 휴식 {rest:.0f}초", flush=True)
+                print(f"  …{i + 1}/{total} 완료 · 차단 예방 휴식 {rest:.0f}초", flush=True)
+                set_crawl_status(running=True, phase="rest", done=i + 1, total=total, current_blog="휴식 중")
                 time.sleep(rest)
 
     pm = sum(r[0] for r in results)
     wm = sum(r[1] for r in results)
     km = sum(r[2] for r in results)
+    set_crawl_status(running=False, phase="done", done=len(accounts), total=len(accounts), current_blog="")
     print(f"=== 완료: 글 {pm}건 / 웹사이트 {wm}건 / 대표키워드 {km}건 측정 ===")
 
 

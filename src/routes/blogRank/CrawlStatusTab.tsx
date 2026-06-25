@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { crawlBlog } from '../../api/crawlBlog';
 import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
+import { supabase } from '../../lib/supabase';
+
+type CrawlStatus = {
+    updated_at: string;
+    running: boolean;
+    phase: string | null;
+    current_blog: string | null;
+    done: number;
+    total: number;
+};
 
 type Status = 'done' | 'partial' | 'fail' | 'pending';
 const LABEL: Record<Status, string> = { done: '완료', partial: '일부 실패', fail: '실패', pending: '대기' };
@@ -77,6 +87,25 @@ export function CrawlStatusTab({
         return () => window.clearInterval(id);
     }, [auto]);
 
+    // ── PC 크롤러 실시간 진행(crawl_status 폴링, 5초) ──
+    const [cs, setCs] = useState<CrawlStatus | null>(null);
+    useEffect(() => {
+        const fetchCs = async () => {
+            const { data } = await supabase
+                .from('crawl_status')
+                .select('updated_at,running,phase,current_blog,done,total')
+                .eq('id', 1)
+                .maybeSingle();
+            setCs((data as CrawlStatus) ?? null);
+        };
+        void fetchCs();
+        const id = window.setInterval(() => void fetchCs(), 5000);
+        return () => window.clearInterval(id);
+    }, []);
+    // 최근 90초 내 업데이트면 '진행 중'으로 본다(크롤이 죽어도 영원히 진행중으로 안 남게).
+    const csLive = cs && cs.running && Date.now() - new Date(cs.updated_at).getTime() < 90000;
+    const csPct = cs && cs.total ? Math.round((cs.done / cs.total) * 100) : 0;
+
     // ── 웹에서 전체 측정(서버리스) ──
     const [running, setRunning] = useState(false);
     const [done, setDone] = useState(0);
@@ -133,6 +162,29 @@ export function CrawlStatusTab({
 
     return (
         <div className="grid gap-4">
+            {/* PC 크롤러 실시간 진행 배너 */}
+            {csLive && cs ? (
+                <div className="rounded-xl border border-[#bfdbfe] bg-[#eff6ff] p-4">
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                        <span className="font-bold text-[#1e40af]">
+                            <span className="mr-1 animate-pulse">●</span> 크롤러 진행 중
+                            {cs.current_blog ? (
+                                <span className="ml-2 font-semibold text-[#0f172a]">현재: {cs.current_blog}</span>
+                            ) : null}
+                        </span>
+                        <span className="font-bold text-[#0f172a]">
+                            {cs.done}/{cs.total} · {csPct}%
+                        </span>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-white">
+                        <div
+                            className="h-full rounded-full bg-[#1e40af] transition-all duration-500"
+                            style={{ width: `${csPct}%` }}
+                        />
+                    </div>
+                </div>
+            ) : null}
+
             {/* 상단: 상태 + 컨트롤 */}
             <div className="flex flex-wrap items-center gap-3">
                 <h3 className="m-0 text-base font-bold text-[#0f172a]">크롤링 현황 · {today}</h3>
