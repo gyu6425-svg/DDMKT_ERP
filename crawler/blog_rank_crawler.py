@@ -1328,11 +1328,19 @@ if __name__ == "__main__":
             debug_keyword(kw, blog_id, post_url, website_host)
     else:
         # 전체 실행. 기본=순차(가장 안전). --fast = 블로그 병렬(소수 워커, 간격은 유지), --workers N(기본 4).
+        #   --force = 오늘 측정 완료분도 다시 잰다(파서 변경 전체 반영). --max-posts N = 블로그당 최신 N글만.
         fast = "--fast" in args
+        force = "--force" in args
         workers = 4
+        max_posts = None
         if "--workers" in args:
             try:
                 workers = max(1, int(args[args.index("--workers") + 1]))
             except (ValueError, IndexError):
                 pass
-        run(fast=fast, workers=workers)
+        if "--max-posts" in args:
+            try:
+                max_posts = max(1, int(args[args.index("--max-posts") + 1]))
+            except (ValueError, IndexError):
+                pass
+        run(fast=fast, workers=workers, force=force, max_posts=max_posts)
