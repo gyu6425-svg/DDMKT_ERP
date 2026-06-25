@@ -61,10 +61,18 @@ export function buildBlogReportHtml(account: BlogAccount, posts: BlogPost[]): st
                 const ti = fmtRank(m, 'ti');
                 const bl = fmtRank(m, 'bl');
                 const ranked = m && m.ti_status !== 'fail' && m.ti_status !== 'out' && m.ti <= 30;
+                const kw = kwOf(p);
+                // 통합탭 순위 → 네이버 통합검색, 블로그탭 순위 → 네이버 블로그탭 (그 키워드로 검색한 화면)
+                const tiCell = kw
+                    ? `<a class="ranklink" href="${escapeHtml(tiSearchUrl(kw))}" target="_blank" rel="noopener" title="네이버 통합검색에서 이 키워드 순위 확인">${escapeHtml(ti)}</a>`
+                    : escapeHtml(ti);
+                const blCell = kw
+                    ? `<a class="ranklink" href="${escapeHtml(blSearchUrl(kw))}" target="_blank" rel="noopener" title="네이버 블로그탭에서 이 키워드 순위 확인">${escapeHtml(bl)}</a>`
+                    : escapeHtml(bl);
                 return `<tr class="${ranked ? '' : 'muted'}">
-<td class="rank">${escapeHtml(ti)}</td>
-<td>${escapeHtml(bl)}</td>
-<td class="kw">${escapeHtml(kwOf(p) || '—')}</td>
+<td class="rank ti">${tiCell}</td>
+<td class="rank bl">${blCell}</td>
+<td class="kw">${escapeHtml(kw || '—')}</td>
 <td class="title">${
                     p.post_url
                         ? `<a href="${escapeHtml(p.post_url)}" target="_blank" rel="noopener">${escapeHtml(p.title || '제목 없음')}</a>`
@@ -105,7 +113,11 @@ export function buildBlogReportHtml(account: BlogAccount, posts: BlogPost[]): st
   table { width:100%; border-collapse:collapse; margin-top:18px; font-size:13px; }
   th,td { border-bottom:1px solid #e2e8f0; padding:8px 10px; text-align:left; }
   th { background:#f1f5f9; color:#475569; font-size:12px; }
-  td.rank { font-weight:800; color:#1e40af; }
+  td.rank { font-weight:800; }
+  td.rank.ti { color:#059669; }   /* 통합탭 = 초록 */
+  td.rank.bl { color:#1e40af; }   /* 블로그탭 = 파랑 */
+  th.th-ti { color:#059669; } th.th-bl { color:#1e40af; }
+  a.ranklink { color:inherit; text-decoration:none; } a.ranklink:hover { text-decoration:underline; }
   tr.muted td { color:#94a3b8; }
   td.title { max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   td.title a { color:#1e40af; text-decoration:none; } td.title a:hover { text-decoration:underline; }
@@ -133,7 +145,7 @@ export function buildBlogReportHtml(account: BlogAccount, posts: BlogPost[]): st
 </div>
 <div class="kpi">총 ${rows.length}개 키워드 추적 · 네이버 통합탭 <span>1페이지(10위 이내) 노출 ${top10}개</span> · 30위 이내 ${top30}개 (측정 ${measured.length}개)</div>
 <table>
-  <thead><tr><th>통합탭 순위</th><th>블로그탭</th><th>키워드</th><th>제목</th><th>발행일</th><th>측정일</th></tr></thead>
+  <thead><tr><th class="th-ti">통합탭 순위</th><th class="th-bl">블로그탭 순위</th><th>키워드</th><th>제목</th><th>발행일</th><th>측정일</th></tr></thead>
   <tbody>${tableRows}</tbody>
 </table>
 <div class="foot">통합탭=네이버 통합검색 인기글 노출 순위 · 블로그탭=블로그 카테고리 순위 · '권외'는 30위 밖(노출 작업 진행 중) · 측정일이 오래됐으면 '지금 측정'으로 갱신 후 출력하세요.</div>
