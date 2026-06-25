@@ -20,6 +20,12 @@ function BlogRankPage() {
         return t === 'sheet' || t === 'tracker' || t === 'crawl' || t === 'writer' ? t : 'dashboard';
     });
     const [toast, setToast] = useState('');
+    // 대시보드 '통합탭 10위 이내' 카드 → 트래커를 10위 필터 켜진 채로 연다. 일반 탭 이동 시엔 해제.
+    const [trackerInOnly, setTrackerInOnly] = useState(false);
+    const goTab = (key: Tab) => {
+        setTrackerInOnly(false);
+        setTab(key);
+    };
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -116,7 +122,7 @@ function BlogRankPage() {
                                 : 'border-transparent text-[#94a3b8]'
                         }`}
                         key={key}
-                        onClick={() => setTab(key)}
+                        onClick={() => goTab(key)}
                         type="button"
                     >
                         {label}
@@ -125,7 +131,15 @@ function BlogRankPage() {
             </div>
 
             {tab === 'dashboard' ? (
-                <DashboardTab accounts={accounts} posts={posts} onGo={setTab} />
+                <DashboardTab
+                    accounts={accounts}
+                    posts={posts}
+                    onGo={goTab}
+                    onGoTracker10={() => {
+                        setTrackerInOnly(true);
+                        setTab('tracker');
+                    }}
+                />
             ) : null}
             {tab === 'sheet' ? (
                 <SheetTab
@@ -137,7 +151,7 @@ function BlogRankPage() {
                 />
             ) : null}
             {tab === 'tracker' ? (
-                <TrackerTab accounts={accounts} posts={posts} onReload={load} />
+                <TrackerTab accounts={accounts} posts={posts} onReload={load} initialInOnly={trackerInOnly} />
             ) : null}
             {tab === 'crawl' ? (
                 <CrawlStatusTab accounts={accounts} posts={posts} onReload={load} onToast={showToast} />

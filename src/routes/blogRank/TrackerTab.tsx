@@ -10,15 +10,17 @@ export function TrackerTab({
     accounts,
     posts,
     onReload,
+    initialInOnly = false,
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
     onReload: () => Promise<void>;
+    initialInOnly?: boolean; // 대시보드 '통합탭 10위 이내' 카드에서 들어오면 true 로 시작
 }) {
     const [co, setCo] = useState('');
     const [nameQ, setNameQ] = useState('');
     const [month, setMonth] = useState('');
-    const [inOnly, setInOnly] = useState(false);
+    const [inOnly, setInOnly] = useState(initialInOnly);
     const [page, setPage] = useState(1);
 
     const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';

@@ -1,8 +1,29 @@
 import type { ReactNode } from 'react';
 
-export function Kpi({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+export function Kpi({
+    label,
+    value,
+    sub,
+    accent,
+    onClick,
+}: {
+    label: string;
+    value: string;
+    sub?: string;
+    accent?: string;
+    onClick?: () => void;
+}) {
+    const clickable = !!onClick;
     return (
-        <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+        <div
+            className={`rounded-xl border border-[#e2e8f0] bg-white p-4 ${
+                clickable ? 'cursor-pointer transition hover:border-[#1e40af] hover:shadow-sm' : ''
+            }`}
+            onClick={onClick}
+            role={clickable ? 'button' : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            onKeyDown={clickable ? (e) => (e.key === 'Enter' || e.key === ' ') && onClick?.() : undefined}
+        >
             <p className="m-0 text-xs text-[#64748b]">{label}</p>
             <p className="m-0 mt-1 text-2xl font-bold" style={{ color: accent ?? '#0f172a' }}>
                 {value}

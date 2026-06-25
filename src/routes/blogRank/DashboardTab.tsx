@@ -1,16 +1,21 @@
+import { useState } from 'react';
 import type { BlogAccount, BlogPost } from '../../api/blogRank';
 import { lastM, prevM, renewLevel, type Tab } from './helpers';
 import { Empty, Kpi, Panel, Tag } from './ui';
+import { LowRemainModal } from './LowRemainModal';
 
 export function DashboardTab({
     accounts,
     posts,
     onGo,
+    onGoTracker10,
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
     onGo: (tab: Tab) => void;
+    onGoTracker10: () => void;
 }) {
+    const [showLow, setShowLow] = useState(false);
     const withGoal = accounts.filter((a) => a.goal_count != null && a.remain_count != null);
     const done = withGoal.reduce((s, a) => s + ((a.goal_count || 0) - (a.remain_count || 0)), 0);
     const goal = withGoal.reduce((s, a) => s + (a.goal_count || 0), 0);
@@ -52,7 +57,12 @@ export function DashboardTab({
     return (
         <div className="grid gap-4">
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <Kpi label="관리 블로그" value={`${accounts.length}`} sub={`진행 ${accounts.length - stopCnt} · 중단 ${stopCnt}`} />
+                <Kpi
+                    label="관리 블로그"
+                    value={`${accounts.length}`}
+                    sub={`진행 ${accounts.length - stopCnt} · 중단 ${stopCnt}`}
+                    onClick={() => onGo('sheet')}
+                />
                 <Kpi
                     label="전체 진행률"
                     value={goal ? `${Math.round((done / goal) * 100)}%` : '—'}
@@ -63,13 +73,15 @@ export function DashboardTab({
                     label="통합탭 10위 이내"
                     value={measured.length ? `${inTen}` : '—'}
                     accent="#059669"
-                    sub={measured.length ? `측정 ${measured.length}건 중` : '크롤링 후 계산'}
+                    sub={measured.length ? `측정 ${measured.length}건 중 · 눌러서 보기` : '크롤링 후 계산'}
+                    onClick={measured.length ? onGoTracker10 : undefined}
                 />
                 <Kpi
                     label="잔여 3건 이하"
                     value={`${lowCnt}`}
                     accent={lowCnt ? '#d97706' : undefined}
-                    sub="재계약 영업 타이밍"
+                    sub="재계약 영업 타이밍 · 눌러서 보기"
+                    onClick={() => setShowLow(true)}
                 />
             </div>
 
@@ -159,6 +171,17 @@ export function DashboardTab({
                     )}
                 </Panel>
             </div>
+
+            {showLow ? (
+                <LowRemainModal
+                    accounts={accounts}
+                    onClose={() => setShowLow(false)}
+                    onGoSheet={() => {
+                        setShowLow(false);
+                        onGo('sheet');
+                    }}
+                />
+            ) : null}
         </div>
     );
 }
