@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { deleteBlogAccount, type BlogAccount, type BlogPost } from '../../api/blogRank';
+import { deleteBlogAccount, todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { crawlBlog } from '../../api/crawlBlog';
 import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDate, lastM, progOf, PER_SHEET } from './helpers';
 import { Pager, Tag } from './ui';
@@ -217,6 +217,14 @@ export function SheetTab({
                                 const myPosts = postCountOf(a.id);
                                 const measured = myPosts.filter((x) => x.measurements.length);
                                 const inTen = measured.filter((x) => (lastM(x)?.ti ?? 99) <= 10).length;
+                                // 오늘 '모든 글'을 '실패 없이' 측정했으면 지금 측정 비활성화(재측정 불필요).
+                                const today = todayKST();
+                                const fullyDone =
+                                    myPosts.length > 0 &&
+                                    myPosts.every((x) => {
+                                        const m = x.measurements.find((mm) => mm.date === today);
+                                        return m && m.ti_status !== 'fail' && m.bl_status !== 'fail';
+                                    });
                                 const pc = p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
                                 return (
                                     <tr key={a.id} className="border-b border-[#e2e8f0] [&>td]:py-4">
@@ -376,12 +384,16 @@ export function SheetTab({
                                             <div className="flex justify-center gap-1">
                                                 <button
                                                     className="rounded bg-[#059669] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#047857] disabled:opacity-50"
-                                                    disabled={crawlingId === a.id}
+                                                    disabled={crawlingId === a.id || fullyDone}
                                                     onClick={() => void doCrawl(a)}
-                                                    title="터미널 없이 이 블로그 RSS+순위를 지금 측정"
+                                                    title={
+                                                        fullyDone
+                                                            ? '오늘 모든 글을 실패 없이 측정 완료 — 재측정 불필요'
+                                                            : '터미널 없이 이 블로그 RSS+순위를 지금 측정'
+                                                    }
                                                     type="button"
                                                 >
-                                                    {crawlingId === a.id ? '측정 중…' : '지금 측정'}
+                                                    {crawlingId === a.id ? '측정 중…' : fullyDone ? '측정됨' : '지금 측정'}
                                                 </button>
                                                 <button
                                                     className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
