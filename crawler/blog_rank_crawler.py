@@ -493,6 +493,35 @@ def fetch_rss_posts(blog_id: str):
     return posts
 
 
+def _rss_entries_light(blog_id: str):
+    """RSS 최신 N글의 (url·제목·발행일·RSS태그)만 — 하단 해시태그 fetch 는 안 함(라운드로빈 1단계: 빠르게
+    전체 글목록만 확보. 해시태그/자동키워드 확정은 측정 직전에)."""
+    parsed = feedparser.parse(f"https://rss.blog.naver.com/{blog_id}.xml")
+    out = []
+    for entry in parsed.entries[:MAX_POSTS_PER_BLOG]:
+        link = entry.get("link", "")
+        pub = None
+        if entry.get("published_parsed"):
+            pub = datetime.date(*entry.published_parsed[:3]).isoformat()
+        tag_raw = entry.get("tag") or entry.get("tags") or ""
+        if isinstance(tag_raw, list):
+            tag_raw = ",".join(getattr(x, "term", None) or (x.get("term") if isinstance(x, dict) else str(x)) for x in tag_raw)
+        rss_tags = [t.strip() for t in html.unescape(str(tag_raw)).split(",") if t.strip()]
+        out.append({"url": link, "title": html.unescape(entry.get("title", "")),
+                    "published_date": pub, "rss_tags": rss_tags})
+    return out
+
+
+def _keyword_from_hashtags(title, post_url, rss_tags):
+    """자동키워드 확정 — RSS태그가 이미 '지역+서비스'면 그대로, 아니면 글 하단 #해시태그를 직접 가져와 도출."""
+    rss_kw = pick_main_hashtag_keyword(rss_tags)
+    if rss_kw and " " in rss_kw:
+        return derive_keyword(title, rss_tags)
+    tags = fetch_post_hashtags(post_url) or rss_tags
+    _pause()
+    return derive_keyword(title, tags)
+
+
 # ── 블로그탭 순위: 네이버 공식 검색 API (안정적) ─────────
 def naver_blog_search(keyword, display=100):
     url = "https://openapi.naver.com/v1/search/blog.json"
@@ -1319,6 +1348,120 @@ def run(fast=False, workers=4, force=False, max_posts=None):
     print(f"=== 완료: 글 {pm}건 / 웹사이트 {wm}건 / 대표키워드 {km}건 측정 ===")
 
 
+def run_breadth(force=False, max_posts=None):
+    """라운드로빈 크롤(기본) — 전체 블로그의 '최신글 1개씩' 먼저 돌고, 다음 라운드에서 2번째 글… 식.
+    한 업체를 끝까지 하지 않아 중간에 차단돼도 모든 업체의 최신글이 먼저 확보된다.
+    1) RSS(가벼움)로 전체 글목록 확보 → 2) 라운드로빈 측정(하단 해시태그·자동키워드는 측정 직전 확정)
+    → 3) 웹사이트/대표키워드(업체 단위, 후순위)."""
+    global MAX_POSTS_PER_BLOG
+    if max_posts:
+        MAX_POSTS_PER_BLOG = max_posts
+    need_config()
+    print(f"=== 크롤링 시작(라운드로빈·최신글 우선) {TODAY} / 최신 {MAX_POSTS_PER_BLOG}글 ===", flush=True)
+    accounts = sb_get("blog_accounts", {"is_active": "eq.true", "select": "*"})
+
+    def _done(a):
+        g, r = a.get("goal_count"), a.get("remain_count")
+        return g is not None and r is not None and g > 0 and r == 0
+    accounts.sort(key=lambda a: 1 if _done(a) else 0)   # 진행중 먼저
+    kw_rows = sb_get("blog_keywords", {"select": "*"})
+    kw_by_acc = {}
+    for row in kw_rows:
+        kw_by_acc.setdefault(row["blog_account_id"], []).append(row)
+
+    # ── 1) RSS 수집(전체 글목록만 — 빠르게. 해시태그 fetch 는 측정 직전으로 미룸) ──
+    set_crawl_status(running=True, phase="rss", done=0, total=len(accounts), ok=0, fail=0, current_blog="글목록 수집")
+    blogs = []
+    for idx, acc in enumerate(accounts):
+        blog_id = acc.get("blog_id") or parse_blog_url(acc.get("blog_url", ""))[0] or ""
+        if not blog_id:
+            continue
+        try:
+            entries = _rss_entries_light(blog_id)
+        except Exception as exc:
+            print(f"  RSS 실패 {acc.get('name')}: {exc}", flush=True)
+            entries = []
+        entries = [e for e in entries if not e.get("published_date") or e["published_date"] >= OLDEST_DATE]
+        rows = [{"blog_account_id": acc["id"], "post_url": e["url"], "title": e["title"],
+                 "keyword": derive_keyword(e["title"], e["rss_tags"]), "published_date": e["published_date"]}
+                for e in entries if e["url"]]
+        upserted = sb_insert("blog_posts", rows, on_conflict="blog_account_id,post_url") if rows else []
+        by_url = {p["post_url"]: p for p in upserted}
+        plist = []
+        for e in sorted(entries, key=lambda e: e.get("published_date") or "", reverse=True):  # 최신순
+            row = by_url.get(e["url"])
+            if row:
+                plist.append({"row": row, "rss_tags": e["rss_tags"], "url": e["url"], "title": e["title"]})
+        blogs.append({"acc": acc, "blog_id": blog_id, "posts": plist})
+        set_crawl_status(running=True, phase="rss", done=idx + 1, total=len(accounts), current_blog=acc.get("name", ""))
+        _pause(REQUEST_DELAY)
+
+    # ── 2) 라운드로빈 측정(라운드 i = 각 블로그 i번째 최신글) ──
+    total = sum(len(b["posts"]) for b in blogs)
+    print(f"=== 측정 시작(라운드로빈, 총 {total}글 / {len(blogs)}블로그) ===", flush=True)
+    set_crawl_status(running=True, phase="crawl", done=0, total=total, ok=0, fail=0, current_blog="")
+    done = ok = fail = 0
+    for i in range(MAX_POSTS_PER_BLOG):
+        for b in blogs:
+            if i >= len(b["posts"]):
+                continue
+            item, acc, blog_id = b["posts"][i], b["acc"], b["blog_id"]
+            row = item["row"]
+            tr = next((r for r in (row.get("measurements") or []) if r.get("date") == TODAY), None)
+            if not force and tr and tr.get("ti_status") != "fail" and tr.get("bl_status") != "fail":
+                done += 1
+                continue
+            kw = (row.get("keyword_manual") or "").strip()
+            if not kw:                                  # 수동 없으면 글 하단 해시태그로 자동키워드 확정
+                kw = _keyword_from_hashtags(item["title"], item["url"], item["rss_tags"])
+                if kw and kw != row.get("keyword"):
+                    try:
+                        sb_patch("blog_posts", {"id": f"eq.{row['id']}"}, {"keyword": kw})
+                    except Exception:
+                        pass
+            if not kw:
+                done += 1
+                continue
+            ti, bl, ti_s, bl_s, ws = measure_rank(kw, blog_id, item["url"])
+            recs = [r for r in (row.get("measurements") or []) if r.get("date") != TODAY]
+            recs.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s, "ws": ws})
+            sb_patch("blog_posts", {"id": f"eq.{row['id']}"}, {"measurements": recs})
+            row["measurements"] = recs                  # 메모리 갱신(다음 라운드 스킵 판단용)
+            done += 1
+            ok += 0 if (ti_s == "fail" or bl_s == "fail") else 1
+            fail += 1 if (ti_s == "fail" or bl_s == "fail") else 0
+            set_crawl_status(running=True, phase="crawl", done=done, total=total, ok=ok, fail=fail,
+                             current_blog=f"{acc.get('name','')} · 라운드 {i + 1}")
+            if BLOCK_REST_EVERY > 0 and done % BLOCK_REST_EVERY == 0 and done < total:
+                rest = BLOCK_REST_SEC + random.uniform(0, BLOCK_REST_SEC * 0.5)
+                print(f"  …{done}/{total} · 차단 예방 휴식 {rest:.0f}초", flush=True)
+                set_crawl_status(running=True, phase="rest", done=done, total=total, ok=ok, fail=fail, current_blog="휴식 중")
+                time.sleep(rest)
+
+    # ── 3) 웹사이트 + 대표키워드(업체 단위, 후순위) ──
+    set_crawl_status(running=True, phase="extra", done=total, total=total, ok=ok, fail=fail, current_blog="웹사이트/대표키워드")
+    for b in blogs:
+        acc, blog_id = b["acc"], b["blog_id"]
+        host = (acc.get("website_url") or "").strip()
+        rep = (acc.get("rep_keyword") or "").strip()
+        if host and rep:
+            we, st = measure_web_rank(rep, host)
+            recs = [r for r in (acc.get("website_measurements") or []) if r.get("date") != TODAY]
+            recs.append({"date": TODAY, "we": we, "status": st})
+            sb_patch("blog_accounts", {"id": f"eq.{acc['id']}"}, {"website_measurements": recs})
+        for kwrow in kw_by_acc.get(acc["id"], [])[:MAX_KEYWORDS_PER_ACCOUNT]:
+            kw = (kwrow.get("keyword") or "").strip()
+            if not kw:
+                continue
+            ti, bl, ti_s, bl_s, ws = measure_rank(kw, blog_id, "")
+            recs = [r for r in (kwrow.get("measurements") or []) if r.get("date") != TODAY]
+            recs.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s, "ws": ws})
+            sb_patch("blog_keywords", {"id": f"eq.{kwrow['id']}"}, {"measurements": recs})
+
+    set_crawl_status(running=False, phase="done", done=total, total=total, ok=ok, fail=fail, current_blog="")
+    print(f"=== 완료: {done}글 측정(ok {ok} / fail {fail}) ===", flush=True)
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     if args and args[0] in ("--debug", "--dump"):
@@ -1341,20 +1484,24 @@ if __name__ == "__main__":
         else:
             debug_keyword(kw, blog_id, post_url, website_host)
     else:
-        # 전체 실행. 기본=순차(가장 안전). --fast = 블로그 병렬(소수 워커, 간격은 유지), --workers N(기본 4).
-        #   --force = 오늘 측정 완료분도 다시 잰다(파서 변경 전체 반영). --max-posts N = 블로그당 최신 N글만.
-        fast = "--fast" in args
+        # 기본 = 라운드로빈(run_breadth): 전체 블로그의 최신글 1개씩 → 다음 라운드 2번째 글… (최신글 우선,
+        #   중간 차단돼도 모든 업체 최신글 먼저 확보). 06시 스케줄도 이 방식. --depth = 옛 깊이우선(한 업체 끝까지).
+        #   --force = 오늘 성공분도 재측정. --max-posts N = 블로그당 최신 N글.
         force = "--force" in args
-        workers = 4
+        depth = "--depth" in args
         max_posts = None
-        if "--workers" in args:
-            try:
-                workers = max(1, int(args[args.index("--workers") + 1]))
-            except (ValueError, IndexError):
-                pass
         if "--max-posts" in args:
             try:
                 max_posts = max(1, int(args[args.index("--max-posts") + 1]))
             except (ValueError, IndexError):
                 pass
-        run(fast=fast, workers=workers, force=force, max_posts=max_posts)
+        if depth:
+            workers = 4
+            if "--workers" in args:
+                try:
+                    workers = max(1, int(args[args.index("--workers") + 1]))
+                except (ValueError, IndexError):
+                    pass
+            run(fast="--fast" in args, workers=workers, force=force, max_posts=max_posts)
+        else:
+            run_breadth(force=force, max_posts=max_posts)
