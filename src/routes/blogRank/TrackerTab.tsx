@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { BlogAccount, BlogPost } from '../../api/blogRank';
 import { dayN, lastM, PER_FEED } from './helpers';
 import { Pager } from './ui';
@@ -22,6 +22,10 @@ export function TrackerTab({
     const [month, setMonth] = useState('');
     const [inOnly, setInOnly] = useState(initialInOnly);
     const [page, setPage] = useState(1);
+    // 대시보드 '통합탭 10위 이내' 카드로 진입하면(initialInOnly=true) 마운트 타이밍과 무관하게 필터를 켠다.
+    useEffect(() => {
+        if (initialInOnly) setInOnly(true);
+    }, [initialInOnly]);
 
     const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
 
