@@ -1384,11 +1384,10 @@ def run(fast=False, workers=4, force=False, max_posts=None):
     print(f"=== 완료: 글 {pm}건 / 웹사이트 {wm}건 / 대표키워드 {km}건 측정 ===")
 
 
-def run_breadth(force=False, max_posts=None):
+def run_breadth(force=False, max_posts=None, only_ids=None):
     """라운드로빈 크롤(기본) — 전체 블로그의 '최신글 1개씩' 먼저 돌고, 다음 라운드에서 2번째 글… 식.
     한 업체를 끝까지 하지 않아 중간에 차단돼도 모든 업체의 최신글이 먼저 확보된다.
-    1) RSS(가벼움)로 전체 글목록 확보 → 2) 라운드로빈 측정(하단 해시태그·자동키워드는 측정 직전 확정)
-    → 3) 웹사이트/대표키워드(업체 단위, 후순위)."""
+    only_ids 주면 그 블로그들만(시간분산 청크용). 1) RSS → 2) 라운드로빈 측정 → 3) 웹사이트/대표키워드."""
     global MAX_POSTS_PER_BLOG
     if max_posts:
         MAX_POSTS_PER_BLOG = max_posts
@@ -1400,6 +1399,8 @@ def run_breadth(force=False, max_posts=None):
         g, r = a.get("goal_count"), a.get("remain_count")
         return g is not None and r is not None and g > 0 and r == 0
     accounts.sort(key=lambda a: 1 if _done(a) else 0)   # 진행중 먼저
+    if only_ids is not None:                            # 시간분산 청크: 이 블로그들만
+        accounts = [a for a in accounts if a["id"] in only_ids]
     kw_rows = sb_get("blog_keywords", {"select": "*"})
     kw_by_acc = {}
     for row in kw_rows:
@@ -1501,6 +1502,56 @@ def run_breadth(force=False, max_posts=None):
     print(f"=== 완료: {done}글 측정(ok {ok} / fail {fail}) ===", flush=True)
 
 
+def run_spread(force=False, max_posts=None, chunk_size=5, gap_min=6, deadline=None, margin_min=20):
+    """시간 분산 크롤 — 블로그를 chunk_size 개씩 나눠 청크별로 측정하고, 청크 사이에 갭(IP 휴식)을 둔다.
+    짧은 시간에 요청이 몰려 차단되던 문제를 근본 회피(요청을 시간축으로 펼침).
+      deadline='HH:MM' 주면 그 시각(−margin_min)까지 끝나도록 청크 시작 간격을 자동 분배(예: 04시 시작·09시 마감).
+      deadline 없으면 gap_min 고정 갭. blogtab=API(SERP 절반)·5글과 합쳐 무료로 사실상 무차단."""
+    global MAX_POSTS_PER_BLOG
+    if max_posts:
+        MAX_POSTS_PER_BLOG = max_posts
+    need_config()
+    accounts = sb_get("blog_accounts", {"is_active": "eq.true", "select": "*"})
+
+    def _done(a):
+        g, r = a.get("goal_count"), a.get("remain_count")
+        return g is not None and r is not None and g > 0 and r == 0
+    accounts.sort(key=lambda a: 1 if _done(a) else 0)
+    ids = [a["id"] for a in accounts]
+    groups = [ids[i:i + chunk_size] for i in range(0, len(ids), chunk_size)]
+    nch = len(groups) or 1
+
+    start = datetime.datetime.now()
+    interval = None
+    if deadline:
+        hh, mm = (int(x) for x in deadline.split(":"))
+        end = start.replace(hour=hh, minute=mm, second=0, microsecond=0) - datetime.timedelta(minutes=margin_min)
+        if end <= start:
+            end = start + datetime.timedelta(hours=4)      # 안전장치
+        interval = (end - start).total_seconds() / nch     # 청크 '시작' 간격 균등
+    print(f"=== 시간분산 크롤 {nch}청크(블로그 {chunk_size}개씩) · "
+          f"{'마감 ' + deadline + f'(-{margin_min}분)' if deadline else f'갭 {gap_min}분'} ===", flush=True)
+
+    for i, group in enumerate(groups):
+        if not group:
+            continue
+        print(f"[청크 {i + 1}/{nch}] 블로그 {len(group)}개 측정", flush=True)
+        run_breadth(force=force, only_ids=set(group))
+        if i < nch - 1:
+            if interval is not None:
+                target = start + datetime.timedelta(seconds=interval * (i + 1))
+                wait = (target - datetime.datetime.now()).total_seconds()
+            else:
+                wait = gap_min * 60
+            if wait > 0:
+                print(f"  …IP 휴식 {wait / 60:.0f}분 (다음 청크 대기)", flush=True)
+                set_crawl_status(running=True, phase="rest", done=0, total=0,
+                                 current_blog=f"청크 {i + 1}/{nch} 완료 · IP 휴식 중")
+                time.sleep(wait)
+    set_crawl_status(running=False, phase="done", current_blog="")
+    print("=== 시간분산 크롤 전체 완료 ===", flush=True)
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     if args and args[0] in ("--debug", "--dump"):
@@ -1528,19 +1579,29 @@ if __name__ == "__main__":
         #   --force = 오늘 성공분도 재측정. --max-posts N = 블로그당 최신 N글.
         force = "--force" in args
         depth = "--depth" in args
+        spread = "--spread" in args
         max_posts = None
-        if "--max-posts" in args:
-            try:
-                max_posts = max(1, int(args[args.index("--max-posts") + 1]))
-            except (ValueError, IndexError):
-                pass
-        if depth:
-            workers = 4
-            if "--workers" in args:
+
+        def _arg(name, cast=int, default=None):
+            if name in args:
                 try:
-                    workers = max(1, int(args[args.index("--workers") + 1]))
+                    return cast(args[args.index(name) + 1])
                 except (ValueError, IndexError):
-                    pass
-            run(fast="--fast" in args, workers=workers, force=force, max_posts=max_posts)
+                    return default
+            return default
+        max_posts = _arg("--max-posts", int)
+        if max_posts:
+            max_posts = max(1, max_posts)
+        if spread:
+            # 시간분산: 블로그 N개씩 청크 + 갭. --deadline HH:MM(예: 09:00) 까지 끝나게 자동 분배.
+            #   --chunk-size N(기본 5), --gap N분(deadline 없을 때), --deadline HH:MM.
+            run_spread(
+                force=force, max_posts=max_posts,
+                chunk_size=_arg("--chunk-size", int, 5) or 5,
+                gap_min=_arg("--gap", int, 6) or 6,
+                deadline=_arg("--deadline", str, None),
+            )
+        elif depth:
+            run(fast="--fast" in args, workers=_arg("--workers", int, 4) or 4, force=force, max_posts=max_posts)
         else:
             run_breadth(force=force, max_posts=max_posts)
