@@ -33,11 +33,26 @@ export function Kpi({
     );
 }
 
-export function Panel({ title, sub, children }: { title: string; sub?: string; children: ReactNode }) {
+export function Panel({
+    title,
+    sub,
+    children,
+    action,
+}: {
+    title: string;
+    sub?: string;
+    children: ReactNode;
+    action?: ReactNode;
+}) {
     return (
         <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-            <h3 className="m-0 text-sm font-bold text-[#0f172a]">{title}</h3>
-            {sub ? <p className="m-0 mt-0.5 mb-2 text-[11px] text-[#94a3b8]">{sub}</p> : null}
+            <div className="flex items-start justify-between gap-2">
+                <div>
+                    <h3 className="m-0 text-sm font-bold text-[#0f172a]">{title}</h3>
+                    {sub ? <p className="m-0 mt-0.5 mb-2 text-[11px] text-[#94a3b8]">{sub}</p> : null}
+                </div>
+                {action ? <div className="shrink-0">{action}</div> : null}
+            </div>
             {children}
         </div>
     );

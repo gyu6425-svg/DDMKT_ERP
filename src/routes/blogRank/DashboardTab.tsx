@@ -3,6 +3,7 @@ import type { BlogAccount, BlogPost } from '../../api/blogRank';
 import { lastM, prevM, renewLevel, type Tab } from './helpers';
 import { Empty, Kpi, Panel, Tag } from './ui';
 import { LowRemainModal } from './LowRemainModal';
+import { RankMovesModal } from './RankMovesModal';
 
 export function DashboardTab({
     accounts,
@@ -18,6 +19,8 @@ export function DashboardTab({
     onGoSheetBlog: (name: string) => void;
 }) {
     const [showLow, setShowLow] = useState(false);
+    const [showMoves, setShowMoves] = useState(false);
+    const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
     const withGoal = accounts.filter((a) => a.goal_count != null && a.remain_count != null);
     const done = withGoal.reduce((s, a) => s + ((a.goal_count || 0) - (a.remain_count || 0)), 0);
     const goal = withGoal.reduce((s, a) => s + (a.goal_count || 0), 0);
@@ -59,8 +62,8 @@ export function DashboardTab({
             return { p, d: bothRanked ? prev!.ti - last!.ti : 0 };
         })
         .filter((x) => Math.abs(x.d) >= 2)
-        .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
-        .slice(0, 6);
+        .sort((a, b) => Math.abs(b.d) - Math.abs(a.d)); // 변동 큰 순(맨 위=가장 큰 변동)
+    const MOVES_PANEL = 5; // 패널엔 상위 5개만, 나머지는 '더보기' 모달
 
     // 웹사이트(업체 기준) 지표 패널은 현재 비활성(아래 JSX 주석). 신뢰도 낮아 보류 — 다시 켜면 변수 복구.
 
@@ -150,10 +153,24 @@ export function DashboardTab({
                     )}
                 </Panel>
 
-                <Panel title="최근 순위 변동" sub="이전 크롤 대비 통합탭 순위 2 이상 변동">
+                <Panel
+                    title="최근 순위 변동"
+                    sub="이전 크롤 대비 통합탭 순위 2 이상 변동"
+                    action={
+                        moves.length > MOVES_PANEL ? (
+                            <button
+                                className="rounded-md border border-[#cbd5e1] bg-white px-2.5 py-1 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                                onClick={() => setShowMoves(true)}
+                                type="button"
+                            >
+                                더보기 {moves.length}
+                            </button>
+                        ) : null
+                    }
+                >
                     {moves.length ? (
                         <div className="grid gap-1">
-                            {moves.map(({ p, d }) => (
+                            {moves.slice(0, MOVES_PANEL).map(({ p, d }) => (
                                 <div
                                     className="flex items-center justify-between rounded-md px-2 py-2"
                                     key={p.id}
@@ -191,6 +208,9 @@ export function DashboardTab({
                         onGoSheetBlog(name);
                     }}
                 />
+            ) : null}
+            {showMoves ? (
+                <RankMovesModal moves={moves} nameOf={nameOf} onClose={() => setShowMoves(false)} />
             ) : null}
         </div>
     );
