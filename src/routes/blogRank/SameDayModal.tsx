@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { BlogAccount, BlogMeasurement, BlogPost } from '../../api/blogRank';
-import { sendPublishReport } from './report';
+import { openTrackerReport, sendPublishReport } from './report';
 
 // 측정 글 리스트 모달 — 크롤링 현황 KPI('당일 측정 글' / '전날 측정 글 순위') 클릭 시 표시.
 //   mode='publish'(당일): 업체명 · 블로그(글링크) · [성과] 버튼(=발행 보고 카톡 발송).
@@ -75,6 +75,16 @@ export function SameDayModal({
             : [...rows].sort((a, b) => (a.account?.name || '').localeCompare(b.account?.name || '', 'ko'));
     const title = mode === 'rank' ? '전날 측정 글 순위' : '당일 측정 글';
 
+    // 전날(순위) 모달의 발송 = 그 블로그 1개만 순위 트래커 성과 보고서로 열기(호스팅 → 카톡 발송).
+    const onTracker = async (account: BlogAccount | null, post: BlogPost) => {
+        if (!account) return;
+        setBusy(post.id);
+        try {
+            await openTrackerReport([post], [account]);
+        } finally {
+            setBusy(null);
+        }
+    };
     const onPerf = async (account: BlogAccount | null, post: BlogPost) => {
         if (!account) return;
         setBusy(post.id);
@@ -123,6 +133,7 @@ export function SameDayModal({
                                         <th className="px-3 py-2 font-semibold">키워드</th>
                                         <th className="px-3 py-2 text-center font-bold text-[#059669]">통합탭</th>
                                         <th className="px-3 py-2 text-center font-bold text-[#1e40af]">블로그탭</th>
+                                        <th className="px-3 py-2 text-center font-semibold">발송</th>
                                     </>
                                 ) : (
                                     <th className="px-3 py-2 text-center font-semibold">발송</th>
@@ -182,6 +193,17 @@ export function SameDayModal({
                                                             keyword={post.keyword_manual || post.keyword || ''}
                                                         />
                                                     </td>
+                                                    <td className="px-3 py-2 text-center">
+                                                        <button
+                                                            className="rounded-md bg-[#FEE500] px-3 py-1.5 text-[12px] font-bold text-[#3c1e1e] hover:brightness-95 disabled:opacity-50"
+                                                            disabled={!account || busy === post.id}
+                                                            onClick={() => void onTracker(account, post)}
+                                                            title="이 블로그 1개 순위 트래커 성과 보고서 만들기"
+                                                            type="button"
+                                                        >
+                                                            {busy === post.id ? '…' : '발송'}
+                                                        </button>
+                                                    </td>
                                                 </>
                                             ) : (
                                                 <td className="px-3 py-2 text-center">
@@ -201,7 +223,7 @@ export function SameDayModal({
                                 })
                             ) : (
                                 <tr>
-                                    <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={mode === 'rank' ? 5 : 3}>
+                                    <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={mode === 'rank' ? 6 : 3}>
                                         아직 {dayLabel} 측정된 글이 없습니다. 크롤이 진행되면 표시됩니다.
                                     </td>
                                 </tr>
