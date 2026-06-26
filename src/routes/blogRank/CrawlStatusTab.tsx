@@ -3,6 +3,7 @@ import { crawlBlog } from '../../api/crawlBlog';
 import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { supabase } from '../../lib/supabase';
 import { SameDayModal, type SameDayRow } from './SameDayModal';
+import { CrawlListModal, type CrawlRow } from './CrawlListModal';
 
 type CrawlStatus = {
     updated_at: string;
@@ -106,15 +107,36 @@ export function CrawlStatusTab({
         (r) => (r.m.ti_status ?? 'ok') === 'ok' && r.m.ti != null && r.m.ti <= 10,
     ).length;
     // 당일 누락 = 오늘 발행(published_date=오늘)인데 '오늘 측정'이 아직 없는 글(늦게 추가/발행돼 미측정).
-    const missedToday = useMemo(
+    const accOf = (id: string) => accounts.find((a) => a.id === id) ?? null;
+    // KPI 클릭용 글 목록: 지금 측정한 글 / 누락 건(오늘 발행·미측정) / 실패 글.
+    const measuredRows = useMemo<CrawlRow[]>(
         () =>
-            posts.filter(
-                (p) => (p.published_date || '').slice(0, 10) === today && !p.measurements.some((x) => x.date === today),
-            ).length,
-        [posts, today],
+            posts
+                .filter((p) => p.measurements.some((x) => x.date === today))
+                .map((p) => ({ post: p, account: accOf(p.blog_account_id), m: p.measurements.find((x) => x.date === today) ?? null })),
+        [posts, today, accounts],
     );
+    const missedRows = useMemo<CrawlRow[]>(
+        () =>
+            posts
+                .filter((p) => (p.published_date || '').slice(0, 10) === today && !p.measurements.some((x) => x.date === today))
+                .map((p) => ({ post: p, account: accOf(p.blog_account_id), m: null })),
+        [posts, today, accounts],
+    );
+    const failRows = useMemo<CrawlRow[]>(
+        () =>
+            posts
+                .filter((p) => {
+                    const m = p.measurements.find((x) => x.date === today);
+                    return !!m && (m.ti_status === 'fail' || m.bl_status === 'fail');
+                })
+                .map((p) => ({ post: p, account: accOf(p.blog_account_id), m: p.measurements.find((x) => x.date === today) ?? null })),
+        [posts, today, accounts],
+    );
+    const missedToday = missedRows.length;
     const [showSameDay, setShowSameDay] = useState(false);
     const [showPrevDay, setShowPrevDay] = useState(false);
+    const [listModal, setListModal] = useState<{ title: string; accent: string; rows: CrawlRow[] } | null>(null);
 
     // ── 자동 새로고침(실시간) ──
     const [auto, setAuto] = useState(true);
@@ -170,6 +192,12 @@ export function CrawlStatusTab({
     // 상단 게이지 = 라운드로빈 '이번 라운드' 진행. 라운드 N = 전체 블로그의 N번째 최신글을 1개씩 도는 중.
     //   current_blog 형태 '업체명 · 라운드 N' → 업체명/라운드번호 파싱. 이번 라운드에서 몇 블로그 돌았는지 표시.
     const curName = (cs?.current_blog || '').split('·')[0].trim();
+    // 날짜우선 크롤(crawl_bydate)은 current_blog 가 'MM/DD일분 · 블로그명' → '6월26일분 (블로그명)' 으로 표시.
+    const dayBlogLabel = (() => {
+        const cb = (cs?.current_blog || '').replace(/\s*·\s*완료\s*~\s*\d{1,2}:\d{2}\s*$/, '');
+        const m = cb.match(/(\d{1,2})\/(\d{1,2})일분\s*·\s*(.+?)\s*$/);
+        return m ? `${Number(m[1])}월${Number(m[2])}일분 (${m[3].trim()})` : '';
+    })();
     const roundNo = Number((cs?.current_blog || '').match(/라운드\s*(\d+)/)?.[1] || 0);
     const postCountByBlog = new Map<string, number>();
     for (const p of posts) postCountByBlog.set(p.blog_account_id, (postCountByBlog.get(p.blog_account_id) || 0) + 1);
@@ -295,7 +323,7 @@ export function CrawlStatusTab({
                                 ? ` 차단 예방 휴식 중 — ${(cs.current_blog || '').replace(/\s*·\s*완료\s*~\s*\d{1,2}:\d{2}\s*$/, '')}`
                                 : roundNo
                                   ? ` 라운드 ${roundNo} 진행 중 · 완료 ${roundNo - 1}회${curName ? ` · 현재: ${curName}` : ''}`
-                                  : ` 당일 측정 글 크롤링 중${curName ? ` · 현재: ${curName}` : ''}`}
+                                  : ` 당일 측정 글 크롤링 중${dayBlogLabel ? ` · ${dayBlogLabel}` : curName ? ` · 현재: ${curName}` : ''}`}
                         </span>
                         <span className="font-bold text-[#0f172a]">
                             {etaStr ? <span className="mr-2 font-semibold text-[#7c3aed]">예상 완료 {etaStr}</span> : null}
@@ -356,7 +384,13 @@ export function CrawlStatusTab({
 
             {/* KPI — '지금'(현재 크롤 세션) 기준 실시간 카운트. 측정 수는 crawl_status(이번 run done)로 즉시 반영. */}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-                <Card label="지금 측정한 글" value={csLive && cs ? cs.done : counts.posts} color="#ea580c" />
+                <Card
+                    label="지금 측정한 글"
+                    value={csLive && cs ? cs.done : counts.posts}
+                    color="#ea580c"
+                    sub="눌러서 목록"
+                    onClick={() => setListModal({ title: '지금 측정한 글', accent: '#ea580c', rows: measuredRows })}
+                />
                 <Card
                     label={`당일 측정 글 (${todayLabel})`}
                     value={sameDay.posts}
@@ -368,9 +402,10 @@ export function CrawlStatusTab({
                 <Card
                     label={`${todayLabel} 누락 건`}
                     value={missedToday}
-                    color={missedToday ? '#dc2626' : '#94a3b8'}
-                    sub="오늘 발행·아직 미측정 글"
-                    tone={missedToday ? 'red' : undefined}
+                    color="#dc2626"
+                    sub="오늘 발행·미측정 · 눌러서 목록"
+                    tone="red"
+                    onClick={() => setListModal({ title: `${todayLabel} 누락 건 (오늘 발행·미측정)`, accent: '#dc2626', rows: missedRows })}
                 />
                 <Card
                     label={`전날 측정 글 순위 (${yesterdayLabel})`}
@@ -382,7 +417,13 @@ export function CrawlStatusTab({
                 />
                 <Card label="통합탭 노출" value={counts.tiOk} color="#059669" />
                 <Card label="블로그탭 노출" value={counts.blOk} color="#1e40af" />
-                <Card label="실패 글" value={counts.failPosts} color={counts.failPosts ? '#dc2626' : '#94a3b8'} />
+                <Card
+                    label="실패 글"
+                    value={counts.failPosts}
+                    color={counts.failPosts ? '#dc2626' : '#94a3b8'}
+                    sub="눌러서 목록"
+                    onClick={() => setListModal({ title: '실패 글 (측정 실패)', accent: '#dc2626', rows: failRows })}
+                />
             </div>
 
             {/* 하단 게이지: 전체 블로그 진행률(활성 블로그 중 오늘 측정된 블로그) */}
@@ -502,6 +543,14 @@ export function CrawlStatusTab({
                     mode="rank"
                     onClose={() => setShowPrevDay(false)}
                     onToast={onToast}
+                />
+            ) : null}
+            {listModal ? (
+                <CrawlListModal
+                    title={listModal.title}
+                    accent={listModal.accent}
+                    rows={listModal.rows}
+                    onClose={() => setListModal(null)}
                 />
             ) : null}
         </div>
