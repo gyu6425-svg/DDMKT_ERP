@@ -47,10 +47,12 @@ def main():
         set_clipboard(msg)
         return
 
-    # 카톡 창 활성화
+    # 카톡 창 활성화(트레이 최소화 포함)
+    u32.ShowWindow(hwnd, 5)  # SW_SHOW
     u32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    u32.BringWindowToTop(hwnd)
     u32.SetForegroundWindow(hwnd)
-    time.sleep(0.35)
+    time.sleep(0.45)
 
     rc = wt.RECT(); u32.GetWindowRect(hwnd, ctypes.byref(rc))
     try:
