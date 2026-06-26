@@ -1,6 +1,6 @@
 import { todayKST, type BlogAccount, type BlogMeasurement, type BlogPost } from '../../api/blogRank';
 import { amountTotal, fmtWon, lastM } from './helpers';
-import { KAKAO_JS_KEY } from '../../lib/kakao';
+import { KAKAO_JS_KEY, shareKakaoText } from '../../lib/kakao';
 
 const escapeHtml = (v: unknown): string =>
     String(v ?? '')
@@ -300,10 +300,12 @@ export function buildPublishReportMessage(account: BlogAccount, post: BlogPost):
     return `담당자님 안녕하세요 :)\n금일 발행 건 링크 전달 드립니다~!\n\n${account.name}${frac} - ${dateLabel}\n${link}`;
 }
 
-// 발행 보고 전송 — navigator.share 로 텍스트(글 링크 포함) 공유 → 카톡이 링크를 긁어 '썸네일 카드'를 자동 첨부.
-//   (카카오 SDK 텍스트전송은 썸네일이 안 붙어, 사진처럼 미리보기 카드가 나오게 share 방식을 유지한다.)
-export async function sendPublishReport(account: BlogAccount, post: BlogPost): Promise<'shared' | 'copied' | 'manual'> {
+// 발행 보고 전송 — 카카오 SDK로 '바로 카톡'(OS 공유창 없이 채팅방 선택창 즉시). 미설정/실패 시 공유시트·복사 폴백.
+//   (사용자 선택 2026-06-26: 썸네일 카드보다 '바로 카톡 이동' 우선. 텍스트 전송이라 링크 썸네일은 안 붙음.)
+export async function sendPublishReport(account: BlogAccount, post: BlogPost): Promise<'kakao' | 'shared' | 'copied' | 'manual'> {
     const msg = buildPublishReportMessage(account, post);
+    const link = post.post_url || account.blog_url || '';
+    if (await shareKakaoText(msg, link)) return 'kakao'; // 바로 카톡
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
         try {
             await navigator.share({ text: msg });
