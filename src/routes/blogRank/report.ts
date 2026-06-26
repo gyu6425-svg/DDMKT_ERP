@@ -159,8 +159,9 @@ function reportUrl(){
 }
 function sendKakao(){
   var url = reportUrl();
+  var isMobile = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
   try {
-    if (KAKAO_JS_KEY && window.Kakao) {
+    if (isMobile && KAKAO_JS_KEY && window.Kakao) {
       if (!window.Kakao.isInitialized()) window.Kakao.init(KAKAO_JS_KEY);
       var img = url.indexOf('/r/') >= 0 ? url.split('?')[0].replace('/r/','/og/') + '.png' : '';
       window.Kakao.Share.sendDefault({
@@ -300,12 +301,14 @@ export function buildPublishReportMessage(account: BlogAccount, post: BlogPost):
     return `담당자님 안녕하세요 :)\n금일 발행 건 링크 전달 드립니다~!\n\n${account.name}${frac} - ${dateLabel}\n${link}`;
 }
 
-// 발행 보고 전송 — 카카오 SDK로 '바로 카톡'(OS 공유창 없이 채팅방 선택창 즉시). 미설정/실패 시 공유시트·복사 폴백.
-//   (사용자 선택 2026-06-26: 썸네일 카드보다 '바로 카톡 이동' 우선. 텍스트 전송이라 링크 썸네일은 안 붙음.)
+// 발행 보고 전송 — 모바일이면 카카오 SDK '바로 카톡'(채팅방 선택창 즉시), PC면 일반 공유시트(카톡 PC앱·썸네일).
+//   ※ 카카오 바로공유는 모바일 전용 — PC에서 호출하면 카카오가 '모바일로 확인하세요' 팝업을 띄움 → PC에선 안 씀.
+const isMobileUA = (): boolean =>
+    typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
 export async function sendPublishReport(account: BlogAccount, post: BlogPost): Promise<'kakao' | 'shared' | 'copied' | 'manual'> {
     const msg = buildPublishReportMessage(account, post);
     const link = post.post_url || account.blog_url || '';
-    if (await shareKakaoText(msg, link)) return 'kakao'; // 바로 카톡
+    if (isMobileUA() && (await shareKakaoText(msg, link))) return 'kakao'; // 모바일만 바로 카톡
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
         try {
             await navigator.share({ text: msg });
@@ -439,8 +442,9 @@ function reportUrl(){
 //   링크엔 OG 카드(제목·요약·썸네일)가 붙어 예쁘게 표시. 공유 시트 미지원이면 링크 복사.
 function sendKakao(){
   var url = reportUrl();
+  var isMobile = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
   try {
-    if (KAKAO_JS_KEY && window.Kakao) {
+    if (isMobile && KAKAO_JS_KEY && window.Kakao) {
       if (!window.Kakao.isInitialized()) window.Kakao.init(KAKAO_JS_KEY);
       var img = url.indexOf('/r/') >= 0 ? url.split('?')[0].replace('/r/','/og/') + '.png' : '';
       window.Kakao.Share.sendDefault({
