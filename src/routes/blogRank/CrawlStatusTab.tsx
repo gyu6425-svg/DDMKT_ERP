@@ -105,6 +105,14 @@ export function CrawlStatusTab({
     const prevTop10 = prevDayRows.filter(
         (r) => (r.m.ti_status ?? 'ok') === 'ok' && r.m.ti != null && r.m.ti <= 10,
     ).length;
+    // 당일 누락 = 오늘 발행(published_date=오늘)인데 '오늘 측정'이 아직 없는 글(늦게 추가/발행돼 미측정).
+    const missedToday = useMemo(
+        () =>
+            posts.filter(
+                (p) => (p.published_date || '').slice(0, 10) === today && !p.measurements.some((x) => x.date === today),
+            ).length,
+        [posts, today],
+    );
     const [showSameDay, setShowSameDay] = useState(false);
     const [showPrevDay, setShowPrevDay] = useState(false);
 
@@ -208,6 +216,7 @@ export function CrawlStatusTab({
         yellow: { box: 'border-2 border-[#eab308] bg-[#fefce8] ring-1 ring-[#fde68a]', label: 'font-bold text-[#a16207]' },
         purple: { box: 'border-2 border-[#7c3aed] bg-[#f5f3ff] ring-1 ring-[#ddd6fe]', label: 'font-bold text-[#6d28d9]' },
         blue: { box: 'border-2 border-[#2563eb] bg-[#eff6ff] ring-1 ring-[#bfdbfe]', label: 'font-bold text-[#1e40af]' },
+        red: { box: 'border-2 border-[#dc2626] bg-[#fef2f2] ring-1 ring-[#fecaca]', label: 'font-bold text-[#b91c1c]' },
     };
     const Card = ({
         label,
@@ -221,7 +230,7 @@ export function CrawlStatusTab({
         value: number;
         color: string;
         sub?: string;
-        tone?: 'yellow' | 'purple' | 'blue';
+        tone?: 'yellow' | 'purple' | 'blue' | 'red';
         onClick?: () => void;
     }) => {
         const t = tone ? TONE[tone] : null;
@@ -346,7 +355,7 @@ export function CrawlStatusTab({
             </div>
 
             {/* KPI — '지금'(현재 크롤 세션) 기준 실시간 카운트. 측정 수는 crawl_status(이번 run done)로 즉시 반영. */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
                 <Card label="지금 측정한 글" value={csLive && cs ? cs.done : counts.posts} color="#ea580c" />
                 <Card
                     label={`당일 측정 글 (${todayLabel})`}
@@ -355,6 +364,13 @@ export function CrawlStatusTab({
                     sub={`블로그 ${sameDay.blogs}곳 · 눌러서 목록·발송`}
                     tone="yellow"
                     onClick={() => setShowSameDay(true)}
+                />
+                <Card
+                    label={`${todayLabel} 누락 건`}
+                    value={missedToday}
+                    color={missedToday ? '#dc2626' : '#94a3b8'}
+                    sub="오늘 발행·아직 미측정 글"
+                    tone={missedToday ? 'red' : undefined}
                 />
                 <Card
                     label={`전날 측정 글 순위 (${yesterdayLabel})`}

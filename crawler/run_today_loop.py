@@ -10,7 +10,7 @@ import blog_rank_crawler as c
 
 INTERVAL_MIN = 30          # 크롤 패스 사이 텀(분)
 CHECK_MIN = 10             # 차단 수시 확인 주기(분)
-WINDOW = (9, 20)           # 크롤 동작 시간대 [09시, 20시)
+WINDOW = (9, 24)           # 크롤 동작 시간대 [09시, 24시) = 09:00~23:59
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
