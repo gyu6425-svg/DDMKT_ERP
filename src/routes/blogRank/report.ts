@@ -301,13 +301,41 @@ export function buildPublishReportMessage(account: BlogAccount, post: BlogPost):
     return `담당자님 안녕하세요 :)\n금일 발행 건 링크 전달 드립니다~!\n\n${account.name}${frac} - ${dateLabel}\n${link}`;
 }
 
-// 발행 보고 전송 — PC/모바일 모두 카카오 SDK '바로 카톡'(채팅방 선택창이 바로 뜸).
-//   ※ PC에서 "모바일로 확인하세요"가 뜨는 건 카카오가 띄우는 팝업(=브라우저에 카카오 '미로그인' 상태).
-//     PC 브라우저에서 카카오 로그인하면 그 팝업이 '채팅방 선택'으로 바뀌어 바로 전송됨. (카카오 문구는 우리가 못 지움)
-export async function sendPublishReport(account: BlogAccount, post: BlogPost): Promise<'kakao' | 'copied' | 'manual'> {
+const isMobileUA = (): boolean =>
+    typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+
+// 발행 보고 전송:
+//   · 모바일 → 카카오 SDK '바로 카톡'(채팅방 선택창 즉시)
+//   · PC → 메시지 클립보드 복사 + 'ddmkt-kakao://' 헬퍼 실행 → 카톡 켜고 업체명 자동검색(검색까지 자동).
+//          헬퍼 미설치면 메시지만 복사됨(직접 검색·붙여넣기). 헬퍼 설치: crawler/kakao_helper/setup_kakao.py
+export async function sendPublishReport(account: BlogAccount, post: BlogPost): Promise<'kakao' | 'helper' | 'copied' | 'manual'> {
     const msg = buildPublishReportMessage(account, post);
     const link = post.post_url || account.blog_url || '';
-    if (await shareKakaoText(msg, link)) return 'kakao'; // 바로 카톡(PC도 동일 — PC는 카카오 로그인 시 채팅방 선택)
+    if (isMobileUA()) {
+        if (await shareKakaoText(msg, link)) return 'kakao';
+    } else {
+        // PC: 메시지 복사 + 카톡 자동검색 헬퍼(프로토콜) 실행
+        let copied = false;
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(msg);
+                copied = true;
+            }
+        } catch {
+            /* noop */
+        }
+        try {
+            const a = document.createElement('a');
+            a.href = `ddmkt-kakao://send?c=${encodeURIComponent(account.name)}&m=${encodeURIComponent(msg)}`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch {
+            /* 헬퍼 미설치/스킴 미지원 → 무시(클립보드 복사로 충분) */
+        }
+        return copied ? 'helper' : 'manual';
+    }
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
         try {
             await navigator.clipboard.writeText(msg);
