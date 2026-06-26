@@ -59,7 +59,7 @@ export function SameDayModal({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
             onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
-            <div className="flex max-h-[88vh] w-[min(720px,96vw)] flex-col rounded-2xl border-2 border-[#2563eb] bg-white p-6 shadow-xl">
+            <div className="flex max-h-[88vh] w-[min(900px,96vw)] flex-col rounded-2xl border-2 border-[#2563eb] bg-white p-6 shadow-xl">
                 <div className="flex items-center justify-between">
                     <h3 className="m-0 text-lg font-bold text-[#0f172a]">
                         {title} <span className="text-[#2563eb]">({dayLabel})</span>
@@ -101,7 +101,9 @@ export function SameDayModal({
                                             <td className="px-3 py-2">
                                                 {link ? (
                                                     <a
-                                                        className="block max-w-[360px] truncate text-[13px] font-medium text-[#1d4ed8] hover:underline"
+                                                        className={`block truncate text-[13px] font-medium text-[#1d4ed8] hover:underline ${
+                                                            mode === 'rank' ? 'max-w-[220px]' : 'max-w-[360px]'
+                                                        }`}
                                                         href={link}
                                                         rel="noopener noreferrer"
                                                         target="_blank"
@@ -115,9 +117,9 @@ export function SameDayModal({
                                             </td>
                                             {mode === 'rank' ? (
                                                 <>
-                                                    <td className="px-3 py-2">
+                                                    <td className="whitespace-nowrap px-3 py-2">
                                                         {post.keyword_manual || post.keyword ? (
-                                                            <span className="inline-block rounded bg-[#ede9fe] px-1.5 py-0.5 text-[12px] font-semibold text-[#7c3aed]">
+                                                            <span className="inline-block whitespace-nowrap rounded bg-[#ede9fe] px-2 py-1 text-[13px] font-semibold text-[#7c3aed]">
                                                                 #{post.keyword_manual || post.keyword}
                                                             </span>
                                                         ) : (
