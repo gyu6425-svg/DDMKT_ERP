@@ -1,5 +1,6 @@
 import { todayKST, type BlogAccount, type BlogMeasurement, type BlogPost } from '../../api/blogRank';
 import { amountTotal, fmtWon, lastM } from './helpers';
+import { KAKAO_JS_KEY, shareKakaoText } from '../../lib/kakao';
 
 const escapeHtml = (v: unknown): string =>
     String(v ?? '')
@@ -37,9 +38,7 @@ const blSearchUrl = (kw: string): string =>
     `https://m.search.naver.com/search.naver?ssc=tab.m_blog.all&query=${encodeURIComponent(kw)}`;
 
 // 카카오톡 공유(JavaScript SDK) 앱 키. developers.kakao.com '든든한 마케팅 성과보고' 앱 JS 키.
-//   비어 있으면 버튼이 '설정 안내' 알림만 띄운다(키 없이 발송 불가).
-//   ※ JS 키는 공개되어도 되는 클라이언트 키(도메인 등록으로 보호). REST/Admin 키와 다름.
-const KAKAO_JS_KEY = 'b6992ad148e994c2022d648fdb386ca8';
+//   ※ JS 키는 공개되어도 되는 클라이언트 키(도메인 등록으로 보호). REST/Admin 키와 다름. 단일 출처: lib/kakao.ts
 
 export function buildBlogReportHtml(account: BlogAccount, posts: BlogPost[]): string {
     const today = todayKST();
@@ -160,6 +159,18 @@ function reportUrl(){
 }
 function sendKakao(){
   var url = reportUrl();
+  try {
+    if (KAKAO_JS_KEY && window.Kakao) {
+      if (!window.Kakao.isInitialized()) window.Kakao.init(KAKAO_JS_KEY);
+      var img = url.indexOf('/r/') >= 0 ? url.split('?')[0].replace('/r/','/og/') + '.png' : '';
+      window.Kakao.Share.sendDefault({
+        objectType: 'feed',
+        content: { title: '네이버 노출 성과 보고', description: KK_SUMMARY, imageUrl: img, link: { mobileWebUrl: url, webUrl: url } },
+        buttons: [{ title: '보고서 열기', link: { mobileWebUrl: url, webUrl: url } }]
+      });
+      return;
+    }
+  } catch(e) {}
   if (navigator.share) { navigator.share({ title: '네이버 노출 성과 보고', text: KK_SUMMARY, url: url }).catch(function(){}); }
   else { copyLink(); }
 }
@@ -289,9 +300,11 @@ export function buildPublishReportMessage(account: BlogAccount, post: BlogPost):
     return `담당자님 안녕하세요 :)\n금일 발행 건 링크 전달 드립니다~!\n\n${account.name}${frac} - ${dateLabel}\n${link}`;
 }
 
-// 발행 보고 전송 — 모바일이면 공유 시트(navigator.share)로 카톡 선택, PC면 클립보드 복사(카톡에 붙여넣기).
-export async function sendPublishReport(account: BlogAccount, post: BlogPost): Promise<'shared' | 'copied' | 'manual'> {
+// 발행 보고 전송 — 카카오 SDK 설정 시 '바로 카톡'(채팅방 선택창 즉시), 아니면 공유 시트/클립보드 폴백.
+export async function sendPublishReport(account: BlogAccount, post: BlogPost): Promise<'kakao' | 'shared' | 'copied' | 'manual'> {
     const msg = buildPublishReportMessage(account, post);
+    const link = post.post_url || account.blog_url || '';
+    if (await shareKakaoText(msg, link)) return 'kakao'; // 바로 카톡(키 설정 시)
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
         try {
             await navigator.share({ text: msg });
@@ -425,6 +438,18 @@ function reportUrl(){
 //   링크엔 OG 카드(제목·요약·썸네일)가 붙어 예쁘게 표시. 공유 시트 미지원이면 링크 복사.
 function sendKakao(){
   var url = reportUrl();
+  try {
+    if (KAKAO_JS_KEY && window.Kakao) {
+      if (!window.Kakao.isInitialized()) window.Kakao.init(KAKAO_JS_KEY);
+      var img = url.indexOf('/r/') >= 0 ? url.split('?')[0].replace('/r/','/og/') + '.png' : '';
+      window.Kakao.Share.sendDefault({
+        objectType: 'feed',
+        content: { title: '네이버 노출 성과 보고', description: KK_SUMMARY, imageUrl: img, link: { mobileWebUrl: url, webUrl: url } },
+        buttons: [{ title: '보고서 열기', link: { mobileWebUrl: url, webUrl: url } }]
+      });
+      return;
+    }
+  } catch(e) {}
   if (navigator.share) {
     navigator.share({ title: '네이버 노출 성과 보고', text: KK_SUMMARY, url: url }).catch(function(){});
   } else {
