@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { BlogAccount, BlogPost } from '../../api/blogRank';
+import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { dayN, lastM, PER_FEED } from './helpers';
 import { Pager } from './ui';
 import { PostSearchCell } from './PostSearchCell';
@@ -22,7 +22,14 @@ export function TrackerTab({
     const [nameQ, setNameQ] = useState('');
     const [month, setMonth] = useState('');
     const [inOnly, setInOnly] = useState(initialInOnly);
+    const [pubFilter, setPubFilter] = useState<'all' | 'today' | 'yesterday'>('all'); // 당일/전날 발행 필터
     const [page, setPage] = useState(1);
+    // 오늘/어제(KST) — 발행일 필터용.
+    const today = todayKST();
+    const yesterday = (() => {
+        const [y, m, d] = today.split('-').map(Number);
+        return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+    })();
     // 대시보드 '통합탭 10위 이내' 카드로 진입하면(initialInOnly=true) 마운트 타이밍과 무관하게 필터를 켠다.
     useEffect(() => {
         if (initialInOnly) setInOnly(true);
@@ -52,11 +59,13 @@ export function TrackerTab({
                 (co === '' || p.blog_account_id === co) &&
                 (q === '' || nameOf(p.blog_account_id).toLowerCase().includes(q)) &&
                 (month === '' || (p.published_date || '').slice(0, 7) === month) &&
+                (pubFilter === 'all' ||
+                    (p.published_date || '').slice(0, 10) === (pubFilter === 'today' ? today : yesterday)) &&
                 (!inOnly || (p.measurements.length && (lastM(p)?.ti ?? 99) <= 10)),
         );
         return [...list].sort((a, b) => dayN(a) - dayN(b));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [posts, co, nameQ, month, inOnly, accounts]);
+    }, [posts, co, nameQ, month, inOnly, pubFilter, accounts]);
 
     const pages = Math.max(1, Math.ceil(filtered.length / PER_FEED));
     const current = Math.min(page, pages);
@@ -109,6 +118,32 @@ export function TrackerTab({
                         );
                     })}
                 </select>
+                <button
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                        pubFilter === 'today' ? 'bg-[#2563eb] text-white' : 'bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]'
+                    }`}
+                    onClick={() => {
+                        setPubFilter((v) => (v === 'today' ? 'all' : 'today'));
+                        setPage(1);
+                    }}
+                    type="button"
+                >
+                    당일 올라온 글
+                </button>
+                <button
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                        pubFilter === 'yesterday'
+                            ? 'bg-[#7c3aed] text-white'
+                            : 'bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]'
+                    }`}
+                    onClick={() => {
+                        setPubFilter((v) => (v === 'yesterday' ? 'all' : 'yesterday'));
+                        setPage(1);
+                    }}
+                    type="button"
+                >
+                    전날 올라온 글
+                </button>
                 <label className="flex items-center gap-1 text-xs text-[#334155]">
                     <input checked={inOnly} onChange={(e) => setInOnly(e.target.checked)} type="checkbox" />
                     통합 10위 이내만
