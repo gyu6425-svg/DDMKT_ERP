@@ -301,22 +301,30 @@ export function buildPublishReportMessage(account: BlogAccount, post: BlogPost):
     return `담당자님 안녕하세요 :)\n금일 발행 건 링크 전달 드립니다~!\n\n${account.name}${frac} - ${dateLabel}\n${link}`;
 }
 
-// 발행 보고 전송 — 모바일이면 카카오 SDK '바로 카톡'(채팅방 선택창 즉시), PC면 일반 공유시트(카톡 PC앱·썸네일).
-//   ※ 카카오 바로공유는 모바일 전용 — PC에서 호출하면 카카오가 '모바일로 확인하세요' 팝업을 띄움 → PC에선 안 씀.
+// 발행 보고 전송:
+//   · 모바일 → 카카오 SDK '바로 카톡'(채팅방 선택창 즉시 전송)
+//   · PC → 메시지를 클립보드에 복사 + 카카오톡 PC 실행 시도(kakaotalk://). 켜진 카톡에 붙여넣기(Ctrl+V)하면
+//          카톡이 링크를 긁어 썸네일 카드까지 자동으로 붙는다. (PC는 카카오 정책상 버튼만으로 자동전송 불가)
 const isMobileUA = (): boolean =>
     typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
-export async function sendPublishReport(account: BlogAccount, post: BlogPost): Promise<'kakao' | 'shared' | 'copied' | 'manual'> {
+function launchKakaoTalk() {
+    try {
+        const a = document.createElement('a');
+        a.href = 'kakaotalk://'; // 설치돼 있으면 카톡 PC 실행(없으면 무시됨)
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    } catch {
+        /* 스킴 미지원이면 무시 — 클립보드 복사로 충분 */
+    }
+}
+export async function sendPublishReport(account: BlogAccount, post: BlogPost): Promise<'kakao' | 'copied' | 'manual'> {
     const msg = buildPublishReportMessage(account, post);
     const link = post.post_url || account.blog_url || '';
-    if (isMobileUA() && (await shareKakaoText(msg, link))) return 'kakao'; // 모바일만 바로 카톡
-    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-        try {
-            await navigator.share({ text: msg });
-            return 'shared';
-        } catch {
-            /* 사용자 취소/미지원 → 복사 폴백 */
-        }
-    }
+    if (isMobileUA() && (await shareKakaoText(msg, link))) return 'kakao'; // 모바일: 바로 카톡
+    // PC: 카톡 실행 시도 + 메시지 복사(붙여넣어 직접 전송)
+    launchKakaoTalk();
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
         try {
             await navigator.clipboard.writeText(msg);

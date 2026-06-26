@@ -93,11 +93,9 @@ export function SameDayModal({
             onToast(
                 r === 'kakao'
                     ? '카카오톡 열림 — 받을 방 선택'
-                    : r === 'shared'
-                      ? '발행 보고 공유함 — 카톡 선택'
-                      : r === 'copied'
-                        ? '발행 보고 복사됨 — 카톡에 붙여넣기'
-                        : '발행 보고 내용 표시됨',
+                    : r === 'copied'
+                      ? '메시지 복사됨 — 카톡에 붙여넣기(Ctrl+V)'
+                      : '발행 보고 내용 표시됨',
             );
         } finally {
             setBusy(null);
