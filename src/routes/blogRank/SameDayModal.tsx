@@ -8,16 +8,48 @@ import { sendPublishReport } from './report';
 //   '지금까지 조회된' 것만 → 크롤 진행 중 실시간 증가.
 export type SameDayRow = { post: BlogPost; account: BlogAccount | null; m: BlogMeasurement };
 
-function Rank({ v, status, tab }: { v: number | undefined; status: string | undefined; tab: 'ti' | 'bl' }) {
+// 통합탭/블로그탭 검색 URL — 크롤 측정과 동일한 m.search(모바일). 클릭 시 실제 검색 화면으로 이동.
+const tiSearchUrl = (kw: string) => `https://m.search.naver.com/search.naver?query=${encodeURIComponent(kw)}`;
+const blSearchUrl = (kw: string) => `https://m.search.naver.com/search.naver?ssc=tab.m_blog.all&query=${encodeURIComponent(kw)}`;
+
+function Rank({
+    v,
+    status,
+    tab,
+    keyword,
+}: {
+    v: number | undefined;
+    status: string | undefined;
+    tab: 'ti' | 'bl';
+    keyword: string;
+}) {
     const st = status ?? 'ok';
-    if (st === 'fail') return <span className="text-[13px] font-bold text-[#dc2626]">실패</span>;
-    if (st === 'out' || v == null || v > 30) return <span className="text-[13px] font-semibold text-[#94a3b8]">권외</span>;
-    const top = v <= 10;
-    const color = top ? (tab === 'ti' ? '#059669' : '#1e40af') : '#475569';
+    let label: string;
+    let color: string;
+    if (st === 'fail') {
+        label = '실패';
+        color = '#dc2626';
+    } else if (st === 'out' || v == null || v > 30) {
+        label = '권외';
+        color = '#94a3b8';
+    } else {
+        label = `${v}위`;
+        color = v <= 10 ? (tab === 'ti' ? '#059669' : '#1e40af') : '#475569';
+    }
+    if (!keyword) return <span className="text-[15px] font-bold" style={{ color }}>{label}</span>;
+    const url = tab === 'ti' ? tiSearchUrl(keyword) : blSearchUrl(keyword);
+    // 클릭 → 실제 네이버 검색 화면(새 탭). ※ 시크릿(로그아웃) 창에서 봐야 측정값과 일치(개인화 제거).
     return (
-        <span className="text-[15px] font-bold" style={{ color }}>
-            {v}위
-        </span>
+        <a
+            className="text-[15px] font-bold underline decoration-dotted underline-offset-2 hover:opacity-80"
+            href={url}
+            rel="noopener noreferrer"
+            style={{ color }}
+            target="_blank"
+            title="네이버 검색 화면 열기 — 시크릿(로그아웃) 창에서 보면 측정값과 일치합니다"
+        >
+            {label}
+        </a>
     );
 }
 
@@ -49,13 +81,11 @@ export function SameDayModal({
         try {
             const r = await sendPublishReport(account, post);
             onToast(
-                r === 'kakao'
-                    ? '카카오톡 열림 — 받을 방 선택'
-                    : r === 'shared'
-                      ? '발행 보고 공유함'
-                      : r === 'copied'
-                        ? '발행 보고 복사됨 — 카톡에 붙여넣기'
-                        : '발행 보고 내용 표시됨',
+                r === 'shared'
+                    ? '발행 보고 공유함 — 카톡 선택'
+                    : r === 'copied'
+                      ? '발행 보고 복사됨 — 카톡에 붙여넣기'
+                      : '발행 보고 내용 표시됨',
             );
         } finally {
             setBusy(null);
@@ -135,10 +165,20 @@ export function SameDayModal({
                                                         )}
                                                     </td>
                                                     <td className="px-3 py-2 text-center">
-                                                        <Rank v={m.ti} status={m.ti_status} tab="ti" />
+                                                        <Rank
+                                                            v={m.ti}
+                                                            status={m.ti_status}
+                                                            tab="ti"
+                                                            keyword={post.keyword_manual || post.keyword || ''}
+                                                        />
                                                     </td>
                                                     <td className="px-3 py-2 text-center">
-                                                        <Rank v={m.bl} status={m.bl_status} tab="bl" />
+                                                        <Rank
+                                                            v={m.bl}
+                                                            status={m.bl_status}
+                                                            tab="bl"
+                                                            keyword={post.keyword_manual || post.keyword || ''}
+                                                        />
                                                     </td>
                                                 </>
                                             ) : (
