@@ -80,6 +80,7 @@ export function SameDayModal({
                                 <th className="px-3 py-2 font-semibold">블로그(글 링크)</th>
                                 {mode === 'rank' ? (
                                     <>
+                                        <th className="px-3 py-2 font-semibold">키워드</th>
                                         <th className="px-3 py-2 text-center font-bold text-[#059669]">통합탭</th>
                                         <th className="px-3 py-2 text-center font-bold text-[#1e40af]">블로그탭</th>
                                     </>
@@ -114,6 +115,15 @@ export function SameDayModal({
                                             </td>
                                             {mode === 'rank' ? (
                                                 <>
+                                                    <td className="px-3 py-2">
+                                                        {post.keyword_manual || post.keyword ? (
+                                                            <span className="inline-block rounded bg-[#ede9fe] px-1.5 py-0.5 text-[12px] font-semibold text-[#7c3aed]">
+                                                                #{post.keyword_manual || post.keyword}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[12px] text-[#cbd5e1]">—</span>
+                                                        )}
+                                                    </td>
                                                     <td className="px-3 py-2 text-center">
                                                         <Rank v={m.ti} status={m.ti_status} tab="ti" />
                                                     </td>
@@ -139,7 +149,7 @@ export function SameDayModal({
                                 })
                             ) : (
                                 <tr>
-                                    <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={mode === 'rank' ? 4 : 3}>
+                                    <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={mode === 'rank' ? 5 : 3}>
                                         아직 {dayLabel} 측정된 글이 없습니다. 크롤이 진행되면 표시됩니다.
                                     </td>
                                 </tr>
