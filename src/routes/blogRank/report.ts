@@ -301,30 +301,13 @@ export function buildPublishReportMessage(account: BlogAccount, post: BlogPost):
     return `담당자님 안녕하세요 :)\n금일 발행 건 링크 전달 드립니다~!\n\n${account.name}${frac} - ${dateLabel}\n${link}`;
 }
 
-// 발행 보고 전송:
-//   · 모바일 → 카카오 SDK '바로 카톡'(채팅방 선택창 즉시 전송)
-//   · PC → 메시지를 클립보드에 복사 + 카카오톡 PC 실행 시도(kakaotalk://). 켜진 카톡에 붙여넣기(Ctrl+V)하면
-//          카톡이 링크를 긁어 썸네일 카드까지 자동으로 붙는다. (PC는 카카오 정책상 버튼만으로 자동전송 불가)
-const isMobileUA = (): boolean =>
-    typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
-function launchKakaoTalk() {
-    try {
-        const a = document.createElement('a');
-        a.href = 'kakaotalk://'; // 설치돼 있으면 카톡 PC 실행(없으면 무시됨)
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-    } catch {
-        /* 스킴 미지원이면 무시 — 클립보드 복사로 충분 */
-    }
-}
+// 발행 보고 전송 — PC/모바일 모두 카카오 SDK '바로 카톡'(채팅방 선택창이 바로 뜸).
+//   ※ PC에서 "모바일로 확인하세요"가 뜨는 건 카카오가 띄우는 팝업(=브라우저에 카카오 '미로그인' 상태).
+//     PC 브라우저에서 카카오 로그인하면 그 팝업이 '채팅방 선택'으로 바뀌어 바로 전송됨. (카카오 문구는 우리가 못 지움)
 export async function sendPublishReport(account: BlogAccount, post: BlogPost): Promise<'kakao' | 'copied' | 'manual'> {
     const msg = buildPublishReportMessage(account, post);
     const link = post.post_url || account.blog_url || '';
-    if (isMobileUA() && (await shareKakaoText(msg, link))) return 'kakao'; // 모바일: 바로 카톡
-    // PC: 카톡 실행 시도 + 메시지 복사(붙여넣어 직접 전송)
-    launchKakaoTalk();
+    if (await shareKakaoText(msg, link)) return 'kakao'; // 바로 카톡(PC도 동일 — PC는 카카오 로그인 시 채팅방 선택)
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
         try {
             await navigator.clipboard.writeText(msg);
