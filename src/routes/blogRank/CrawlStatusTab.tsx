@@ -528,12 +528,17 @@ export function CrawlStatusTab({
                     </tbody>
                 </table>
             </div>
-            {/* 최근 크롤 기록 — 새벽·퇴근후·주말 크롤이 언제 돌았는지 집에서도 확인(crawl_status.recent_runs) */}
+            {/* 최근 크롤 기록 — 새벽·퇴근후·주말 크롤이 언제 돌았는지 집에서도 확인(crawl_status.recent_runs, 시간순 누적) */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-                <h3 className="m-0 mb-2 text-sm font-bold text-[#0f172a]">최근 크롤 기록</h3>
+                <div className="mb-2 flex items-center justify-between">
+                    <h3 className="m-0 text-sm font-bold text-[#0f172a]">최근 크롤 기록</h3>
+                    {cs?.recent_runs?.length ? (
+                        <span className="text-[11px] text-[#94a3b8]">총 {cs.recent_runs.length}회</span>
+                    ) : null}
+                </div>
                 {cs?.recent_runs && cs.recent_runs.length ? (
-                    <div className="grid gap-1">
-                        {cs.recent_runs.slice(0, 12).map((r, i) => (
+                    <div className="grid max-h-72 gap-1 overflow-y-auto">
+                        {cs.recent_runs.map((r, i) => (
                             <div
                                 key={`${r.at}-${i}`}
                                 className="flex items-center justify-between rounded-md bg-[#f8fafc] px-3 py-1.5 text-xs"

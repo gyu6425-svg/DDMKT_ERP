@@ -481,7 +481,7 @@ def log_crawl_run(kind, measured, fail):
         cur = sb_get("crawl_status", {"id": "eq.1", "select": "recent_runs"})[0].get("recent_runs") or []
     except Exception:
         cur = []
-    cur = ([rec] + cur)[:20]
+    cur = ([rec] + cur)[:100]  # 최근 100개까지 시간순으로 누적(약 2~3일치)
     try:
         sb_patch("crawl_status", {"id": "eq.1"}, {"recent_runs": cur})
     except Exception:
