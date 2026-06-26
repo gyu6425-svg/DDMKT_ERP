@@ -81,6 +81,11 @@ def _pause(base=None):
     b = REQUEST_DELAY if base is None else base
     time.sleep(b + random.uniform(0, b * 0.6))
 OLDEST_DATE = "2025-01-01"  # 이 날짜 이전(너무 옛날) 글은 추적 제외 — 최신 1~2년만 추적
+# 최근성 컷오프 — 발행일이 이 일수보다 오래된 글은 측정 제외(휴면 블로그 자동 스킵).
+#   2026-06-26 사용자 요청: 최신글이 한참 전(1~2월 등)인 블로그는 크롤 안 함. 120일≈4개월(6월이면 ~2월 말 이후만).
+RECENT_DAYS = 120
+def recent_cutoff():
+    return (datetime.date.today() - datetime.timedelta(days=RECENT_DAYS)).isoformat()
 MAX_KEYWORDS_PER_ACCOUNT = 3  # 블로그당 대표키워드 측정 상한(네이버 요청량/차단 가드)
 MAX_RANK_SCAN = 30         # 이 순위까지 탐색(넘으면 권외=99)
 OUT_OF_RANK = 99
@@ -1284,7 +1289,7 @@ def _process_blog(acc, kw_by_acc, force=False):
         print(f"  RSS 실패 {name}: {exc}")
         rss = []
     # 너무 옛날 글 제외(최신 1~2년만). published_date 없으면(판단 불가) 유지.
-    rss = [p for p in rss if not p.get("published_date") or p["published_date"] >= OLDEST_DATE]
+    rss = [p for p in rss if not p.get("published_date") or p["published_date"] >= recent_cutoff()]
     rows = [
         {"blog_account_id": acc["id"], "post_url": p["url"], "title": p["title"],
          "keyword": derive_keyword(p["title"], p.get("tags") or []), "published_date": p["published_date"]}
@@ -1420,7 +1425,7 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
         except Exception as exc:
             print(f"  RSS 실패 {acc.get('name')}: {exc}", flush=True)
             entries = []
-        entries = [e for e in entries if not e.get("published_date") or e["published_date"] >= OLDEST_DATE]
+        entries = [e for e in entries if not e.get("published_date") or e["published_date"] >= recent_cutoff()]
         rows = [{"blog_account_id": acc["id"], "post_url": e["url"], "title": e["title"],
                  "keyword": derive_keyword(e["title"], e["rss_tags"]), "published_date": e["published_date"]}
                 for e in entries if e["url"]]
