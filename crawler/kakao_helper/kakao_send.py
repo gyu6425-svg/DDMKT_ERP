@@ -68,7 +68,7 @@ def set_clipboard(text: str):
     time.sleep(0.12)
 
 
-VK_CTRL, VK_V, VK_A, VK_DEL = 0x11, 0x56, 0x41, 0x2E
+VK_CTRL, VK_V, VK_A, VK_DEL, VK_ESC = 0x11, 0x56, 0x41, 0x2E, 0x1B
 def _key(vk, up=False): u32.keybd_event(vk, 0, 2 if up else 0, 0)
 def _tap(vk): _key(vk); time.sleep(0.03); _key(vk, True); time.sleep(0.05)
 def _ctrl(vk): _key(VK_CTRL); time.sleep(0.02); _tap(vk); _key(VK_CTRL, True); time.sleep(0.06)
@@ -77,6 +77,13 @@ def _ctrl(vk): _key(VK_CTRL); time.sleep(0.02); _tap(vk); _key(VK_CTRL, True); t
 def _click(x, y):
     u32.SetCursorPos(int(x), int(y)); time.sleep(0.12)
     u32.mouse_event(0x0002, 0, 0, 0, 0); time.sleep(0.04); u32.mouse_event(0x0004, 0, 0, 0, 0)
+    time.sleep(0.12)
+
+
+def _dblclick(x, y):
+    u32.SetCursorPos(int(x), int(y)); time.sleep(0.15)
+    for _ in range(2):
+        u32.mouse_event(0x0002, 0, 0, 0, 0); time.sleep(0.03); u32.mouse_event(0x0004, 0, 0, 0, 0); time.sleep(0.06)
     time.sleep(0.12)
 
 
@@ -95,33 +102,38 @@ def main():
         u32.MessageBoxW(0, "카카오톡 PC가 실행돼 있지 않습니다.\n카톡을 먼저 켜주세요.", "DDMKT 카톡 자동검색", 0)
         return
 
-    # 카톡 창 활성화(트레이 최소화 포함)
+    # 카톡 창 활성화 — '검색만 클릭하면 잘 됐던' 직접테스트와 100% 동일하게(ShowWindow+SetForeground만).
     u32.ShowWindow(hwnd, 5)  # SW_SHOW
     u32.ShowWindow(hwnd, 9)  # SW_RESTORE
-    u32.BringWindowToTop(hwnd)
     u32.SetForegroundWindow(hwnd)
     time.sleep(0.5)
 
-    # 복원된 뒤의 '보이는 메인 창' 좌표를 다시 잡는다.
     hwnd = find_kakao_main(require_visible=True) or hwnd
     rc = wt.RECT(); u32.GetWindowRect(hwnd, ctypes.byref(rc))
     try:
         cfg = json.load(open(CFG, encoding="utf-8"))
     except Exception:
         cfg = {}
-    # 검색(돋보기🔍)은 창 '우상단'에 있음 → 우상단 모서리에서의 오프셋으로 위치 계산(창 이동에 강함).
-    sx = rc.right - cfg.get("search_right_off", 60)
-    sy = rc.top + cfg.get("search_top_off", 50)
+    sx = rc.right - cfg.get("search_right_off", 80)
+    sy = rc.top + cfg.get("search_top_off", 48)
 
-    _click(sx, sy)
-    time.sleep(0.4)
-    _ctrl(VK_A); _tap(VK_DEL)
+    # 검색(🔍) 클릭 → 검색창 열림. Ctrl+A/Del 제거(친구추가 등 오작동 유발) — 클릭 후 충분히 기다렸다 '붙여넣기만'.
+    u32.SetCursorPos(int(sx), int(sy)); time.sleep(0.2)
+    u32.mouse_event(0x0002, 0, 0, 0, 0); time.sleep(0.05); u32.mouse_event(0x0004, 0, 0, 0, 0)
+    time.sleep(0.9)      # 검색창 열리고 입력칸 포커스될 때까지 대기
     set_clipboard(company)
-    _ctrl(VK_V)
-    time.sleep(0.5)
+    _ctrl(VK_V)          # 업체명 붙여넣기(검색)만
+    time.sleep(0.9)      # 검색 결과 뜰 때까지 대기
 
-    # 검색 결과가 뜬 상태에서 멈춤. 메시지를 클립보드에 준비 → 사용자가 방 클릭 후 Ctrl+V + Enter.
+    # 첫 검색결과(이름) 더블클릭 → 채팅방 열림
+    rx = rc.left + cfg.get("result_left_off", 170)
+    ry = rc.top + cfg.get("result_top_off", 184)
+    _dblclick(rx, ry)
+    time.sleep(0.9)      # 채팅방 열리고 입력칸 포커스 대기
+
+    # 메시지 붙여넣기 (전송은 사용자가 직접 Enter)
     set_clipboard(msg)
+    _ctrl(VK_V)
 
 
 if __name__ == "__main__":
