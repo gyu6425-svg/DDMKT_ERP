@@ -71,6 +71,23 @@ export function CrawlStatusTab({
         return c;
     }, [blogRows]);
 
+    // 당일 측정 글 = '오늘 발행(published_date=오늘)'된 글 중 오늘 측정까지 끝난 글. (글 수 / 그 글을 가진 블로그 수)
+    const todayLabel = (() => {
+        const [, mo, day] = today.split('-');
+        return `${Number(mo)}월${Number(day)}일`;
+    })();
+    const sameDay = useMemo(() => {
+        const blogs = new Set<string>();
+        let n = 0;
+        for (const p of posts) {
+            if ((p.published_date || '').slice(0, 10) !== today) continue;
+            if (!p.measurements.some((x) => x.date === today)) continue;
+            n += 1;
+            blogs.add(p.blog_account_id);
+        }
+        return { posts: n, blogs: blogs.size };
+    }, [posts, today]);
+
     // ── 자동 새로고침(실시간) ──
     const [auto, setAuto] = useState(true);
     const [lastAt, setLastAt] = useState('');
@@ -167,12 +184,31 @@ export function CrawlStatusTab({
     const [filter, setFilter] = useState<'all' | Status>('all');
     const shown = filter === 'all' ? blogRows : blogRows.filter((r) => r.status === filter);
 
-    const Card = ({ label, value, color }: { label: string; value: number; color: string }) => (
-        <div className="rounded-lg border border-[#e2e8f0] bg-white px-4 py-3">
-            <div className="text-xs text-[#64748b]">{label}</div>
+    const Card = ({
+        label,
+        value,
+        color,
+        sub,
+        highlight,
+    }: {
+        label: string;
+        value: number;
+        color: string;
+        sub?: string;
+        highlight?: boolean;
+    }) => (
+        <div
+            className={`rounded-lg px-4 py-3 ${
+                highlight
+                    ? 'border-2 border-[#2563eb] bg-[#eff6ff] shadow-sm ring-1 ring-[#bfdbfe]'
+                    : 'border border-[#e2e8f0] bg-white'
+            }`}
+        >
+            <div className={`text-xs ${highlight ? 'font-bold text-[#1e40af]' : 'text-[#64748b]'}`}>{label}</div>
             <div className="mt-0.5 text-2xl font-bold" style={{ color }}>
                 {value}
             </div>
+            {sub ? <div className="mt-0.5 text-[11px] font-semibold text-[#2563eb]">{sub}</div> : null}
         </div>
     );
     const Chip = ({ k, label }: { k: 'all' | Status; label: string }) => (
@@ -263,8 +299,15 @@ export function CrawlStatusTab({
             </div>
 
             {/* KPI — '지금'(현재 크롤 세션) 기준 실시간 카운트. 측정 수는 crawl_status(이번 run done)로 즉시 반영. */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 <Card label="지금 측정한 글" value={csLive && cs ? cs.done : counts.posts} color="#0f172a" />
+                <Card
+                    label={`당일 측정 글 (${todayLabel})`}
+                    value={sameDay.posts}
+                    color="#2563eb"
+                    sub={`블로그 ${sameDay.blogs}곳 · 오늘 발행분`}
+                    highlight
+                />
                 <Card label="통합탭 노출" value={counts.tiOk} color="#059669" />
                 <Card label="블로그탭 노출" value={counts.blOk} color="#1e40af" />
                 <Card label="실패 글" value={counts.failPosts} color={counts.failPosts ? '#dc2626' : '#94a3b8'} />
