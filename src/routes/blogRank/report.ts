@@ -275,8 +275,8 @@ export async function openBlogReport(account: BlogAccount, posts: BlogPost[]): P
 }
 
 // ── 발행 보고(카톡) — 기자단이 오늘 올린 글을 담당자에게 즉시 전달(04시 크롤 전 보고용) ──
-// 양식(사용자 확정): "업체명 (발행수/계약건수) - M월 D일" + 글 링크. 카톡이 링크의 OG로 미리보기 카드를 자동 생성.
-//   발행수 = goal_count - remain_count, 계약건수 = goal_count.
+// 양식(사용자 확정 2026-06-26): "업체명 (잔여건수/계약건수) - 당일 올라온 날짜" + 당일 업로드된 글 링크.
+//   카톡이 링크의 OG로 미리보기 카드를 자동 생성. 잔여=remain_count, 계약=goal_count.
 export function buildPublishReportMessage(account: BlogAccount, post: BlogPost): string {
     const pub = (post.published_date || todayKST()).slice(0, 10);
     const [, mo, d] = pub.split('-');
@@ -284,7 +284,7 @@ export function buildPublishReportMessage(account: BlogAccount, post: BlogPost):
     const link = post.post_url || account.blog_url || '';
     let frac = '';
     if (account.goal_count != null && account.remain_count != null) {
-        frac = ` (${account.goal_count - account.remain_count}/${account.goal_count})`;
+        frac = ` (${account.remain_count}/${account.goal_count})`;
     }
     return `담당자님 안녕하세요 :)\n금일 발행 건 링크 전달 드립니다~!\n\n${account.name}${frac} - ${dateLabel}\n${link}`;
 }
