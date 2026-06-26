@@ -472,6 +472,22 @@ def set_crawl_status(**fields):
         pass
 
 
+def log_crawl_run(kind, measured, fail):
+    """크롤 1회 완료를 crawl_status.recent_runs(최근 20개)에 기록 — 웹 '최근 크롤 기록'(집에서 새벽·퇴근후 크롤 확인용).
+    컬럼(recent_runs) 없으면 조용히 패스."""
+    rec = {"at": datetime.datetime.now().isoformat(timespec="minutes"), "kind": kind,
+           "measured": int(measured or 0), "fail": int(fail or 0)}
+    try:
+        cur = sb_get("crawl_status", {"id": "eq.1", "select": "recent_runs"})[0].get("recent_runs") or []
+    except Exception:
+        cur = []
+    cur = ([rec] + cur)[:20]
+    try:
+        sb_patch("crawl_status", {"id": "eq.1"}, {"recent_runs": cur})
+    except Exception:
+        pass
+
+
 # 글 본문 하단 해시태그(#…)를 모바일 글 HTML에서 가져온다. RSS <tag>는 주제태그 1개뿐인 경우가 많아
 # '무조건 하단 해시태그' 요구를 충족하려면 본문을 봐야 함. 실패 시 빈 리스트(→ RSS태그/제목 폴백).
 def fetch_post_hashtags(post_url):
@@ -1599,6 +1615,19 @@ def run_spread(force=False, max_posts=None, chunk_size=5, gap_min=6, deadline=No
                     time.sleep(min(45, remain))
     ETA_HINT = ""
     set_crawl_status(running=False, phase="done", current_blog="")
+    # 최근 크롤 기록용: 오늘 측정/실패 글 수 집계(전체크롤은 하루 1회라 DB 집계 부담 적음)
+    try:
+        _ps = sb_get("blog_posts", {"select": "measurements", "limit": "9000"})
+        _meas = _fail = 0
+        for _p in _ps:
+            _m = next((x for x in (_p.get("measurements") or []) if x.get("date") == TODAY), None)
+            if _m:
+                _meas += 1
+                if _m.get("ti_status") == "fail" or _m.get("bl_status") == "fail":
+                    _fail += 1
+        log_crawl_run("전체크롤", _meas, _fail)
+    except Exception:
+        pass
     print("=== 시간분산 크롤 전체 완료 ===", flush=True)
 
 

@@ -61,7 +61,7 @@ export function CrawlListModal({
                                 {dateMode ? (
                                     <>
                                         <th className="px-3 py-2 text-center font-semibold">발행일</th>
-                                        <th className="px-3 py-2 text-center font-semibold">게시 시각</th>
+                                        <th className="px-3 py-2 text-center font-semibold">업로드 시간</th>
                                     </>
                                 ) : (
                                     <>

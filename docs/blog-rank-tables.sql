@@ -14,6 +14,8 @@ create table if not exists public.crawl_status (
     ok int default 0,
     fail int default 0
 );
+-- 최근 크롤 기록(웹 '최근 크롤 기록'용) — 새벽·퇴근후·주말 크롤이 언제 돌았는지 집에서도 확인. 최근 20개 [{at,kind,measured,fail}].
+alter table public.crawl_status add column if not exists recent_runs jsonb not null default '[]'::jsonb;
 alter table public.crawl_status enable row level security;
 drop policy if exists "crawl_status read" on public.crawl_status;
 create policy "crawl_status read" on public.crawl_status for select to authenticated using (true);

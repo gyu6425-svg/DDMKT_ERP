@@ -13,6 +13,7 @@ type CrawlStatus = {
     current_blog: string | null;
     done: number;
     total: number;
+    recent_runs?: { at: string; kind: string; measured: number; fail: number }[];
 };
 
 type Status = 'done' | 'partial' | 'fail' | 'pending';
@@ -163,7 +164,7 @@ export function CrawlStatusTab({
         const fetchCs = async () => {
             const { data } = await supabase
                 .from('crawl_status')
-                .select('updated_at,running,phase,current_blog,done,total')
+                .select('updated_at,running,phase,current_blog,done,total,recent_runs')
                 .eq('id', 1)
                 .maybeSingle();
             const next = (data as CrawlStatus) ?? null;
@@ -527,9 +528,38 @@ export function CrawlStatusTab({
                     </tbody>
                 </table>
             </div>
+            {/* 최근 크롤 기록 — 새벽·퇴근후·주말 크롤이 언제 돌았는지 집에서도 확인(crawl_status.recent_runs) */}
+            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <h3 className="m-0 mb-2 text-sm font-bold text-[#0f172a]">최근 크롤 기록</h3>
+                {cs?.recent_runs && cs.recent_runs.length ? (
+                    <div className="grid gap-1">
+                        {cs.recent_runs.slice(0, 12).map((r, i) => (
+                            <div
+                                key={`${r.at}-${i}`}
+                                className="flex items-center justify-between rounded-md bg-[#f8fafc] px-3 py-1.5 text-xs"
+                            >
+                                <span className="font-semibold text-[#475569]">
+                                    {r.at.slice(5, 16).replace('T', ' ')} ·{' '}
+                                    <span className={r.kind === '전체크롤' ? 'text-[#1e40af]' : 'text-[#ca8a04]'}>
+                                        {r.kind}
+                                    </span>
+                                </span>
+                                <span className="text-[#64748b]">
+                                    측정 {r.measured}
+                                    {r.fail ? <span className="ml-1 font-bold text-[#dc2626]">· 실패 {r.fail}</span> : null}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="m-0 text-xs text-[#94a3b8]">
+                        아직 기록이 없습니다. (다음 크롤부터 쌓입니다 · published_at·recent_runs 컬럼 SQL 실행 필요)
+                    </p>
+                )}
+            </div>
+
             <p className="text-[11px] text-[#94a3b8]">
-                PC 자동 크롤러(05시)가 측정하는 동안 이 표가 실시간으로 채워집니다. ‘전체 측정 시작’은 이 브라우저에서
-                직접 크롤하며, 창을 닫으면 멈춥니다.
+                자동 크롤(평일 04시 전체 · 09~24시 당일 · 주말 당일)이 측정하는 동안 이 표가 실시간으로 채워집니다.
             </p>
 
             {showSameDay ? (

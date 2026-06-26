@@ -8,6 +8,14 @@ import { openTrackerReport, sendPublishReport } from './report';
 //   '지금까지 조회된' 것만 → 크롤 진행 중 실시간 증가.
 export type SameDayRow = { post: BlogPost; account: BlogAccount | null; m: BlogMeasurement };
 
+// 업로드 시각(published_at, KST ISO) → '6/26 19:30'.
+const fmtAt = (iso: string | null): string => {
+    if (!iso) return '—';
+    const d = iso.slice(5, 10).replace('-', '/');
+    const t = iso.slice(11, 16);
+    return t ? `${d} ${t}` : d;
+};
+
 // 통합탭/블로그탭 검색 URL — 크롤 측정과 동일한 m.search(모바일). 클릭 시 실제 검색 화면으로 이동.
 const tiSearchUrl = (kw: string) => `https://m.search.naver.com/search.naver?query=${encodeURIComponent(kw)}`;
 const blSearchUrl = (kw: string) => `https://m.search.naver.com/search.naver?ssc=tab.m_blog.all&query=${encodeURIComponent(kw)}`;
@@ -155,7 +163,10 @@ export function SameDayModal({
                                         <th className="px-3 py-2 text-center font-semibold">발송</th>
                                     </>
                                 ) : (
-                                    <th className="px-3 py-2 text-center font-semibold">발송</th>
+                                    <>
+                                        <th className="px-3 py-2 text-center font-semibold">업로드 시간</th>
+                                        <th className="px-3 py-2 text-center font-semibold">발송</th>
+                                    </>
                                 )}
                             </tr>
                         </thead>
@@ -225,6 +236,10 @@ export function SameDayModal({
                                                     </td>
                                                 </>
                                             ) : (
+                                                <>
+                                                <td className="px-3 py-2 text-center text-[12px] font-semibold text-[#475569]">
+                                                    {fmtAt(post.published_at)}
+                                                </td>
                                                 <td className="px-3 py-2 text-center">
                                                     <button
                                                         className={`rounded-md px-3 py-1.5 text-[12px] font-bold disabled:cursor-not-allowed ${
@@ -240,13 +255,14 @@ export function SameDayModal({
                                                         {busy === post.id ? '…' : isSent(post.id) ? '보냄' : '발송'}
                                                     </button>
                                                 </td>
+                                                </>
                                             )}
                                         </tr>
                                     );
                                 })
                             ) : (
                                 <tr>
-                                    <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={mode === 'rank' ? 6 : 3}>
+                                    <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={mode === 'rank' ? 6 : 4}>
                                         아직 {dayLabel} 측정된 글이 없습니다. 크롤이 진행되면 표시됩니다.
                                     </td>
                                 </tr>

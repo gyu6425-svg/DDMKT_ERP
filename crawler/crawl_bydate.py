@@ -89,4 +89,5 @@ for it in items:
         time.sleep(rest)
 
 c.set_crawl_status(running=False, phase="done", done=total, total=total, ok=ok, fail=fail, current_blog="")
+c.log_crawl_run("당일글", done, fail)
 print(f"=== 완료: {done}글 측정(ok {ok} / fail {fail}) · 날짜우선 26→25→24 ===", flush=True)
