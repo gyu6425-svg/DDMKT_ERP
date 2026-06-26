@@ -46,6 +46,42 @@ export function DashboardTab({
             }));
     const sameDayRows = rowsForPub(today);
     const prevDayRows = rowsForPub(yesterday);
+    const sameDayBlogs = new Set(sameDayRows.map((r) => r.post.blog_account_id)).size;
+    const prevTop10 = prevDayRows.filter(
+        (r) => (r.m.ti_status ?? 'ok') === 'ok' && r.m.ti != null && r.m.ti <= 10,
+    ).length;
+    // 크롤링 현황 KPI 와 동일한 카드 스타일(tone: 노랑/보라 강조).
+    const TONE: Record<string, { box: string; label: string }> = {
+        yellow: { box: 'border-2 border-[#eab308] bg-[#fefce8] ring-1 ring-[#fde68a]', label: 'font-bold text-[#a16207]' },
+        purple: { box: 'border-2 border-[#7c3aed] bg-[#f5f3ff] ring-1 ring-[#ddd6fe]', label: 'font-bold text-[#6d28d9]' },
+    };
+    const KpiCard = ({
+        label,
+        value,
+        color,
+        sub,
+        tone,
+        onClick,
+    }: {
+        label: string;
+        value: number;
+        color: string;
+        sub: string;
+        tone: 'yellow' | 'purple';
+        onClick: () => void;
+    }) => (
+        <button
+            className={`rounded-lg px-4 py-3 text-left ${TONE[tone].box} shadow-sm cursor-pointer transition hover:shadow-md hover:ring-2 hover:ring-[#93c5fd]`}
+            onClick={onClick}
+            type="button"
+        >
+            <div className={`text-xs ${TONE[tone].label}`}>{label}</div>
+            <div className="mt-0.5 text-2xl font-bold" style={{ color }}>
+                {value}
+            </div>
+            <div className="mt-0.5 text-[11px] font-semibold text-[#64748b]">{sub}</div>
+        </button>
+    );
     const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
     const withGoal = accounts.filter((a) => a.goal_count != null && a.remain_count != null);
     const done = withGoal.reduce((s, a) => s + ((a.goal_count || 0) - (a.remain_count || 0)), 0);
@@ -124,20 +160,22 @@ export function DashboardTab({
                 />
             </div>
 
-            {/* 당일/전날 측정 글 — 보고 직결 KPI(크롤링 현황과 동일). 당일=노랑, 전날=보라. */}
+            {/* 당일/전날 측정 글 — 보고 직결 KPI(크롤링 현황과 동일 스타일). 당일=노랑, 전날=보라. */}
             <div className="grid grid-cols-2 gap-3">
-                <Kpi
+                <KpiCard
                     label={`당일 측정 글 (${mmdd(today)})`}
-                    value={`${sameDayRows.length}`}
-                    accent="#eab308"
-                    sub="오늘 발행분 · 눌러서 목록·발송"
+                    value={sameDayRows.length}
+                    color="#ca8a04"
+                    sub={`블로그 ${sameDayBlogs}곳 · 눌러서 목록·발송`}
+                    tone="yellow"
                     onClick={() => setShowSameDay(true)}
                 />
-                <Kpi
+                <KpiCard
                     label={`전날 측정 글 순위 (${mmdd(yesterday)})`}
-                    value={`${prevDayRows.length}`}
-                    accent="#7c3aed"
-                    sub="어제 발행분 · 눌러서 순위목록"
+                    value={prevDayRows.length}
+                    color="#7c3aed"
+                    sub={`통합 10위내 ${prevTop10} · 눌러서 순위목록`}
+                    tone="purple"
                     onClick={() => setShowPrevDay(true)}
                 />
             </div>
