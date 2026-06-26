@@ -179,11 +179,11 @@ export function CrawlStatusTab({
         const id = window.setInterval(() => void fetchCs(), 5000);
         return () => window.clearInterval(id);
     }, []);
-    // 최근 90초 내 업데이트면 '진행 중'으로 본다(크롤이 죽어도 영원히 진행중으로 안 남게).
-    // 라이브 판정: 측정 중은 90초, '휴식(분산 청크 사이 갭)'은 갱신이 뜸하므로 30분까지 인정 → 휴식 갭에도 배너 유지.
+    // 라이브 판정: 활성(측정/RSS)은 5분, '휴식(분산 청크 갭)'은 30분까지 '진행 중'으로 본다.
+    //   RSS 수집 중 느린 블로그가 있으면 갱신 간격이 1~3분 벌어져 90초 기준이면 배너가 꺼지던 문제 → 5분으로 완화.
     const csAge = cs ? Date.now() - new Date(cs.updated_at).getTime() : Infinity;
     const csResting = !!cs && cs.running && cs.phase === 'rest';
-    const csLive = !!cs && cs.running && (csAge < 90000 || (csResting && csAge < 1800000));
+    const csLive = !!cs && cs.running && (csAge < 300000 || (csResting && csAge < 1800000));
     const csPct = cs && cs.total ? Math.round((cs.done / cs.total) * 100) : 0;
     // 크롤러가 current_blog 에 실어 보낸 예상 완료시각('완료 ~HH:MM') 파싱.
     const etaStr = (cs?.current_blog || '').match(/완료\s*~\s*(\d{1,2}:\d{2})/)?.[1] || '';
