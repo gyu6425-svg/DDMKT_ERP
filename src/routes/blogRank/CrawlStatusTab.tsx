@@ -204,33 +204,37 @@ export function CrawlStatusTab({
     const [filter, setFilter] = useState<'all' | Status>('all');
     const shown = filter === 'all' ? blogRows : blogRows.filter((r) => r.status === filter);
 
+    const TONE: Record<string, { box: string; label: string }> = {
+        yellow: { box: 'border-2 border-[#eab308] bg-[#fefce8] ring-1 ring-[#fde68a]', label: 'font-bold text-[#a16207]' },
+        purple: { box: 'border-2 border-[#7c3aed] bg-[#f5f3ff] ring-1 ring-[#ddd6fe]', label: 'font-bold text-[#6d28d9]' },
+        blue: { box: 'border-2 border-[#2563eb] bg-[#eff6ff] ring-1 ring-[#bfdbfe]', label: 'font-bold text-[#1e40af]' },
+    };
     const Card = ({
         label,
         value,
         color,
         sub,
-        highlight,
+        tone,
         onClick,
     }: {
         label: string;
         value: number;
         color: string;
         sub?: string;
-        highlight?: boolean;
+        tone?: 'yellow' | 'purple' | 'blue';
         onClick?: () => void;
     }) => {
+        const t = tone ? TONE[tone] : null;
         const cls = `rounded-lg px-4 py-3 text-left ${
-            highlight
-                ? 'border-2 border-[#2563eb] bg-[#eff6ff] shadow-sm ring-1 ring-[#bfdbfe]'
-                : 'border border-[#e2e8f0] bg-white'
+            t ? `${t.box} shadow-sm` : 'border border-[#e2e8f0] bg-white'
         } ${onClick ? 'cursor-pointer transition hover:shadow-md hover:ring-2 hover:ring-[#93c5fd]' : ''}`;
         const inner = (
             <>
-                <div className={`text-xs ${highlight ? 'font-bold text-[#1e40af]' : 'text-[#64748b]'}`}>{label}</div>
+                <div className={`text-xs ${t ? t.label : 'text-[#64748b]'}`}>{label}</div>
                 <div className="mt-0.5 text-2xl font-bold" style={{ color }}>
                     {value}
                 </div>
-                {sub ? <div className="mt-0.5 text-[11px] font-semibold text-[#2563eb]">{sub}</div> : null}
+                {sub ? <div className="mt-0.5 text-[11px] font-semibold text-[#64748b]">{sub}</div> : null}
             </>
         );
         return onClick ? (
@@ -255,6 +259,19 @@ export function CrawlStatusTab({
 
     return (
         <div className="grid gap-4">
+            {/* 차단 감지 알림 — 데몬이 네이버 차단을 감지하면 phase='blocked' 로 기록 → 빨간 배너로 안내 */}
+            {cs && cs.phase === 'blocked' && csAge < 1800000 ? (
+                <div className="rounded-xl border-2 border-[#dc2626] bg-[#fef2f2] p-4">
+                    <div className="flex items-center gap-2 text-sm font-bold text-[#b91c1c]">
+                        <span className="animate-pulse">⚠</span>
+                        네이버 차단 감지됨 — 잠시 후 다시 시도해 주세요
+                    </div>
+                    <p className="m-0 mt-1 text-xs text-[#991b1b]">
+                        {cs.current_blog || '잠시 후 자동으로 다시 측정합니다.'}
+                    </p>
+                </div>
+            ) : null}
+
             {/* PC 크롤러 실시간 진행 배너 — 측정 중이면 진행률, 청크 사이 '휴식 갭'이면 휴식 안내(차단 예방) */}
             {csLive && cs ? (
                 <div
@@ -269,7 +286,7 @@ export function CrawlStatusTab({
                                 ? ` 차단 예방 휴식 중 — ${(cs.current_blog || '').replace(/\s*·\s*완료\s*~\s*\d{1,2}:\d{2}\s*$/, '')}`
                                 : roundNo
                                   ? ` 라운드 ${roundNo} 진행 중 · 완료 ${roundNo - 1}회${curName ? ` · 현재: ${curName}` : ''}`
-                                  : ` 크롤러 진행 중${curName ? ` · 현재: ${curName}` : ''}`}
+                                  : ` 당일 측정 글 크롤링 중${curName ? ` · 현재: ${curName}` : ''}`}
                         </span>
                         <span className="font-bold text-[#0f172a]">
                             {etaStr ? <span className="mr-2 font-semibold text-[#7c3aed]">예상 완료 {etaStr}</span> : null}
@@ -330,13 +347,13 @@ export function CrawlStatusTab({
 
             {/* KPI — '지금'(현재 크롤 세션) 기준 실시간 카운트. 측정 수는 crawl_status(이번 run done)로 즉시 반영. */}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-                <Card label="지금 측정한 글" value={csLive && cs ? cs.done : counts.posts} color="#0f172a" />
+                <Card label="지금 측정한 글" value={csLive && cs ? cs.done : counts.posts} color="#ea580c" />
                 <Card
                     label={`당일 측정 글 (${todayLabel})`}
                     value={sameDay.posts}
-                    color="#2563eb"
-                    sub={`블로그 ${sameDay.blogs}곳 · 눌러서 목록·발행보고`}
-                    highlight
+                    color="#ca8a04"
+                    sub={`블로그 ${sameDay.blogs}곳 · 눌러서 목록·발송`}
+                    tone="yellow"
                     onClick={() => setShowSameDay(true)}
                 />
                 <Card
@@ -344,7 +361,7 @@ export function CrawlStatusTab({
                     value={prevDayRows.length}
                     color="#7c3aed"
                     sub={`통합 10위내 ${prevTop10} · 눌러서 순위목록`}
-                    highlight
+                    tone="purple"
                     onClick={() => setShowPrevDay(true)}
                 />
                 <Card label="통합탭 노출" value={counts.tiOk} color="#059669" />

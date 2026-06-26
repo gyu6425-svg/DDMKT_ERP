@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import type { BlogAccount, BlogPost } from '../../api/blogRank';
+import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { lastM, prevM, renewLevel, type Tab } from './helpers';
 import { Empty, Kpi, Panel, Tag } from './ui';
 import { LowRemainModal } from './LowRemainModal';
 import { RankMovesModal } from './RankMovesModal';
+import { SameDayModal, type SameDayRow } from './SameDayModal';
 
 export function DashboardTab({
     accounts,
@@ -11,15 +12,40 @@ export function DashboardTab({
     onGo,
     onGoTracker10,
     onGoSheetBlog,
+    onToast,
 }: {
     accounts: BlogAccount[];
     posts: BlogPost[];
     onGo: (tab: Tab) => void;
     onGoTracker10: () => void;
     onGoSheetBlog: (name: string) => void;
+    onToast: (m: string) => void;
 }) {
     const [showLow, setShowLow] = useState(false);
     const [showMoves, setShowMoves] = useState(false);
+    const [showSameDay, setShowSameDay] = useState(false);
+    const [showPrevDay, setShowPrevDay] = useState(false);
+
+    // 당일(오늘 발행)·전날(어제 발행) 측정 글 — 크롤링 현황과 동일 기준(오늘 측정 완료분).
+    const today = todayKST();
+    const yesterday = (() => {
+        const [y, m, d] = today.split('-').map(Number);
+        return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+    })();
+    const mmdd = (iso: string) => {
+        const [, mo, d] = iso.split('-');
+        return `${Number(mo)}월${Number(d)}일`;
+    };
+    const rowsForPub = (pub: string): SameDayRow[] =>
+        posts
+            .filter((p) => (p.published_date || '').slice(0, 10) === pub && p.measurements.some((x) => x.date === today))
+            .map((p) => ({
+                post: p,
+                account: accounts.find((a) => a.id === p.blog_account_id) ?? null,
+                m: p.measurements.find((x) => x.date === today)!,
+            }));
+    const sameDayRows = rowsForPub(today);
+    const prevDayRows = rowsForPub(yesterday);
     const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
     const withGoal = accounts.filter((a) => a.goal_count != null && a.remain_count != null);
     const done = withGoal.reduce((s, a) => s + ((a.goal_count || 0) - (a.remain_count || 0)), 0);
@@ -95,6 +121,24 @@ export function DashboardTab({
                     accent={lowCnt ? '#d97706' : undefined}
                     sub="재계약 영업 타이밍 · 눌러서 보기"
                     onClick={() => setShowLow(true)}
+                />
+            </div>
+
+            {/* 당일/전날 측정 글 — 보고 직결 KPI(크롤링 현황과 동일). 당일=노랑, 전날=보라. */}
+            <div className="grid grid-cols-2 gap-3">
+                <Kpi
+                    label={`당일 측정 글 (${mmdd(today)})`}
+                    value={`${sameDayRows.length}`}
+                    accent="#eab308"
+                    sub="오늘 발행분 · 눌러서 목록·발송"
+                    onClick={() => setShowSameDay(true)}
+                />
+                <Kpi
+                    label={`전날 측정 글 순위 (${mmdd(yesterday)})`}
+                    value={`${prevDayRows.length}`}
+                    accent="#7c3aed"
+                    sub="어제 발행분 · 눌러서 순위목록"
+                    onClick={() => setShowPrevDay(true)}
                 />
             </div>
 
@@ -211,6 +255,24 @@ export function DashboardTab({
             ) : null}
             {showMoves ? (
                 <RankMovesModal moves={moves} nameOf={nameOf} onClose={() => setShowMoves(false)} />
+            ) : null}
+            {showSameDay ? (
+                <SameDayModal
+                    rows={sameDayRows}
+                    dayLabel={mmdd(today)}
+                    mode="publish"
+                    onClose={() => setShowSameDay(false)}
+                    onToast={onToast}
+                />
+            ) : null}
+            {showPrevDay ? (
+                <SameDayModal
+                    rows={prevDayRows}
+                    dayLabel={mmdd(yesterday)}
+                    mode="rank"
+                    onClose={() => setShowPrevDay(false)}
+                    onToast={onToast}
+                />
             ) : null}
         </div>
     );

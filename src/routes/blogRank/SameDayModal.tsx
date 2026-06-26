@@ -85,7 +85,7 @@ export function SameDayModal({
                                         <th className="px-3 py-2 text-center font-bold text-[#1e40af]">블로그탭</th>
                                     </>
                                 ) : (
-                                    <th className="px-3 py-2 text-center font-semibold">성과</th>
+                                    <th className="px-3 py-2 text-center font-semibold">발송</th>
                                 )}
                             </tr>
                         </thead>
@@ -142,7 +142,7 @@ export function SameDayModal({
                                                         title="발행 보고 카톡 메시지 만들기(업체명·잔여/계약·날짜·글링크)"
                                                         type="button"
                                                     >
-                                                        {busy === post.id ? '…' : '💬 성과'}
+                                                        {busy === post.id ? '…' : '발송'}
                                                     </button>
                                                 </td>
                                             )}

@@ -147,6 +147,7 @@ function BlogRankPage() {
                         setSheetQ(name);
                         setTab('sheet');
                     }}
+                    onToast={showToast}
                 />
             ) : null}
             {tab === 'sheet' ? (
