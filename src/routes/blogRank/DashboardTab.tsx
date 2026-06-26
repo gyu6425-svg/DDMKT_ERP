@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
-import { lastM, prevM, renewLevel, type Tab } from './helpers';
+import { isOffHoursUpload, lastM, prevM, renewLevel, type Tab } from './helpers';
 import { Empty, Kpi, Panel, Tag } from './ui';
 import { LowRemainModal } from './LowRemainModal';
 import { RankMovesModal } from './RankMovesModal';
@@ -52,15 +52,11 @@ export function DashboardTab({
     const prevTop10 = prevDayRows.filter(
         (r) => (r.m.ti_status ?? 'ok') === 'ok' && r.m.ti != null && r.m.ti <= 10,
     ).length;
-    // 누락 건 = 오늘 18:00~23:59 업로드(published_at)인데 아직 측정 안 된 글(퇴근 후 올라온 글 놓침 방지).
+    // 누락 건 = 비근무 시간(평일 18~24시 + 주말) 업로드 글 모음(최근 4일). 측정 여부 무관, 최신 업로드 먼저.
     const missedRows: CrawlRow[] = posts
-        .filter((p) => {
-            const t = p.published_at || '';
-            if (t.slice(0, 10) !== today) return false;
-            const h = Number(t.slice(11, 13));
-            return h >= 18 && h < 24 && !p.measurements.some((x) => x.date === today);
-        })
-        .map((p) => ({ post: p, account: accounts.find((a) => a.id === p.blog_account_id) ?? null, m: null }));
+        .filter((p) => isOffHoursUpload(p, today))
+        .map((p) => ({ post: p, account: accounts.find((a) => a.id === p.blog_account_id) ?? null, m: null }))
+        .sort((a, b) => (b.post.published_at || '').localeCompare(a.post.published_at || ''));
     // 크롤링 현황 KPI 와 동일한 카드 스타일(tone: 노랑/보라 강조).
     const TONE: Record<string, { box: string; label: string }> = {
         yellow: { box: 'border-2 border-[#eab308] bg-[#fefce8] ring-1 ring-[#fde68a]', label: 'font-bold text-[#a16207]' },
@@ -191,10 +187,10 @@ export function DashboardTab({
                     onClick={() => setShowPrevDay(true)}
                 />
                 <KpiCard
-                    label={`${mmdd(today)} 누락 건`}
+                    label="누락 건"
                     value={missedRows.length}
                     color="#dc2626"
-                    sub="18~24시 업로드·미측정 · 눌러서 목록"
+                    sub="퇴근후·주말 업로드 · 눌러서 목록"
                     tone="red"
                     onClick={() => setShowMissed(true)}
                 />
@@ -334,7 +330,7 @@ export function DashboardTab({
             ) : null}
             {showMissed ? (
                 <CrawlListModal
-                    title={`${mmdd(today)} 누락 건 (18~24시 업로드·미측정)`}
+                    title="누락 건 (비근무 시간 업로드 — 평일 18~24시·주말)"
                     accent="#dc2626"
                     rows={missedRows}
                     dateMode

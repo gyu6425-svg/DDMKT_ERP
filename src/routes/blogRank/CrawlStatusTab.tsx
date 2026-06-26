@@ -4,6 +4,7 @@ import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { supabase } from '../../lib/supabase';
 import { SameDayModal, type SameDayRow } from './SameDayModal';
 import { CrawlListModal, type CrawlRow } from './CrawlListModal';
+import { isOffHoursUpload } from './helpers';
 
 type CrawlStatus = {
     updated_at: string;
@@ -116,19 +117,13 @@ export function CrawlStatusTab({
                 .map((p) => ({ post: p, account: accOf(p.blog_account_id), m: p.measurements.find((x) => x.date === today) ?? null })),
         [posts, today, accounts],
     );
-    // 누락 건 = '오늘 18:00~23:59에 업로드'된 글 중 아직 측정 안 된 것(퇴근 후 올라온 글 놓침 방지).
-    //   published_at(KST 업로드시각)이 오늘이고 시(hour) 18~23, 그리고 오늘 측정 없음.
-    const isEveningToday = (p: BlogPost) => {
-        const t = p.published_at || '';
-        if (t.slice(0, 10) !== today) return false;
-        const h = Number(t.slice(11, 13));
-        return h >= 18 && h < 24;
-    };
+    // 누락 건 = 비근무 시간(평일 18~24시 + 주말) 업로드 글 모음(최근 4일). 측정 여부 무관.
     const missedRows = useMemo<CrawlRow[]>(
         () =>
             posts
-                .filter((p) => isEveningToday(p) && !p.measurements.some((x) => x.date === today))
-                .map((p) => ({ post: p, account: accOf(p.blog_account_id), m: null })),
+                .filter((p) => isOffHoursUpload(p, today))
+                .map((p) => ({ post: p, account: accOf(p.blog_account_id), m: p.measurements.find((x) => x.date === today) ?? null }))
+                .sort((a, b) => (b.post.published_at || '').localeCompare(a.post.published_at || '')),
         [posts, today, accounts],
     );
     const failRows = useMemo<CrawlRow[]>(
@@ -144,7 +139,9 @@ export function CrawlStatusTab({
     const missedToday = missedRows.length;
     const [showSameDay, setShowSameDay] = useState(false);
     const [showPrevDay, setShowPrevDay] = useState(false);
-    const [listModal, setListModal] = useState<{ title: string; accent: string; rows: CrawlRow[] } | null>(null);
+    const [listModal, setListModal] = useState<{ title: string; accent: string; rows: CrawlRow[]; dateMode?: boolean } | null>(
+        null,
+    );
 
     // ── 자동 새로고침(실시간) ──
     const [auto, setAuto] = useState(true);
@@ -408,12 +405,12 @@ export function CrawlStatusTab({
                     onClick={() => setShowSameDay(true)}
                 />
                 <Card
-                    label={`${todayLabel} 누락 건`}
+                    label="누락 건"
                     value={missedToday}
                     color="#dc2626"
-                    sub="18~24시 업로드·미측정 · 눌러서 목록"
+                    sub="퇴근후·주말 업로드 · 눌러서 목록"
                     tone="red"
-                    onClick={() => setListModal({ title: `${todayLabel} 누락 건 (18~24시 업로드·미측정)`, accent: '#dc2626', rows: missedRows })}
+                    onClick={() => setListModal({ title: '누락 건 (비근무 시간 업로드 — 평일 18~24시·주말)', accent: '#dc2626', rows: missedRows, dateMode: true })}
                 />
                 <Card
                     label={`전날 측정 글 순위 (${yesterdayLabel})`}
@@ -558,6 +555,7 @@ export function CrawlStatusTab({
                     title={listModal.title}
                     accent={listModal.accent}
                     rows={listModal.rows}
+                    dateMode={listModal.dateMode}
                     onClose={() => setListModal(null)}
                 />
             ) : null}

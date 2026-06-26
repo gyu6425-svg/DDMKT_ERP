@@ -61,6 +61,23 @@ export function amountTotal(a: Pick<BlogAccount, 'amounts' | 'amount'>): number 
 export function lastM(post: BlogPost) {
     return post.measurements.length ? post.measurements[post.measurements.length - 1] : null;
 }
+
+// 누락 건 = '비근무 시간'(평일 18~24시 또는 주말 토·일)에 업로드된 글. 측정 여부 무관, 최근 maxDays 일치만 모음.
+//   목적: 퇴근(18시)·주말 동안 올라온 글을 한 곳에 쌓아 월요일 출근 시 확인·보고. published_at(KST 업로드시각) 기준.
+export function isOffHoursUpload(p: BlogPost, todayISO: string, maxDays = 4): boolean {
+    const t = p.published_at || '';
+    if (!t) return false;
+    const date = t.slice(0, 10);
+    if (date > todayISO) return false;
+    const [y, m, d] = todayISO.split('-').map(Number);
+    const oldest = new Date(Date.UTC(y, m - 1, d - maxDays)).toISOString().slice(0, 10);
+    if (date < oldest) return false;
+    const [yy, mm, dd] = date.split('-').map(Number);
+    const dow = new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay(); // 0=일, 6=토
+    const weekend = dow === 0 || dow === 6;
+    const h = Number(t.slice(11, 13));
+    return weekend || (h >= 18 && h < 24);
+}
 export function prevM(post: BlogPost) {
     return post.measurements.length >= 2
         ? post.measurements[post.measurements.length - 2]
