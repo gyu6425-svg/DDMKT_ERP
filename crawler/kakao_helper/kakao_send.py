@@ -1,6 +1,6 @@
 # DDMKT 카카오 자동검색 헬퍼
 #   웹 '발송'이 ddmkt-kakao://send?c=<업체명>&m=<메시지> 를 열면 Windows가 이 스크립트를 실행한다.
-#   동작: 카카오톡 PC 활성화 → '검색(돋보기🔍)' 클릭 → 업체명 자동 입력(검색까지 자동) → 메시지를 클립보드에 준비.
+#   동작: 카카오톡 PC '보이는 메인 창' 활성화 → 검색(돋보기🔍) 클릭 → 업체명 자동 입력 → 메시지를 클립보드에 준비.
 #         사용자는 뜬 채팅방 클릭 → Ctrl+V → Enter 로 직접 전송. (자동 대량발송 아님 = 안전)
 import sys, os, time, json, ctypes, urllib.parse
 import ctypes.wintypes as wt
@@ -12,8 +12,39 @@ k32 = ctypes.windll.kernel32
 u32.FindWindowW.restype = wt.HWND
 u32.GetWindowRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
 
+WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wt.HWND, wt.LPARAM)
 
-# ── 클립보드(Windows API, 안정적) ── tkinter 는 프로세스 종료 시 내용이 사라져 못 씀.
+
+def _title(hwnd):
+    n = u32.GetWindowTextLengthW(hwnd)
+    buf = ctypes.create_unicode_buffer(n + 1)
+    u32.GetWindowTextW(hwnd, buf, n + 1)
+    return buf.value
+
+
+def find_kakao_main(require_visible=True):
+    """타이틀 '카카오톡' 인 창 중 '보이고 크기가 충분한(=메인)' 창 HWND. 없으면 첫 매치."""
+    found = []
+    any_match = []
+
+    def cb(hwnd, lparam):
+        if _title(hwnd) == "카카오톡":
+            any_match.append(hwnd)
+            r = wt.RECT(); u32.GetWindowRect(hwnd, ctypes.byref(r))
+            w, h = r.right - r.left, r.bottom - r.top
+            vis = u32.IsWindowVisible(hwnd)
+            if w > 200 and h > 300 and r.left > -10000 and (vis or not require_visible):
+                found.append((hwnd, w * h))
+        return True
+
+    u32.EnumWindows(WNDENUMPROC(cb), 0)
+    if found:
+        found.sort(key=lambda x: -x[1])
+        return found[0][0]
+    return any_match[0] if any_match else 0
+
+
+# ── 클립보드(Windows API, 안정적) ──
 def set_clipboard(text: str):
     CF_UNICODETEXT, GMEM_MOVEABLE = 13, 0x0002
     k32.GlobalAlloc.restype = ctypes.c_void_p
@@ -58,7 +89,7 @@ def main():
     if not company:
         return
 
-    hwnd = u32.FindWindowW(None, "카카오톡")
+    hwnd = find_kakao_main(require_visible=False)
     if not hwnd:
         set_clipboard(msg)
         u32.MessageBoxW(0, "카카오톡 PC가 실행돼 있지 않습니다.\n카톡을 먼저 켜주세요.", "DDMKT 카톡 자동검색", 0)
@@ -71,17 +102,19 @@ def main():
     u32.SetForegroundWindow(hwnd)
     time.sleep(0.5)
 
+    # 복원된 뒤의 '보이는 메인 창' 좌표를 다시 잡는다.
+    hwnd = find_kakao_main(require_visible=True) or hwnd
     rc = wt.RECT(); u32.GetWindowRect(hwnd, ctypes.byref(rc))
     try:
         cfg = json.load(open(CFG, encoding="utf-8"))
     except Exception:
         cfg = {}
-    sx = rc.left + int((rc.right - rc.left) * cfg.get("search_x_ratio", 0.5))
-    sy = rc.top + cfg.get("search_y_off", 70)
+    # 검색(돋보기🔍)은 창 '우상단'에 있음 → 우상단 모서리에서의 오프셋으로 위치 계산(창 이동에 강함).
+    sx = rc.right - cfg.get("search_right_off", 60)
+    sy = rc.top + cfg.get("search_top_off", 50)
 
-    # 검색(돋보기🔍) 클릭 → 검색창 뜸 → 업체명 붙여넣기(검색)
     _click(sx, sy)
-    time.sleep(0.35)
+    time.sleep(0.4)
     _ctrl(VK_A); _tap(VK_DEL)
     set_clipboard(company)
     _ctrl(VK_V)

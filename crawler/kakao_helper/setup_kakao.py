@@ -23,25 +23,29 @@ def register_protocol():
 
 
 def calibrate_search_box():
+    import kakao_send
     u32 = ctypes.windll.user32
-    u32.FindWindowW.restype = wt.HWND
-    hwnd = u32.FindWindowW(None, "카카오톡")
+    u32.GetWindowRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
+    hwnd = kakao_send.find_kakao_main(require_visible=True)
     if not hwnd:
-        print("[2/2] 보정 건너뜀 — 카카오톡 PC를 먼저 켜고 다시 실행하면 검색창 위치를 더 정확히 잡습니다.")
+        print("[2/2] 보정 실패 — 카카오톡 PC '메인 창'이 화면에 보이게 켜고 다시 실행하세요(트레이 최소화 X).")
         return
     print("\n[2/2] 검색 아이콘 위치 보정")
-    print("  카카오톡 창 위쪽의 '검색(돋보기 🔍)' 아이콘에 마우스 커서를 올려두세요.")
+    print("  카카오톡 창 '우상단'의 검색(돋보기 🔍) 아이콘에 마우스 커서를 올려두세요.")
     print("  (친구추가(사람+) 아이콘 아니라 '돋보기🔍' 입니다!)")
     for i in range(6, 0, -1):
         print(f"   {i}초 후 현재 마우스 위치를 검색 아이콘으로 저장합니다...", end="\r")
         time.sleep(1)
     pt = wt.POINT(); u32.GetCursorPos(ctypes.byref(pt))
-    rc = wt.RECT(); u32.GetWindowRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
-    u32.GetWindowRect(hwnd, ctypes.byref(rc))
-    ratio = (pt.x - rc.left) / max(1, (rc.right - rc.left))
-    yoff = pt.y - rc.top
-    json.dump({"search_x_ratio": round(ratio, 4), "search_y_off": int(yoff)}, open(CFG, "w", encoding="utf-8"))
-    print(f"\n  저장됨 → 검색창 x비율 {ratio:.3f}, y오프셋 {yoff}px ({CFG})")
+    rc = wt.RECT(); u32.GetWindowRect(hwnd, ctypes.byref(rc))
+    right_off = rc.right - pt.x   # 우상단 모서리에서 왼쪽으로 얼마
+    top_off = pt.y - rc.top       # 위쪽 모서리에서 아래로 얼마
+    if not (0 < right_off < (rc.right - rc.left) and 0 < top_off < 200):
+        print(f"\n  ⚠ 커서가 카톡 창 우상단 검색칸이 아닌 것 같습니다(right_off={right_off}, top_off={top_off}).")
+        print("    카톡 메인 창을 보이게 한 뒤, 돋보기🔍 위에 커서를 두고 다시 실행하세요.")
+        return
+    json.dump({"search_right_off": int(right_off), "search_top_off": int(top_off)}, open(CFG, "w", encoding="utf-8"))
+    print(f"\n  저장됨 → 우상단 기준 오프셋: 왼쪽 {right_off}px, 아래 {top_off}px ({CFG})")
 
 
 if __name__ == "__main__":
