@@ -119,8 +119,10 @@ export function TrackerTab({
                     })}
                 </select>
                 <button
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        pubFilter === 'today' ? 'bg-[#2563eb] text-white' : 'bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]'
+                    className={`rounded-full border-2 px-4 py-1.5 text-sm font-bold transition ${
+                        pubFilter === 'today'
+                            ? 'border-[#ea580c] bg-[#f97316] text-white shadow-sm'
+                            : 'border-[#fdba74] bg-white text-[#ea580c] hover:bg-[#fff7ed]'
                     }`}
                     onClick={() => {
                         setPubFilter((v) => (v === 'today' ? 'all' : 'today'));
@@ -131,10 +133,10 @@ export function TrackerTab({
                     당일 올라온 글
                 </button>
                 <button
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    className={`rounded-full border-2 px-4 py-1.5 text-sm font-bold transition ${
                         pubFilter === 'yesterday'
-                            ? 'bg-[#7c3aed] text-white'
-                            : 'bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]'
+                            ? 'border-[#c2410c] bg-[#ea580c] text-white shadow-sm'
+                            : 'border-[#fdba74] bg-white text-[#c2410c] hover:bg-[#fff7ed]'
                     }`}
                     onClick={() => {
                         setPubFilter((v) => (v === 'yesterday' ? 'all' : 'yesterday'));
