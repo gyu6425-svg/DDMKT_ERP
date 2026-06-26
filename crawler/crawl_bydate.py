@@ -32,7 +32,7 @@ for idx, acc in enumerate(accounts):
         entries = []
     entries = [e for e in entries if e.get("published_date") in RANK]   # 24/25/26 글만
     rows = [{"blog_account_id": acc["id"], "post_url": e["url"], "title": e["title"],
-             "keyword": c.derive_keyword(e["title"], e["rss_tags"]), "published_date": e["published_date"]}
+             "keyword": c.derive_keyword(e["title"], e["rss_tags"]), "published_date": e["published_date"], "published_at": e.get("published_at")}
             for e in entries if e["url"]]
     upserted = c.sb_insert("blog_posts", rows, on_conflict="blog_account_id,post_url") if rows else []
     by_url = {p["post_url"]: p for p in upserted}

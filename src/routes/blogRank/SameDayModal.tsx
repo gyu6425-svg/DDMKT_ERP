@@ -67,6 +67,24 @@ export function SameDayModal({
     onToast: (m: string) => void;
 }) {
     const [busy, setBusy] = useState<string | null>(null);
+    // 이미 발송한 글은 비활성화(중복 발송 방지). localStorage 에 기억 → 새로고침해도 유지.
+    const [sentVer, setSentVer] = useState(0);
+    const isSent = (id: string) => {
+        try {
+            return !!localStorage.getItem(`pubsent:${id}`);
+        } catch {
+            return false;
+        }
+    };
+    const markSent = (id: string) => {
+        try {
+            localStorage.setItem(`pubsent:${id}`, '1');
+        } catch {
+            /* noop */
+        }
+        setSentVer((v) => v + 1);
+    };
+    void sentVer;
     const tiNorm = (m: BlogMeasurement) =>
         (m.ti_status ?? 'ok') === 'ok' && m.ti != null && m.ti <= 30 ? m.ti : 999;
     const sorted =
@@ -90,6 +108,7 @@ export function SameDayModal({
         setBusy(post.id);
         try {
             const r = await sendPublishReport(account, post);
+            markSent(post.id); // 발송 누른 글은 보냄 처리(비활성화)
             onToast(
                 r === 'kakao'
                     ? '카카오톡 열림 — 받을 방 선택'
@@ -208,13 +227,17 @@ export function SameDayModal({
                                             ) : (
                                                 <td className="px-3 py-2 text-center">
                                                     <button
-                                                        className="rounded-md bg-[#FEE500] px-3 py-1.5 text-[12px] font-bold text-[#3c1e1e] hover:brightness-95 disabled:opacity-50"
-                                                        disabled={!account || !link || busy === post.id}
+                                                        className={`rounded-md px-3 py-1.5 text-[12px] font-bold disabled:cursor-not-allowed ${
+                                                            isSent(post.id)
+                                                                ? 'bg-[#e2e8f0] text-[#94a3b8]'
+                                                                : 'bg-[#FEE500] text-[#3c1e1e] hover:brightness-95 disabled:opacity-50'
+                                                        }`}
+                                                        disabled={!account || !link || busy === post.id || isSent(post.id)}
                                                         onClick={() => void onPerf(account, post)}
-                                                        title="발행 보고 카톡 메시지 만들기(업체명·잔여/계약·날짜·글링크)"
+                                                        title={isSent(post.id) ? '이미 발송한 글입니다' : '발행 보고 카톡 메시지 만들기'}
                                                         type="button"
                                                     >
-                                                        {busy === post.id ? '…' : '발송'}
+                                                        {busy === post.id ? '…' : isSent(post.id) ? '보냄' : '발송'}
                                                     </button>
                                                 </td>
                                             )}

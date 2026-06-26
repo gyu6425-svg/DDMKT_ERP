@@ -94,6 +94,7 @@ export type BlogPost = {
     keyword: string | null;
     keyword_manual: string | null; // 사용자가 직접 입력한 키워드. 있으면 자동 측정도 이 값으로 측정(크롤이 덮어쓰지 않음).
     published_date: string | null;
+    published_at: string | null; // 업로드 시각(KST). 누락 건(18~24시 업로드분) 판정용.
     first_seen_at: string | null;
     measurements: BlogMeasurement[];
 };

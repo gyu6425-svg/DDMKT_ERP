@@ -5,6 +5,7 @@ import { Empty, Kpi, Panel, Tag } from './ui';
 import { LowRemainModal } from './LowRemainModal';
 import { RankMovesModal } from './RankMovesModal';
 import { SameDayModal, type SameDayRow } from './SameDayModal';
+import { CrawlListModal, type CrawlRow } from './CrawlListModal';
 
 export function DashboardTab({
     accounts,
@@ -25,6 +26,7 @@ export function DashboardTab({
     const [showMoves, setShowMoves] = useState(false);
     const [showSameDay, setShowSameDay] = useState(false);
     const [showPrevDay, setShowPrevDay] = useState(false);
+    const [showMissed, setShowMissed] = useState(false);
 
     // 당일(오늘 발행)·전날(어제 발행) 측정 글 — 크롤링 현황과 동일 기준(오늘 측정 완료분).
     const today = todayKST();
@@ -50,10 +52,20 @@ export function DashboardTab({
     const prevTop10 = prevDayRows.filter(
         (r) => (r.m.ti_status ?? 'ok') === 'ok' && r.m.ti != null && r.m.ti <= 10,
     ).length;
+    // 누락 건 = 오늘 18:00~23:59 업로드(published_at)인데 아직 측정 안 된 글(퇴근 후 올라온 글 놓침 방지).
+    const missedRows: CrawlRow[] = posts
+        .filter((p) => {
+            const t = p.published_at || '';
+            if (t.slice(0, 10) !== today) return false;
+            const h = Number(t.slice(11, 13));
+            return h >= 18 && h < 24 && !p.measurements.some((x) => x.date === today);
+        })
+        .map((p) => ({ post: p, account: accounts.find((a) => a.id === p.blog_account_id) ?? null, m: null }));
     // 크롤링 현황 KPI 와 동일한 카드 스타일(tone: 노랑/보라 강조).
     const TONE: Record<string, { box: string; label: string }> = {
         yellow: { box: 'border-2 border-[#eab308] bg-[#fefce8] ring-1 ring-[#fde68a]', label: 'font-bold text-[#a16207]' },
         purple: { box: 'border-2 border-[#7c3aed] bg-[#f5f3ff] ring-1 ring-[#ddd6fe]', label: 'font-bold text-[#6d28d9]' },
+        red: { box: 'border-2 border-[#dc2626] bg-[#fef2f2] ring-1 ring-[#fecaca]', label: 'font-bold text-[#b91c1c]' },
     };
     const KpiCard = ({
         label,
@@ -67,7 +79,7 @@ export function DashboardTab({
         value: number;
         color: string;
         sub: string;
-        tone: 'yellow' | 'purple';
+        tone: 'yellow' | 'purple' | 'red';
         onClick: () => void;
     }) => (
         <button
@@ -160,8 +172,8 @@ export function DashboardTab({
                 />
             </div>
 
-            {/* 당일/전날 측정 글 — 보고 직결 KPI(크롤링 현황과 동일 스타일). 당일=노랑, 전날=보라. */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* 당일/전날 측정 글 + 누락 건 — 보고 직결 KPI. 당일=노랑, 전날=보라, 누락=빨강. */}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
                 <KpiCard
                     label={`당일 측정 글 (${mmdd(today)})`}
                     value={sameDayRows.length}
@@ -177,6 +189,14 @@ export function DashboardTab({
                     sub={`통합 10위내 ${prevTop10} · 눌러서 순위목록`}
                     tone="purple"
                     onClick={() => setShowPrevDay(true)}
+                />
+                <KpiCard
+                    label={`${mmdd(today)} 누락 건`}
+                    value={missedRows.length}
+                    color="#dc2626"
+                    sub="18~24시 업로드·미측정 · 눌러서 목록"
+                    tone="red"
+                    onClick={() => setShowMissed(true)}
                 />
             </div>
 
@@ -310,6 +330,15 @@ export function DashboardTab({
                     mode="rank"
                     onClose={() => setShowPrevDay(false)}
                     onToast={onToast}
+                />
+            ) : null}
+            {showMissed ? (
+                <CrawlListModal
+                    title={`${mmdd(today)} 누락 건 (18~24시 업로드·미측정)`}
+                    accent="#dc2626"
+                    rows={missedRows}
+                    dateMode
+                    onClose={() => setShowMissed(false)}
                 />
             ) : null}
         </div>

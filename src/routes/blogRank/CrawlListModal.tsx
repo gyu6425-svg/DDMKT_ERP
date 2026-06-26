@@ -16,15 +16,25 @@ function Rank({ v, status, tab }: { v: number | undefined; status: string | unde
     );
 }
 
+// published_at(KST ISO) → '6/26 19:30' 표시.
+function fmtAt(iso: string | null): string {
+    if (!iso) return '—';
+    const d = iso.slice(5, 10).replace('-', '/');
+    const t = iso.slice(11, 16);
+    return t ? `${d} ${t}` : d;
+}
+
 export function CrawlListModal({
     title,
     accent,
     rows,
+    dateMode = false,
     onClose,
 }: {
     title: string;
     accent: string;
     rows: CrawlRow[];
+    dateMode?: boolean; // true 면 통합/블로그탭 대신 '발행일·게시시각' 컬럼(누락 건 나중확인용)
     onClose: () => void;
 }) {
     return (
@@ -47,9 +57,18 @@ export function CrawlListModal({
                         <thead className="sticky top-0">
                             <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                                 <th className="px-3 py-2 font-semibold">업체명</th>
-                                <th className="px-3 py-2 font-semibold">글(링크)</th>
-                                <th className="px-3 py-2 text-center font-bold text-[#059669]">통합탭</th>
-                                <th className="px-3 py-2 text-center font-bold text-[#1e40af]">블로그탭</th>
+                                <th className="px-3 py-2 font-semibold">블로그(글 링크)</th>
+                                {dateMode ? (
+                                    <>
+                                        <th className="px-3 py-2 text-center font-semibold">발행일</th>
+                                        <th className="px-3 py-2 text-center font-semibold">게시 시각</th>
+                                    </>
+                                ) : (
+                                    <>
+                                        <th className="px-3 py-2 text-center font-bold text-[#059669]">통합탭</th>
+                                        <th className="px-3 py-2 text-center font-bold text-[#1e40af]">블로그탭</th>
+                                    </>
+                                )}
                             </tr>
                         </thead>
                         <tbody>
@@ -75,12 +94,25 @@ export function CrawlListModal({
                                                     <span className="text-[13px] text-[#94a3b8]">{post.title || '제목 없음'}</span>
                                                 )}
                                             </td>
-                                            <td className="px-3 py-2 text-center">
-                                                <Rank v={m?.ti} status={m?.ti_status} tab="ti" />
-                                            </td>
-                                            <td className="px-3 py-2 text-center">
-                                                <Rank v={m?.bl} status={m?.bl_status} tab="bl" />
-                                            </td>
+                                            {dateMode ? (
+                                                <>
+                                                    <td className="px-3 py-2 text-center text-[12px] font-semibold text-[#475569]">
+                                                        {post.published_date || '—'}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center text-[12px] font-semibold text-[#dc2626]">
+                                                        {fmtAt(post.published_at)}
+                                                    </td>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <td className="px-3 py-2 text-center">
+                                                        <Rank v={m?.ti} status={m?.ti_status} tab="ti" />
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center">
+                                                        <Rank v={m?.bl} status={m?.bl_status} tab="bl" />
+                                                    </td>
+                                                </>
+                                            )}
                                         </tr>
                                     );
                                 })

@@ -429,11 +429,24 @@ def sb_insert(path, rows, on_conflict=None):
     if on_conflict:
         params["on_conflict"] = on_conflict
         prefer.append("resolution=merge-duplicates")
-    r = requests.post(
-        f"{SUPABASE_URL}/rest/v1/{path}",
-        headers=sb_headers({"Prefer": ",".join(prefer)}),
-        params=params, data=json.dumps(rows), timeout=30,
-    )
+
+    def _post(rs):
+        return requests.post(
+            f"{SUPABASE_URL}/rest/v1/{path}",
+            headers=sb_headers({"Prefer": ",".join(prefer)}),
+            params=params, data=json.dumps(rs), timeout=30,
+        )
+
+    r = _post(rows)
+    # DB에 아직 없는 컬럼(예: published_at — alter table 전)으로 400 나면 그 컬럼 빼고 1회 재시도(크롤 안 깨지게).
+    if r.status_code == 400 and rows and any("published_at" in (row or {}) for row in rows):
+        try:
+            msg = r.json()
+        except Exception:
+            msg = {}
+        if "published_at" in json.dumps(msg) or "column" in json.dumps(msg).lower():
+            rows2 = [{k: v for k, v in (row or {}).items() if k != "published_at"} for row in rows]
+            r = _post(rows2)
     r.raise_for_status()
     return r.json()
 
@@ -478,10 +491,12 @@ def fetch_rss_posts(blog_id: str):
     posts = []
     for entry in parsed.entries[:MAX_POSTS_PER_BLOG]:
         link = entry.get("link", "")
-        pub = None
+        pub = pub_at = None
         if entry.get("published_parsed"):
-            # 네이버 RSS published_parsed 는 UTC → KST(+9h)로 보정해야 새벽 글이 올바른 '한국 날짜'로 잡힌다.
-            pub = (datetime.datetime(*entry.published_parsed[:6]) + datetime.timedelta(hours=9)).date().isoformat()
+            # 네이버 RSS published_parsed 는 UTC → KST(+9h)로 보정. 날짜 + 시각 둘 다 저장(누락 18~24시 판정용).
+            _kst = datetime.datetime(*entry.published_parsed[:6]) + datetime.timedelta(hours=9)
+            pub = _kst.date().isoformat()
+            pub_at = _kst.isoformat()
         # 네이버 RSS <tag> = 주제태그(쉼표). feedparser 가 노출 안 하면 빈 리스트.
         tag_raw = entry.get("tag") or entry.get("tags") or ""
         if isinstance(tag_raw, list):
@@ -496,7 +511,7 @@ def fetch_rss_posts(blog_id: str):
             tags = fetch_post_hashtags(link) or rss_tags
             _pause()
         posts.append({"url": link, "title": html.unescape(entry.get("title", "")),
-                      "published_date": pub, "tags": tags})
+                      "published_date": pub, "published_at": pub_at, "tags": tags})
     return posts
 
 
@@ -507,16 +522,18 @@ def _rss_entries_light(blog_id: str):
     out = []
     for entry in parsed.entries[:MAX_POSTS_PER_BLOG]:
         link = entry.get("link", "")
-        pub = None
+        pub = pub_at = None
         if entry.get("published_parsed"):
-            # 네이버 RSS published_parsed 는 UTC → KST(+9h)로 보정해야 새벽 글이 올바른 '한국 날짜'로 잡힌다.
-            pub = (datetime.datetime(*entry.published_parsed[:6]) + datetime.timedelta(hours=9)).date().isoformat()
+            # 네이버 RSS published_parsed 는 UTC → KST(+9h)로 보정. 날짜 + 시각 둘 다 저장(누락 18~24시 판정용).
+            _kst = datetime.datetime(*entry.published_parsed[:6]) + datetime.timedelta(hours=9)
+            pub = _kst.date().isoformat()
+            pub_at = _kst.isoformat()
         tag_raw = entry.get("tag") or entry.get("tags") or ""
         if isinstance(tag_raw, list):
             tag_raw = ",".join(getattr(x, "term", None) or (x.get("term") if isinstance(x, dict) else str(x)) for x in tag_raw)
         rss_tags = [t.strip() for t in html.unescape(str(tag_raw)).split(",") if t.strip()]
         out.append({"url": link, "title": html.unescape(entry.get("title", "")),
-                    "published_date": pub, "rss_tags": rss_tags})
+                    "published_date": pub, "published_at": pub_at, "rss_tags": rss_tags})
     return out
 
 
@@ -1292,7 +1309,7 @@ def _process_blog(acc, kw_by_acc, force=False):
     rss = [p for p in rss if not p.get("published_date") or p["published_date"] >= recent_cutoff()]
     rows = [
         {"blog_account_id": acc["id"], "post_url": p["url"], "title": p["title"],
-         "keyword": derive_keyword(p["title"], p.get("tags") or []), "published_date": p["published_date"]}
+         "keyword": derive_keyword(p["title"], p.get("tags") or []), "published_date": p["published_date"], "published_at": p.get("published_at")}
         for p in rss if p["url"]
     ]
     if rows:
@@ -1427,7 +1444,7 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
             entries = []
         entries = [e for e in entries if not e.get("published_date") or e["published_date"] >= recent_cutoff()]
         rows = [{"blog_account_id": acc["id"], "post_url": e["url"], "title": e["title"],
-                 "keyword": derive_keyword(e["title"], e["rss_tags"]), "published_date": e["published_date"]}
+                 "keyword": derive_keyword(e["title"], e["rss_tags"]), "published_date": e["published_date"], "published_at": e.get("published_at")}
                 for e in entries if e["url"]]
         upserted = sb_insert("blog_posts", rows, on_conflict="blog_account_id,post_url") if rows else []
         by_url = {p["post_url"]: p for p in upserted}

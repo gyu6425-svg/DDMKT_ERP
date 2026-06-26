@@ -116,10 +116,18 @@ export function CrawlStatusTab({
                 .map((p) => ({ post: p, account: accOf(p.blog_account_id), m: p.measurements.find((x) => x.date === today) ?? null })),
         [posts, today, accounts],
     );
+    // 누락 건 = '오늘 18:00~23:59에 업로드'된 글 중 아직 측정 안 된 것(퇴근 후 올라온 글 놓침 방지).
+    //   published_at(KST 업로드시각)이 오늘이고 시(hour) 18~23, 그리고 오늘 측정 없음.
+    const isEveningToday = (p: BlogPost) => {
+        const t = p.published_at || '';
+        if (t.slice(0, 10) !== today) return false;
+        const h = Number(t.slice(11, 13));
+        return h >= 18 && h < 24;
+    };
     const missedRows = useMemo<CrawlRow[]>(
         () =>
             posts
-                .filter((p) => (p.published_date || '').slice(0, 10) === today && !p.measurements.some((x) => x.date === today))
+                .filter((p) => isEveningToday(p) && !p.measurements.some((x) => x.date === today))
                 .map((p) => ({ post: p, account: accOf(p.blog_account_id), m: null })),
         [posts, today, accounts],
     );
@@ -403,9 +411,9 @@ export function CrawlStatusTab({
                     label={`${todayLabel} 누락 건`}
                     value={missedToday}
                     color="#dc2626"
-                    sub="오늘 발행·미측정 · 눌러서 목록"
+                    sub="18~24시 업로드·미측정 · 눌러서 목록"
                     tone="red"
-                    onClick={() => setListModal({ title: `${todayLabel} 누락 건 (오늘 발행·미측정)`, accent: '#dc2626', rows: missedRows })}
+                    onClick={() => setListModal({ title: `${todayLabel} 누락 건 (18~24시 업로드·미측정)`, accent: '#dc2626', rows: missedRows })}
                 />
                 <Card
                     label={`전날 측정 글 순위 (${yesterdayLabel})`}
