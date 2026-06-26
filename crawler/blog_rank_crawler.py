@@ -475,7 +475,8 @@ def fetch_rss_posts(blog_id: str):
         link = entry.get("link", "")
         pub = None
         if entry.get("published_parsed"):
-            pub = datetime.date(*entry.published_parsed[:3]).isoformat()
+            # 네이버 RSS published_parsed 는 UTC → KST(+9h)로 보정해야 새벽 글이 올바른 '한국 날짜'로 잡힌다.
+            pub = (datetime.datetime(*entry.published_parsed[:6]) + datetime.timedelta(hours=9)).date().isoformat()
         # 네이버 RSS <tag> = 주제태그(쉼표). feedparser 가 노출 안 하면 빈 리스트.
         tag_raw = entry.get("tag") or entry.get("tags") or ""
         if isinstance(tag_raw, list):
@@ -503,7 +504,8 @@ def _rss_entries_light(blog_id: str):
         link = entry.get("link", "")
         pub = None
         if entry.get("published_parsed"):
-            pub = datetime.date(*entry.published_parsed[:3]).isoformat()
+            # 네이버 RSS published_parsed 는 UTC → KST(+9h)로 보정해야 새벽 글이 올바른 '한국 날짜'로 잡힌다.
+            pub = (datetime.datetime(*entry.published_parsed[:6]) + datetime.timedelta(hours=9)).date().isoformat()
         tag_raw = entry.get("tag") or entry.get("tags") or ""
         if isinstance(tag_raw, list):
             tag_raw = ",".join(getattr(x, "term", None) or (x.get("term") if isinstance(x, dict) else str(x)) for x in tag_raw)
