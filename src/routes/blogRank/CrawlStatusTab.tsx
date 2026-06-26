@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { crawlBlog } from '../../api/crawlBlog';
 import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { supabase } from '../../lib/supabase';
+import { SameDayModal, type SameDayRow } from './SameDayModal';
 
 type CrawlStatus = {
     updated_at: string;
@@ -76,17 +77,21 @@ export function CrawlStatusTab({
         const [, mo, day] = today.split('-');
         return `${Number(mo)}월${Number(day)}일`;
     })();
-    const sameDay = useMemo(() => {
-        const blogs = new Set<string>();
-        let n = 0;
+    const sameDayRows = useMemo<SameDayRow[]>(() => {
+        const out: SameDayRow[] = [];
         for (const p of posts) {
             if ((p.published_date || '').slice(0, 10) !== today) continue;
-            if (!p.measurements.some((x) => x.date === today)) continue;
-            n += 1;
-            blogs.add(p.blog_account_id);
+            const m = p.measurements.find((x) => x.date === today);
+            if (!m) continue;
+            out.push({ post: p, account: accounts.find((a) => a.id === p.blog_account_id) ?? null, m });
         }
-        return { posts: n, blogs: blogs.size };
-    }, [posts, today]);
+        return out;
+    }, [posts, today, accounts]);
+    const sameDay = {
+        posts: sameDayRows.length,
+        blogs: new Set(sameDayRows.map((r) => r.post.blog_account_id)).size,
+    };
+    const [showSameDay, setShowSameDay] = useState(false);
 
     // ── 자동 새로고침(실시간) ──
     const [auto, setAuto] = useState(true);
@@ -190,27 +195,37 @@ export function CrawlStatusTab({
         color,
         sub,
         highlight,
+        onClick,
     }: {
         label: string;
         value: number;
         color: string;
         sub?: string;
         highlight?: boolean;
-    }) => (
-        <div
-            className={`rounded-lg px-4 py-3 ${
-                highlight
-                    ? 'border-2 border-[#2563eb] bg-[#eff6ff] shadow-sm ring-1 ring-[#bfdbfe]'
-                    : 'border border-[#e2e8f0] bg-white'
-            }`}
-        >
-            <div className={`text-xs ${highlight ? 'font-bold text-[#1e40af]' : 'text-[#64748b]'}`}>{label}</div>
-            <div className="mt-0.5 text-2xl font-bold" style={{ color }}>
-                {value}
-            </div>
-            {sub ? <div className="mt-0.5 text-[11px] font-semibold text-[#2563eb]">{sub}</div> : null}
-        </div>
-    );
+        onClick?: () => void;
+    }) => {
+        const cls = `rounded-lg px-4 py-3 text-left ${
+            highlight
+                ? 'border-2 border-[#2563eb] bg-[#eff6ff] shadow-sm ring-1 ring-[#bfdbfe]'
+                : 'border border-[#e2e8f0] bg-white'
+        } ${onClick ? 'cursor-pointer transition hover:shadow-md hover:ring-2 hover:ring-[#93c5fd]' : ''}`;
+        const inner = (
+            <>
+                <div className={`text-xs ${highlight ? 'font-bold text-[#1e40af]' : 'text-[#64748b]'}`}>{label}</div>
+                <div className="mt-0.5 text-2xl font-bold" style={{ color }}>
+                    {value}
+                </div>
+                {sub ? <div className="mt-0.5 text-[11px] font-semibold text-[#2563eb]">{sub}</div> : null}
+            </>
+        );
+        return onClick ? (
+            <button className={cls} onClick={onClick} type="button">
+                {inner}
+            </button>
+        ) : (
+            <div className={cls}>{inner}</div>
+        );
+    };
     const Chip = ({ k, label }: { k: 'all' | Status; label: string }) => (
         <button
             className={`rounded-full px-3 py-1 text-xs font-semibold ${
@@ -305,8 +320,9 @@ export function CrawlStatusTab({
                     label={`당일 측정 글 (${todayLabel})`}
                     value={sameDay.posts}
                     color="#2563eb"
-                    sub={`블로그 ${sameDay.blogs}곳 · 오늘 발행분`}
+                    sub={`블로그 ${sameDay.blogs}곳 · 눌러서 목록·발행보고`}
                     highlight
+                    onClick={() => setShowSameDay(true)}
                 />
                 <Card label="통합탭 노출" value={counts.tiOk} color="#059669" />
                 <Card label="블로그탭 노출" value={counts.blOk} color="#1e40af" />
@@ -413,6 +429,15 @@ export function CrawlStatusTab({
                 PC 자동 크롤러(05시)가 측정하는 동안 이 표가 실시간으로 채워집니다. ‘전체 측정 시작’은 이 브라우저에서
                 직접 크롤하며, 창을 닫으면 멈춥니다.
             </p>
+
+            {showSameDay ? (
+                <SameDayModal
+                    rows={sameDayRows}
+                    dayLabel={todayLabel}
+                    onClose={() => setShowSameDay(false)}
+                    onToast={onToast}
+                />
+            ) : null}
         </div>
     );
 }

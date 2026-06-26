@@ -274,6 +274,44 @@ export async function openBlogReport(account: BlogAccount, posts: BlogPost[]): P
     }
 }
 
+// ── 발행 보고(카톡) — 기자단이 오늘 올린 글을 담당자에게 즉시 전달(04시 크롤 전 보고용) ──
+// 양식(사용자 확정): "업체명 (발행수/계약건수) - M월 D일" + 글 링크. 카톡이 링크의 OG로 미리보기 카드를 자동 생성.
+//   발행수 = goal_count - remain_count, 계약건수 = goal_count.
+export function buildPublishReportMessage(account: BlogAccount, post: BlogPost): string {
+    const pub = (post.published_date || todayKST()).slice(0, 10);
+    const [, mo, d] = pub.split('-');
+    const dateLabel = `${Number(mo)}월 ${Number(d)}일`;
+    const link = post.post_url || account.blog_url || '';
+    let frac = '';
+    if (account.goal_count != null && account.remain_count != null) {
+        frac = ` (${account.goal_count - account.remain_count}/${account.goal_count})`;
+    }
+    return `담당자님 안녕하세요 :)\n금일 발행 건 링크 전달 드립니다~!\n\n${account.name}${frac} - ${dateLabel}\n${link}`;
+}
+
+// 발행 보고 전송 — 모바일이면 공유 시트(navigator.share)로 카톡 선택, PC면 클립보드 복사(카톡에 붙여넣기).
+export async function sendPublishReport(account: BlogAccount, post: BlogPost): Promise<'shared' | 'copied' | 'manual'> {
+    const msg = buildPublishReportMessage(account, post);
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        try {
+            await navigator.share({ text: msg });
+            return 'shared';
+        } catch {
+            /* 사용자 취소/미지원 → 복사 폴백 */
+        }
+    }
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        try {
+            await navigator.clipboard.writeText(msg);
+            return 'copied';
+        } catch {
+            /* 폴백 */
+        }
+    }
+    window.prompt('아래 발행 보고 내용을 복사해 카톡에 붙여넣으세요:', msg);
+    return 'manual';
+}
+
 // ── 순위 트래커 성과 보고서(글 단위, 여러 블로그) ──
 // 컬럼: 업체명 · 블로그 주소 · 발행 날짜 · 키워드 · 통합탭 순위 · 블로그탭 순위
 export function buildTrackerReportHtml(posts: BlogPost[], accounts: BlogAccount[]): string {
