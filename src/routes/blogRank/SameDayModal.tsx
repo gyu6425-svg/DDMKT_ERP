@@ -75,6 +75,7 @@ export function SameDayModal({
     onToast: (m: string) => void;
 }) {
     const [busy, setBusy] = useState<string | null>(null);
+    const [sortAt, setSortAt] = useState<'desc' | 'asc' | null>(null); // 업로드 시간 정렬(null=업체명순)
     // 이미 발송한 글은 비활성화(중복 발송 방지). localStorage 에 기억 → 새로고침해도 유지.
     const [sentVer, setSentVer] = useState(0);
     const isSent = (id: string) => {
@@ -92,13 +93,26 @@ export function SameDayModal({
         }
         setSentVer((v) => v + 1);
     };
+    const unmarkSent = (id: string) => {
+        try {
+            localStorage.removeItem(`pubsent:${id}`);
+        } catch {
+            /* noop */
+        }
+        setSentVer((v) => v + 1);
+    };
     void sentVer;
     const tiNorm = (m: BlogMeasurement) =>
         (m.ti_status ?? 'ok') === 'ok' && m.ti != null && m.ti <= 30 ? m.ti : 999;
     const sorted =
         mode === 'rank'
             ? [...rows].sort((a, b) => tiNorm(a.m) - tiNorm(b.m)) // 순위 좋은 순
-            : [...rows].sort((a, b) => (a.account?.name || '').localeCompare(b.account?.name || '', 'ko'));
+            : sortAt
+              ? [...rows].sort((a, b) => {
+                    const c = (a.post.published_at || '').localeCompare(b.post.published_at || '');
+                    return sortAt === 'asc' ? c : -c;
+                })
+              : [...rows].sort((a, b) => (a.account?.name || '').localeCompare(b.account?.name || '', 'ko'));
     const title = mode === 'rank' ? '전날 측정 글 순위' : '당일 측정 글';
 
     // 전날(순위) 모달의 발송 = 그 블로그 1개만 순위 트래커 성과 보고서로 열기(호스팅 → 카톡 발송).
@@ -164,7 +178,13 @@ export function SameDayModal({
                                     </>
                                 ) : (
                                     <>
-                                        <th className="px-3 py-2 text-center font-semibold">업로드 시간</th>
+                                        <th
+                                            className="cursor-pointer select-none px-3 py-2 text-center font-semibold hover:text-[#1e40af]"
+                                            onClick={() => setSortAt((s) => (s === 'desc' ? 'asc' : 'desc'))}
+                                            title="업로드 시간 정렬(오름/내림)"
+                                        >
+                                            업로드 시간 {sortAt === 'desc' ? '↓' : sortAt === 'asc' ? '↑' : '↕'}
+                                        </th>
                                         <th className="px-3 py-2 text-center font-semibold">발송</th>
                                     </>
                                 )}
@@ -247,12 +267,14 @@ export function SameDayModal({
                                                                 ? 'bg-[#e2e8f0] text-[#94a3b8]'
                                                                 : 'bg-[#FEE500] text-[#3c1e1e] hover:brightness-95 disabled:opacity-50'
                                                         }`}
-                                                        disabled={!account || !link || busy === post.id || isSent(post.id)}
-                                                        onClick={() => void onPerf(account, post)}
-                                                        title={isSent(post.id) ? '이미 발송한 글입니다' : '발행 보고 카톡 메시지 만들기'}
+                                                        disabled={!account || !link || busy === post.id}
+                                                        onClick={() =>
+                                                            isSent(post.id) ? unmarkSent(post.id) : void onPerf(account, post)
+                                                        }
+                                                        title={isSent(post.id) ? '발송함 — 눌러서 다시 발송 활성화' : '발행 보고 카톡 메시지 만들기'}
                                                         type="button"
                                                     >
-                                                        {busy === post.id ? '…' : isSent(post.id) ? '보냄' : '발송'}
+                                                        {busy === post.id ? '…' : isSent(post.id) ? '보냄 ↺' : '발송'}
                                                     </button>
                                                 </td>
                                                 </>
