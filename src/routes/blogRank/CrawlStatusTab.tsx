@@ -72,26 +72,41 @@ export function CrawlStatusTab({
         return c;
     }, [blogRows]);
 
-    // 당일 측정 글 = '오늘 발행(published_date=오늘)'된 글 중 오늘 측정까지 끝난 글. (글 수 / 그 글을 가진 블로그 수)
-    const todayLabel = (() => {
-        const [, mo, day] = today.split('-');
-        return `${Number(mo)}월${Number(day)}일`;
+    // 어제 날짜(KST) — UTC 연산으로 월 경계 안전하게.
+    const yesterday = (() => {
+        const [y, m, d] = today.split('-').map(Number);
+        return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
     })();
-    const sameDayRows = useMemo<SameDayRow[]>(() => {
+    const mmddLabel = (iso: string) => {
+        const [, mo, day] = iso.split('-');
+        return `${Number(mo)}월${Number(day)}일`;
+    };
+    const todayLabel = mmddLabel(today);
+    const yesterdayLabel = mmddLabel(yesterday);
+
+    // 특정 발행일(published_date)에 올라온 글 중 '오늘 측정'까지 끝난 글 모으기.
+    const rowsForPubDate = (pubDate: string): SameDayRow[] => {
         const out: SameDayRow[] = [];
         for (const p of posts) {
-            if ((p.published_date || '').slice(0, 10) !== today) continue;
+            if ((p.published_date || '').slice(0, 10) !== pubDate) continue;
             const m = p.measurements.find((x) => x.date === today);
             if (!m) continue;
             out.push({ post: p, account: accounts.find((a) => a.id === p.blog_account_id) ?? null, m });
         }
         return out;
-    }, [posts, today, accounts]);
+    };
+    // 당일(오늘 발행) / 전날(어제 발행) 측정 글 — 둘 다 '오늘 측정' 기준.
+    const sameDayRows = useMemo<SameDayRow[]>(() => rowsForPubDate(today), [posts, today, accounts]);
+    const prevDayRows = useMemo<SameDayRow[]>(() => rowsForPubDate(yesterday), [posts, today, yesterday, accounts]);
     const sameDay = {
         posts: sameDayRows.length,
         blogs: new Set(sameDayRows.map((r) => r.post.blog_account_id)).size,
     };
+    const prevTop10 = prevDayRows.filter(
+        (r) => (r.m.ti_status ?? 'ok') === 'ok' && r.m.ti != null && r.m.ti <= 10,
+    ).length;
     const [showSameDay, setShowSameDay] = useState(false);
+    const [showPrevDay, setShowPrevDay] = useState(false);
 
     // ── 자동 새로고침(실시간) ──
     const [auto, setAuto] = useState(true);
@@ -314,7 +329,7 @@ export function CrawlStatusTab({
             </div>
 
             {/* KPI — '지금'(현재 크롤 세션) 기준 실시간 카운트. 측정 수는 crawl_status(이번 run done)로 즉시 반영. */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                 <Card label="지금 측정한 글" value={csLive && cs ? cs.done : counts.posts} color="#0f172a" />
                 <Card
                     label={`당일 측정 글 (${todayLabel})`}
@@ -323,6 +338,14 @@ export function CrawlStatusTab({
                     sub={`블로그 ${sameDay.blogs}곳 · 눌러서 목록·발행보고`}
                     highlight
                     onClick={() => setShowSameDay(true)}
+                />
+                <Card
+                    label={`전날 측정 글 순위 (${yesterdayLabel})`}
+                    value={prevDayRows.length}
+                    color="#7c3aed"
+                    sub={`통합 10위내 ${prevTop10} · 눌러서 순위목록`}
+                    highlight
+                    onClick={() => setShowPrevDay(true)}
                 />
                 <Card label="통합탭 노출" value={counts.tiOk} color="#059669" />
                 <Card label="블로그탭 노출" value={counts.blOk} color="#1e40af" />
@@ -434,7 +457,17 @@ export function CrawlStatusTab({
                 <SameDayModal
                     rows={sameDayRows}
                     dayLabel={todayLabel}
+                    mode="publish"
                     onClose={() => setShowSameDay(false)}
+                    onToast={onToast}
+                />
+            ) : null}
+            {showPrevDay ? (
+                <SameDayModal
+                    rows={prevDayRows}
+                    dayLabel={yesterdayLabel}
+                    mode="rank"
+                    onClose={() => setShowPrevDay(false)}
                     onToast={onToast}
                 />
             ) : null}
