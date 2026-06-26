@@ -29,10 +29,11 @@ def calibrate_search_box():
     if not hwnd:
         print("[2/2] 보정 건너뜀 — 카카오톡 PC를 먼저 켜고 다시 실행하면 검색창 위치를 더 정확히 잡습니다.")
         return
-    print("\n[2/2] 검색창 위치 보정")
-    print("  카카오톡 창의 '검색창'(이름·채팅방 검색칸)에 마우스 커서를 올려두세요.")
+    print("\n[2/2] 검색 아이콘 위치 보정")
+    print("  카카오톡 창 위쪽의 '검색(돋보기 🔍)' 아이콘에 마우스 커서를 올려두세요.")
+    print("  (친구추가(사람+) 아이콘 아니라 '돋보기🔍' 입니다!)")
     for i in range(6, 0, -1):
-        print(f"   {i}초 후 현재 마우스 위치를 검색창으로 저장합니다...", end="\r")
+        print(f"   {i}초 후 현재 마우스 위치를 검색 아이콘으로 저장합니다...", end="\r")
         time.sleep(1)
     pt = wt.POINT(); u32.GetCursorPos(ctypes.byref(pt))
     rc = wt.RECT(); u32.GetWindowRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
