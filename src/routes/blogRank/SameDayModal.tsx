@@ -82,33 +82,8 @@ export function SameDayModal({
     const [sortAt, setSortAt] = useState<'desc' | 'asc' | null>(null); // 업로드 시간 정렬(null=업체명순)
     const [view, setView] = useState<'measured' | 'sent' | 'history'>('measured'); // 탭: 측정 글 / 발송 리스트 / 누적 발송 리스트
     const [histDate, setHistDate] = useState<string>(''); // 누적 발송 리스트 날짜 필터('' = 전체)
-    // 이미 발송한 글은 비활성화(중복 발송 방지). localStorage 에 기억 → 새로고침해도 유지.
-    const [sentVer, setSentVer] = useState(0);
-    const isSent = (id: string) => {
-        try {
-            return !!localStorage.getItem(`pubsent:${id}`);
-        } catch {
-            return false;
-        }
-    };
-    // 순위 발송 상태(localStorage) — 전날 순위 발송 버튼 중복 방지(서버 rank_sent_at 반영 전 즉시 표시).
-    const isRankSent = (id: string) => {
-        try {
-            return !!localStorage.getItem(`ranksent:${id}`);
-        } catch {
-            return false;
-        }
-    };
-    const markRankSent = (id: string, on: boolean) => {
-        try {
-            if (on) localStorage.setItem(`ranksent:${id}`, '1');
-            else localStorage.removeItem(`ranksent:${id}`);
-        } catch {
-            /* noop */
-        }
-        setSentVer((v) => v + 1);
-    };
-    void sentVer;
+    // 발송 여부는 DB(report_sent_at/rank_sent_at) 기준. 방금 누른 글만 즉시 '요청됨' 표시(새로고침하면 DB 기준).
+    const [rankReq, setRankReq] = useState<Set<string>>(() => new Set());
     const tiNorm = (m: BlogMeasurement) =>
         (m.ti_status ?? 'ok') === 'ok' && m.ti != null && m.ti <= 30 ? m.ti : 999;
     const sorted =
@@ -122,21 +97,15 @@ export function SameDayModal({
               : [...rows].sort((a, b) => (a.account?.name || '').localeCompare(b.account?.name || '', 'ko'));
     const title = mode === 'rank' ? '전날 측정 글 순위' : '당일 측정 글';
 
-    // 발송 리스트(자동발송 기록) — report_sent_at(자동발송) 또는 발송버튼(localStorage) 표시된 글. 최근 발송순.
-    const sentInfo = (post: BlogPost): { at: string | null } | null => {
-        if (post.report_sent_at) return { at: post.report_sent_at };
-        if (isSent(post.id)) return { at: null };
-        return null;
-    };
+    // 발송 리스트(자동발송 기록) — report_sent_at(DB) 기준. 최근 발송순.
+    const sentInfo = (post: BlogPost): { at: string | null } | null =>
+        post.report_sent_at ? { at: post.report_sent_at } : null;
     const sentList = [...rows]
         .filter((r) => !!sentInfo(r.post))
         .sort((a, b) => (b.post.report_sent_at || '').localeCompare(a.post.report_sent_at || ''));
-    // 전날 순위 발송 리스트 — rank_sent_at(서버) 또는 ranksent(localStorage) 표시된 글. 최근 발송순.
-    const rankSentInfo = (post: BlogPost): { at: string | null } | null => {
-        if (post.rank_sent_at) return { at: post.rank_sent_at };
-        if (isRankSent(post.id)) return { at: null };
-        return null;
-    };
+    // 전날 순위 발송 리스트 — rank_sent_at(DB) 기준. 최근 발송순. (발송 전으로 되돌리려면 DB rank_sent_at 만 비우면 됨)
+    const rankSentInfo = (post: BlogPost): { at: string | null } | null =>
+        post.rank_sent_at ? { at: post.rank_sent_at } : null;
     const rankSentList = [...rows]
         .filter((r) => !!rankSentInfo(r.post))
         .sort((a, b) => (b.post.rank_sent_at || '').localeCompare(a.post.rank_sent_at || ''));
@@ -182,7 +151,7 @@ export function SameDayModal({
             if (error) {
                 onToast('발송 요청 실패: ' + (error.message || ''));
             } else {
-                markRankSent(post.id, true);
+                setRankReq((s) => new Set(s).add(post.id)); // 즉시 '요청됨' 표시(새로고침하면 DB rank_sent_at 기준)
                 onToast('순위 보고 발송 요청됨 — 곧 카톡으로 발송됩니다');
             }
         } finally {
@@ -503,24 +472,20 @@ export function SameDayModal({
                                                     <td className="px-3 py-2 text-center">
                                                         <button
                                                             className={`rounded-md px-3 py-1.5 text-[12px] font-bold disabled:cursor-not-allowed ${
-                                                                isRankSent(post.id)
+                                                                rankReq.has(post.id)
                                                                     ? 'bg-[#e2e8f0] text-[#94a3b8]'
                                                                     : 'bg-[#FEE500] text-[#3c1e1e] hover:brightness-95 disabled:opacity-50'
                                                             }`}
-                                                            disabled={!account || busy === post.id}
-                                                            onClick={() =>
-                                                                isRankSent(post.id)
-                                                                    ? markRankSent(post.id, false)
-                                                                    : void onRankSend(account, post, m)
-                                                            }
+                                                            disabled={!account || busy === post.id || rankReq.has(post.id)}
+                                                            onClick={() => void onRankSend(account, post, m)}
                                                             title={
-                                                                isRankSent(post.id)
-                                                                    ? '발송함 — 눌러서 다시 발송 활성화'
+                                                                rankReq.has(post.id)
+                                                                    ? '발송 요청됨 — 곧 카톡으로 발송됩니다'
                                                                     : '순위 성과보고를 카톡 비즈 웹으로 발송(요청)'
                                                             }
                                                             type="button"
                                                         >
-                                                            {busy === post.id ? '…' : isRankSent(post.id) ? '보냄 ↺' : '발송'}
+                                                            {busy === post.id ? '…' : rankReq.has(post.id) ? '요청됨' : '발송'}
                                                         </button>
                                                     </td>
                                                 </>
