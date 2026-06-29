@@ -572,6 +572,8 @@ export function CrawlStatusTab({
                     rows={sameDayRows}
                     dayLabel={todayLabel}
                     mode="publish"
+                    allPosts={posts}
+                    accounts={accounts}
                     onClose={() => setShowSameDay(false)}
                     onToast={onToast}
                 />

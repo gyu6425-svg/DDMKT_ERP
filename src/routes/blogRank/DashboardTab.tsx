@@ -315,6 +315,8 @@ export function DashboardTab({
                     rows={sameDayRows}
                     dayLabel={mmdd(today)}
                     mode="publish"
+                    allPosts={posts}
+                    accounts={accounts}
                     onClose={() => setShowSameDay(false)}
                     onToast={onToast}
                 />

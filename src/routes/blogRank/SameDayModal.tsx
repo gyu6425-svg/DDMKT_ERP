@@ -65,18 +65,23 @@ export function SameDayModal({
     rows,
     dayLabel,
     mode = 'publish',
+    allPosts = [],
+    accounts = [],
     onClose,
     onToast,
 }: {
     rows: SameDayRow[];
     dayLabel: string;
     mode?: 'publish' | 'rank';
+    allPosts?: BlogPost[]; // 전체 글(누적 발송 리스트용 — 모든 날짜 발송분)
+    accounts?: BlogAccount[]; // 업체(누적 발송 리스트 업체명 표시용)
     onClose: () => void;
     onToast: (m: string) => void;
 }) {
     const [busy, setBusy] = useState<string | null>(null);
     const [sortAt, setSortAt] = useState<'desc' | 'asc' | null>(null); // 업로드 시간 정렬(null=업체명순)
-    const [view, setView] = useState<'measured' | 'sent'>('measured'); // 당일 모달 상단 탭(측정 글 / 발송 리스트)
+    const [view, setView] = useState<'measured' | 'sent' | 'history'>('measured'); // 탭: 측정 글 / 발송 리스트 / 누적 발송 리스트
+    const [histDate, setHistDate] = useState<string>(''); // 누적 발송 리스트 날짜 필터('' = 전체)
     // 이미 발송한 글은 비활성화(중복 발송 방지). localStorage 에 기억 → 새로고침해도 유지.
     const [sentVer, setSentVer] = useState(0);
     const isSent = (id: string) => {
@@ -125,8 +130,23 @@ export function SameDayModal({
     const sentList = [...rows]
         .filter((r) => !!sentInfo(r.post))
         .sort((a, b) => (b.post.report_sent_at || '').localeCompare(a.post.report_sent_at || ''));
+    // 당일 측정 글 = '아직 발송 안 한' 글만 (발송하면 발송 리스트로 빠짐). rank 모드는 전체.
+    const measuredRows = mode === 'publish' ? sorted.filter((r) => !sentInfo(r.post)) : sorted;
+    // 누적 발송 리스트 = 모든 날짜의 발송완료 글(report_sent_at 기준). 날짜 필터 가능.
+    const accById = new Map(accounts.map((a) => [a.id, a]));
+    const historyAll = allPosts
+        .filter((p) => !!p.report_sent_at)
+        .map((p) => ({ post: p, account: accById.get(p.blog_account_id) ?? null }))
+        .sort((a, b) => (b.post.report_sent_at || '').localeCompare(a.post.report_sent_at || ''));
+    const histDates = [...new Set(historyAll.map((r) => (r.post.report_sent_at || '').slice(0, 10)))]
+        .sort()
+        .reverse();
+    const historyRows = histDate
+        ? historyAll.filter((r) => (r.post.report_sent_at || '').slice(0, 10) === histDate)
+        : historyAll;
     const publishSent = mode === 'publish' && view === 'sent';
-    const headCount = publishSent ? sentList.length : rows.length;
+    const publishHistory = mode === 'publish' && view === 'history';
+    const headCount = publishHistory ? historyRows.length : publishSent ? sentList.length : measuredRows.length;
 
     // 전날(순위) 모달의 발송 = 그 블로그 1개만 순위 트래커 성과 보고서로 열기(호스팅 → 카톡 발송).
     const onTracker = async (account: BlogAccount | null, post: BlogPost) => {
@@ -171,12 +191,13 @@ export function SameDayModal({
                     <span className="rounded-full bg-[#eff6ff] px-3 py-1 text-xs font-bold text-[#1e40af]">총 {headCount}글</span>
                 </div>
 
-                {/* 당일 모달 상단 탭 — 당일 측정 글 / 발송 리스트(자동발송 기록) */}
+                {/* 당일 모달 상단 탭 — 당일 측정 글 / 발송 리스트 / 누적 발송 리스트 */}
                 {mode === 'publish' && (
                     <div className="mt-3 flex gap-1 border-b border-[#e2e8f0]">
                         {([
-                            ['measured', '당일 측정 글', rows.length],
+                            ['measured', '당일 측정 글', measuredRows.length],
                             ['sent', '발송 리스트', sentList.length],
+                            ['history', '누적 발송 리스트', historyAll.length],
                         ] as const).map(([key, label, n]) => (
                             <button
                                 key={key}
@@ -197,12 +218,87 @@ export function SameDayModal({
                 <p className="mt-2 mb-3 text-sm text-[#64748b]">
                     {mode === 'rank'
                         ? `전날(${dayLabel}) 발행되어 측정된 글의 통합탭·블로그탭 순위입니다. (통합탭 노출 좋은 순)`
-                        : publishSent
-                          ? '발행보고가 카톡으로 발송된 기록입니다. (자동발송 또는 발송 버튼) 최근 발송 순.'
-                          : '오늘 발행되어 오늘 측정된 글입니다. 발송 버튼을 누르면 발행 보고 메시지가 카톡 발송됩니다.'}
+                        : publishHistory
+                          ? '날짜별로 누적된 발송 완료 기록입니다. 날짜를 골라 그날 발송분만 볼 수 있어요.'
+                          : publishSent
+                            ? '오늘 발송 완료된 글입니다. (당일 측정 글에서 발송하면 여기로 옮겨집니다)'
+                            : '오늘 발행·측정된 글 중 아직 발송 안 한 글입니다. 발송하면 발송 리스트로 빠집니다.'}
                 </p>
 
-                {publishSent ? (
+                {/* 누적 발송 리스트 — 날짜 필터 */}
+                {publishHistory && (
+                    <div className="mb-3 flex items-center gap-2">
+                        <span className="text-xs font-semibold text-[#64748b]">날짜</span>
+                        <select
+                            className="rounded-md border border-[#cbd5e1] px-2 py-1 text-sm"
+                            onChange={(e) => setHistDate(e.target.value)}
+                            value={histDate}
+                        >
+                            <option value="">전체 ({historyAll.length})</option>
+                            {histDates.map((d) => (
+                                <option key={d} value={d}>
+                                    {d} ({historyAll.filter((r) => (r.post.report_sent_at || '').slice(0, 10) === d).length})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                {publishHistory ? (
+                    <div className="overflow-y-auto rounded-md border border-[#e2e8f0]">
+                        <table className="w-full border-collapse text-left text-sm">
+                            <thead className="sticky top-0">
+                                <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
+                                    <th className="px-3 py-2 font-semibold">업체명</th>
+                                    <th className="px-3 py-2 font-semibold">블로그(글 링크)</th>
+                                    <th className="px-3 py-2 text-center font-semibold">발행일</th>
+                                    <th className="px-3 py-2 text-center font-semibold">발송 시각</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {historyRows.length ? (
+                                    historyRows.map(({ post, account }) => {
+                                        const link = post.post_url || account?.blog_url || '';
+                                        return (
+                                            <tr key={post.id} className="border-b border-[#e2e8f0] hover:bg-[#f8fafc]">
+                                                <td className="px-3 py-2 text-[13px] font-semibold text-[#0f172a]">
+                                                    {account?.name || '—'}
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    {link ? (
+                                                        <a
+                                                            className="block max-w-[360px] truncate text-[13px] font-medium text-[#1d4ed8] hover:underline"
+                                                            href={link}
+                                                            rel="noopener noreferrer"
+                                                            target="_blank"
+                                                            title="블로그 글로 이동"
+                                                        >
+                                                            {post.title || link}
+                                                        </a>
+                                                    ) : (
+                                                        <span className="text-[13px] text-[#94a3b8]">링크 없음</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-2 text-center text-[12px] font-semibold text-[#475569]">
+                                                    {post.published_date || '—'}
+                                                </td>
+                                                <td className="px-3 py-2 text-center text-[12px] font-bold text-[#059669]">
+                                                    {fmtAt(post.report_sent_at)}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                ) : (
+                                    <tr>
+                                        <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={4}>
+                                            발송 기록이 없습니다.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : publishSent ? (
                     <div className="overflow-y-auto rounded-md border border-[#e2e8f0]">
                         <table className="w-full border-collapse text-left text-sm">
                             <thead className="sticky top-0">
@@ -282,8 +378,8 @@ export function SameDayModal({
                             </tr>
                         </thead>
                         <tbody>
-                            {sorted.length ? (
-                                sorted.map(({ post, account, m }) => {
+                            {measuredRows.length ? (
+                                measuredRows.map(({ post, account, m }) => {
                                     const link = post.post_url || account?.blog_url || '';
                                     return (
                                         <tr key={post.id} className="border-b border-[#e2e8f0] hover:bg-[#f8fafc]">
@@ -376,7 +472,9 @@ export function SameDayModal({
                             ) : (
                                 <tr>
                                     <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={mode === 'rank' ? 6 : 4}>
-                                        아직 {dayLabel} 측정된 글이 없습니다. 크롤이 진행되면 표시됩니다.
+                                        {mode === 'publish' && rows.length > 0
+                                            ? '발송 안 한 글이 없습니다. (모두 발송 완료 → 발송 리스트 탭 확인)'
+                                            : `아직 ${dayLabel} 측정된 글이 없습니다. 크롤이 진행되면 표시됩니다.`}
                                     </td>
                                 </tr>
                             )}
