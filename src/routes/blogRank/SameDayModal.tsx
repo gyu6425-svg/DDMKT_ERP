@@ -114,22 +114,21 @@ export function SameDayModal({
         mode === 'publish'
             ? sorted.filter((r) => !sentInfo(r.post))
             : sorted.filter((r) => !rankSentInfo(r.post));
-    // 누적 발송 리스트 = 모든 날짜의 발송완료 글(report_sent_at 기준). 날짜 필터 가능.
+    // 누적 발송 리스트 = 모든 날짜의 발송완료 글. 당일=report_sent_at, 전날(순위)=rank_sent_at 기준. 날짜 필터 가능.
+    const histAt = (p: BlogPost): string | null => (mode === 'rank' ? p.rank_sent_at ?? null : p.report_sent_at ?? null);
     const accById = new Map(accounts.map((a) => [a.id, a]));
     const historyAll = allPosts
-        .filter((p) => !!p.report_sent_at)
+        .filter((p) => !!histAt(p))
         .map((p) => ({ post: p, account: accById.get(p.blog_account_id) ?? null }))
-        .sort((a, b) => (b.post.report_sent_at || '').localeCompare(a.post.report_sent_at || ''));
-    const histDates = [...new Set(historyAll.map((r) => (r.post.report_sent_at || '').slice(0, 10)))]
-        .sort()
-        .reverse();
+        .sort((a, b) => (histAt(b.post) || '').localeCompare(histAt(a.post) || ''));
+    const histDates = [...new Set(historyAll.map((r) => (histAt(r.post) || '').slice(0, 10)))].sort().reverse();
     const historyRows = histDate
-        ? historyAll.filter((r) => (r.post.report_sent_at || '').slice(0, 10) === histDate)
+        ? historyAll.filter((r) => (histAt(r.post) || '').slice(0, 10) === histDate)
         : historyAll;
     const publishSent = mode === 'publish' && view === 'sent';
-    const publishHistory = mode === 'publish' && view === 'history';
+    const showHistory = view === 'history'; // 누적 발송 리스트(양 모드 공통)
     const rankSent = mode === 'rank' && view === 'sent'; // 전날 순위 발송 리스트 탭
-    const headCount = publishHistory
+    const headCount = showHistory
         ? historyRows.length
         : rankSent
           ? rankSentList.length
@@ -182,6 +181,7 @@ export function SameDayModal({
                         : ([
                               ['measured', '전날 측정 글 순위', measuredRows.length],
                               ['sent', '발송 리스트', rankSentList.length],
+                              ['history', '누적 발송 리스트', historyAll.length],
                           ] as const)
                     ).map(([key, label, n]) => (
                             <button
@@ -200,19 +200,19 @@ export function SameDayModal({
                     </div>
 
                 <p className="mt-2 mb-3 text-sm text-[#64748b]">
-                    {mode === 'rank'
-                        ? rankSent
-                            ? '순위 성과보고를 카톡으로 발송한 기록입니다. (전날 순위에서 발송하면 여기로 옮겨집니다)'
-                            : `전날(${dayLabel}) 발행·측정 글 중 아직 발송 안 한 순위입니다. 발송하면 발송 리스트로 빠집니다. (통합탭 노출 좋은 순)`
-                        : publishHistory
-                          ? '날짜별로 누적된 발송 완료 기록입니다. 날짜를 골라 그날 발송분만 볼 수 있어요.'
+                    {showHistory
+                        ? '날짜별로 누적된 발송 완료 기록입니다. 날짜를 골라 그날 발송분만 볼 수 있어요.'
+                        : mode === 'rank'
+                          ? rankSent
+                              ? '순위 성과보고를 카톡으로 발송한 기록입니다. (전날 순위에서 발송하면 여기로 옮겨집니다)'
+                              : `전날(${dayLabel}) 발행·측정 글 중 아직 발송 안 한 순위입니다. 발송하면 발송 리스트로 빠집니다. (통합탭 노출 좋은 순)`
                           : publishSent
                             ? '오늘 발송 완료된 글입니다. (당일 측정 글에서 발송하면 여기로 옮겨집니다)'
                             : '오늘 발행·측정된 글 중 아직 발송 안 한 글입니다. 발송하면 발송 리스트로 빠집니다.'}
                 </p>
 
                 {/* 누적 발송 리스트 — 날짜 필터 */}
-                {publishHistory && (
+                {showHistory && (
                     <div className="mb-3 flex items-center gap-2">
                         <span className="text-xs font-semibold text-[#64748b]">날짜</span>
                         <select
@@ -223,14 +223,14 @@ export function SameDayModal({
                             <option value="">전체 ({historyAll.length})</option>
                             {histDates.map((d) => (
                                 <option key={d} value={d}>
-                                    {d} ({historyAll.filter((r) => (r.post.report_sent_at || '').slice(0, 10) === d).length})
+                                    {d} ({historyAll.filter((r) => (histAt(r.post) || '').slice(0, 10) === d).length})
                                 </option>
                             ))}
                         </select>
                     </div>
                 )}
 
-                {publishHistory ? (
+                {showHistory ? (
                     <div className="overflow-y-auto rounded-md border border-[#e2e8f0]">
                         <table className="w-full border-collapse text-left text-sm">
                             <thead className="sticky top-0">
@@ -269,7 +269,7 @@ export function SameDayModal({
                                                     {post.published_date || '—'}
                                                 </td>
                                                 <td className="px-3 py-2 text-center text-[12px] font-bold text-[#059669]">
-                                                    {fmtAt(post.report_sent_at)}
+                                                    {fmtAt(histAt(post))}
                                                 </td>
                                             </tr>
                                         );
