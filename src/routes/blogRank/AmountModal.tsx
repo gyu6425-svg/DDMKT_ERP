@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateBlogAccount, type AmountEntry, type BlogAccount } from '../../api/blogRank';
+import { updateBlogAccount, type AmountEntry, type BlogAccount, type ContractPeriod } from '../../api/blogRank';
 import { fmtWon } from './helpers';
 
 // 계약금액 누적 편집 창 — '추가 계약 금액' 입력으로 한 건씩 쌓고, '누적 계약 금액'(합계)을 보여준다.
@@ -27,14 +27,14 @@ export function AmountModal({
     const [date, setDate] = useState('');
     const [saving, setSaving] = useState(false);
 
-    // 계약 기간 목록(드롭다운용) — 계약 셀에서 쌓은 시작~종료 기간들.
-    const periods =
+    // 계약 차수 목록(드롭다운용) — 계약 셀에서 쌓은 '시작일 · 계약 건수' 들.
+    const periods: ContractPeriod[] =
         account.contracts && account.contracts.length
             ? account.contracts
             : account.contract_date
-              ? [{ start: account.contract_date, end: undefined as string | undefined }]
+              ? [{ start: account.contract_date }]
               : [];
-    const periodLabel = (p: { start: string; end?: string }) => `${p.start} ~ ${p.end || '진행중'}`;
+    const periodLabel = (p: ContractPeriod) => `${p.start} · 계약 ${p.count ?? '—'}건`;
 
     const total = entries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
 

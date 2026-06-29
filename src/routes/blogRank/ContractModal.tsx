@@ -22,24 +22,27 @@ export function ContractModal({
               : [];
     const [periods, setPeriods] = useState<ContractPeriod[]>(seed);
     const [start, setStart] = useState('');
-    const [end, setEnd] = useState('');
+    const [count, setCount] = useState(''); // 계약 건수(일수/종료일 대신)
     const [saving, setSaving] = useState(false);
 
     const add = () => {
         const s = start.trim();
         if (!s) return;
-        setPeriods([...periods, { start: s, end: end.trim() || undefined }]);
+        const n = Number(count.trim());
+        setPeriods([...periods, { start: s, count: count.trim() && n > 0 ? n : undefined }]);
         setStart('');
-        setEnd('');
+        setCount('');
     };
     const remove = (i: number) => setPeriods(periods.filter((_, j) => j !== i));
-    const updatePeriod = (i: number, field: 'start' | 'end', value: string) =>
-        setPeriods(periods.map((p, j) => (j === i ? { ...p, [field]: value } : p)));
+    const updateStart = (i: number, value: string) =>
+        setPeriods(periods.map((p, j) => (j === i ? { ...p, start: value } : p)));
+    const updateCount = (i: number, value: string) =>
+        setPeriods(periods.map((p, j) => (j === i ? { ...p, count: value.trim() ? Number(value) : undefined } : p)));
 
     const save = async () => {
         setSaving(true);
         const clean = periods
-            .map((p) => ({ start: p.start.trim(), end: p.end?.trim() || undefined }))
+            .map((p) => ({ start: p.start.trim(), count: p.count, note: p.note }))
             .filter((p) => p.start);
         const { error } = await updateBlogAccount(account.id, {
             contracts: clean,
@@ -65,7 +68,7 @@ export function ContractModal({
             <div className="w-[min(500px,94vw)] rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">{account.name} · 계약</h3>
                 <p className="mt-1 mb-3 text-sm text-[#64748b]">
-                    재계약할 때마다 계약 시작일·종료일을 추가하세요. 종료일이 다가오면 ‘재계약 임박’으로 표시됩니다.
+                    이 시스템은 ‘건 단위’ 계약입니다. 재계약할 때마다 계약 시작일·계약 건수를 추가하세요.
                 </p>
 
                 {/* 현재 계약 */}
@@ -73,7 +76,7 @@ export function ContractModal({
                     <div className="text-xs font-semibold text-[#64748b]">현재 계약</div>
                     {cur ? (
                         <div className="text-base font-bold text-[#1e40af]">
-                            {cur.start} <span className="text-[#94a3b8]">~</span> {cur.end || '종료일 미입력'}
+                            {cur.start} <span className="text-[#94a3b8]">·</span> 계약 {cur.count ?? '—'}건
                         </div>
                     ) : (
                         <div className="text-sm text-[#94a3b8]">아직 계약 정보가 없습니다</div>
@@ -83,7 +86,7 @@ export function ContractModal({
 
                 {/* 계약/재계약 추가 */}
                 <div className="mb-3">
-                    <div className="mb-1 text-xs font-bold text-[#334155]">계약 추가 (시작일 · 종료일)</div>
+                    <div className="mb-1 text-xs font-bold text-[#334155]">계약 추가 (시작일 · 계약 건수)</div>
                     <div className="flex flex-wrap gap-2">
                         <input
                             className="h-9 flex-1 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
@@ -93,11 +96,13 @@ export function ContractModal({
                             value={start}
                         />
                         <input
-                            className="h-9 flex-1 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
-                            onChange={(e) => setEnd(e.target.value)}
+                            className="h-9 w-[130px] rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                            min="1"
+                            onChange={(e) => setCount(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
-                            placeholder="계약 종료일 (예: 2026-07-15)"
-                            value={end}
+                            placeholder="계약 건수 (예: 50)"
+                            type="number"
+                            value={count}
                         />
                         <button
                             className="rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white"
@@ -126,18 +131,21 @@ export function ContractModal({
                                     {i === 0 ? '최초' : `재${i}`}
                                 </span>
                                 <input
-                                    className="h-8 w-[96px] rounded border border-[#cbd5e1] bg-white px-1.5 text-xs"
-                                    onChange={(e) => updatePeriod(i, 'start', e.target.value)}
+                                    className="h-8 w-[110px] rounded border border-[#cbd5e1] bg-white px-1.5 text-xs"
+                                    onChange={(e) => updateStart(i, e.target.value)}
                                     placeholder="시작일"
                                     value={p.start}
                                 />
-                                <span className="text-[#94a3b8]">~</span>
+                                <span className="text-[11px] text-[#94a3b8]">· 계약</span>
                                 <input
-                                    className="h-8 w-[96px] rounded border border-[#cbd5e1] bg-white px-1.5 text-xs"
-                                    onChange={(e) => updatePeriod(i, 'end', e.target.value)}
-                                    placeholder="종료일"
-                                    value={p.end || ''}
+                                    className="h-8 w-[64px] rounded border border-[#cbd5e1] bg-white px-1.5 text-xs"
+                                    min="1"
+                                    onChange={(e) => updateCount(i, e.target.value)}
+                                    placeholder="건수"
+                                    type="number"
+                                    value={p.count ?? ''}
                                 />
+                                <span className="text-[11px] text-[#94a3b8]">건</span>
                                 <button
                                     className="ml-auto shrink-0 rounded border border-[#fca5a5] px-2 py-0.5 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
                                     onClick={() => remove(i)}

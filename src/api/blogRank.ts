@@ -43,7 +43,8 @@ export type AmountEntry = {
 // 계약 기간 1건(시작일~종료일). contracts 배열에 누적 — 마지막 항목 = 현재 계약, 종료일 = 재계약 예정일.
 export type ContractPeriod = {
     start: string;
-    end?: string;
+    count?: number; // 계약 건수(건 단위 계약 — 일수/종료일 대신). 레거시 end 는 유지만.
+    end?: string; // (레거시) 종료일
     note?: string;
 };
 
