@@ -12,7 +12,26 @@ import blog_rank_crawler as c
 
 c.REQUEST_DELAY = 2.0          # 검색은 즉시성이 중요 → 약간 짧게(소량이라 차단 위험 낮음)
 POLL_SEC = 2.0                 # 큐 폴링 간격
-STALE_MIN = 3                  # 이 분 이상 지난 pending 은 무시(오래된 요청은 사용자가 이미 떠남)
+STALE_MIN = 8                  # 이 분 이상 지난 pending 은 무시. 당일 크롤 대기를 감안해 넉넉히(3→8).
+CRAWL_WAIT_MAX = 240           # 당일 측정 글 크롤이 도는 동안 측정 대기 최대치(초). 초과 시 그냥 진행.
+
+
+def _wait_for_today_crawl():
+    """당일 측정 글 크롤(crawl_status.running)이 도는 중이면 끝날 때까지 대기 — 동시 네이버 요청(차단) 방지."""
+    waited = 0
+    announced = False
+    while waited < CRAWL_WAIT_MAX:
+        try:
+            rows = c.sb_get("crawl_status", {"id": "eq.1", "select": "running"})
+        except Exception:
+            return
+        if not (rows and rows[0].get("running")):
+            return
+        if not announced:
+            print("  ⏸ 당일 크롤 진행 중 — 끝나면 측정 진행(겹침 방지)", flush=True)
+            announced = True
+        time.sleep(5)
+        waited += 5
 
 
 def _now():
