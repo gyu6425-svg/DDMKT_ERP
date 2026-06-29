@@ -232,6 +232,63 @@ export function SheetTab({
                 ))}
             </div>
 
+            {tab === 'ended' ? (
+                <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
+                    <table className="w-full border-collapse text-left text-sm">
+                        <thead>
+                            <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
+                                <th className="px-3 py-2 font-semibold">업체</th>
+                                <th className="px-3 py-2 font-semibold">발행 블로그</th>
+                                <th className="px-3 py-2 font-semibold">지난 계약 일</th>
+                                <th className="px-3 py-2 font-semibold">메모 (히스토리)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {pageRows.length ? (
+                                pageRows.map((a) => (
+                                    <tr key={a.id} className="border-b border-[#e2e8f0] hover:bg-[#f8fafc]">
+                                        <td className="px-3 py-2 text-[13px] font-semibold text-[#0f172a]">{a.name}</td>
+                                        <td className="px-3 py-2">
+                                            {a.blog_url ? (
+                                                <a
+                                                    className="text-[13px] text-[#1d4ed8] hover:underline"
+                                                    href={a.blog_url}
+                                                    rel="noopener noreferrer"
+                                                    target="_blank"
+                                                >
+                                                    {a.blog_url}
+                                                </a>
+                                            ) : (
+                                                '—'
+                                            )}
+                                        </td>
+                                        <td className="px-3 py-2 text-[13px] font-semibold text-[#475569]">
+                                            {a.contract_date || '—'}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <button
+                                                className="block max-w-[320px] truncate text-left text-[13px] text-[#475569] hover:text-[#1e40af]"
+                                                onClick={() => setNoteAcc(a)}
+                                                title="메모 편집(히스토리)"
+                                                type="button"
+                                            >
+                                                {a.note || <span className="text-[#94a3b8]">+ 메모 남기기</span>}
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={4}>
+                                        계약 종료된 업체가 없습니다.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                    <Pager pages={pages} current={current} onGo={setPage} />
+                </div>
+            ) : (
             <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
                 <table className="w-full border-collapse text-left text-sm">
                     <thead>
@@ -494,6 +551,7 @@ export function SheetTab({
                 </table>
                 <Pager pages={pages} current={current} onGo={setPage} />
             </div>
+            )}
 
             {importOpen ? (
                 <ImportModal
