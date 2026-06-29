@@ -76,6 +76,7 @@ export type BlogAccount = {
     login_pw: string | null; // 비밀번호
     manage_sheet_url: string | null; // 발행 관리시트
     is_active: boolean;
+    contract_ended_at?: string | null; // 계약 종료 시각(KST). 있으면 '계약 종료' 업체 → 별도 탭에 보관.
     client_id: string | null;
     // 웹사이트 순위 추적 (회사 단위). 없는 업체는 NULL = "해당없음".
     website_url: string | null; // 호스트만 저장(예: momo-cleaning.com)

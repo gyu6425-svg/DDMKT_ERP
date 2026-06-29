@@ -40,6 +40,7 @@ export function SheetTab({
     const [lowOnly, setLowOnly] = useState(false);
     const [sortKey, setSortKey] = useState<'remain' | 'prog'>('remain');
     const [sortDir, setSortDir] = useState(1);
+    const [tab, setTab] = useState<'active' | 'ended'>('active'); // 계약 중 / 계약 종료
     const [page, setPage] = useState(1);
     const [importOpen, setImportOpen] = useState(false);
     const [editAcc, setEditAcc] = useState<BlogAccount | null>(null);
@@ -113,7 +114,8 @@ export function SheetTab({
             (a) =>
                 (!q || a.name.includes(q)) &&
                 (!mgr || a.manager === mgr) &&
-                (!lowOnly || (a.remain_count != null && a.remain_count <= 3)),
+                (!lowOnly || (a.remain_count != null && a.remain_count <= 3)) &&
+                (tab === 'ended' ? !!a.contract_ended_at : !a.contract_ended_at),
         );
         list = [...list].sort((x, y) => {
             if (sortKey === 'prog') {
@@ -122,7 +124,20 @@ export function SheetTab({
             return ((x.remain_count ?? 999) - (y.remain_count ?? 999)) * sortDir;
         });
         return list;
-    }, [accounts, q, mgr, lowOnly, sortKey, sortDir]);
+    }, [accounts, q, mgr, lowOnly, sortKey, sortDir, tab]);
+
+    // 계약 중 / 계약 종료 개수(현재 업체명·담당 검색 범위 기준).
+    const tabCounts = useMemo(() => {
+        let active = 0;
+        let ended = 0;
+        for (const a of accounts) {
+            if (q && !a.name.includes(q)) continue;
+            if (mgr && a.manager !== mgr) continue;
+            if (a.contract_ended_at) ended += 1;
+            else active += 1;
+        }
+        return { active, ended };
+    }, [accounts, q, mgr]);
 
     const pages = Math.max(1, Math.ceil(filtered.length / PER_SHEET));
     const current = Math.min(page, pages);
@@ -191,6 +206,30 @@ export function SheetTab({
                 >
                     {bulkBusy ? '삭제 중…' : '일괄삭제'}
                 </button>
+            </div>
+
+            {/* 계약 중 / 계약 종료 탭 — 업체명 검색 밑 */}
+            <div className="flex gap-1 border-b border-[#e2e8f0]">
+                {([
+                    ['active', '계약 중', tabCounts.active],
+                    ['ended', '계약 종료', tabCounts.ended],
+                ] as const).map(([key, label, n]) => (
+                    <button
+                        key={key}
+                        className={`-mb-px rounded-t-md border-b-2 px-4 py-2 text-sm font-bold ${
+                            tab === key
+                                ? 'border-[#1e40af] text-[#1e40af]'
+                                : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
+                        }`}
+                        onClick={() => {
+                            setTab(key);
+                            setPage(1);
+                        }}
+                        type="button"
+                    >
+                        {label} <span className="text-xs font-semibold">({n})</span>
+                    </button>
+                ))}
             </div>
 
             <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">

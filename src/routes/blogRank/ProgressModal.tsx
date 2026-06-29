@@ -21,6 +21,25 @@ export function ProgressModal({
     const done = Math.max(0, goal - remain);
     const pct = goal ? Math.round((done / goal) * 100) : 0;
     const pc = pct >= 70 ? '#059669' : pct >= 40 ? '#d97706' : '#dc2626';
+    const ended = !!account.contract_ended_at;
+    // 계약 종료 버튼 노출 조건 — 잔여 3건 이하 또는 100% 채움(재계약 판단 시점).
+    const canEnd = hasGoal && (remain <= 3 || pct >= 100);
+
+    const setEnded = async (on: boolean) => {
+        if (saving) return;
+        setSaving(true);
+        const { error } = await updateBlogAccount(account.id, {
+            contract_ended_at: on ? new Date().toISOString() : null,
+        });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        onToast(on ? `${account.name} — 계약 종료 처리` : `${account.name} — 계약 중으로 복귀`);
+        await onReload();
+        onClose();
+    };
 
     // deltaDone=+1 → 1건 완료(잔여 -1), -1 → 되돌리기(잔여 +1)
     const adjust = async (deltaDone: number) => {
@@ -86,6 +105,34 @@ export function ProgressModal({
                         계약 건수가 입력돼 있지 않습니다. ‘편집’에서 계약건수·잔여건수를 먼저 입력하세요.
                     </p>
                 )}
+                {hasGoal && (canEnd || ended) ? (
+                    <div className="mt-3 border-t border-[#e2e8f0] pt-3">
+                        {ended ? (
+                            <button
+                                className="w-full rounded-md border border-[#cbd5e1] px-4 py-2.5 text-sm font-bold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50"
+                                disabled={saving}
+                                onClick={() => void setEnded(false)}
+                                type="button"
+                            >
+                                ↺ 계약 중으로 복귀
+                            </button>
+                        ) : (
+                            <button
+                                className="w-full rounded-md bg-[#dc2626] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#b91c1c] disabled:opacity-50"
+                                disabled={saving}
+                                onClick={() => void setEnded(true)}
+                                type="button"
+                            >
+                                계약 종료
+                            </button>
+                        )}
+                        <p className="mt-1.5 text-xs text-[#94a3b8]">
+                            {ended
+                                ? '계약 종료 상태입니다. 복귀하면 ‘계약 중’ 목록으로 돌아갑니다.'
+                                : '재계약을 안 하면 ‘계약 종료’ → 관리시트 ‘계약 종료’ 탭으로 분리 보관됩니다.'}
+                        </p>
+                    </div>
+                ) : null}
                 <div className="mt-4 flex justify-end">
                     <button
                         className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"

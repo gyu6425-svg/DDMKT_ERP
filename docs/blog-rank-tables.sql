@@ -96,6 +96,8 @@ alter table public.blog_accounts add column if not exists amounts jsonb not null
 alter table public.blog_accounts add column if not exists login_id text;       -- 아이디(별도 '계정 보기'에서만 노출)
 alter table public.blog_accounts add column if not exists login_pw text;       -- 비밀번호(별도 '계정 보기'에서만 노출)
 alter table public.blog_accounts add column if not exists manage_sheet_url text; -- 발행 관리시트
+-- 계약 종료 시각. 진행률 모달의 '계약 종료'(잔여 3건 이하/100% 시) 버튼이 기록 → 관리시트에서 '계약 종료' 탭으로 분리 보관.
+alter table public.blog_accounts add column if not exists contract_ended_at timestamptz;
 -- 시계열 요소 = { "date":"YYYY-MM-DD", "we":순위, "status":"ok|out|fail|skip" }
 --   ok=노출/측정성공, out=권외(MAX_RANK_SCAN 초과), fail=API/네트워크 실패, skip=url/키워드 미설정
 alter table public.blog_accounts add column if not exists website_measurements jsonb not null default '[]'::jsonb;
