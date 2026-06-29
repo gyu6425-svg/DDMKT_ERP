@@ -99,6 +99,9 @@ create index if not exists blog_posts_published_idx on public.blog_posts (publis
 alter table public.blog_posts add column if not exists keyword_manual text;
 -- 글 업로드 '시각'(KST). 누락 건(18~24시 업로드분) 판정용. 크롤러가 RSS published 시각을 KST 보정해 저장.
 alter table public.blog_posts add column if not exists published_at timestamptz;
+-- 발행보고 카톡 '자동발송' 완료 시각. 카카오 자동발송(crawler/kakao_biz/auto_report.py)이 검증 후 기록 →
+-- 웹 '당일 측정 글' 모달의 '발송 리스트' 탭이 이 값으로 발송 기록을 보여준다. NULL=아직 미발송.
+alter table public.blog_posts add column if not exists report_sent_at timestamptz;
 
 -- ── 블로그 대표키워드 추적 (사용자가 직접 지정, 블로그당 복수) ───────────
 -- 글 단위(blog_posts) 추적과 별개로, "이 블로그가 OO키워드로 통합탭/블로그탭 몇 위인지"를

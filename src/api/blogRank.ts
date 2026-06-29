@@ -96,6 +96,7 @@ export type BlogPost = {
     published_date: string | null;
     published_at: string | null; // 업로드 시각(KST). 누락 건(18~24시 업로드분) 판정용.
     first_seen_at: string | null;
+    report_sent_at: string | null; // 발행보고 자동발송 완료 시각(KST). 카톡 자동발송(auto_report)이 기록 → '발송 리스트'.
     measurements: BlogMeasurement[];
 };
 

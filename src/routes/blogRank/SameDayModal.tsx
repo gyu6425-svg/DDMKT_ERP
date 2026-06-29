@@ -76,6 +76,7 @@ export function SameDayModal({
 }) {
     const [busy, setBusy] = useState<string | null>(null);
     const [sortAt, setSortAt] = useState<'desc' | 'asc' | null>(null); // 업로드 시간 정렬(null=업체명순)
+    const [view, setView] = useState<'measured' | 'sent'>('measured'); // 당일 모달 상단 탭(측정 글 / 발송 리스트)
     // 이미 발송한 글은 비활성화(중복 발송 방지). localStorage 에 기억 → 새로고침해도 유지.
     const [sentVer, setSentVer] = useState(0);
     const isSent = (id: string) => {
@@ -114,6 +115,18 @@ export function SameDayModal({
                 })
               : [...rows].sort((a, b) => (a.account?.name || '').localeCompare(b.account?.name || '', 'ko'));
     const title = mode === 'rank' ? '전날 측정 글 순위' : '당일 측정 글';
+
+    // 발송 리스트(자동발송 기록) — report_sent_at(자동발송) 또는 발송버튼(localStorage) 표시된 글. 최근 발송순.
+    const sentInfo = (post: BlogPost): { at: string | null } | null => {
+        if (post.report_sent_at) return { at: post.report_sent_at };
+        if (isSent(post.id)) return { at: null };
+        return null;
+    };
+    const sentList = [...rows]
+        .filter((r) => !!sentInfo(r.post))
+        .sort((a, b) => (b.post.report_sent_at || '').localeCompare(a.post.report_sent_at || ''));
+    const publishSent = mode === 'publish' && view === 'sent';
+    const headCount = publishSent ? sentList.length : rows.length;
 
     // 전날(순위) 모달의 발송 = 그 블로그 1개만 순위 트래커 성과 보고서로 열기(호스팅 → 카톡 발송).
     const onTracker = async (account: BlogAccount | null, post: BlogPost) => {
@@ -155,14 +168,92 @@ export function SameDayModal({
                     <h3 className="m-0 text-lg font-bold text-[#0f172a]">
                         {title} <span className="text-[#2563eb]">({dayLabel})</span>
                     </h3>
-                    <span className="rounded-full bg-[#eff6ff] px-3 py-1 text-xs font-bold text-[#1e40af]">총 {rows.length}글</span>
+                    <span className="rounded-full bg-[#eff6ff] px-3 py-1 text-xs font-bold text-[#1e40af]">총 {headCount}글</span>
                 </div>
-                <p className="mt-1 mb-3 text-sm text-[#64748b]">
+
+                {/* 당일 모달 상단 탭 — 당일 측정 글 / 발송 리스트(자동발송 기록) */}
+                {mode === 'publish' && (
+                    <div className="mt-3 flex gap-1 border-b border-[#e2e8f0]">
+                        {([
+                            ['measured', '당일 측정 글', rows.length],
+                            ['sent', '발송 리스트', sentList.length],
+                        ] as const).map(([key, label, n]) => (
+                            <button
+                                key={key}
+                                className={`-mb-px rounded-t-md border-b-2 px-4 py-2 text-sm font-bold ${
+                                    view === key
+                                        ? 'border-[#2563eb] text-[#1e40af]'
+                                        : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
+                                }`}
+                                onClick={() => setView(key)}
+                                type="button"
+                            >
+                                {label} <span className="text-xs font-semibold">({n})</span>
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                <p className="mt-2 mb-3 text-sm text-[#64748b]">
                     {mode === 'rank'
                         ? `전날(${dayLabel}) 발행되어 측정된 글의 통합탭·블로그탭 순위입니다. (통합탭 노출 좋은 순)`
-                        : '오늘 발행되어 오늘 측정된 글입니다. 성과 버튼을 누르면 발행 보고 메시지가 카톡 공유/복사됩니다.'}
+                        : publishSent
+                          ? '발행보고가 카톡으로 발송된 기록입니다. (자동발송 또는 발송 버튼) 최근 발송 순.'
+                          : '오늘 발행되어 오늘 측정된 글입니다. 발송 버튼을 누르면 발행 보고 메시지가 카톡 발송됩니다.'}
                 </p>
 
+                {publishSent ? (
+                    <div className="overflow-y-auto rounded-md border border-[#e2e8f0]">
+                        <table className="w-full border-collapse text-left text-sm">
+                            <thead className="sticky top-0">
+                                <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
+                                    <th className="px-3 py-2 font-semibold">업체명</th>
+                                    <th className="px-3 py-2 font-semibold">블로그(글 링크)</th>
+                                    <th className="px-3 py-2 text-center font-semibold">발송 시각</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sentList.length ? (
+                                    sentList.map(({ post, account }) => {
+                                        const link = post.post_url || account?.blog_url || '';
+                                        const info = sentInfo(post);
+                                        return (
+                                            <tr key={post.id} className="border-b border-[#e2e8f0] hover:bg-[#f8fafc]">
+                                                <td className="px-3 py-2 text-[13px] font-semibold text-[#0f172a]">
+                                                    {account?.name || '—'}
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    {link ? (
+                                                        <a
+                                                            className="block max-w-[420px] truncate text-[13px] font-medium text-[#1d4ed8] hover:underline"
+                                                            href={link}
+                                                            rel="noopener noreferrer"
+                                                            target="_blank"
+                                                            title="블로그 글로 이동"
+                                                        >
+                                                            {post.title || link}
+                                                        </a>
+                                                    ) : (
+                                                        <span className="text-[13px] text-[#94a3b8]">링크 없음</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-2 text-center text-[12px] font-bold text-[#059669]">
+                                                    {info?.at ? fmtAt(info.at) : '보냄'}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                ) : (
+                                    <tr>
+                                        <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={3}>
+                                            아직 발송한 글이 없습니다. 발송하면 여기에 기록됩니다.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
                 <div className="overflow-y-auto rounded-md border border-[#e2e8f0]">
                     <table className="w-full border-collapse text-left text-sm">
                         <thead className="sticky top-0">
@@ -292,6 +383,7 @@ export function SameDayModal({
                         </tbody>
                     </table>
                 </div>
+                )}
 
                 <div className="mt-4 flex justify-end">
                     <button

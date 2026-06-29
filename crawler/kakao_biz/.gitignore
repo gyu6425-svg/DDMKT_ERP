@@ -1,0 +1,4 @@
+profile/
+chrome_profile/
+__pycache__/
+sent_log.json
