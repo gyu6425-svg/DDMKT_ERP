@@ -250,7 +250,6 @@ function ugbCards(j) {
 export function rankInPopular(html, blogId, logNo = '') {
     const blocks = extractBootstrapJson(html);
     if (!blocks.length) return { rank: OUT_OF_RANK, status: 'fail' };
-    let prevArea = null;
     let rank = 0;
     for (const b of blocks) {
         let j;
@@ -259,16 +258,15 @@ export function rankInPopular(html, blogId, logNo = '') {
         } catch {
             continue;
         }
-        if (b.includes('ader.naver.com')) continue; // 광고(ader) 제외
+        // 광고(ader) 블록만 제외 — 콘텐츠 카드(인기글)에 ader.naver.com 참조가 섞여도 제외 안 함
+        //   (전주 출장뷔페 limebuffet 7위가 권외로 누락되던 버그). 진짜 광고는 isContentCard=false.
+        if (b.includes('ader.naver.com') && !isContentCard(j, b)) continue;
         const area = blockArea(j);
         if (isWebArea(area)) continue; // 웹사이트(문서)탭 섹션 제외 — 통합탭 순위 아님
         if (blockMinR(j) >= 999) continue; // 비-결과 블록(AI/이미지/연관검색어) 제외
         if (!isContentCard(j, b)) continue; // 외부 웹사이트(당근/사이트)·블로그 채널카드 제외 = 통합탭 콘텐츠 아님
-        if (area !== prevArea) {
-            // 새 섹션 → 순위 1부터 재시작
-            rank = 0;
-            prevArea = area;
-        }
+        // 2026-06-29 변경: 섹션(area)이 바뀌어도 순위 리셋 안 함 — 위/아래 섹션 합산해 위에서부터
+        //   연속 순위로 센다(블로그/카페 인기글만). 이미지/웹/광고는 위에서 이미 제외됨.
         // ugB_*(한 블록=여러 카드, 예 ugB_bsR)은 블록 안 카드를 r 순서로 한 칸씩 — 같은 블록의 다른
         //   카드(예 서천: sd44422 1위 … limebuffet 5위)에 순위가 1로 뭉개지지 않게.
         // urB_*(블록=카드 1개)은 블록 등장 순서로 한 칸씩(블록 내부 r 무시 — 화면 위치와 1:1).
@@ -280,7 +278,7 @@ export function rankInPopular(html, blogId, logNo = '') {
                 }
             }
         } else {
-            rank += 1; // 같은 섹션 안에서 보이는 카드 한 칸
+            rank += 1; // 위에서부터 보이는 카드 한 칸(섹션 합산)
             const { posts, profiles } = blockBlogEntries(j);
             if (entryMatch(blogId, logNo, posts, profiles)) return { rank, status: 'ok' };
         }
