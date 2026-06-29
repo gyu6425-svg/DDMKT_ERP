@@ -211,22 +211,28 @@ export function SameDayModal({
                             : '오늘 발행·측정된 글 중 아직 발송 안 한 글입니다. 발송하면 발송 리스트로 빠집니다.'}
                 </p>
 
-                {/* 누적 발송 리스트 — 날짜 필터 */}
+                {/* 누적 발송 리스트 — 날짜 필터(달력에서 직접 선택) */}
                 {showHistory && (
-                    <div className="mb-3 flex items-center gap-2">
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
                         <span className="text-xs font-semibold text-[#64748b]">날짜</span>
-                        <select
+                        <input
                             className="rounded-md border border-[#cbd5e1] px-2 py-1 text-sm"
+                            max={histDates[0] || undefined}
+                            min={histDates[histDates.length - 1] || undefined}
                             onChange={(e) => setHistDate(e.target.value)}
+                            type="date"
                             value={histDate}
+                        />
+                        <button
+                            className={`rounded-md px-3 py-1 text-sm font-semibold ${
+                                histDate ? 'bg-[#1e40af] text-white' : 'bg-[#e2e8f0] text-[#475569]'
+                            }`}
+                            onClick={() => setHistDate('')}
+                            type="button"
                         >
-                            <option value="">전체 ({historyAll.length})</option>
-                            {histDates.map((d) => (
-                                <option key={d} value={d}>
-                                    {d} ({historyAll.filter((r) => (histAt(r.post) || '').slice(0, 10) === d).length})
-                                </option>
-                            ))}
-                        </select>
+                            전체 ({historyAll.length})
+                        </button>
+                        <span className="text-xs text-[#64748b]">{historyRows.length}건</span>
                     </div>
                 )}
 
