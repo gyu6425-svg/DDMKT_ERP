@@ -67,6 +67,22 @@ export function TrackerTab({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [posts, co, nameQ, month, inOnly, pubFilter, accounts]);
 
+    // 당일/전날 발행 글 수(필터 버튼 옆 표시) — 현재 co·이름 검색 범위 기준.
+    const pubCounts = useMemo(() => {
+        const q = nameQ.trim().toLowerCase();
+        let t = 0;
+        let y = 0;
+        for (const p of posts) {
+            if (co !== '' && p.blog_account_id !== co) continue;
+            if (q !== '' && !nameOf(p.blog_account_id).toLowerCase().includes(q)) continue;
+            const d = (p.published_date || '').slice(0, 10);
+            if (d === today) t += 1;
+            else if (d === yesterday) y += 1;
+        }
+        return { today: t, yesterday: y };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [posts, co, nameQ, today, yesterday, accounts]);
+
     const pages = Math.max(1, Math.ceil(filtered.length / PER_FEED));
     const current = Math.min(page, pages);
     const pageRows = filtered.slice((current - 1) * PER_FEED, current * PER_FEED);
@@ -130,7 +146,7 @@ export function TrackerTab({
                     }}
                     type="button"
                 >
-                    당일 올라온 글
+                    당일 올라온 글 ({pubCounts.today})
                 </button>
                 <button
                     className={`rounded-full border-2 px-4 py-1.5 text-sm font-bold transition ${
@@ -144,7 +160,7 @@ export function TrackerTab({
                     }}
                     type="button"
                 >
-                    전날 올라온 글
+                    전날 올라온 글 ({pubCounts.yesterday})
                 </button>
                 <label className="flex items-center gap-1 text-xs text-[#334155]">
                     <input checked={inOnly} onChange={(e) => setInOnly(e.target.checked)} type="checkbox" />
