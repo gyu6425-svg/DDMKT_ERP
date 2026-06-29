@@ -978,7 +978,10 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
             j = json.loads(b)
         except Exception:
             continue
-        if "ader.naver.com" in b:            # 광고(ader) 제외
+        # 광고(ader) 블록만 제외 — 단, 콘텐츠 카드(인기글 등)에 ader.naver.com 참조가 섞여 있어도
+        #   그 블록은 제외하지 않는다. (전주 출장뷔페 limebuffet 7위가 권외로 누락되던 버그: 인기글
+        #   ugB_bsR 블록에 ader 참조가 있어 통째로 광고 취급돼 제외됐음.) 진짜 광고는 _is_content_card=False.
+        if "ader.naver.com" in b and not _is_content_card(j, b):
             continue
         area = _block_area(j)
         if _is_web_area(area):               # 웹사이트(문서)탭 섹션 제외 — 통합탭 순위 아님
