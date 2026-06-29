@@ -324,7 +324,8 @@ export function buildRankReportMessage(account: BlogAccount, post: BlogPost, m: 
     const dateLabel = `${Number(mo)}월 ${Number(d)}일`;
     const nameKw = kw ? `${account.name} - ${kw}` : account.name;
     const link = post.post_url || account.blog_url || '';
-    return `담당자님 안녕하세요 :)\n어제(${dateLabel}) 발행 글 네이버 노출 순위 보고드립니다~!\n\n${nameKw}\n${lines.join('\n')}\n\n${link}`;
+    // 블로그 링크를 맨 위(첫 URL)에 둔다 → 카톡이 '블로그 글' 썸네일을 미리보기로 띄움(검색 URL이 아니라).
+    return `담당자님 안녕하세요 :)\n어제(${dateLabel}) 발행 글 네이버 노출 순위 보고드립니다~!\n\n${nameKw}\n${link}\n${lines.join('\n')}`;
 }
 
 const isMobileUA = (): boolean =>
