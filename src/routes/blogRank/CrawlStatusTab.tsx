@@ -104,6 +104,8 @@ export function CrawlStatusTab({
         posts: sameDayRows.length,
         blogs: new Set(sameDayRows.map((r) => r.post.blog_account_id)).size,
     };
+    // 당일 측정 글 중 발송 완료(report_sent_at) 건수 — KPI 카드에 '발송 N' 으로 표시.
+    const sentToday = sameDayRows.filter((r) => !!r.post.report_sent_at).length;
     const prevTop10 = prevDayRows.filter(
         (r) => (r.m.ti_status ?? 'ok') === 'ok' && r.m.ti != null && r.m.ti <= 10,
     ).length;
@@ -257,6 +259,7 @@ export function CrawlStatusTab({
         color,
         sub,
         tone,
+        sentN,
         onClick,
     }: {
         label: string;
@@ -264,6 +267,7 @@ export function CrawlStatusTab({
         color: string;
         sub?: string;
         tone?: 'yellow' | 'purple' | 'blue' | 'red';
+        sentN?: number; // 있으면 '발송 N' 배지를 크게 표시(당일 측정 글에서 보낸 건수)
         onClick?: () => void;
     }) => {
         const t = tone ? TONE[tone] : null;
@@ -276,6 +280,11 @@ export function CrawlStatusTab({
                 <div className="mt-0.5 text-2xl font-bold" style={{ color }}>
                     {value}
                 </div>
+                {sentN != null ? (
+                    <div className="mt-1 inline-block rounded-md bg-[#dcfce7] px-2 py-0.5 text-base font-extrabold text-[#059669]">
+                        발송 {sentN}
+                    </div>
+                ) : null}
                 {sub ? <div className="mt-0.5 text-[11px] font-semibold text-[#64748b]">{sub}</div> : null}
             </>
         );
@@ -402,6 +411,7 @@ export function CrawlStatusTab({
                     color="#ca8a04"
                     sub={`블로그 ${sameDay.blogs}곳 · 눌러서 목록·발송`}
                     tone="yellow"
+                    sentN={sentToday}
                     onClick={() => setShowSameDay(true)}
                 />
                 <Card
