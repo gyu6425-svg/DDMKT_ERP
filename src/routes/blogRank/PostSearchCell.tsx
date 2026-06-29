@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     extractBlogId,
     extractLogNo,
@@ -11,6 +11,29 @@ import {
 } from '../../api/blogRank';
 import { searchRankPC, type RankSearchResult } from '../../api/rankSearch';
 import { fmtRank } from './helpers';
+
+// 전역 쿨다운 — 검색/수정(저장)/재검색을 누르면 잠깐 텀(여러 명이 동시에 써도 네이버 차단 예방).
+//   모든 글 행(PostSearchCell)이 공유 → 한 번 측정하면 전체에서 COOLDOWN 동안 다음 측정 막힘.
+const COOLDOWN_MS = 6000;
+let _coolUntil = 0;
+const _coolSubs = new Set<() => void>();
+function startMeasureCooldown(): void {
+    _coolUntil = Date.now() + COOLDOWN_MS;
+    _coolSubs.forEach((f) => f());
+}
+function useCooldownLeft(): number {
+    const [, force] = useState(0);
+    useEffect(() => {
+        const f = () => force((n) => n + 1);
+        _coolSubs.add(f);
+        const iv = setInterval(f, 500);
+        return () => {
+            _coolSubs.delete(f);
+            clearInterval(iv);
+        };
+    }, []);
+    return Math.max(0, Math.ceil((_coolUntil - Date.now()) / 1000));
+}
 
 export function PostSearchCell({
     account,
@@ -30,6 +53,8 @@ export function PostSearchCell({
     const [editing, setEditing] = useState(false);
     const [editVal, setEditVal] = useState(effectiveKw);
     const [saving, setSaving] = useState(false);
+    const coolLeft = useCooldownLeft(); // 전역 쿨다운 남은 초(>0이면 측정 버튼 잠금)
+    const cooling = coolLeft > 0;
 
     if (!account) {
         return <span className="text-xs text-[#94a3b8]">—</span>;
@@ -51,6 +76,7 @@ export function PostSearchCell({
             setRes(null);
         } finally {
             setBusy(false);
+            startMeasureCooldown();
         }
     };
 
@@ -90,9 +116,36 @@ export function PostSearchCell({
         if (measured || keywordChanged) {
             await updatePostMeasurements(post.id, next);
         }
+        startMeasureCooldown();
         setSaving(false);
         setEditing(false);
         await onSaved();
+    };
+
+    // 재검색 = 현재 저장된 키워드로 다시 측정해 '옆 순위(저장값)'를 갱신(키워드는 그대로). 옛 크롤값이 낡았을 때 새로고침.
+    const reSearch = async () => {
+        const effective = effectiveKw;
+        if (!effective || !blogId) {
+            return;
+        }
+        setBusy(true);
+        setErr('');
+        try {
+            const r = await searchRankPC(effective, blogId, extractLogNo(post.post_url || ''));
+            const today = todayKST();
+            const next: BlogMeasurement[] = [
+                ...post.measurements.filter((m) => m.date !== today),
+                { date: today, ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status },
+            ];
+            await updatePostMeasurements(post.id, next);
+            setRes(r); // 인라인에도 결과 표시
+            await onSaved(); // 옆 순위(저장값) 갱신
+        } catch (e) {
+            setErr(e instanceof Error ? e.message : '재검색 실패');
+        } finally {
+            setBusy(false);
+            startMeasureCooldown();
+        }
     };
 
     return (
@@ -110,11 +163,11 @@ export function PostSearchCell({
                     />
                     <button
                         className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#7c3aed] px-4 text-sm font-semibold text-white disabled:opacity-50"
-                        disabled={saving}
+                        disabled={saving || cooling}
                         onClick={() => void saveKeyword()}
                         type="button"
                     >
-                        {saving ? '측정 중…' : '저장'}
+                        {saving ? '측정 중…' : cooling ? `${coolLeft}s` : '저장'}
                     </button>
                     <button
                         className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md border border-[#cbd5e1] bg-white px-3 text-sm font-semibold text-[#475569]"
@@ -139,12 +192,12 @@ export function PostSearchCell({
                     />
                     <button
                         className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white disabled:opacity-50"
-                        disabled={busy || !kw.trim()}
+                        disabled={busy || cooling || !kw.trim()}
                         onClick={() => void run()}
                         title="이 글이 입력 키워드로 몇 위인지 즉시 검색(통합탭·블로그탭 모두 '이 글' 기준)"
                         type="button"
                     >
-                        {busy ? '…' : '검색'}
+                        {busy ? '…' : cooling ? `${coolLeft}s` : '검색'}
                     </button>
                     <button
                         className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#7c3aed] px-4 text-sm font-semibold text-white"
@@ -152,10 +205,19 @@ export function PostSearchCell({
                             setEditVal(effectiveKw);
                             setEditing(true);
                         }}
-                        title="이 글의 자동키워드를 직접 수정(다음 자동 측정도 이 값으로 유지)"
+                        title="이 글의 자동키워드를 직접 수정(다음 자동 측정도 이 값으로 유지) — 우측 순위 즉시 반영"
                         type="button"
                     >
                         수정
+                    </button>
+                    <button
+                        className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#0f766e] px-4 text-sm font-semibold text-white disabled:opacity-50"
+                        disabled={busy || cooling || !effectiveKw}
+                        onClick={() => void reSearch()}
+                        title="현재 (수동) 키워드로 다시 측정해 우측 순위(저장값)를 바로 갱신"
+                        type="button"
+                    >
+                        {busy ? '…' : cooling ? `${coolLeft}s` : '재검색'}
                     </button>
                 </div>
             )}
