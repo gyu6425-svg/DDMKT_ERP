@@ -302,7 +302,8 @@ export function buildPublishReportMessage(account: BlogAccount, post: BlogPost):
 }
 
 // ── 전날 순위 성과보고(카톡) — 어제 발행 글의 네이버 노출 순위를 담당자에게 전달 ──
-// 양식(사용자 확정 2026-06-29): "어제(M월D일)… / 업체명 - 키워드 / ✅ 통합탭 N위 · 블로그탭 N위 / 글링크".
+// 양식(사용자 확정 2026-06-29): "어제(M월D일)… / 업체명 - 키워드 / ✅통합탭 N위+검색URL / ✅블로그탭 N위+검색URL / 글링크".
+//   각 순위 아래에 그 탭의 네이버 검색 URL(카톡이 링크화) → 담당자가 눌러 그 키워드 검색창에서 직접 순위 확인.
 export function buildRankReportMessage(account: BlogAccount, post: BlogPost, m: BlogMeasurement | null): string {
     const pub = (post.published_date || todayKST()).slice(0, 10);
     const [, mo, d] = pub.split('-');
@@ -310,8 +311,10 @@ export function buildRankReportMessage(account: BlogAccount, post: BlogPost, m: 
     const kw = post.keyword_manual || post.keyword || '';
     const nameKw = kw ? `${account.name} - ${kw}` : account.name;
     const link = post.post_url || account.blog_url || '';
-    // fmtRank: 측정대기 / 실패 / 권외 / N위 (화면·발행보고와 동일 규칙)
-    return `담당자님 안녕하세요 :)\n어제(${dateLabel}) 발행 글 네이버 노출 순위 보고드립니다~!\n\n${nameKw}\n✅ 통합탭 ${fmtRank(m, 'ti')} · 블로그탭 ${fmtRank(m, 'bl')}\n${link}`;
+    // fmtRank: 측정대기 / 실패 / 권외 / N위. 키워드 있으면 순위 아래에 그 탭 검색 URL 추가.
+    const tiLine = kw ? `✅ 통합탭 ${fmtRank(m, 'ti')}\n${tiSearchUrl(kw)}` : `✅ 통합탭 ${fmtRank(m, 'ti')}`;
+    const blLine = kw ? `✅ 블로그탭 ${fmtRank(m, 'bl')}\n${blSearchUrl(kw)}` : `✅ 블로그탭 ${fmtRank(m, 'bl')}`;
+    return `담당자님 안녕하세요 :)\n어제(${dateLabel}) 발행 글 네이버 노출 순위 보고드립니다~!\n\n${nameKw}\n${tiLine}\n${blLine}\n\n${link}`;
 }
 
 const isMobileUA = (): boolean =>
