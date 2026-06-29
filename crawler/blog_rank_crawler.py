@@ -958,20 +958,18 @@ def _ugb_cards(j):
     return [(r, bucket[r]) for r in sorted(bucket)]
 
 
-# ── 통합탭(ti): '그 블로그가 속한 섹션 안에서의 순위'(섹션마다 1부터 재시작) ──
-# 2026-06-24: 사용자 확인 — 통합검색은 섹션(블록 area)이 여러 개고, 블로그 순위는 '자기 섹션 안'
-#   기준이다. 예) 안산 푸르지오9차인테리어: 오늘의집/부동산으로 시작하는 urB_coR(=웹사이트/문서)
-#   섹션이 위에 있고, design_do_ 는 그 아래 urB_boR(블로그) 섹션의 첫 카드 → 통합탭 1위.
-#   (누적 카운트면 6위로 잘못 나옴.) 칠곡 pjyysh=5·석남동=4·김포 더맨=1 등 사용자 확인값과 일치.
-#   섹션 = area 가 같은 연속 블록. area 가 바뀌면 순위 1부터 다시 센다.
-#   web*(웹사이트/문서) 섹션·광고(ader)·비결과(r 없음) 블록은 제외. 매칭은 카드 '대표글'로만.
+# ── 통합탭(ti): '블로그/카페 인기글을 위에서부터 연속으로 센 순위'(섹션 안 나눔) ──
+# 2026-06-29: 사용자 결정 — 통합검색을 이미지로 나뉜 위/아래 섹션별로 따로 세지 않고, 전체를 위에서부터
+#   '블로그/카페 인기글'만 광고 빼고 연속 순위로 센다. 예) 아산 미유외과: 위(urB_coR) miumiu8232·
+#   miyustory·…(4개) → 아래(urB_boR) ram2222 → 섹션 합산이라 ram2222=5위(섹션별이면 1위였음).
+#   web*(웹사이트/문서) 섹션·광고(ader)·이미지·지식iN·비결과(r 없음) 블록은 순위에서 제외(블로그/카페만).
+#   매칭은 카드 '대표글'로만.  (이전 2026-06-24 섹션별 방식에서 변경.)
 def _rank_in_popular(html_text, blog_id, log_no=""):
-    """통합검색 HTML → (rank, status). 블로그가 속한 섹션 안에서의 순위(섹션마다 1부터)."""
+    """통합검색 HTML → (rank, status). 블로그/카페 인기글을 위에서부터 연속으로 센 순위(섹션 합산)."""
     blocks = extract_bootstrap_json(html_text)
     if not blocks:
         return OUT_OF_RANK, "fail"      # JSON 없음 = 차단/구조변경 → 권외와 구분
 
-    prev_area = None
     rank = 0
     for b in blocks:
         try:
@@ -990,9 +988,8 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
             continue
         if not _is_content_card(j, b):       # 외부 웹사이트(당근/사이트=관련문서 묶음)·블로그 채널카드 제외
             continue                         #   = 통합탭(블로그·카페 콘텐츠 목록) 순위 아님
-        if area != prev_area:                # 새 섹션 → 순위 1부터 재시작
-            rank = 0
-            prev_area = area
+        # 2026-06-29 변경: 섹션(area)이 바뀌어도 순위를 리셋하지 않는다 — 위/아래 섹션을 합산해
+        #   '위에서부터 연속 순위'로 센다(블로그/카페 인기글만). 이미지/웹/광고는 위에서 이미 제외됨.
         # ugB_*(한 블록=여러 카드, 예 ugB_bsR) 은 블록 안 카드를 r 순서로 한 칸씩 — 같은 블록의
         #   다른 카드(예 서천: sd44422 1위 … limebuffet 5위)에 순위가 1로 뭉개지지 않게.
         # urB_*(블록=카드 1개) 은 블록 등장 순서로 한 칸씩(블록 내부 r 무시 — 화면 위치와 1:1).
@@ -1004,7 +1001,7 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
                     if (log_no and lno == log_no) or (not log_no and bid == blog_id):
                         return rank, "ok"
         else:
-            rank += 1                        # 같은 섹션 안에서 보이는 카드 한 칸
+            rank += 1                        # 위에서부터 보이는 카드 한 칸(섹션 합산)
             posts, profiles = _block_blog_entries(j)
             if _entry_match(blog_id, log_no, posts, profiles):
                 return rank, "ok"
