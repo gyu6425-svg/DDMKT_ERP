@@ -4,7 +4,6 @@ import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
 import { supabase } from '../../lib/supabase';
 import { SameDayModal, type SameDayRow } from './SameDayModal';
 import { CrawlListModal, type CrawlRow } from './CrawlListModal';
-import { isOffHoursUpload } from './helpers';
 
 type CrawlStatus = {
     updated_at: string;
@@ -118,11 +117,11 @@ export function CrawlStatusTab({
                 .map((p) => ({ post: p, account: accOf(p.blog_account_id), m: p.measurements.find((x) => x.date === today) ?? null })),
         [posts, today, accounts],
     );
-    // 누락 건 = 비근무 시간(평일 18~24시 + 주말) 업로드 글 모음(최근 4일). 측정 여부 무관.
+    // 누락 건 = 자동발송 '실패' 건 (이름 불일치·세션만료 등으로 못 보낸 글). report_send_fail 있고 아직 미발송.
     const missedRows = useMemo<CrawlRow[]>(
         () =>
             posts
-                .filter((p) => isOffHoursUpload(p, today))
+                .filter((p) => !!p.report_send_fail && !p.report_sent_at)
                 .map((p) => ({ post: p, account: accOf(p.blog_account_id), m: p.measurements.find((x) => x.date === today) ?? null }))
                 .sort((a, b) => (b.post.published_at || '').localeCompare(a.post.published_at || '')),
         [posts, today, accounts],
@@ -409,9 +408,9 @@ export function CrawlStatusTab({
                     label="누락 건"
                     value={missedToday}
                     color="#dc2626"
-                    sub="퇴근후·주말 업로드 · 눌러서 목록"
+                    sub="자동발송 실패 — 눌러서 목록"
                     tone="red"
-                    onClick={() => setListModal({ title: '누락 건 (비근무 시간 업로드 — 평일 18~24시·주말)', accent: '#dc2626', rows: missedRows, dateMode: true })}
+                    onClick={() => setListModal({ title: '누락 건 (자동발송 실패 — 이름 불일치·세션만료 등)', accent: '#dc2626', rows: missedRows, dateMode: true })}
                 />
                 <Card
                     label={`전날 측정 글 순위 (${yesterdayLabel})`}

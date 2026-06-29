@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
-import { isOffHoursUpload, lastM, prevM, renewLevel, type Tab } from './helpers';
+import { lastM, prevM, renewLevel, type Tab } from './helpers';
 import { Empty, Kpi, Panel, Tag } from './ui';
 import { LowRemainModal } from './LowRemainModal';
 import { RankMovesModal } from './RankMovesModal';
@@ -52,9 +52,9 @@ export function DashboardTab({
     const prevTop10 = prevDayRows.filter(
         (r) => (r.m.ti_status ?? 'ok') === 'ok' && r.m.ti != null && r.m.ti <= 10,
     ).length;
-    // 누락 건 = 비근무 시간(평일 18~24시 + 주말) 업로드 글 모음(최근 4일). 측정 여부 무관, 최신 업로드 먼저.
+    // 누락 건 = 자동발송 '실패' 건(이름 불일치·세션만료 등). report_send_fail 있고 아직 미발송. 최신 업로드 먼저.
     const missedRows: CrawlRow[] = posts
-        .filter((p) => isOffHoursUpload(p, today))
+        .filter((p) => !!p.report_send_fail && !p.report_sent_at)
         .map((p) => ({ post: p, account: accounts.find((a) => a.id === p.blog_account_id) ?? null, m: null }))
         .sort((a, b) => (b.post.published_at || '').localeCompare(a.post.published_at || ''));
     // 크롤링 현황 KPI 와 동일한 카드 스타일(tone: 노랑/보라 강조).
@@ -190,7 +190,7 @@ export function DashboardTab({
                     label="누락 건"
                     value={missedRows.length}
                     color="#dc2626"
-                    sub="퇴근후·주말 업로드 · 눌러서 목록"
+                    sub="자동발송 실패 · 눌러서 목록"
                     tone="red"
                     onClick={() => setShowMissed(true)}
                 />
@@ -332,7 +332,7 @@ export function DashboardTab({
             ) : null}
             {showMissed ? (
                 <CrawlListModal
-                    title="누락 건 (비근무 시간 업로드 — 평일 18~24시·주말)"
+                    title="누락 건 (자동발송 실패 — 이름 불일치·세션만료 등)"
                     accent="#dc2626"
                     rows={missedRows}
                     dateMode
