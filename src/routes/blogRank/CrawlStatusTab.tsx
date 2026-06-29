@@ -271,20 +271,20 @@ export function CrawlStatusTab({
         onClick?: () => void;
     }) => {
         const t = tone ? TONE[tone] : null;
-        const cls = `rounded-lg px-4 py-3 text-left ${
+        const cls = `relative rounded-lg px-4 py-3 text-left ${
             t ? `${t.box} shadow-sm` : 'border border-[#e2e8f0] bg-white'
         } ${onClick ? 'cursor-pointer transition hover:shadow-md hover:ring-2 hover:ring-[#93c5fd]' : ''}`;
         const inner = (
             <>
+                {sentN != null ? (
+                    <div className="absolute right-2 top-2 rounded-md bg-[#dcfce7] px-2 py-0.5 text-sm font-extrabold text-[#059669]">
+                        발송 {sentN}
+                    </div>
+                ) : null}
                 <div className={`text-xs ${t ? t.label : 'text-[#64748b]'}`}>{label}</div>
                 <div className="mt-0.5 text-2xl font-bold" style={{ color }}>
                     {value}
                 </div>
-                {sentN != null ? (
-                    <div className="mt-1 inline-block rounded-md bg-[#dcfce7] px-2 py-0.5 text-base font-extrabold text-[#059669]">
-                        발송 {sentN}
-                    </div>
-                ) : null}
                 {sub ? <div className="mt-0.5 text-[11px] font-semibold text-[#64748b]">{sub}</div> : null}
             </>
         );
