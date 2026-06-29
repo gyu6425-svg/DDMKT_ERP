@@ -168,9 +168,13 @@ export function SameDayModal({
     // 전날(순위) 모달의 발송 = 카톡 비즈 웹 자동발송 큐에 '순위 성과보고' 요청을 넣는다(리스너가 발송).
     const onRankSend = async (account: BlogAccount | null, post: BlogPost, m: BlogMeasurement | null) => {
         if (!account) return;
+        const message = buildRankReportMessage(account, post, m);
+        if (!message) {
+            onToast('10위 이내 노출이 없어 발송하지 않았습니다 (권외)');
+            return;
+        }
         setBusy(post.id);
         try {
-            const message = buildRankReportMessage(account, post, m);
             const { error } = await queueReportSend({ post_id: post.id, company: account.name, message, kind: 'rank' });
             if (error) {
                 onToast('발송 요청 실패: ' + (error.message || ''));
