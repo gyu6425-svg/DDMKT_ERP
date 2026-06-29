@@ -39,6 +39,27 @@ drop policy if exists "mr select" on public.measure_requests;
 create policy "mr insert" on public.measure_requests for insert to authenticated with check (true);
 create policy "mr select" on public.measure_requests for select to authenticated using (true);
 
+-- ── 카톡 발송 요청 큐(웹 버튼 → PC 리스너) ──────────────────────
+-- 웹의 '발송' 버튼은 브라우저라 PC 카톡 자동화(send_biz)를 직접 못 돌린다.
+-- 그래서 요청을 이 테이블에 쌓고, PC 리스너(crawler/kakao_biz/send_listener.py)가 폴링해
+-- 카카오 비즈니스 웹으로 발송(이름 정확일치+자가검증)한다. kind: publish(발행보고)/rank(순위)/missed.
+create table if not exists public.report_send_requests (
+    id uuid primary key default gen_random_uuid(),
+    created_at timestamptz not null default now(),
+    post_id uuid references public.blog_posts(id) on delete cascade,
+    company text not null,                       -- 검색할 상담방 이름(= 업체명 또는 kakao_room)
+    message text not null,                       -- 보낼 메시지(프론트가 양식대로 생성)
+    kind text not null default 'publish',        -- publish | rank | missed
+    status text not null default 'pending',      -- pending | processing | done | fail
+    reason text,
+    done_at timestamptz
+);
+alter table public.report_send_requests enable row level security;
+drop policy if exists "rsr insert" on public.report_send_requests;
+drop policy if exists "rsr select" on public.report_send_requests;
+create policy "rsr insert" on public.report_send_requests for insert to authenticated with check (true);
+create policy "rsr select" on public.report_send_requests for select to authenticated using (true);
+
 -- ── 관리 블로그(업체) ────────────────────────────────────
 create table if not exists public.blog_accounts (
     id uuid primary key default gen_random_uuid(),

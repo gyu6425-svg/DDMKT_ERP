@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { BlogAccount, BlogMeasurement, BlogPost } from '../../api/blogRank';
-import { openTrackerReport, sendPublishReport } from './report';
+import { queueReportSend, type BlogAccount, type BlogMeasurement, type BlogPost } from '../../api/blogRank';
+import { buildRankReportMessage, sendPublishReport } from './report';
 
 // 측정 글 리스트 모달 — 크롤링 현황 KPI('당일 측정 글' / '전날 측정 글 순위') 클릭 시 표시.
 //   mode='publish'(당일): 업체명 · 블로그(글링크) · [성과] 버튼(=발행 보고 카톡 발송).
@@ -148,12 +148,36 @@ export function SameDayModal({
     const publishHistory = mode === 'publish' && view === 'history';
     const headCount = publishHistory ? historyRows.length : publishSent ? sentList.length : measuredRows.length;
 
-    // 전날(순위) 모달의 발송 = 그 블로그 1개만 순위 트래커 성과 보고서로 열기(호스팅 → 카톡 발송).
-    const onTracker = async (account: BlogAccount | null, post: BlogPost) => {
+    // 순위 발송 상태(localStorage) — 전날 순위 발송 버튼 중복 방지.
+    const isRankSent = (id: string) => {
+        try {
+            return !!localStorage.getItem(`ranksent:${id}`);
+        } catch {
+            return false;
+        }
+    };
+    const markRankSent = (id: string, on: boolean) => {
+        try {
+            if (on) localStorage.setItem(`ranksent:${id}`, '1');
+            else localStorage.removeItem(`ranksent:${id}`);
+        } catch {
+            /* noop */
+        }
+        setSentVer((v) => v + 1);
+    };
+    // 전날(순위) 모달의 발송 = 카톡 비즈 웹 자동발송 큐에 '순위 성과보고' 요청을 넣는다(리스너가 발송).
+    const onRankSend = async (account: BlogAccount | null, post: BlogPost, m: BlogMeasurement | null) => {
         if (!account) return;
         setBusy(post.id);
         try {
-            await openTrackerReport([post], [account]);
+            const message = buildRankReportMessage(account, post, m);
+            const { error } = await queueReportSend({ post_id: post.id, company: account.name, message, kind: 'rank' });
+            if (error) {
+                onToast('발송 요청 실패: ' + (error.message || ''));
+            } else {
+                markRankSent(post.id, true);
+                onToast('순위 보고 발송 요청됨 — 곧 카톡으로 발송됩니다');
+            }
         } finally {
             setBusy(null);
         }
@@ -432,13 +456,25 @@ export function SameDayModal({
                                                     </td>
                                                     <td className="px-3 py-2 text-center">
                                                         <button
-                                                            className="rounded-md bg-[#FEE500] px-3 py-1.5 text-[12px] font-bold text-[#3c1e1e] hover:brightness-95 disabled:opacity-50"
+                                                            className={`rounded-md px-3 py-1.5 text-[12px] font-bold disabled:cursor-not-allowed ${
+                                                                isRankSent(post.id)
+                                                                    ? 'bg-[#e2e8f0] text-[#94a3b8]'
+                                                                    : 'bg-[#FEE500] text-[#3c1e1e] hover:brightness-95 disabled:opacity-50'
+                                                            }`}
                                                             disabled={!account || busy === post.id}
-                                                            onClick={() => void onTracker(account, post)}
-                                                            title="이 블로그 1개 순위 트래커 성과 보고서 만들기"
+                                                            onClick={() =>
+                                                                isRankSent(post.id)
+                                                                    ? markRankSent(post.id, false)
+                                                                    : void onRankSend(account, post, m)
+                                                            }
+                                                            title={
+                                                                isRankSent(post.id)
+                                                                    ? '발송함 — 눌러서 다시 발송 활성화'
+                                                                    : '순위 성과보고를 카톡 비즈 웹으로 발송(요청)'
+                                                            }
                                                             type="button"
                                                         >
-                                                            {busy === post.id ? '…' : '발송'}
+                                                            {busy === post.id ? '…' : isRankSent(post.id) ? '보냄 ↺' : '발송'}
                                                         </button>
                                                     </td>
                                                 </>

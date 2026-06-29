@@ -155,6 +155,17 @@ export async function getBlogPosts() {
     return { data: data ?? [], error };
 }
 
+// 카톡 발송 요청을 큐(report_send_requests)에 넣는다 → PC 리스너(send_listener.py)가 카톡 비즈 웹으로 발송.
+//   company=상담방 이름(=업체명/kakao_room), message=보낼 양식, kind=publish|rank|missed.
+export async function queueReportSend(input: {
+    post_id: string;
+    company: string;
+    message: string;
+    kind: 'publish' | 'rank' | 'missed';
+}) {
+    return supabase.from('report_send_requests').insert(input);
+}
+
 // 자동키워드 수동 수정 — keyword_manual 만 갱신(자동 keyword/측정은 크롤이 유지). 빈 문자열이면 수동값 해제.
 export async function updatePostKeyword(postId: string, keywordManual: string) {
     const value = keywordManual.trim();
