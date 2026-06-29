@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { queueReportSend, type BlogAccount, type BlogMeasurement, type BlogPost } from '../../api/blogRank';
-import { buildRankReportMessage, sendPublishReport } from './report';
+import { buildRankReportMessage } from './report';
 
 // 측정 글 리스트 모달 — 크롤링 현황 KPI('당일 측정 글' / '전날 측정 글 순위') 클릭 시 표시.
 //   mode='publish'(당일): 업체명 · 블로그(글링크) · [성과] 버튼(=발행 보고 카톡 발송).
@@ -91,17 +91,18 @@ export function SameDayModal({
             return false;
         }
     };
-    const markSent = (id: string) => {
+    // 순위 발송 상태(localStorage) — 전날 순위 발송 버튼 중복 방지(서버 rank_sent_at 반영 전 즉시 표시).
+    const isRankSent = (id: string) => {
         try {
-            localStorage.setItem(`pubsent:${id}`, '1');
+            return !!localStorage.getItem(`ranksent:${id}`);
         } catch {
-            /* noop */
+            return false;
         }
-        setSentVer((v) => v + 1);
     };
-    const unmarkSent = (id: string) => {
+    const markRankSent = (id: string, on: boolean) => {
         try {
-            localStorage.removeItem(`pubsent:${id}`);
+            if (on) localStorage.setItem(`ranksent:${id}`, '1');
+            else localStorage.removeItem(`ranksent:${id}`);
         } catch {
             /* noop */
         }
@@ -130,8 +131,20 @@ export function SameDayModal({
     const sentList = [...rows]
         .filter((r) => !!sentInfo(r.post))
         .sort((a, b) => (b.post.report_sent_at || '').localeCompare(a.post.report_sent_at || ''));
-    // 당일 측정 글 = '아직 발송 안 한' 글만 (발송하면 발송 리스트로 빠짐). rank 모드는 전체.
-    const measuredRows = mode === 'publish' ? sorted.filter((r) => !sentInfo(r.post)) : sorted;
+    // 전날 순위 발송 리스트 — rank_sent_at(서버) 또는 ranksent(localStorage) 표시된 글. 최근 발송순.
+    const rankSentInfo = (post: BlogPost): { at: string | null } | null => {
+        if (post.rank_sent_at) return { at: post.rank_sent_at };
+        if (isRankSent(post.id)) return { at: null };
+        return null;
+    };
+    const rankSentList = [...rows]
+        .filter((r) => !!rankSentInfo(r.post))
+        .sort((a, b) => (b.post.rank_sent_at || '').localeCompare(a.post.rank_sent_at || ''));
+    // 측정 글 탭 = '아직 발송 안 한' 글만 (발송하면 발송 리스트로 빠짐). 당일=report_sent_at, 전날=rank_sent_at 기준.
+    const measuredRows =
+        mode === 'publish'
+            ? sorted.filter((r) => !sentInfo(r.post))
+            : sorted.filter((r) => !rankSentInfo(r.post));
     // 누적 발송 리스트 = 모든 날짜의 발송완료 글(report_sent_at 기준). 날짜 필터 가능.
     const accById = new Map(accounts.map((a) => [a.id, a]));
     const historyAll = allPosts
@@ -146,25 +159,15 @@ export function SameDayModal({
         : historyAll;
     const publishSent = mode === 'publish' && view === 'sent';
     const publishHistory = mode === 'publish' && view === 'history';
-    const headCount = publishHistory ? historyRows.length : publishSent ? sentList.length : measuredRows.length;
+    const rankSent = mode === 'rank' && view === 'sent'; // 전날 순위 발송 리스트 탭
+    const headCount = publishHistory
+        ? historyRows.length
+        : rankSent
+          ? rankSentList.length
+          : publishSent
+            ? sentList.length
+            : measuredRows.length;
 
-    // 순위 발송 상태(localStorage) — 전날 순위 발송 버튼 중복 방지.
-    const isRankSent = (id: string) => {
-        try {
-            return !!localStorage.getItem(`ranksent:${id}`);
-        } catch {
-            return false;
-        }
-    };
-    const markRankSent = (id: string, on: boolean) => {
-        try {
-            if (on) localStorage.setItem(`ranksent:${id}`, '1');
-            else localStorage.removeItem(`ranksent:${id}`);
-        } catch {
-            /* noop */
-        }
-        setSentVer((v) => v + 1);
-    };
     // 전날(순위) 모달의 발송 = 카톡 비즈 웹 자동발송 큐에 '순위 성과보고' 요청을 넣는다(리스너가 발송).
     const onRankSend = async (account: BlogAccount | null, post: BlogPost, m: BlogMeasurement | null) => {
         if (!account) return;
@@ -186,26 +189,6 @@ export function SameDayModal({
             setBusy(null);
         }
     };
-    const onPerf = async (account: BlogAccount | null, post: BlogPost) => {
-        if (!account) return;
-        setBusy(post.id);
-        try {
-            const r = await sendPublishReport(account, post);
-            markSent(post.id); // 발송 누른 글은 보냄 처리(비활성화)
-            onToast(
-                r === 'kakao'
-                    ? '카카오톡 열림 — 받을 방 선택'
-                    : r === 'helper'
-                      ? '카톡 자동검색 실행 — 방 클릭 후 Ctrl+V·Enter (미설치면 메시지만 복사됨)'
-                      : r === 'copied'
-                        ? '메시지 복사됨 — 카톡에 붙여넣기(Ctrl+V)'
-                        : '발행 보고 내용 표시됨',
-            );
-        } finally {
-            setBusy(null);
-        }
-    };
-
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
@@ -219,14 +202,19 @@ export function SameDayModal({
                     <span className="rounded-full bg-[#eff6ff] px-3 py-1 text-xs font-bold text-[#1e40af]">총 {headCount}글</span>
                 </div>
 
-                {/* 당일 모달 상단 탭 — 당일 측정 글 / 발송 리스트 / 누적 발송 리스트 */}
-                {mode === 'publish' && (
-                    <div className="mt-3 flex gap-1 border-b border-[#e2e8f0]">
-                        {([
-                            ['measured', '당일 측정 글', measuredRows.length],
-                            ['sent', '발송 리스트', sentList.length],
-                            ['history', '누적 발송 리스트', historyAll.length],
-                        ] as const).map(([key, label, n]) => (
+                {/* 상단 탭 — 당일: 당일 측정 글/발송 리스트/누적 / 전날: 전날 순위/발송 리스트 */}
+                <div className="mt-3 flex gap-1 border-b border-[#e2e8f0]">
+                    {(mode === 'publish'
+                        ? ([
+                              ['measured', '당일 측정 글', measuredRows.length],
+                              ['sent', '발송 리스트', sentList.length],
+                              ['history', '누적 발송 리스트', historyAll.length],
+                          ] as const)
+                        : ([
+                              ['measured', '전날 측정 글 순위', measuredRows.length],
+                              ['sent', '발송 리스트', rankSentList.length],
+                          ] as const)
+                    ).map(([key, label, n]) => (
                             <button
                                 key={key}
                                 className={`-mb-px rounded-t-md border-b-2 px-4 py-2 text-sm font-bold ${
@@ -241,11 +229,12 @@ export function SameDayModal({
                             </button>
                         ))}
                     </div>
-                )}
 
                 <p className="mt-2 mb-3 text-sm text-[#64748b]">
                     {mode === 'rank'
-                        ? `전날(${dayLabel}) 발행되어 측정된 글의 통합탭·블로그탭 순위입니다. (통합탭 노출 좋은 순)`
+                        ? rankSent
+                            ? '순위 성과보고를 카톡으로 발송한 기록입니다. (전날 순위에서 발송하면 여기로 옮겨집니다)'
+                            : `전날(${dayLabel}) 발행·측정 글 중 아직 발송 안 한 순위입니다. 발송하면 발송 리스트로 빠집니다. (통합탭 노출 좋은 순)`
                         : publishHistory
                           ? '날짜별로 누적된 발송 완료 기록입니다. 날짜를 골라 그날 발송분만 볼 수 있어요.'
                           : publishSent
@@ -377,6 +366,58 @@ export function SameDayModal({
                             </tbody>
                         </table>
                     </div>
+                ) : rankSent ? (
+                    <div className="overflow-y-auto rounded-md border border-[#e2e8f0]">
+                        <table className="w-full border-collapse text-left text-sm">
+                            <thead className="sticky top-0">
+                                <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
+                                    <th className="px-3 py-2 font-semibold">업체명</th>
+                                    <th className="px-3 py-2 font-semibold">블로그(글 링크)</th>
+                                    <th className="px-3 py-2 text-center font-bold text-[#059669]">통합탭</th>
+                                    <th className="px-3 py-2 text-center font-bold text-[#1e40af]">블로그탭</th>
+                                    <th className="px-3 py-2 text-center font-semibold">발송 시각</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rankSentList.length ? (
+                                    rankSentList.map(({ post, account, m }) => {
+                                        const link = post.post_url || account?.blog_url || '';
+                                        const info = rankSentInfo(post);
+                                        const kw = post.keyword_manual || post.keyword || '';
+                                        return (
+                                            <tr key={post.id} className="border-b border-[#e2e8f0] hover:bg-[#f8fafc]">
+                                                <td className="px-3 py-2 text-[13px] font-semibold text-[#0f172a]">{account?.name || '—'}</td>
+                                                <td className="px-3 py-2">
+                                                    {link ? (
+                                                        <a className="block max-w-[240px] truncate text-[13px] font-medium text-[#1d4ed8] hover:underline" href={link} rel="noopener noreferrer" target="_blank" title="블로그 글로 이동">
+                                                            {post.title || link}
+                                                        </a>
+                                                    ) : (
+                                                        <span className="text-[13px] text-[#94a3b8]">링크 없음</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-2 text-center">
+                                                    <Rank v={m.ti} status={m.ti_status} tab="ti" keyword={kw} />
+                                                </td>
+                                                <td className="px-3 py-2 text-center">
+                                                    <Rank v={m.bl} status={m.bl_status} tab="bl" keyword={kw} />
+                                                </td>
+                                                <td className="px-3 py-2 text-center text-[12px] font-bold text-[#059669]">
+                                                    {info?.at ? fmtAt(info.at) : '보냄'}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                ) : (
+                                    <tr>
+                                        <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={5}>
+                                            아직 발송한 순위 보고가 없습니다.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 ) : (
                 <div className="overflow-y-auto rounded-md border border-[#e2e8f0]">
                     <table className="w-full border-collapse text-left text-sm">
@@ -392,16 +433,13 @@ export function SameDayModal({
                                         <th className="px-3 py-2 text-center font-semibold">발송</th>
                                     </>
                                 ) : (
-                                    <>
-                                        <th
-                                            className="cursor-pointer select-none px-3 py-2 text-center font-semibold hover:text-[#1e40af]"
-                                            onClick={() => setSortAt((s) => (s === 'desc' ? 'asc' : 'desc'))}
-                                            title="업로드 시간 정렬(오름/내림)"
-                                        >
-                                            업로드 시간 {sortAt === 'desc' ? '↓' : sortAt === 'asc' ? '↑' : '↕'}
-                                        </th>
-                                        <th className="px-3 py-2 text-center font-semibold">발송</th>
-                                    </>
+                                    <th
+                                        className="cursor-pointer select-none px-3 py-2 text-center font-semibold hover:text-[#1e40af]"
+                                        onClick={() => setSortAt((s) => (s === 'desc' ? 'asc' : 'desc'))}
+                                        title="업로드 시간 정렬(오름/내림)"
+                                    >
+                                        업로드 시간 {sortAt === 'desc' ? '↓' : sortAt === 'asc' ? '↑' : '↕'}
+                                    </th>
                                 )}
                             </tr>
                         </thead>
@@ -483,35 +521,16 @@ export function SameDayModal({
                                                     </td>
                                                 </>
                                             ) : (
-                                                <>
                                                 <td className="px-3 py-2 text-center text-[12px] font-semibold text-[#475569]">
                                                     {fmtAt(post.published_at)}
                                                 </td>
-                                                <td className="px-3 py-2 text-center">
-                                                    <button
-                                                        className={`rounded-md px-3 py-1.5 text-[12px] font-bold disabled:cursor-not-allowed ${
-                                                            isSent(post.id)
-                                                                ? 'bg-[#e2e8f0] text-[#94a3b8]'
-                                                                : 'bg-[#FEE500] text-[#3c1e1e] hover:brightness-95 disabled:opacity-50'
-                                                        }`}
-                                                        disabled={!account || !link || busy === post.id}
-                                                        onClick={() =>
-                                                            isSent(post.id) ? unmarkSent(post.id) : void onPerf(account, post)
-                                                        }
-                                                        title={isSent(post.id) ? '발송함 — 눌러서 다시 발송 활성화' : '발행 보고 카톡 메시지 만들기'}
-                                                        type="button"
-                                                    >
-                                                        {busy === post.id ? '…' : isSent(post.id) ? '보냄 ↺' : '발송'}
-                                                    </button>
-                                                </td>
-                                                </>
                                             )}
                                         </tr>
                                     );
                                 })
                             ) : (
                                 <tr>
-                                    <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={mode === 'rank' ? 6 : 4}>
+                                    <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={mode === 'rank' ? 6 : 3}>
                                         {mode === 'publish' && rows.length > 0
                                             ? '발송 안 한 글이 없습니다. (모두 발송 완료 → 발송 리스트 탭 확인)'
                                             : `아직 ${dayLabel} 측정된 글이 없습니다. 크롤이 진행되면 표시됩니다.`}

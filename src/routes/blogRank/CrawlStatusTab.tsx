@@ -106,6 +106,7 @@ export function CrawlStatusTab({
     };
     // 당일 측정 글 중 발송 완료(report_sent_at) 건수 — KPI 카드에 '발송 N' 으로 표시.
     const sentToday = sameDayRows.filter((r) => !!r.post.report_sent_at).length;
+    const prevSent = prevDayRows.filter((r) => !!r.post.rank_sent_at).length; // 전날 순위 발송 완료 수
     const prevTop10 = prevDayRows.filter(
         (r) => (r.m.ti_status ?? 'ok') === 'ok' && r.m.ti != null && r.m.ti <= 10,
     ).length;
@@ -428,6 +429,7 @@ export function CrawlStatusTab({
                     color="#7c3aed"
                     sub={`통합 10위내 ${prevTop10} · 눌러서 순위목록`}
                     tone="purple"
+                    sentN={prevSent}
                     onClick={() => setShowPrevDay(true)}
                 />
                 <Card label="통합탭 노출" value={counts.tiOk} color="#059669" />

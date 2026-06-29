@@ -50,6 +50,7 @@ export function DashboardTab({
     const prevDayRows = rowsForPub(yesterday);
     const sameDayBlogs = new Set(sameDayRows.map((r) => r.post.blog_account_id)).size;
     const sentToday = sameDayRows.filter((r) => !!r.post.report_sent_at).length; // 당일 측정 글 중 발송 완료 수
+    const prevSent = prevDayRows.filter((r) => !!r.post.rank_sent_at).length; // 전날 순위 발송 완료 수
     const prevTop10 = prevDayRows.filter(
         (r) => (r.m.ti_status ?? 'ok') === 'ok' && r.m.ti != null && r.m.ti <= 10,
     ).length;
@@ -193,6 +194,7 @@ export function DashboardTab({
                     color="#7c3aed"
                     sub={`통합 10위내 ${prevTop10} · 눌러서 순위목록`}
                     tone="purple"
+                    sentN={prevSent}
                     onClick={() => setShowPrevDay(true)}
                 />
                 <KpiCard

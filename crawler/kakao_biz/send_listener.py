@@ -81,6 +81,8 @@ def main():
                     _patch_post(pid, {"report_sent_at": now})   # 발송 리스트 반영
                     _patch_post(pid, {"report_send_fail": None})  # 누락 건에서 제거(있었다면)
                     sent[pid] = now
+                elif pid and kind == "rank":
+                    _patch_post(pid, {"rank_sent_at": now})     # 전날 순위 발송 리스트 반영
                 print(f"  ✅ {it['company']} ({kind})", flush=True)
             else:
                 reason = res.get("reason", "?")

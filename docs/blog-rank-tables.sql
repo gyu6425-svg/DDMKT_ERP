@@ -126,6 +126,9 @@ alter table public.blog_posts add column if not exists report_sent_at timestampt
 -- 자동발송 '실패' 사유(이름 불일치·세션만료 등). 자동발송이 실패하면 기록, 성공하면 NULL 로 비운다.
 -- 웹 '누락 건' KPI = report_send_fail 있고 report_sent_at 없는 글(= 보내려다 실패 → 수동 처리 필요).
 alter table public.blog_posts add column if not exists report_send_fail text;
+-- 전날 '순위 성과보고' 카톡 발송 완료 시각(report_sent_at=발행보고와 별개). 리스너가 kind=rank 성공 시 기록 →
+-- 전날 순위 모달의 '발송 리스트' 탭 + 전날 KPI '발송 N'.
+alter table public.blog_posts add column if not exists rank_sent_at timestamptz;
 
 -- ── 블로그 대표키워드 추적 (사용자가 직접 지정, 블로그당 복수) ───────────
 -- 글 단위(blog_posts) 추적과 별개로, "이 블로그가 OO키워드로 통합탭/블로그탭 몇 위인지"를
