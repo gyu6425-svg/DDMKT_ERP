@@ -41,6 +41,21 @@ export function ProgressModal({
         onClose();
     };
 
+    // 재계약 = 새 계약 시작 → 잔여를 계약 건수로 리셋(진행률 0%부터 다시).
+    const renew = async () => {
+        if (saving || !hasGoal) return;
+        setSaving(true);
+        const { error } = await updateBlogAccount(account.id, { remain_count: goal, contract_ended_at: null });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        onToast(`${account.name} — 재계약(새 계약 시작 · 잔여 ${goal}건)`);
+        await onReload();
+        onClose();
+    };
+
     // deltaDone=+1 → 1건 완료(잔여 -1), -1 → 되돌리기(잔여 +1)
     const adjust = async (deltaDone: number) => {
         if (saving || !hasGoal) return;
@@ -117,19 +132,29 @@ export function ProgressModal({
                                 ↺ 계약 중으로 복귀
                             </button>
                         ) : (
-                            <button
-                                className="w-full rounded-md bg-[#dc2626] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#b91c1c] disabled:opacity-50"
-                                disabled={saving}
-                                onClick={() => void setEnded(true)}
-                                type="button"
-                            >
-                                계약 종료
-                            </button>
+                            <div className="flex flex-col gap-2">
+                                <button
+                                    className="w-full rounded-md bg-[#059669] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                                    disabled={saving}
+                                    onClick={() => void renew()}
+                                    type="button"
+                                >
+                                    재계약 (새 계약 시작)
+                                </button>
+                                <button
+                                    className="w-full rounded-md bg-[#dc2626] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#b91c1c] disabled:opacity-50"
+                                    disabled={saving}
+                                    onClick={() => void setEnded(true)}
+                                    type="button"
+                                >
+                                    계약 종료
+                                </button>
+                            </div>
                         )}
                         <p className="mt-1.5 text-xs text-[#94a3b8]">
                             {ended
                                 ? '계약 종료 상태입니다. 복귀하면 ‘계약 중’ 목록으로 돌아갑니다.'
-                                : '재계약을 안 하면 ‘계약 종료’ → 관리시트 ‘계약 종료’ 탭으로 분리 보관됩니다.'}
+                                : '재계약 = 잔여를 계약 건수로 리셋(새 계약, 0%부터). 종료 = ‘계약 종료’ 탭으로 분리 보관.'}
                         </p>
                     </div>
                 ) : null}
