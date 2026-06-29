@@ -322,6 +322,7 @@ export function SameDayModal({
                                 <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                                     <th className="px-3 py-2 font-semibold">업체명</th>
                                     <th className="px-3 py-2 font-semibold">블로그(글 링크)</th>
+                                    <th className="px-3 py-2 text-center font-semibold">업로드 시간</th>
                                     <th className="px-3 py-2 text-center font-semibold">발송 시각</th>
                                 </tr>
                             </thead>
@@ -338,7 +339,7 @@ export function SameDayModal({
                                                 <td className="px-3 py-2">
                                                     {link ? (
                                                         <a
-                                                            className="block max-w-[420px] truncate text-[13px] font-medium text-[#1d4ed8] hover:underline"
+                                                            className="block max-w-[360px] truncate text-[13px] font-medium text-[#1d4ed8] hover:underline"
                                                             href={link}
                                                             rel="noopener noreferrer"
                                                             target="_blank"
@@ -350,6 +351,9 @@ export function SameDayModal({
                                                         <span className="text-[13px] text-[#94a3b8]">링크 없음</span>
                                                     )}
                                                 </td>
+                                                <td className="px-3 py-2 text-center text-[12px] font-semibold text-[#475569]">
+                                                    {fmtAt(post.published_at)}
+                                                </td>
                                                 <td className="px-3 py-2 text-center text-[12px] font-bold text-[#059669]">
                                                     {info?.at ? fmtAt(info.at) : '보냄'}
                                                 </td>
@@ -358,7 +362,7 @@ export function SameDayModal({
                                     })
                                 ) : (
                                     <tr>
-                                        <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={3}>
+                                        <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={4}>
                                             아직 발송한 글이 없습니다. 발송하면 여기에 기록됩니다.
                                         </td>
                                     </tr>
