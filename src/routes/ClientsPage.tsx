@@ -36,6 +36,8 @@ type ClientForm = {
     contract_end: string;
     status: string;
     notes: string;
+    url: string;
+    historyText: string;
 };
 
 const emptyForm: ClientForm = {
@@ -49,10 +51,12 @@ const emptyForm: ClientForm = {
     manager: '',
     next_contact: '',
     notes: '',
+    historyText: '',
     phone: '',
     product: '',
     source: '',
     status: STATUS_OPTIONS[0],
+    url: '',
 };
 
 function loadFavs(): string[] {
@@ -180,11 +184,18 @@ function ClientsPage() {
             product: form.product.trim() || null,
             source: form.source || null,
             status: form.status,
+            url: form.url.trim() || null,
         };
 
+        // 초기 히스토리 — 등록 폼의 '히스토리 추가' 칸 우선, 없으면 붙여넣기에서 파싱.
         const parsed = parsePaste(pasteText);
-        if (!editId && parsed.inquiry) {
-            payload.history = [{ date: todayStr(), text: parsed.inquiry }];
+        const histText = form.historyText.trim();
+        if (!editId) {
+            if (histText) {
+                payload.history = [{ date: todayStr(), text: histText }];
+            } else if (parsed.inquiry) {
+                payload.history = [{ date: todayStr(), text: parsed.inquiry }];
+            }
         }
 
         const { error: saveError } = editId
@@ -601,6 +612,31 @@ function ClientsPage() {
                                     value={form.email}
                                 />
                             </Field>
+                            <div className="col-span-2">
+                                <Field label="URL">
+                                    <input
+                                        className="erp-input"
+                                        onChange={(event) => updateField('url', event.target.value)}
+                                        placeholder="https://..."
+                                        value={form.url}
+                                    />
+                                </Field>
+                            </div>
+                            {!editId ? (
+                                <div className="col-span-2">
+                                    <Field label="히스토리 추가">
+                                        <textarea
+                                            className="erp-input"
+                                            onChange={(event) =>
+                                                updateField('historyText', event.target.value)
+                                            }
+                                            placeholder="첫 상담·문의 내용 등 (등록 시 히스토리에 기록)"
+                                            rows={2}
+                                            value={form.historyText}
+                                        />
+                                    </Field>
+                                </div>
+                            ) : null}
                         </div>
 
                         <div className="mt-5 flex items-center gap-2">
