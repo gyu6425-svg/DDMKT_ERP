@@ -7,6 +7,7 @@ import { ContractModal } from '../components/blogRank/components/ContractModal';
 import { FieldHistoryModal } from '../components/blogRank/components/FieldHistoryModal';
 import { NoteModal } from '../components/blogRank/components/NoteModal';
 import { ProgressModal } from '../components/blogRank/components/ProgressModal';
+import { CATEGORIES, categoryByKey, type CategoryKey } from '../components/categoryRank/categories';
 import { SOURCE_OPTIONS } from '../lib/erpUtils';
 
 // 고객사 상세 — 업체 기본정보 + 계약한 카테고리(현재 블로그)의 세부(블로그 관리 시트 내용)를 읽기로 표시.
@@ -123,6 +124,10 @@ export function ClientDetail({
     const [reporterAcc, setReporterAcc] = useState<BlogAccount | null>(null);
     const [weeklyAcc, setWeeklyAcc] = useState<BlogAccount | null>(null);
     const [noteAcc, setNoteAcc] = useState<BlogAccount | null>(null);
+    // 카테고리 탭(블로그=실제, 나머지=준비 중)
+    const [tab, setTab] = useState<CategoryKey>('blog');
+    const activeCat = categoryByKey(tab);
+    const shortLabel = activeCat.label.replace(' 대시보드', '');
     return (
         <section className="grid gap-4">
             <div className="flex items-center gap-3">
@@ -162,19 +167,50 @@ export function ClientDetail({
                 <EditCard label="이메일" onSave={(v) => onSave({ email: v || null })} value={client.email || ''} />
             </div>
 
-            {/* 블로그 카테고리 세부 */}
+            {/* 카테고리 탭 — 블로그=실제, 나머지=준비 중 */}
+            <div className="flex flex-wrap gap-1 border-b border-[#e2e8f0]">
+                {CATEGORIES.map((c) => {
+                    const sl = c.label.replace(' 대시보드', '');
+                    return (
+                        <button
+                            className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
+                                tab === c.key
+                                    ? 'border-[#1e40af] text-[#1e40af]'
+                                    : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
+                            }`}
+                            key={c.key}
+                            onClick={() => setTab(c.key)}
+                            type="button"
+                        >
+                            {sl}
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* 활성 카테고리 헤더 + 대시보드 이동 */}
             <div className="flex items-center gap-2">
-                <h3 className="m-0 text-base font-bold text-[#0f172a]">블로그</h3>
+                <h3 className="m-0 text-base font-bold text-[#0f172a]">{shortLabel}</h3>
                 <button
                     className="rounded-md bg-[#1e40af] px-3 py-1 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
-                    onClick={() => navTo(`/blog-rank?tab=sheet&q=${encodeURIComponent(client.company || '')}`)}
+                    onClick={() =>
+                        navTo(
+                            tab === 'blog'
+                                ? `/blog-rank?tab=sheet&q=${encodeURIComponent(client.company || '')}`
+                                : activeCat.path,
+                        )
+                    }
                     type="button"
                 >
-                    블로그 대시보드 이동 →
+                    {shortLabel} 대시보드 이동 →
                 </button>
             </div>
 
-            {blogs.length ? (
+            {tab !== 'blog' ? (
+                <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-5 py-10 text-center text-sm text-[#94a3b8]">
+                    {shortLabel} 카테고리는 준비 중입니다. (블로그와 동일한 구조로 추가 예정)
+                </div>
+            ) : blogs.length ? (
                 blogs.map((b) => {
                     const prog = progOf(b);
                     const isNew = b.goal_count == null; // 계약 정보 미입력 = 신규 계약
@@ -237,7 +273,7 @@ export function ClientDetail({
                                             value={amountTotal(b) ? `${fmtWon(amountTotal(b))}원` : '-'}
                                         />
                                     </div>
-                                    {/* 기자단·주발행·특이사항 — 카드 */}
+                                    {/* 기자단·주발행 — 카드(특이사항은 아래 계약 요약으로 이동) */}
                                     <div className="mt-3 flex flex-wrap gap-3">
                                         <MetricCard
                                             label="기자단"
@@ -251,12 +287,6 @@ export function ClientDetail({
                                             small
                                             value={currentField(b.weekly_history, b.weekly) || '-'}
                                         />
-                                        <MetricCard
-                                            label="특이사항"
-                                            onClick={() => setNoteAcc(b)}
-                                            small
-                                            value={b.note || '-'}
-                                        />
                                     </div>
                                 </>
                             )}
@@ -268,6 +298,52 @@ export function ClientDetail({
                     연결된 블로그 계정이 없습니다.
                 </div>
             )}
+
+            {/* 계약 요약 — 한눈에 보기(계약일·계약 건수·계약 금액·특이사항) */}
+            <div className="overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
+                <div className="border-b border-[#e2e8f0] bg-[#f8fafc] px-5 py-3 text-sm font-bold text-[#0f172a]">
+                    계약 요약
+                </div>
+                {tab === 'blog' && blogs.length ? (
+                    <table className="w-full text-sm">
+                        <thead>
+                            <tr className="border-b border-[#f1f5f9] text-left text-[12px] font-semibold text-[#94a3b8]">
+                                <th className="px-5 py-2.5">업체(블로그)</th>
+                                <th className="px-5 py-2.5">계약일</th>
+                                <th className="px-5 py-2.5">계약 건수</th>
+                                <th className="px-5 py-2.5">계약 금액</th>
+                                <th className="px-5 py-2.5">특이사항</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {blogs.map((b) => (
+                                <tr key={b.id} className="border-b border-[#f8fafc] last:border-0">
+                                    <td className="px-5 py-3 font-semibold text-[#0f172a]">{b.name}</td>
+                                    <td className="px-5 py-3 text-[#475569]">{latestContractDate(b) || '-'}</td>
+                                    <td className="px-5 py-3 text-[#475569]">
+                                        {b.goal_count != null ? `${b.goal_count}건` : '-'}
+                                    </td>
+                                    <td className="px-5 py-3 text-[#475569]">
+                                        {amountTotal(b) ? `${fmtWon(amountTotal(b))}원` : '-'}
+                                    </td>
+                                    <td className="px-5 py-3">
+                                        <button
+                                            className="max-w-[260px] truncate rounded-md border border-[#e2e8f0] px-2.5 py-1 text-left text-[#475569] hover:border-[#1e40af] hover:text-[#1e40af]"
+                                            onClick={() => setNoteAcc(b)}
+                                            title={b.note || ''}
+                                            type="button"
+                                        >
+                                            {b.note || '입력...'}
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                ) : (
+                    <div className="px-5 py-8 text-center text-sm text-[#94a3b8]">{shortLabel} 계약 정보가 없습니다.</div>
+                )}
+            </div>
 
             {/* 블로그 시트와 동일한 편집 모달 — 카드 클릭 시 열림(저장 동일) */}
             {contractAcc ? (
