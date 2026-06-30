@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
+﻿import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
     deleteClient,
     insertClient,
@@ -133,27 +133,6 @@ function ClientsPage() {
         setForm((current) => ({ ...current, [field]: value }));
     };
 
-    const autoParse = (text: string) => {
-        setPasteText(text);
-        if (!text.trim()) {
-            return;
-        }
-        const parsed = parsePaste(text);
-        setForm((current) => ({
-            ...current,
-            budget: parsed.budget ?? current.budget,
-            company: parsed.company ?? current.company,
-            contact: parsed.contact ?? current.contact,
-            email: parsed.email ?? current.email,
-            manager: parsed.manager ?? current.manager,
-            notes: parsed.inquiry ?? current.notes,
-            product: parsed.product ?? current.product,
-            source:
-                parsed.source && SOURCE_OPTIONS.includes(parsed.source)
-                    ? parsed.source
-                    : current.source,
-        }));
-    };
 
     const openAdd = () => {
         setEditId(null);
@@ -319,8 +298,6 @@ function ClientsPage() {
         link.download = `고객DB_${todayStr()}.csv`;
         link.click();
     };
-
-    const onPasteChange = (event: ChangeEvent<HTMLTextAreaElement>) => autoParse(event.target.value);
 
     const managerIsListed = salespeople.some((s) => s.name === form.manager);
 
@@ -519,13 +496,6 @@ function ClientsPage() {
                                                     히스토리(
                                                     {Array.isArray(c.history) ? c.history.length : 0})
                                                 </Button>
-                                                <Button
-                                                    className="rounded border border-[#fca5a5] px-2 py-1 text-[11px] text-[#dc2626]"
-                                                    onClick={() => setDelId(c.id)}
-                                                    type="button"
-                                                >
-                                                    삭제
-                                                </Button>
                                             </div>
                                         </td>
                                     </tr>
@@ -551,20 +521,7 @@ function ClientsPage() {
                     onClick={(event) => event.target === event.currentTarget && setModalOpen(false)}
                 >
                     <div className="max-h-[92vh] w-[min(620px,94vw)] overflow-y-auto rounded-[8px] bg-white p-6">
-                        <h3 className="m-0 text-lg font-bold">{editId ? '문의 수정' : '+ 문의 추가'}</h3>
-                        <p className="mt-1 mb-4 text-sm text-[#64748b]">
-                            카카오·메일 내용을 붙여넣으면 자동으로 채워집니다
-                        </p>
-
-                        <label className="mb-3 block text-xs font-semibold text-[#334155]">
-                            📋 자동 입력 — 붙여넣기
-                            <textarea
-                                className="mt-1 min-h-[90px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f1f5f9] px-3 py-2 font-mono text-xs"
-                                onChange={onPasteChange}
-                                placeholder={'담당자 : 홍길동\n업체 : 카카오\n업체명 : 행복기업\n연락처 : 010-1234-5678\n문의내용 : 첫 상담 요청'}
-                                value={pasteText}
-                            />
-                        </label>
+                        <h3 className="m-0 mb-4 text-lg font-bold">{editId ? '고객사 수정' : '+ 고객사 추가'}</h3>
 
                         <div className="grid grid-cols-2 gap-3">
                             <Field label="담당자 *">
@@ -625,81 +582,22 @@ function ClientsPage() {
                                     value={form.email}
                                 />
                             </Field>
-                            <Field label="대표상품">
-                                <input
-                                    className="erp-input"
-                                    onChange={(event) => updateField('product', event.target.value)}
-                                    value={form.product}
-                                />
-                            </Field>
-                            <Field label="광고 예산">
-                                <input
-                                    className="erp-input"
-                                    onChange={(event) => updateField('budget', event.target.value)}
-                                    value={form.budget}
-                                />
-                            </Field>
-                            <Field label="계약금액 (원)">
-                                <input
-                                    className="erp-input"
-                                    onChange={(event) => updateField('amount', event.target.value)}
-                                    type="number"
-                                    value={form.amount}
-                                />
-                            </Field>
-                            <Field label="다음 연락일">
-                                <input
-                                    className="erp-input"
-                                    onChange={(event) =>
-                                        updateField('next_contact', event.target.value)
-                                    }
-                                    type="date"
-                                    value={form.next_contact}
-                                />
-                            </Field>
-                            <Field label="상태">
-                                <select
-                                    className="erp-input"
-                                    onChange={(event) => updateField('status', event.target.value)}
-                                    value={form.status}
-                                >
-                                    {STATUS_OPTIONS.map((s) => (
-                                        <option key={s}>{s}</option>
-                                    ))}
-                                </select>
-                            </Field>
-                            <Field label="계약 시작일">
-                                <input
-                                    className="erp-input"
-                                    onChange={(event) =>
-                                        updateField('contract_start', event.target.value)
-                                    }
-                                    type="date"
-                                    value={form.contract_start}
-                                />
-                            </Field>
-                            <Field label="계약 종료일">
-                                <input
-                                    className="erp-input"
-                                    onChange={(event) =>
-                                        updateField('contract_end', event.target.value)
-                                    }
-                                    type="date"
-                                    value={form.contract_end}
-                                />
-                            </Field>
-                            <div className="col-span-2">
-                                <Field label="메모">
-                                    <textarea
-                                        className="erp-input min-h-[70px] resize-y"
-                                        onChange={(event) => updateField('notes', event.target.value)}
-                                        value={form.notes}
-                                    />
-                                </Field>
-                            </div>
                         </div>
 
-                        <div className="mt-5 flex justify-end gap-2">
+                        <div className="mt-5 flex items-center gap-2">
+                            {editId ? (
+                                <Button
+                                    className="rounded-md border border-[#fca5a5] bg-white px-4 py-2 text-sm font-semibold text-[#dc2626]"
+                                    onClick={() => {
+                                        setModalOpen(false);
+                                        setDelId(editId);
+                                    }}
+                                    type="button"
+                                >
+                                    삭제
+                                </Button>
+                            ) : null}
+                            <div className="flex-1" />
                             <Button
                                 className="rounded-md border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold"
                                 onClick={() => setModalOpen(false)}
