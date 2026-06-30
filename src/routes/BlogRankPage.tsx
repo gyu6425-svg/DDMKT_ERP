@@ -1,10 +1,10 @@
 import BlogPage from './BlogPage';
-import type { Tab } from './blogRank/lib/helpers';
-import { BlogRankProvider, useBlogRank } from './blogRank/lib/BlogRankContext';
-import { DashboardTab } from './blogRank/pages/DashboardTab';
-import { SheetTab } from './blogRank/pages/SheetTab';
-import { TrackerTab } from './blogRank/pages/TrackerTab';
-import { CrawlStatusTab } from './blogRank/pages/CrawlStatusTab';
+import type { Tab } from '../components/blogRank/lib/helpers';
+import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
+import { DashboardTab } from '../components/blogRank/pages/DashboardTab';
+import { SheetTab } from '../components/blogRank/pages/SheetTab';
+import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
+import { CrawlStatusTab } from '../components/blogRank/pages/CrawlStatusTab';
 
 // 블로그 대시보드 = 얇은 셸: Provider(공유 상태) + 헤더 + 탭바 + 활성 페이지.
 //   5개 기능은 각자 useBlogRank()로 필요한 값만 읽는 독립 페이지 컴포넌트.
