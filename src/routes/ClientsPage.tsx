@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, type ReactNode } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import {
     deleteClient,
     insertClient,
@@ -342,7 +342,7 @@ function ClientsPage() {
                     onClick={openAdd}
                     type="button"
                 >
-                    + 문의 추가
+                    + 업체 추가
                 </Button>
             </div>
 
@@ -551,37 +551,48 @@ function ClientsPage() {
                     onClick={(event) => event.target === event.currentTarget && setModalOpen(false)}
                 >
                     <div className="max-h-[92vh] w-[min(620px,94vw)] overflow-y-auto rounded-[8px] bg-white p-6">
-                        <h3 className="m-0 mb-4 text-lg font-bold">{editId ? '고객사 수정' : '+ 고객사 추가'}</h3>
+                        <h3 className="m-0 mb-4 text-lg font-bold">
+                            {editId ? '고객사 수정' : '+ 업체 추가 (가이드 입력)'}
+                        </h3>
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <Field label="담당자 *">
+                        {/* 가이드 입력 — 고정 라벨 옆 칸에 값 입력(블로그 대시보드와 동일 방식) */}
+                        <div className="grid gap-2">
+                            {/* 담당자 : */}
+                            <div className="flex items-start gap-2">
+                                <span className="mt-2 w-24 shrink-0 text-sm font-semibold text-[#475569]">
+                                    담당자 :
+                                </span>
+                                <div className="w-full min-w-0">
+                                    <select
+                                        className="erp-input"
+                                        onChange={(event) => updateField('manager', event.target.value)}
+                                        value={managerIsListed ? form.manager : form.manager ? '__direct__' : ''}
+                                    >
+                                        <option value="">선택...</option>
+                                        {salespeople.map((s) => (
+                                            <option key={s.id} value={s.name}>
+                                                {s.name}
+                                            </option>
+                                        ))}
+                                        <option value="__direct__">직접 입력...</option>
+                                    </select>
+                                    {!managerIsListed ? (
+                                        <input
+                                            className="erp-input mt-1"
+                                            onChange={(event) => updateField('manager', event.target.value)}
+                                            placeholder="담당자 이름"
+                                            value={form.manager}
+                                        />
+                                    ) : null}
+                                </div>
+                            </div>
+                            {/* 문의 경로 : */}
+                            <div className="flex items-center gap-2">
+                                <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
+                                    문의 경로 :
+                                </span>
                                 <select
-                                    className="erp-input"
-                                    onChange={(event) => updateField('manager', event.target.value)}
-                                    value={managerIsListed ? form.manager : form.manager ? '__direct__' : ''}
-                                >
-                                    <option value="">선택...</option>
-                                    {salespeople.map((s) => (
-                                        <option key={s.id} value={s.name}>
-                                            {s.name}
-                                        </option>
-                                    ))}
-                                    <option value="__direct__">직접 입력...</option>
-                                </select>
-                                {!managerIsListed ? (
-                                    <input
-                                        className="erp-input mt-1"
-                                        onChange={(event) =>
-                                            updateField('manager', event.target.value)
-                                        }
-                                        placeholder="담당자 이름"
-                                        value={form.manager}
-                                    />
-                                ) : null}
-                            </Field>
-                            <Field label="문의 경로">
-                                <select
-                                    className="erp-input"
+                                    className="erp-input w-full min-w-0"
                                     onChange={(event) => updateField('source', event.target.value)}
                                     value={form.source}
                                 >
@@ -590,51 +601,41 @@ function ClientsPage() {
                                         <option key={s}>{s}</option>
                                     ))}
                                 </select>
-                            </Field>
-                            <Field label="업체명">
-                                <input
-                                    className="erp-input"
-                                    onChange={(event) => updateField('company', event.target.value)}
-                                    value={form.company}
-                                />
-                            </Field>
-                            <Field label="연락처">
-                                <input
-                                    className="erp-input"
-                                    onChange={(event) => updateField('contact', event.target.value)}
-                                    value={form.contact}
-                                />
-                            </Field>
-                            <Field label="이메일">
-                                <input
-                                    className="erp-input"
-                                    onChange={(event) => updateField('email', event.target.value)}
-                                    value={form.email}
-                                />
-                            </Field>
-                            <div className="col-span-2">
-                                <Field label="URL">
-                                    <input
-                                        className="erp-input"
-                                        onChange={(event) => updateField('url', event.target.value)}
-                                        placeholder="https://..."
-                                        value={form.url}
-                                    />
-                                </Field>
                             </div>
+                            {/* 업체명·연락처·이메일·url */}
+                            {(
+                                [
+                                    { key: 'company', label: '업체명', ph: '업체명 입력' },
+                                    { key: 'contact', label: '연락처', ph: '연락처 입력' },
+                                    { key: 'email', label: '이메일', ph: '이메일 입력' },
+                                    { key: 'url', label: 'url', ph: 'https://...' },
+                                ] as { key: keyof ClientForm; label: string; ph: string }[]
+                            ).map((f) => (
+                                <div className="flex items-center gap-2" key={f.key}>
+                                    <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
+                                        {f.label} :
+                                    </span>
+                                    <input
+                                        className="erp-input w-full min-w-0"
+                                        onChange={(event) => updateField(f.key, event.target.value)}
+                                        placeholder={f.ph}
+                                        value={form[f.key]}
+                                    />
+                                </div>
+                            ))}
+                            {/* 히스토리 추가 : (신규 등록만) */}
                             {!editId ? (
-                                <div className="col-span-2">
-                                    <Field label="히스토리 추가">
-                                        <textarea
-                                            className="erp-input"
-                                            onChange={(event) =>
-                                                updateField('historyText', event.target.value)
-                                            }
-                                            placeholder="첫 상담·문의 내용 등 (등록 시 히스토리에 기록)"
-                                            rows={2}
-                                            value={form.historyText}
-                                        />
-                                    </Field>
+                                <div className="flex items-start gap-2">
+                                    <span className="mt-2 w-24 shrink-0 text-sm font-semibold text-[#475569]">
+                                        히스토리 추가 :
+                                    </span>
+                                    <textarea
+                                        className="erp-input w-full min-w-0"
+                                        onChange={(event) => updateField('historyText', event.target.value)}
+                                        placeholder="첫 상담·문의 내용 등 (등록 시 히스토리에 기록)"
+                                        rows={2}
+                                        value={form.historyText}
+                                    />
                                 </div>
                             ) : null}
                         </div>
@@ -773,15 +774,6 @@ function ClientsPage() {
                 </div>
             ) : null}
         </section>
-    );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-    return (
-        <label className="block text-xs font-semibold text-[#334155]">
-            {label}
-            <div className="mt-1">{children}</div>
-        </label>
     );
 }
 
