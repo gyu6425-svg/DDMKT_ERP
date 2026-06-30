@@ -20,6 +20,21 @@ function Info({ label, value }: { label: string; value: string }) {
     );
 }
 
+// 계약일·진행률·잔여·계약금액 등을 하나하나 카드로.
+function MetricCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
+    return (
+        <div className="min-w-[130px] flex-1 rounded-xl border border-[#e2e8f0] bg-white px-4 py-3 shadow-sm">
+            <div className="text-[11px] font-semibold text-[#94a3b8]">{label}</div>
+            <div className="mt-1 text-lg font-bold" style={{ color: accent || '#0f172a' }}>
+                {value}
+            </div>
+        </div>
+    );
+}
+
+const progColor = (p: number | null) =>
+    p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
+
 export function ClientDetail({
     client,
     blogs,
@@ -67,7 +82,7 @@ export function ClientDetail({
                     const prog = progOf(b);
                     const isNew = b.goal_count == null; // 계약 정보 미입력 = 신규 계약
                     return (
-                        <div key={b.id} className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4">
+                        <div key={b.id} className="rounded-xl border border-[#e2e8f0] bg-[#f8fafc] px-5 py-4">
                             <div className="mb-3 flex items-center gap-2">
                                 <a
                                     className="text-sm font-bold text-[#0f172a] hover:text-[#1e40af] hover:underline"
@@ -93,22 +108,38 @@ export function ClientDetail({
                                     입력하세요.
                                 </p>
                             ) : (
-                                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                                    <Info label="계약일" value={latestContractDate(b) || ''} />
-                                    <Info
-                                        label="진행률"
-                                        value={
-                                            prog == null
-                                                ? '-'
-                                                : `${prog}% (${(b.goal_count || 0) - (b.remain_count || 0)}/${b.goal_count}건)`
-                                        }
-                                    />
-                                    <Info label="잔여" value={b.remain_count != null ? `${b.remain_count}건` : ''} />
-                                    <Info label="계약금액" value={amountTotal(b) ? `${fmtWon(amountTotal(b))}원` : ''} />
-                                    <Info label="기자단" value={currentField(b.reporter_history, b.reporter) || ''} />
-                                    <Info label="주 발행" value={currentField(b.weekly_history, b.weekly) || ''} />
-                                    <Info label="특이사항" value={b.note || ''} />
-                                </div>
+                                <>
+                                    {/* 계약일·진행률·잔여·계약금액 — 하나하나 카드 */}
+                                    <div className="flex flex-wrap gap-3">
+                                        <MetricCard label="계약일" value={latestContractDate(b) || '-'} />
+                                        <MetricCard
+                                            accent={progColor(prog)}
+                                            label="진행률"
+                                            value={
+                                                prog == null
+                                                    ? '-'
+                                                    : `${prog}% · ${(b.goal_count || 0) - (b.remain_count || 0)}/${b.goal_count}건`
+                                            }
+                                        />
+                                        <MetricCard
+                                            accent={
+                                                b.remain_count != null && b.remain_count <= 3 ? '#d97706' : undefined
+                                            }
+                                            label="잔여"
+                                            value={b.remain_count != null ? `${b.remain_count}건` : '-'}
+                                        />
+                                        <MetricCard
+                                            label="계약금액"
+                                            value={amountTotal(b) ? `${fmtWon(amountTotal(b))}원` : '-'}
+                                        />
+                                    </div>
+                                    {/* 기자단·주발행·특이사항 */}
+                                    <div className="mt-3 grid grid-cols-3 gap-4 border-t border-[#e2e8f0] pt-3">
+                                        <Info label="기자단" value={currentField(b.reporter_history, b.reporter) || ''} />
+                                        <Info label="주 발행" value={currentField(b.weekly_history, b.weekly) || ''} />
+                                        <Info label="특이사항" value={b.note || ''} />
+                                    </div>
+                                </>
                             )}
                         </div>
                     );
