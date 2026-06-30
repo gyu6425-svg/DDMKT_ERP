@@ -43,6 +43,30 @@ function Sidebar() {
             ? 'text-[16px] font-semibold text-[#000000] no-underline'
             : 'text-[16px] font-normal text-[#777777] no-underline hover:font-normal hover:text-[#000000]';
 
+    const renderNavItem = (item: { path: string; label: string; disabled?: boolean }) =>
+        item.disabled ? (
+            <span
+                aria-disabled="true"
+                className="cursor-not-allowed text-[16px] font-normal text-[#c4c4c4] no-underline"
+                key={item.path}
+                title="준비 중입니다"
+            >
+                {item.label}
+            </span>
+        ) : (
+            <a
+                aria-current={item.path === currentPath ? 'page' : undefined}
+                className={linkClassName(item.path)}
+                href={item.path}
+                key={item.path}
+                onClick={(event) => navigate(event, item.path)}
+            >
+                {item.label}
+            </a>
+        );
+    // 카테고리 대시보드(관리자 전용)를 '계약 관리' 바로 밑에 배치.
+    const afterContracts = navigationItems.findIndex((i) => i.path === '/contracts') + 1;
+
     return (
         <aside
             className="sticky top-0 flex h-svh flex-col border-r border-[#e5e7eb] p-6 max-[800px]:static max-[800px]:h-auto max-[800px]:border-r-0 max-[800px]:border-b"
@@ -53,28 +77,7 @@ function Sidebar() {
             </div>
 
             <nav className="grid gap-[18px] max-[800px]:grid-cols-2">
-                {navigationItems.map((item) =>
-                    item.disabled ? (
-                        <span
-                            aria-disabled="true"
-                            className="cursor-not-allowed text-[16px] font-normal text-[#c4c4c4] no-underline"
-                            key={item.path}
-                            title="준비 중입니다"
-                        >
-                            {item.label}
-                        </span>
-                    ) : (
-                        <a
-                            aria-current={item.path === currentPath ? 'page' : undefined}
-                            className={linkClassName(item.path)}
-                            href={item.path}
-                            key={item.path}
-                            onClick={(event) => navigate(event, item.path)}
-                        >
-                            {item.label}
-                        </a>
-                    ),
-                )}
+                {navigationItems.slice(0, afterContracts).map(renderNavItem)}
                 <AdminOnly>
                     {CATEGORIES.map((c) => (
                         <a
@@ -87,6 +90,9 @@ function Sidebar() {
                             {c.label}
                         </a>
                     ))}
+                </AdminOnly>
+                {navigationItems.slice(afterContracts).map(renderNavItem)}
+                <AdminOnly>
                     <a
                         aria-current={currentPath === '/admin' ? 'page' : undefined}
                         className={linkClassName('/admin')}
