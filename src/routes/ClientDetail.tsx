@@ -130,15 +130,31 @@ export function ClientDetail({
     const shortLabel = activeCat.label.replace(' 대시보드', '');
     // 삭제는 2단계 — 한 번 더 확인 후 실제 삭제.
     const [confirmDel, setConfirmDel] = useState(false);
+    // 카테고리별 누적 계약 금액(계약 요약 로그 합산) — 현재 블로그만 데이터, 나머지는 0.
+    const catAmount = (key: CategoryKey) =>
+        (key === 'blog' ? blogs : []).reduce((s, b) => s + (amountTotal(b) || 0), 0);
+    const totalAmount = CATEGORIES.reduce((s, c) => s + catAmount(c.key), 0);
     return (
         <section className="grid gap-4">
             <div className="flex items-center gap-3">
                 <button
-                    className="rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                    className="flex items-center gap-1 rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
                     onClick={onClose}
                     type="button"
                 >
-                    ← 목록으로
+                    <svg
+                        fill="none"
+                        height="14"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2.5"
+                        viewBox="0 0 24 24"
+                        width="14"
+                    >
+                        <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                    목록으로
                 </button>
                 <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">{client.company || '고객사'}</h2>
                 <div className="flex-1" />
@@ -169,6 +185,31 @@ export function ClientDetail({
                         삭제
                     </button>
                 )}
+            </div>
+
+            {/* 누적 계약 금액 — 하단 5개 카테고리 계약 요약 로그를 전부 합산 */}
+            <div className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                    <div>
+                        <div className="text-xs font-semibold text-[#94a3b8]">총 계약 금액 (누적)</div>
+                        <div className="mt-1 text-2xl font-bold text-[#1e40af]">{fmtWon(totalAmount)}원</div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {CATEGORIES.map((c) => (
+                            <div
+                                className="min-w-[78px] rounded-lg border border-[#e2e8f0] bg-[#f8fafc] px-3 py-2 text-center"
+                                key={c.key}
+                            >
+                                <div className="text-[11px] font-semibold text-[#94a3b8]">
+                                    {c.label.replace(' 대시보드', '')}
+                                </div>
+                                <div className="mt-0.5 text-sm font-bold text-[#0f172a]">
+                                    {fmtWon(catAmount(c.key))}원
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
             </div>
 
             {/* 기본 정보 — 각 카드에서 바로 수정 */}
