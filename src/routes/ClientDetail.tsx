@@ -7,7 +7,7 @@ import {
     type ClientContract,
 } from '../api/clientContracts';
 import { fmtWon } from '../components/blogRank/lib/helpers';
-import { PRODUCT_CATEGORIES } from '../lib/products';
+import { PRODUCT_CATEGORIES, categoryByLabel } from '../lib/products';
 import { SOURCE_OPTIONS } from '../lib/erpUtils';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
@@ -533,15 +533,28 @@ export function ClientDetail({
                     {sortedContracts.map((ct) => {
                         const prog = progOf(ct);
                         const done = (ct.goal_count || 0) - (ct.remain_count || 0);
+                        const dashPath = categoryByLabel(ct.category)?.path;
                         return (
-                            <button
-                                className="rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
+                            <div
+                                className="relative cursor-pointer rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
                                 key={ct.id}
                                 onClick={() => setEditContract(ct)}
-                                type="button"
                             >
+                                {dashPath ? (
+                                    <button
+                                        className="absolute right-1.5 top-1.5 rounded border border-[#cbd5e1] bg-white px-1.5 py-0.5 text-[10px] font-semibold text-[#475569] hover:border-[#1e40af] hover:text-[#1e40af]"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            navTo(dashPath);
+                                        }}
+                                        title={`${ct.category} 대시보드로 이동`}
+                                        type="button"
+                                    >
+                                        대시보드 →
+                                    </button>
+                                ) : null}
                                 <div className="truncate text-[10px] font-bold text-[#1e40af]">{ct.category}</div>
-                                <div className="truncate text-xs font-bold text-[#334155]">{ct.subtype}</div>
+                                <div className="truncate pr-14 text-xs font-bold text-[#334155]">{ct.subtype}</div>
                                 <div className="mt-0.5 text-2xl font-bold" style={{ color: progColor(prog) }}>
                                     {prog != null
                                         ? `${prog}%`
@@ -564,7 +577,7 @@ export function ClientDetail({
                                     {ct.goal_count != null ? `${done}/${ct.goal_count}건` : '건수 미입력'}
                                     {ct.amount ? ` · ${fmtWon(ct.amount)}원` : ''}
                                 </div>
-                            </button>
+                            </div>
                         );
                     })}
                 </div>
@@ -600,17 +613,6 @@ export function ClientDetail({
                         <div className="mt-0.5 truncate text-sm font-medium text-[#0f172a]">{f.value || '-'}</div>
                     </button>
                 ))}
-            </div>
-
-            {/* 블로그 대시보드 이동(기존 블로그 순위 추적) */}
-            <div>
-                <button
-                    className="rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9]"
-                    onClick={() => navTo(`/blog-rank?tab=sheet&q=${encodeURIComponent(client.company || '')}`)}
-                    type="button"
-                >
-                    블로그 순위 추적 대시보드 →
-                </button>
             </div>
 
             {addOpen ? (

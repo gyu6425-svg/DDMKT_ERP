@@ -16,10 +16,9 @@ import PowerLinkPage from './routes/PowerLinkPage';
 import ReportsPage from './routes/ReportsPage';
 import CustomerOverviewPage from './routes/CustomerOverviewPage';
 import CustomerCategoryPage from './routes/CustomerCategoryPage';
-import VideoRankPage from './routes/VideoRankPage';
+import { SkeletonRankPage } from './components/categoryRank/SkeletonRankPage';
 import InstaRankPage from './routes/InstaRankPage';
 import CafeRankPage from './routes/CafeRankPage';
-import TrafficRankPage from './routes/TrafficRankPage';
 
 const routes = [
     { path: '/dashboard', element: <DashboardPage /> },
@@ -29,17 +28,19 @@ const routes = [
     { path: '/reports', element: <ReportsPage /> },
     { path: '/memos', element: <MemosPage /> },
     { path: '/blog', element: <BlogPage /> },
-    { path: '/blog-rank', element: <BlogRankPage /> },
-    { path: '/video-rank', element: <VideoRankPage /> },
+    { path: '/place-rank', element: <SkeletonRankPage label="플레이스 대시보드" /> },
     { path: '/insta-rank', element: <InstaRankPage /> },
     { path: '/cafe-rank', element: <CafeRankPage /> },
-    { path: '/traffic-rank', element: <TrafficRankPage /> },
+    { path: '/shopping-rank', element: <SkeletonRankPage label="쇼핑 대시보드" /> },
+    { path: '/powerlink-rank', element: <SkeletonRankPage label="파워링크 대시보드" /> },
+    { path: '/blog-rank', element: <BlogRankPage /> },
     { path: '/portal', element: <CustomerOverviewPage /> },
-    { path: '/portal/blog', element: <CustomerCategoryPage /> },
-    { path: '/portal/video', element: <CustomerCategoryPage /> },
+    { path: '/portal/place', element: <CustomerCategoryPage /> },
     { path: '/portal/insta', element: <CustomerCategoryPage /> },
     { path: '/portal/cafe', element: <CustomerCategoryPage /> },
-    { path: '/portal/traffic', element: <CustomerCategoryPage /> },
+    { path: '/portal/shopping', element: <CustomerCategoryPage /> },
+    { path: '/portal/powerlink', element: <CustomerCategoryPage /> },
+    { path: '/portal/blog', element: <CustomerCategoryPage /> },
     { path: '/banner-generator', element: <BannerGeneratorPage /> },
     { path: '/powerlink', element: <PowerLinkPage /> },
     { path: '/mypage', element: <MyPage /> },
