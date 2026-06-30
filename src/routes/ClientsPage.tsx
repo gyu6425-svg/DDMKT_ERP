@@ -6,7 +6,8 @@ import {
     type ClientHistory,
     type ErpClient,
 } from '../api/erp';
-import { getBlogAccounts } from '../api/blogRank';
+import { getBlogAccounts, type BlogAccount } from '../api/blogRank';
+import { ClientDetail } from './ClientDetail';
 import Button from '../components/Button';
 import { useErpData } from '../context/ErpDataContext';
 import {
@@ -66,12 +67,26 @@ function ClientsPage() {
     const { clients, salespeople, loading, error, refresh } = useErpData();
 
     // 카테고리 = 그 고객사에 연결된 카테고리 계정에서 도출(현재 블로그). client_id 로 묶음.
-    const [blogClientIds, setBlogClientIds] = useState<Set<string>>(new Set());
+    const [blogAccounts, setBlogAccounts] = useState<BlogAccount[]>([]);
     useEffect(() => {
-        void getBlogAccounts().then(({ data }) => {
-            setBlogClientIds(new Set(data.filter((a) => a.client_id).map((a) => a.client_id as string)));
-        });
+        void getBlogAccounts().then(({ data }) => setBlogAccounts(data));
     }, []);
+    // 상세 페이지(업체 클릭) — ?id 쿼리로 열고 닫는다.
+    const [detailId, setDetailId] = useState<string | null>(
+        () => new URLSearchParams(window.location.search).get('id'),
+    );
+    const openDetail = (id: string) => {
+        setDetailId(id);
+        const u = new URL(window.location.href);
+        u.searchParams.set('id', id);
+        window.history.pushState(null, '', u.pathname + u.search);
+    };
+    const closeDetail = () => {
+        setDetailId(null);
+        const u = new URL(window.location.href);
+        u.searchParams.delete('id');
+        window.history.pushState(null, '', u.pathname + u.search);
+    };
 
     const [search, setSearch] = useState('');
     const [sourceFilter, setSourceFilter] = useState('');
@@ -301,6 +316,18 @@ function ClientsPage() {
 
     const managerIsListed = salespeople.some((s) => s.name === form.manager);
 
+    // 업체명 클릭 시 상세 페이지
+    const detailClient = detailId ? clients.find((c) => c.id === detailId) : null;
+    if (detailClient) {
+        return (
+            <ClientDetail
+                blogs={blogAccounts.filter((a) => a.client_id === detailClient.id)}
+                client={detailClient}
+                onClose={closeDetail}
+            />
+        );
+    }
+
     return (
         <section className="grid gap-4">
             <div className="flex items-center justify-between gap-3">
@@ -442,12 +469,21 @@ function ClientsPage() {
                                                 )}
                                             </button>
                                         </td>
-                                        <td className="px-3 py-2 font-medium">{c.company || '--'}</td>
+                                        <td className="px-3 py-2">
+                                            <button
+                                                className="font-medium text-[#1e40af] hover:underline"
+                                                onClick={() => openDetail(c.id)}
+                                                title="클릭해서 상세 보기"
+                                                type="button"
+                                            >
+                                                {c.company || '--'}
+                                            </button>
+                                        </td>
                                         <td className="px-3 py-2 text-xs text-[#64748b]">
                                             {c.contact || '--'}
                                         </td>
                                         <td className="px-3 py-2">
-                                            {blogClientIds.has(c.id) ? (
+                                            {blogAccounts.some((a) => a.client_id === c.id) ? (
                                                 <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-semibold text-[#16a34a]">
                                                     블로그
                                                 </span>
