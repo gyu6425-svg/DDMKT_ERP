@@ -439,10 +439,12 @@ export function ClientDetail({
     const catAmount = (label: string) =>
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
     const totalAmount = contracts.reduce((s, ct) => s + (ct.amount || 0), 0);
-    // 계약이 있는 카테고리만(부모 순서 유지).
-    const activeCats = PRODUCT_CATEGORIES.filter((c) =>
-        contracts.some((ct) => ct.category === c.label),
-    );
+    // 카테고리 부모 순서로 정렬해 한 줄에 옆으로 흐르게(같은 카테고리끼리 인접).
+    const catOrder = (label: string) => {
+        const i = PRODUCT_CATEGORIES.findIndex((c) => c.label === label);
+        return i === -1 ? 99 : i;
+    };
+    const sortedContracts = [...contracts].sort((a, b) => catOrder(a.category) - catOrder(b.category));
 
     return (
         <section className="grid gap-4">
@@ -526,57 +528,46 @@ export function ClientDetail({
                 </button>
             </div>
 
-            {activeCats.length ? (
-                activeCats.map((c) => (
-                    <div key={c.key}>
-                        <div className="mb-2 text-sm font-bold text-[#1e40af]">{c.label}</div>
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                            {contracts
-                                .filter((ct) => ct.category === c.label)
-                                .map((ct) => {
-                                    const prog = progOf(ct);
-                                    const done = (ct.goal_count || 0) - (ct.remain_count || 0);
-                                    return (
-                                        <button
-                                            className="rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
-                                            key={ct.id}
-                                            onClick={() => setEditContract(ct)}
-                                            type="button"
-                                        >
-                                            <div className="truncate text-xs font-bold text-[#64748b]">
-                                                {ct.subtype}
-                                            </div>
-                                            <div
-                                                className="mt-0.5 text-2xl font-bold"
-                                                style={{ color: progColor(prog) }}
-                                            >
-                                                {prog != null
-                                                    ? `${prog}%`
-                                                    : ct.goal_count != null
-                                                      ? `${ct.goal_count}건`
-                                                      : '-'}
-                                            </div>
-                                            {prog != null ? (
-                                                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[#e2e8f0]">
-                                                    <div
-                                                        className="h-full rounded-full"
-                                                        style={{
-                                                            background: progColor(prog),
-                                                            width: `${Math.min(100, Math.max(0, prog))}%`,
-                                                        }}
-                                                    />
-                                                </div>
-                                            ) : null}
-                                            <div className="mt-1 text-[11px] font-semibold text-[#64748b]">
-                                                {ct.goal_count != null ? `${done}/${ct.goal_count}건` : '건수 미입력'}
-                                                {ct.amount ? ` · ${fmtWon(ct.amount)}원` : ''}
-                                            </div>
-                                        </button>
-                                    );
-                                })}
-                        </div>
-                    </div>
-                ))
+            {sortedContracts.length ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                    {sortedContracts.map((ct) => {
+                        const prog = progOf(ct);
+                        const done = (ct.goal_count || 0) - (ct.remain_count || 0);
+                        return (
+                            <button
+                                className="rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
+                                key={ct.id}
+                                onClick={() => setEditContract(ct)}
+                                type="button"
+                            >
+                                <div className="truncate text-[10px] font-bold text-[#1e40af]">{ct.category}</div>
+                                <div className="truncate text-xs font-bold text-[#334155]">{ct.subtype}</div>
+                                <div className="mt-0.5 text-2xl font-bold" style={{ color: progColor(prog) }}>
+                                    {prog != null
+                                        ? `${prog}%`
+                                        : ct.goal_count != null
+                                          ? `${ct.goal_count}건`
+                                          : '-'}
+                                </div>
+                                {prog != null ? (
+                                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[#e2e8f0]">
+                                        <div
+                                            className="h-full rounded-full"
+                                            style={{
+                                                background: progColor(prog),
+                                                width: `${Math.min(100, Math.max(0, prog))}%`,
+                                            }}
+                                        />
+                                    </div>
+                                ) : null}
+                                <div className="mt-1 text-[11px] font-semibold text-[#64748b]">
+                                    {ct.goal_count != null ? `${done}/${ct.goal_count}건` : '건수 미입력'}
+                                    {ct.amount ? ` · ${fmtWon(ct.amount)}원` : ''}
+                                </div>
+                            </button>
+                        );
+                    })}
+                </div>
             ) : (
                 <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-5 py-10 text-center text-sm text-[#94a3b8]">
                     등록된 계약이 없습니다. ‘+ 계약 추가’로 등록하세요.
