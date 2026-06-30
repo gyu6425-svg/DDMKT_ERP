@@ -106,6 +106,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [clientTab, setClientTab] = useState<'done' | 'pending' | 'ended'>('pending');
     // 계약 진행 단계 변경 대상(5단계 선택 모달).
     const [stageClient, setStageClient] = useState<ErpClient | null>(null);
+    // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
+    const [showImminent, setShowImminent] = useState(false);
     const [toast, setToast] = useState('');
 
     const [modalOpen, setModalOpen] = useState(false);
@@ -404,40 +406,51 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 </Button>
             </div>
 
-            {/* 계약 관리 상단 KPI — 계약 중 / 재계약 임박 */}
+            {/* 계약 관리 상단 KPI — 계약 중 / 재계약 임박(누르면 상세) */}
             {contractsOnly ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
-                        <div className="text-xs font-semibold text-[#94a3b8]">계약 중</div>
-                        <div className="mt-1 text-3xl font-bold text-[#1e40af]">{doneClientIds.size}건</div>
-                        <div className="mt-0.5 text-[11px] text-[#94a3b8]">계약완료 상태 고객</div>
+                    <div className="flex items-center justify-between rounded-xl border border-[#e2e8f0] bg-white px-4 py-2.5 shadow-sm">
+                        <span className="text-xs font-semibold text-[#94a3b8]">계약 중</span>
+                        <span className="text-2xl font-bold text-[#1e40af]">{doneClientIds.size}건</span>
                     </div>
-                    <div className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-xs font-semibold text-[#94a3b8]">재계약 임박</span>
-                            <span className="text-[11px] text-[#94a3b8]">잔여 3건 미만</span>
-                        </div>
-                        <div
-                            className={`mt-1 text-3xl font-bold ${
-                                imminentList.length ? 'text-[#dc2626]' : 'text-[#94a3b8]'
-                            }`}
+                    <div className="rounded-xl border border-[#e2e8f0] bg-white px-4 py-2.5 shadow-sm">
+                        <button
+                            className="flex w-full items-center justify-between"
+                            onClick={() => setShowImminent((o) => !o)}
+                            type="button"
                         >
-                            {imminentList.length}건
-                        </div>
-                        {imminentList.length ? (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                                {imminentList.map((it, i) => (
-                                    <span
-                                        className="rounded-full bg-[#fef2f2] px-2 py-0.5 text-[11px] font-semibold text-[#b91c1c]"
-                                        key={i}
-                                    >
-                                        {it.category} · {it.company} (잔여 {it.remain}건)
-                                    </span>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="mt-1 text-[11px] text-[#94a3b8]">해당 없음</div>
-                        )}
+                            <span className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold text-[#94a3b8]">재계약 임박</span>
+                                <span className="text-[10px] text-[#94a3b8]">
+                                    잔여 3건 미만 · {showImminent ? '접기 ▲' : '상세 ▼'}
+                                </span>
+                            </span>
+                            <span
+                                className={`text-2xl font-bold ${
+                                    imminentList.length ? 'text-[#dc2626]' : 'text-[#94a3b8]'
+                                }`}
+                            >
+                                {imminentList.length}건
+                            </span>
+                        </button>
+                        {showImminent ? (
+                            imminentList.length ? (
+                                <div className="mt-2 flex flex-wrap gap-1.5 border-t border-[#f1f5f9] pt-2">
+                                    {imminentList.map((it, i) => (
+                                        <span
+                                            className="rounded-full bg-[#fef2f2] px-2 py-0.5 text-[11px] font-semibold text-[#b91c1c]"
+                                            key={i}
+                                        >
+                                            {it.category} · {it.company} (잔여 {it.remain}건)
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="mt-2 border-t border-[#f1f5f9] pt-2 text-[11px] text-[#94a3b8]">
+                                    해당 없음
+                                </div>
+                            )
+                        ) : null}
                     </div>
                 </div>
             ) : null}
