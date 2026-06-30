@@ -24,6 +24,7 @@ export function SheetTab() {
         goCrawl: onGoCrawl,
         goTrackerBlog: onGoTrackerBlog,
         sheetQ: initialQ,
+        customerMode,
     } = useBlogRank();
     const [q, setQ] = useState(initialQ);
     // 대시보드 '재계약 임박' 블로그 클릭으로 진입하면 그 업체명으로 검색 채움(마운트 타이밍 무관).
@@ -202,8 +203,8 @@ export function SheetTab() {
                 </button>
             </div>
 
-            {/* 계약 중 / 계약 종료 탭 — 업체명 검색 밑 */}
-            <div className="flex gap-1 border-b border-[#e2e8f0]">
+            {/* 계약 중 / 계약 종료 탭 — 업체명 검색 밑. 고객 ERP에선 숨김(계약 중만 노출). */}
+            <div className={`flex gap-1 border-b border-[#e2e8f0] ${customerMode ? 'hidden' : ''}`}>
                 {([
                     ['active', '계약 중', tabCounts.active],
                     ['ended', '계약 종료', tabCounts.ended],

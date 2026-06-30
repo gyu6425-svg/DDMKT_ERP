@@ -26,6 +26,8 @@ type BlogRankCtx = {
     goSheetBlog: (name: string) => void; // 대시보드 → 시트(업체검색)
     goCrawl: () => void; // 시트 → 크롤링 현황
     goTrackerBlog: (id: string) => void; // 시트 업체명 → 트래커(그 업체만)
+    // 고객 ERP 모드 — true 면 관리시트에서 '계약 종료' 탭 숨김(계약 중만), 본인 업체 한정(데이터는 RLS로 격리).
+    customerMode: boolean;
 };
 
 const Ctx = createContext<BlogRankCtx | null>(null);
@@ -38,7 +40,7 @@ export function useBlogRank(): BlogRankCtx {
     return v;
 }
 
-export function BlogRankProvider({ children }: { children: ReactNode }) {
+export function BlogRankProvider({ children, customerMode = false }: { children: ReactNode; customerMode?: boolean }) {
     const { isAdmin, loading: authLoading } = useAuth();
     const [accounts, setAccounts] = useState<BlogAccount[]>([]);
     const [posts, setPosts] = useState<BlogPost[]>([]);
@@ -130,6 +132,7 @@ export function BlogRankProvider({ children }: { children: ReactNode }) {
             setTrackerInOnly(false);
             setTab('tracker');
         },
+        customerMode,
     };
 
     return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

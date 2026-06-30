@@ -29,5 +29,5 @@ export const categoryByKey = (key: CategoryKey): CategoryDef =>
 //   내부 메뉴(배너/파워링크/계약관리/고객사관리 등)는 고객에게 노출하지 않는다.
 export const CUSTOMER_NAV: { path: string; label: string }[] = [
     { path: '/portal', label: '통합 대시보드' },
-    ...CATEGORIES.map((c) => ({ path: `/portal/${c.key}`, label: c.label.replace(' 대시보드', '') })),
+    ...CATEGORIES.map((c) => ({ path: `/portal/${c.key}`, label: c.label })),
 ];
