@@ -21,6 +21,7 @@ import {
 
 const FAVS_KEY = 'erp_favs';
 const DONE_STATUS = '계약완료'; // 계약 완료 판정 기준(상태). 계약 관리 진입 + 완료/미완료 탭이 공유.
+const ENDED_STATUS = '계약종료'; // 계약 종료(터미널). 종료 탭. 5단계(신규~보류)와 별개.
 
 type ClientForm = {
     manager: string;
@@ -102,7 +103,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [favOnly, setFavOnly] = useState(false);
     const [favs, setFavs] = useState<string[]>(loadFavs);
     // 고객사 관리 하단 탭 — 계약 완료(블로그 등 계정 연결) vs 미완료(보류·문의만). contractsOnly 화면에선 미사용.
-    const [clientTab, setClientTab] = useState<'done' | 'pending'>('pending');
+    const [clientTab, setClientTab] = useState<'done' | 'pending' | 'ended'>('pending');
+    // 계약 진행 단계 변경 대상(5단계 선택 모달).
+    const [stageClient, setStageClient] = useState<ErpClient | null>(null);
     const [toast, setToast] = useState('');
 
     const [modalOpen, setModalOpen] = useState(false);
@@ -135,12 +138,14 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const matchesFav = !favOnly || favs.includes(client.id);
             // 계약 관리(contractsOnly)는 '계약완료' 상태만 진입.
             const matchesContract = !contractsOnly || client.status === DONE_STATUS;
-            // 고객사 관리 전체 화면에서만 완료/미완료 탭 적용(상태 기준).
+            // 고객사 관리 전체 화면에서만 완료/미완료/종료 탭 적용(상태 기준).
             const matchesTab =
                 contractsOnly ||
                 (clientTab === 'done'
                     ? client.status === DONE_STATUS
-                    : client.status !== DONE_STATUS);
+                    : clientTab === 'ended'
+                      ? client.status === ENDED_STATUS
+                      : client.status !== DONE_STATUS && client.status !== ENDED_STATUS);
 
             return matchesQuery && matchesSource && matchesStatus && matchesFav && matchesContract && matchesTab;
         });
@@ -151,6 +156,28 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             return af - bf;
         });
     }, [clients, search, sourceFilter, statusFilter, favOnly, favs, contractsOnly, clientTab]);
+
+    // 계약 관리 KPI — 계약 중(계약완료 고객 수) + 재계약 임박(카테고리 계약 중 잔여 3건 미만).
+    const doneClientIds = useMemo(
+        () => new Set(clients.filter((c) => c.status === DONE_STATUS).map((c) => c.id)),
+        [clients],
+    );
+    // 현재 카테고리 계정은 블로그뿐 → 향후 영상/인스타/카페/트래픽 계정 테이블 추가 시 여기에 합산.
+    const imminentList = useMemo(
+        () =>
+            blogAccounts
+                .filter(
+                    (a) =>
+                        a.client_id &&
+                        doneClientIds.has(a.client_id) &&
+                        !a.contract_ended_at &&
+                        a.remain_count != null &&
+                        a.remain_count < 3,
+                )
+                .map((a) => ({ category: '블로그', company: a.name, remain: a.remain_count as number }))
+                .sort((x, y) => x.remain - y.remain),
+        [blogAccounts, doneClientIds],
+    );
 
     const toggleFav = (id: string) => {
         setFavs((current) => {
@@ -169,9 +196,22 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
 
     const openAdd = () => {
         setEditId(null);
-        setForm(emptyForm);
+        // 계약 관리에서 추가 = 바로 계약완료 기본값. 고객사 관리(문의) = 신규문의.
+        setForm({ ...emptyForm, status: contractsOnly ? DONE_STATUS : STATUS_OPTIONS[0] });
         setPasteText('');
         setModalOpen(true);
+    };
+
+    // 상태 변경(계약 진행 단계 선택 / 계약 종료 처리 공용).
+    const changeStatus = async (client: ErpClient, status: string, toastMsg?: string) => {
+        const { error: statusError } = await updateClient(client.id, { status });
+        if (statusError) {
+            showToast(`오류: ${statusError.message}`);
+            return;
+        }
+        setStageClient(null);
+        showToast(toastMsg || `상태 변경: ${status}`);
+        await refresh();
     };
 
 
@@ -360,9 +400,47 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                     onClick={openAdd}
                     type="button"
                 >
-                    + 업체 추가
+                    {contractsOnly ? '+ 계약 추가' : '+ 문의 추가'}
                 </Button>
             </div>
+
+            {/* 계약 관리 상단 KPI — 계약 중 / 재계약 임박 */}
+            {contractsOnly ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
+                        <div className="text-xs font-semibold text-[#94a3b8]">계약 중</div>
+                        <div className="mt-1 text-3xl font-bold text-[#1e40af]">{doneClientIds.size}건</div>
+                        <div className="mt-0.5 text-[11px] text-[#94a3b8]">계약완료 상태 고객</div>
+                    </div>
+                    <div className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-xs font-semibold text-[#94a3b8]">재계약 임박</span>
+                            <span className="text-[11px] text-[#94a3b8]">잔여 3건 미만</span>
+                        </div>
+                        <div
+                            className={`mt-1 text-3xl font-bold ${
+                                imminentList.length ? 'text-[#dc2626]' : 'text-[#94a3b8]'
+                            }`}
+                        >
+                            {imminentList.length}건
+                        </div>
+                        {imminentList.length ? (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                                {imminentList.map((it, i) => (
+                                    <span
+                                        className="rounded-full bg-[#fef2f2] px-2 py-0.5 text-[11px] font-semibold text-[#b91c1c]"
+                                        key={i}
+                                    >
+                                        {it.category} · {it.company} (잔여 {it.remain}건)
+                                    </span>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="mt-1 text-[11px] text-[#94a3b8]">해당 없음</div>
+                        )}
+                    </div>
+                </div>
+            ) : null}
 
             {error ? (
                 <p className="m-0 rounded-md bg-[#fee2e2] px-4 py-3 text-sm text-[#dc2626]">
@@ -429,12 +507,17 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                         [
                             { key: 'pending', label: '계약 미완료' },
                             { key: 'done', label: '계약 완료' },
-                        ] as { key: 'done' | 'pending'; label: string }[]
+                            { key: 'ended', label: '계약 종료' },
+                        ] as { key: 'done' | 'pending' | 'ended'; label: string }[]
                     ).map((t) => {
                         const count =
                             t.key === 'done'
                                 ? clients.filter((c) => c.status === DONE_STATUS).length
-                                : clients.filter((c) => c.status !== DONE_STATUS).length;
+                                : t.key === 'ended'
+                                  ? clients.filter((c) => c.status === ENDED_STATUS).length
+                                  : clients.filter(
+                                        (c) => c.status !== DONE_STATUS && c.status !== ENDED_STATUS,
+                                    ).length;
                         return (
                             <button
                                 className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
@@ -563,6 +646,26 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         <td className="px-3 py-2 text-xs text-[#64748b]">{dt}</td>
                                         <td className="px-3 py-2">
                                             <div className="flex gap-1 whitespace-nowrap">
+                                                {!contractsOnly && clientTab === 'pending' ? (
+                                                    <Button
+                                                        className="rounded border border-[#1e40af] px-2 py-1 text-[11px] font-semibold text-[#1e40af] hover:bg-[#eff6ff]"
+                                                        onClick={() => setStageClient(c)}
+                                                        type="button"
+                                                    >
+                                                        계약 진행
+                                                    </Button>
+                                                ) : null}
+                                                {!contractsOnly && clientTab === 'done' ? (
+                                                    <Button
+                                                        className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#64748b] hover:bg-[#f1f5f9]"
+                                                        onClick={() =>
+                                                            void changeStatus(c, ENDED_STATUS, '계약 종료 처리')
+                                                        }
+                                                        type="button"
+                                                    >
+                                                        계약 종료
+                                                    </Button>
+                                                ) : null}
                                                 <Button
                                                     className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] text-[#64748b]"
                                                     onClick={() => {
@@ -600,7 +703,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 >
                     <div className="max-h-[92vh] w-[min(620px,94vw)] overflow-y-auto rounded-[8px] bg-white p-6">
                         <h3 className="m-0 mb-4 text-lg font-bold">
-                            {editId ? '고객사 수정' : '+ 업체 추가 (가이드 입력)'}
+                            {editId
+                                ? '고객사 수정'
+                                : contractsOnly
+                                  ? '+ 계약 추가 (가이드 입력)'
+                                  : '+ 문의 추가 (가이드 입력)'}
                         </h3>
 
                         {/* 가이드 입력 — 고정 라벨 옆 칸에 값 입력(블로그 대시보드와 동일 방식) */}
@@ -782,6 +889,52 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             <Button
                                 className="rounded-md border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold"
                                 onClick={() => setHistClient(null)}
+                                type="button"
+                            >
+                                닫기
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
+            {stageClient ? (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                    onClick={(event) => event.target === event.currentTarget && setStageClient(null)}
+                >
+                    <div className="w-[min(420px,94vw)] rounded-[8px] bg-white p-6">
+                        <h3 className="m-0 text-lg font-bold">
+                            {stageClient.company || '고객사'} · 계약 진행
+                        </h3>
+                        <p className="mt-1 mb-4 text-sm text-[#64748b]">
+                            현재 상태: <b>{stageClient.status || STATUS_OPTIONS[0]}</b>
+                        </p>
+                        <div className="grid gap-2">
+                            {STATUS_OPTIONS.map((s) => (
+                                <button
+                                    className={`flex items-center justify-between rounded-md border px-4 py-2.5 text-left text-sm font-semibold ${
+                                        stageClient.status === s
+                                            ? 'border-[#1e40af] bg-[#eff6ff] text-[#1e40af]'
+                                            : 'border-[#e2e8f0] text-[#334155] hover:bg-[#f8fafc]'
+                                    }`}
+                                    key={s}
+                                    onClick={() => void changeStatus(stageClient, s)}
+                                    type="button"
+                                >
+                                    {s}
+                                    {s === DONE_STATUS ? (
+                                        <span className="text-[11px] font-normal text-[#94a3b8]">
+                                            → 계약 완료 탭으로
+                                        </span>
+                                    ) : null}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="mt-4 flex justify-end">
+                            <Button
+                                className="rounded-md border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold"
+                                onClick={() => setStageClient(null)}
                                 type="button"
                             >
                                 닫기

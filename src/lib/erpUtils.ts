@@ -52,6 +52,7 @@ export const SOURCE_OPTIONS = [
 
 export const STATUS_BADGE: Record<string, string> = {
     계약완료: 'bg-[#d1fae5] text-[#059669]',
+    계약종료: 'bg-[#e5e7eb] text-[#475569]',
     보류: 'bg-[#e2e8f0] text-[#64748b]',
     상담중: 'bg-[#fed7aa] text-[#d97706]',
     신규문의: 'bg-[#dbeafe] text-[#1e40af]',
