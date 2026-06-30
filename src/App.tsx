@@ -15,6 +15,7 @@ import MemosPage from './routes/MemosPage';
 import MyPage from './routes/MyPage';
 import PowerLinkPage from './routes/PowerLinkPage';
 import ReportsPage from './routes/ReportsPage';
+import CustomerPortalPage from './routes/CustomerPortalPage';
 import VideoRankPage from './routes/VideoRankPage';
 import InstaRankPage from './routes/InstaRankPage';
 import CafeRankPage from './routes/CafeRankPage';
@@ -33,6 +34,7 @@ const routes = [
     { path: '/insta-rank', element: <InstaRankPage /> },
     { path: '/cafe-rank', element: <CafeRankPage /> },
     { path: '/traffic-rank', element: <TrafficRankPage /> },
+    { path: '/portal', element: <CustomerPortalPage /> },
     { path: '/banner-generator', element: <BannerGeneratorPage /> },
     { path: '/powerlink', element: <PowerLinkPage /> },
     { path: '/mypage', element: <MyPage /> },

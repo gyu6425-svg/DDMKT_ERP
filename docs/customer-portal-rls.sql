@@ -24,11 +24,22 @@ create index if not exists customer_companies_user_idx on public.customer_compan
 create index if not exists customer_companies_client_idx on public.customer_companies (client_id);
 alter table public.customer_companies enable row level security;
 
--- 내부 직원 여부: public.users(직원·관리자 테이블)에 살아있는 행이 있으면 내부.
---   고객(외부)은 users 에 없고 customer_companies 에만 있음 → 둘을 깔끔히 구분.
+-- 내부 직원 여부 = '고객이 아님'(customer_companies 매핑이 없음).
+--   ※ 2026-06-30 확인: public.users 테이블은 없고 권한 테이블은 public.profiles 임.
+--     내부 계정은 모두 관리자가 생성(공개 회원가입 없음) 전제 → 매핑 없는 인증유저 = 내부.
+--   (더 엄격히 하려면: exists(profiles where id=auth.uid()) 조건을 AND 로 추가.)
 create or replace function public.is_internal()
 returns boolean language sql security definer set search_path = public as $$
-    select exists (select 1 from public.users where id = auth.uid() and deleted_at is null);
+    select not exists (select 1 from public.customer_companies where user_id = auth.uid());
+$$;
+
+-- is_admin 정정: 기존 supabase-rls.sql 은 없는 public.users 를 참조 → profiles 기준으로 교체.
+create or replace function public.is_admin()
+returns boolean language sql security definer set search_path = public as $$
+    select exists (
+        select 1 from public.profiles
+        where id = auth.uid() and lower(coalesce(role,'')) in ('admin','관리자')
+    );
 $$;
 
 -- 현재 고객이 볼 수 있는 업체 id 목록 (내부 직원은 빈 목록이지만 is_internal 로 전체 접근).
