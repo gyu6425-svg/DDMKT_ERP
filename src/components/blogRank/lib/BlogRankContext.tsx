@@ -54,7 +54,8 @@ export function BlogRankProvider({ children, customerMode = false }: { children:
     const [toastMsg, setToastMsg] = useState('');
     const [trackerInOnly, setTrackerInOnly] = useState(false);
     const [trackerCo, setTrackerCo] = useState('');
-    const [sheetQ, setSheetQ] = useState('');
+    // 고객사 상세 → '블로그 대시보드 이동(?q=업체명)'으로 들어오면 그 업체만 보이게 시트 검색 초기값.
+    const [sheetQ, setSheetQ] = useState(() => new URLSearchParams(window.location.search).get('q') || '');
 
     const goTab = (key: Tab) => {
         setTrackerInOnly(false);

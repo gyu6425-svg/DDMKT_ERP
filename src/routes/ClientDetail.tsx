@@ -144,7 +144,7 @@ export function ClientDetail({
                 <h3 className="m-0 text-base font-bold text-[#0f172a]">블로그</h3>
                 <button
                     className="rounded-md bg-[#1e40af] px-3 py-1 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
-                    onClick={() => navTo('/blog-rank?tab=sheet')}
+                    onClick={() => navTo(`/blog-rank?tab=sheet&q=${encodeURIComponent(client.company || '')}`)}
                     type="button"
                 >
                     블로그 대시보드 이동 →
