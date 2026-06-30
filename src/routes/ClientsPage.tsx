@@ -7,6 +7,12 @@ import {
     type ErpClient,
 } from '../api/erp';
 import { getBlogAccounts, type BlogAccount } from '../api/blogRank';
+import {
+    getClientContracts,
+    insertClientContracts,
+    type ClientContract,
+} from '../api/clientContracts';
+import { PRODUCT_CATEGORIES } from '../lib/products';
 import { ClientDetail } from './ClientDetail';
 import Button from '../components/Button';
 import { useErpData } from '../context/ErpDataContext';
@@ -77,8 +83,12 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     // 카테고리 = 그 고객사에 연결된 카테고리 계정에서 도출(현재 블로그). client_id 로 묶음.
     const [blogAccounts, setBlogAccounts] = useState<BlogAccount[]>([]);
     const reloadBlogs = () => getBlogAccounts().then(({ data }) => setBlogAccounts(data));
+    // 계약 내역(client_contracts) — 카테고리/세부유형별 건수 계약.
+    const [clientContracts, setClientContracts] = useState<ClientContract[]>([]);
+    const reloadContracts = () => getClientContracts().then(({ data }) => setClientContracts(data));
     useEffect(() => {
         void reloadBlogs();
+        void reloadContracts();
     }, []);
     // 상세 페이지(업체 클릭) — ?id 쿼리로 열고 닫는다.
     const [detailId, setDetailId] = useState<string | null>(
@@ -115,6 +125,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [form, setForm] = useState<ClientForm>(emptyForm);
     const [pasteText, setPasteText] = useState('');
     const [saving, setSaving] = useState(false);
+    // 등록 가이드 '상품' — 선택한 부모 카테고리(key) + 세부유형별 건수/금액 입력.
+    const [prodCats, setProdCats] = useState<string[]>([]);
+    const [prodInputs, setProdInputs] = useState<Record<string, { count: string; amount: string }>>({});
 
     const [histClient, setHistClient] = useState<ErpClient | null>(null);
     const [histInput, setHistInput] = useState('');
@@ -164,26 +177,25 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         () => new Set(clients.filter((c) => c.status === DONE_STATUS).map((c) => c.id)),
         [clients],
     );
-    // 현재 카테고리 계정은 블로그뿐 → 향후 영상/인스타/카페/트래픽 계정 테이블 추가 시 여기에 합산.
+    // 재계약 임박 = 계약완료 고객의 계약(client_contracts) 중 잔여 3건 미만(카테고리·세부유형·업체별).
     const imminentList = useMemo(
         () =>
-            blogAccounts
+            clientContracts
                 .filter(
-                    (a) =>
-                        a.client_id &&
-                        doneClientIds.has(a.client_id) &&
-                        !a.contract_ended_at &&
-                        a.remain_count != null &&
-                        a.remain_count < 3,
+                    (ct) =>
+                        doneClientIds.has(ct.client_id) &&
+                        ct.remain_count != null &&
+                        ct.remain_count < 3,
                 )
-                .map((a) => ({
-                    category: '블로그',
-                    clientId: a.client_id as string,
-                    company: a.name,
-                    remain: a.remain_count as number,
+                .map((ct) => ({
+                    category: ct.category,
+                    clientId: ct.client_id,
+                    company: clients.find((c) => c.id === ct.client_id)?.company || '업체',
+                    remain: ct.remain_count as number,
+                    subtype: ct.subtype,
                 }))
                 .sort((x, y) => x.remain - y.remain),
-        [blogAccounts, doneClientIds],
+        [clientContracts, doneClientIds, clients],
     );
 
     const toggleFav = (id: string) => {
@@ -206,6 +218,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         // 계약 관리에서 추가 = 바로 계약완료 기본값. 고객사 관리(문의) = 신규문의.
         setForm({ ...emptyForm, status: contractsOnly ? DONE_STATUS : STATUS_OPTIONS[0] });
         setPasteText('');
+        setProdCats([]);
+        setProdInputs({});
         setModalOpen(true);
     };
 
@@ -258,9 +272,45 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             }
         }
 
-        const { error: saveError } = editId
-            ? await updateClient(editId, payload)
-            : await insertClient(payload);
+        let saveError = null as { message: string } | null;
+        let createdId: string | null = null;
+        if (editId) {
+            ({ error: saveError } = await updateClient(editId, payload));
+        } else {
+            const res = await insertClient(payload);
+            saveError = res.error;
+            createdId = res.data[0]?.id ?? null;
+        }
+
+        // 상품 → 계약 내역(client_contracts): 선택한 카테고리의 세부 중 건수/금액 입력된 것만.
+        if (!saveError && createdId && prodCats.length) {
+            const rows: Array<Partial<ClientContract>> = [];
+            for (const catKey of prodCats) {
+                const cat = PRODUCT_CATEGORIES.find((c) => c.key === catKey);
+                if (!cat) continue;
+                for (const sub of cat.subs) {
+                    const inp = prodInputs[`${catKey}|${sub}`];
+                    const count = inp?.count ? Number(inp.count) : null;
+                    const amt = inp?.amount ? Number(inp.amount) : null;
+                    if ((count && count > 0) || (amt && amt > 0)) {
+                        rows.push({
+                            amount: amt || 0,
+                            category: cat.label,
+                            client_id: createdId,
+                            contract_date: todayStr(),
+                            goal_count: count,
+                            remain_count: count,
+                            subtype: sub,
+                        });
+                    }
+                }
+            }
+            if (rows.length) {
+                const { error: cErr } = await insertClientContracts(rows);
+                if (cErr) showToast(`계약 저장 오류: ${cErr.message}`);
+                await reloadContracts();
+            }
+        }
 
         setSaving(false);
 
@@ -372,8 +422,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     if (detailClient) {
         return (
             <ClientDetail
-                blogs={blogAccounts.filter((a) => a.client_id === detailClient.id)}
                 client={detailClient}
+                contracts={clientContracts.filter((c) => c.client_id === detailClient.id)}
                 onClose={closeDetail}
                 onDelete={() =>
                     void deleteClient(detailClient.id).then(() => {
@@ -381,7 +431,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                         void refresh();
                     })
                 }
-                onReload={reloadBlogs}
+                onReloadContracts={reloadContracts}
                 onSave={(patch) => void updateClient(detailClient.id, patch).then(() => void refresh())}
                 onToast={showToast}
                 salespeople={salespeople}
@@ -618,13 +668,37 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                             {c.contact || '--'}
                                         </td>
                                         <td className="px-3 py-2">
-                                            {blogAccounts.some((a) => a.client_id === c.id) ? (
-                                                <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-semibold text-[#16a34a]">
-                                                    블로그
-                                                </span>
-                                            ) : (
-                                                <span className="text-xs text-[#94a3b8]">--</span>
-                                            )}
+                                            {(() => {
+                                                const cats = [
+                                                    ...new Set(
+                                                        clientContracts
+                                                            .filter((ct) => ct.client_id === c.id)
+                                                            .map((ct) => ct.category),
+                                                    ),
+                                                ];
+                                                if (cats.length) {
+                                                    return (
+                                                        <span className="flex flex-wrap gap-1">
+                                                            {cats.map((cat) => (
+                                                                <span
+                                                                    className="rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-semibold text-[#4338ca]"
+                                                                    key={cat}
+                                                                >
+                                                                    {cat}
+                                                                </span>
+                                                            ))}
+                                                        </span>
+                                                    );
+                                                }
+                                                if (blogAccounts.some((a) => a.client_id === c.id)) {
+                                                    return (
+                                                        <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-semibold text-[#16a34a]">
+                                                            블로그
+                                                        </span>
+                                                    );
+                                                }
+                                                return <span className="text-xs text-[#94a3b8]">--</span>;
+                                            })()}
                                         </td>
                                         <td className="px-3 py-2">
                                             <span
@@ -781,6 +855,104 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     />
                                 </div>
                             ))}
+                            {/* 상품 : 카테고리 다중선택 → 세부유형별 건수/금액 (계약 추가 시) */}
+                            {!editId && contractsOnly ? (
+                                <div className="flex items-start gap-2">
+                                    <span className="mt-2 w-24 shrink-0 text-sm font-semibold text-[#475569]">
+                                        상품 :
+                                    </span>
+                                    <div className="w-full min-w-0">
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {PRODUCT_CATEGORIES.map((c) => {
+                                                const on = prodCats.includes(c.key);
+                                                return (
+                                                    <button
+                                                        className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+                                                            on
+                                                                ? 'border-[#1e40af] bg-[#1e40af] text-white'
+                                                                : 'border-[#cbd5e1] bg-white text-[#475569]'
+                                                        }`}
+                                                        key={c.key}
+                                                        onClick={() =>
+                                                            setProdCats((prev) =>
+                                                                prev.includes(c.key)
+                                                                    ? prev.filter((k) => k !== c.key)
+                                                                    : [...prev, c.key],
+                                                            )
+                                                        }
+                                                        type="button"
+                                                    >
+                                                        {c.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        {prodCats.length ? (
+                                            <div className="mt-2 grid gap-2">
+                                                {PRODUCT_CATEGORIES.filter((c) => prodCats.includes(c.key)).map(
+                                                    (c) => (
+                                                        <div
+                                                            className="rounded-md border border-[#e2e8f0] bg-[#f8fafc] p-2"
+                                                            key={c.key}
+                                                        >
+                                                            <div className="mb-1 text-xs font-bold text-[#334155]">
+                                                                {c.label}
+                                                            </div>
+                                                            <div className="grid gap-1">
+                                                                {c.subs.map((sub) => {
+                                                                    const k = `${c.key}|${sub}`;
+                                                                    const inp =
+                                                                        prodInputs[k] || { amount: '', count: '' };
+                                                                    const set = (
+                                                                        field: 'count' | 'amount',
+                                                                        v: string,
+                                                                    ) =>
+                                                                        setProdInputs((prev) => ({
+                                                                            ...prev,
+                                                                            [k]: { ...inp, [field]: v },
+                                                                        }));
+                                                                    return (
+                                                                        <div
+                                                                            className="flex items-center gap-1.5"
+                                                                            key={sub}
+                                                                        >
+                                                                            <span className="w-32 shrink-0 truncate text-xs text-[#475569]">
+                                                                                {sub}
+                                                                            </span>
+                                                                            <input
+                                                                                className="h-8 w-20 rounded border border-[#cbd5e1] px-2 text-xs"
+                                                                                onChange={(e) =>
+                                                                                    set('count', e.target.value)
+                                                                                }
+                                                                                placeholder="건수"
+                                                                                type="number"
+                                                                                value={inp.count}
+                                                                            />
+                                                                            <input
+                                                                                className="h-8 w-full min-w-0 flex-1 rounded border border-[#cbd5e1] px-2 text-xs"
+                                                                                onChange={(e) =>
+                                                                                    set('amount', e.target.value)
+                                                                                }
+                                                                                placeholder="금액(원)"
+                                                                                type="number"
+                                                                                value={inp.amount}
+                                                                            />
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    ),
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="mt-1 text-[11px] text-[#94a3b8]">
+                                                카테고리를 선택하면 세부 항목이 나옵니다.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : null}
                             {/* 히스토리 추가 : (신규 등록만) */}
                             {!editId ? (
                                 <div className="flex items-start gap-2">
@@ -934,7 +1106,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     >
                                         <span className="min-w-0">
                                             <span className="block text-sm font-semibold">{it.company}</span>
-                                            <span className="block text-xs text-[#94a3b8]">{it.category}</span>
+                                            <span className="block text-xs text-[#94a3b8]">
+                                                {it.category} · {it.subtype}
+                                            </span>
                                         </span>
                                         <span className="shrink-0 rounded-full bg-[#fef2f2] px-2.5 py-1 text-xs font-bold text-[#b91c1c] ring-1 ring-[#fecaca]">
                                             잔여 {it.remain}건

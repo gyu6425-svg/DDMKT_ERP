@@ -1,17 +1,17 @@
 import { useState } from 'react';
-import type { BlogAccount } from '../api/blogRank';
 import type { ErpClient } from '../api/erp';
-import { amountTotal, currentField, fmtWon, latestContractDate, progOf } from '../components/blogRank/lib/helpers';
-import { AmountModal } from '../components/blogRank/components/AmountModal';
-import { ContractModal } from '../components/blogRank/components/ContractModal';
-import { FieldHistoryModal } from '../components/blogRank/components/FieldHistoryModal';
-import { NoteModal } from '../components/blogRank/components/NoteModal';
-import { ProgressModal } from '../components/blogRank/components/ProgressModal';
-import { CATEGORIES, categoryByKey, type CategoryKey } from '../components/categoryRank/categories';
+import {
+    deleteClientContract,
+    insertClientContracts,
+    updateClientContract,
+    type ClientContract,
+} from '../api/clientContracts';
+import { fmtWon } from '../components/blogRank/lib/helpers';
+import { PRODUCT_CATEGORIES } from '../lib/products';
 import { SOURCE_OPTIONS } from '../lib/erpUtils';
 
-// 고객사 상세 — 업체 기본정보 + 계약한 카테고리(현재 블로그)의 세부(블로그 관리 시트 내용)를 읽기로 표시.
-//   세부 편집은 카테고리 대시보드에서(같은 레코드라 자동 반영). 미입력이면 '신규 계약' 안내 + 이동 버튼.
+// 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
+//   계약은 client_contracts 단일 출처. 등록 시(+계약 추가) 또는 여기서 '+ 계약 추가'로 생성.
 function navTo(path: string) {
     if (window.location.pathname + window.location.search !== path) {
         window.history.pushState(null, '', path);
@@ -19,59 +19,15 @@ function navTo(path: string) {
     }
 }
 
-// 계약일·진행률·잔여·계약금액 등을 하나하나 카드로.
-function MetricCard({
-    label,
-    value,
-    accent,
-    small,
-    onClick,
-    barPct,
-}: {
-    label: string;
-    value: string;
-    accent?: string;
-    small?: boolean;
-    onClick?: () => void;
-    barPct?: number | null; // 있으면 값 아래 게이지바 표시(0~100)
-}) {
-    return (
-        <button
-            className="min-w-[130px] flex-1 rounded-xl border border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm enabled:cursor-pointer enabled:hover:border-[#1e40af] enabled:hover:shadow"
-            disabled={!onClick}
-            onClick={onClick}
-            type="button"
-        >
-            <div className="text-[11px] font-semibold text-[#94a3b8]">{label}</div>
-            <div
-                className={`mt-1 font-bold ${small ? 'text-sm' : 'text-lg'}`}
-                style={{ color: accent || '#0f172a' }}
-            >
-                {value}
-            </div>
-            {barPct != null ? (
-                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[#e2e8f0]">
-                    <div
-                        className="h-full rounded-full transition-all"
-                        style={{ background: accent || '#1e40af', width: `${Math.min(100, Math.max(0, barPct))}%` }}
-                    />
-                </div>
-            ) : null}
-        </button>
-    );
-}
-
 const progColor = (p: number | null) =>
     p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
 
-// 최근 계약금액 = amounts 마지막 항목(있으면), 없으면 레거시 amount 텍스트 파싱.
-const latestAmount = (b: BlogAccount): number => {
-    if (b.amounts && b.amounts.length) return Number(b.amounts[b.amounts.length - 1].amount) || 0;
-    const m = (b.amount || '').replace(/[^\d]/g, '');
-    return m ? Number(m) : 0;
+const progOf = (ct: ClientContract): number | null => {
+    if (ct.goal_count == null || ct.remain_count == null || ct.goal_count === 0) return null;
+    return Math.round(((ct.goal_count - ct.remain_count) / ct.goal_count) * 100);
 };
 
-// 기본정보(담당자·문의경로·연락처·이메일) 클릭 시 뜨는 편집 모달 — 계약일/진행률 카드처럼 눌러서 변경.
+// 기본정보(담당자·문의경로·연락처·이메일) 클릭 편집 모달.
 function ClientFieldModal({
     label,
     value,
@@ -139,52 +95,355 @@ function ClientFieldModal({
     );
 }
 
+// 계약 추가 모달 — 카테고리 → 세부유형 → 건수·금액·계약일.
+function ContractAddModal({
+    clientId,
+    onClose,
+    onReload,
+    onToast,
+}: {
+    clientId: string;
+    onClose: () => void;
+    onReload: () => Promise<void>;
+    onToast: (m: string) => void;
+}) {
+    const [catKey, setCatKey] = useState(PRODUCT_CATEGORIES[0].key);
+    const cat = PRODUCT_CATEGORIES.find((c) => c.key === catKey) ?? PRODUCT_CATEGORIES[0];
+    const [subtype, setSubtype] = useState(cat.subs[0]);
+    const [count, setCount] = useState('');
+    const [amount, setAmount] = useState('');
+    const [date, setDate] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    const pickCat = (key: string) => {
+        setCatKey(key);
+        const c = PRODUCT_CATEGORIES.find((x) => x.key === key);
+        if (c) setSubtype(c.subs[0]);
+    };
+
+    const submit = async () => {
+        const n = count.trim() ? Number(count) : null;
+        const amt = amount.trim() ? Number(amount) : null;
+        if (!n && !amt) {
+            onToast('건수 또는 금액을 입력하세요');
+            return;
+        }
+        setSaving(true);
+        const { error } = await insertClientContracts([
+            {
+                amount: amt || 0,
+                category: cat.label,
+                client_id: clientId,
+                contract_date: date || null,
+                goal_count: n,
+                remain_count: n,
+                subtype,
+            },
+        ]);
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        await onReload();
+        onToast('계약 추가 완료');
+        onClose();
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+        >
+            <div className="w-[min(440px,94vw)] rounded-2xl bg-white p-6">
+                <h3 className="m-0 mb-4 text-lg font-bold">+ 계약 추가</h3>
+                <div className="grid gap-3">
+                    <label className="block text-xs font-semibold text-[#475569]">
+                        카테고리
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                            {PRODUCT_CATEGORIES.map((c) => (
+                                <button
+                                    className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+                                        catKey === c.key
+                                            ? 'border-[#1e40af] bg-[#1e40af] text-white'
+                                            : 'border-[#cbd5e1] bg-white text-[#475569]'
+                                    }`}
+                                    key={c.key}
+                                    onClick={() => pickCat(c.key)}
+                                    type="button"
+                                >
+                                    {c.label}
+                                </button>
+                            ))}
+                        </div>
+                    </label>
+                    <label className="block text-xs font-semibold text-[#475569]">
+                        세부유형
+                        <select
+                            className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                            onChange={(e) => setSubtype(e.target.value)}
+                            value={subtype}
+                        >
+                            {cat.subs.map((s) => (
+                                <option key={s}>{s}</option>
+                            ))}
+                        </select>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            계약 건수
+                            <input
+                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                onChange={(e) => setCount(e.target.value)}
+                                placeholder="예: 30"
+                                type="number"
+                                value={count}
+                            />
+                        </label>
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            금액(원)
+                            <input
+                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                onChange={(e) => setAmount(e.target.value)}
+                                placeholder="예: 500000"
+                                type="number"
+                                value={amount}
+                            />
+                        </label>
+                    </div>
+                    <label className="block text-xs font-semibold text-[#475569]">
+                        계약일
+                        <input
+                            className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                            onChange={(e) => setDate(e.target.value)}
+                            placeholder="2026-01-15"
+                            value={date}
+                        />
+                    </label>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                    <button
+                        className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                        onClick={onClose}
+                        type="button"
+                    >
+                        취소
+                    </button>
+                    <button
+                        className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                        disabled={saving}
+                        onClick={() => void submit()}
+                        type="button"
+                    >
+                        {saving ? '저장 중…' : '추가'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// 계약 수정/삭제 모달.
+function ContractEditModal({
+    contract,
+    onClose,
+    onReload,
+    onToast,
+}: {
+    contract: ClientContract;
+    onClose: () => void;
+    onReload: () => Promise<void>;
+    onToast: (m: string) => void;
+}) {
+    const [goal, setGoal] = useState(contract.goal_count?.toString() ?? '');
+    const [remain, setRemain] = useState(contract.remain_count?.toString() ?? '');
+    const [amount, setAmount] = useState(contract.amount?.toString() ?? '');
+    const [date, setDate] = useState(contract.contract_date ?? '');
+    const [note, setNote] = useState(contract.note ?? '');
+    const [saving, setSaving] = useState(false);
+    const [confirmDel, setConfirmDel] = useState(false);
+
+    const save = async () => {
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, {
+            amount: amount.trim() ? Number(amount) : 0,
+            contract_date: date || null,
+            goal_count: goal.trim() ? Number(goal) : null,
+            note: note.trim() || null,
+            remain_count: remain.trim() ? Number(remain) : null,
+        });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        await onReload();
+        onToast('계약 수정 완료');
+        onClose();
+    };
+
+    const remove = async () => {
+        const { error } = await deleteClientContract(contract.id);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        await onReload();
+        onToast('계약 삭제됨');
+        onClose();
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+        >
+            <div className="w-[min(440px,94vw)] rounded-2xl bg-white p-6">
+                <h3 className="m-0 text-lg font-bold">
+                    {contract.category} · {contract.subtype}
+                </h3>
+                <p className="mt-1 mb-4 text-sm text-[#64748b]">계약 수정</p>
+                <div className="grid gap-3">
+                    <div className="grid grid-cols-2 gap-3">
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            계약 건수
+                            <input
+                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                onChange={(e) => setGoal(e.target.value)}
+                                type="number"
+                                value={goal}
+                            />
+                        </label>
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            잔여 건수
+                            <input
+                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                onChange={(e) => setRemain(e.target.value)}
+                                type="number"
+                                value={remain}
+                            />
+                        </label>
+                    </div>
+                    <label className="block text-xs font-semibold text-[#475569]">
+                        금액(원)
+                        <input
+                            className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                            onChange={(e) => setAmount(e.target.value)}
+                            type="number"
+                            value={amount}
+                        />
+                    </label>
+                    <label className="block text-xs font-semibold text-[#475569]">
+                        계약일
+                        <input
+                            className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                            onChange={(e) => setDate(e.target.value)}
+                            placeholder="2026-01-15"
+                            value={date}
+                        />
+                    </label>
+                    <label className="block text-xs font-semibold text-[#475569]">
+                        특이사항
+                        <textarea
+                            className="mt-1 w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
+                            onChange={(e) => setNote(e.target.value)}
+                            rows={2}
+                            value={note}
+                        />
+                    </label>
+                </div>
+                <div className="mt-5 flex items-center gap-2">
+                    {confirmDel ? (
+                        <>
+                            <span className="text-sm font-semibold text-[#dc2626]">삭제할까요?</span>
+                            <button
+                                className="rounded-md bg-[#dc2626] px-3 py-2 text-sm font-semibold text-white"
+                                onClick={() => void remove()}
+                                type="button"
+                            >
+                                삭제
+                            </button>
+                            <button
+                                className="rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-semibold text-[#475569]"
+                                onClick={() => setConfirmDel(false)}
+                                type="button"
+                            >
+                                취소
+                            </button>
+                        </>
+                    ) : (
+                        <button
+                            className="rounded-md border border-[#fca5a5] bg-white px-3 py-2 text-sm font-semibold text-[#dc2626]"
+                            onClick={() => setConfirmDel(true)}
+                            type="button"
+                        >
+                            삭제
+                        </button>
+                    )}
+                    <div className="flex-1" />
+                    <button
+                        className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                        onClick={onClose}
+                        type="button"
+                    >
+                        닫기
+                    </button>
+                    <button
+                        className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                        disabled={saving}
+                        onClick={() => void save()}
+                        type="button"
+                    >
+                        {saving ? '저장 중…' : '저장'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export function ClientDetail({
     client,
-    blogs,
+    contracts,
     salespeople,
     onClose,
     onSave,
     onDelete,
-    onReload,
+    onReloadContracts,
     onToast,
 }: {
     client: ErpClient;
-    blogs: BlogAccount[];
+    contracts: ClientContract[];
     salespeople: { id: string; name: string }[];
     onClose: () => void;
     onSave: (patch: Partial<ErpClient>) => void;
     onDelete: () => void;
-    onReload: () => Promise<void>;
+    onReloadContracts: () => Promise<void>;
     onToast: (message: string) => void;
 }) {
-    // 블로그 시트와 동일한 편집 모달 — 카드 클릭 시 그 계정으로 연다(편집·저장 동일).
-    const [contractAcc, setContractAcc] = useState<BlogAccount | null>(null);
-    const [amountAcc, setAmountAcc] = useState<BlogAccount | null>(null);
-    const [progressAcc, setProgressAcc] = useState<BlogAccount | null>(null);
-    const [reporterAcc, setReporterAcc] = useState<BlogAccount | null>(null);
-    const [weeklyAcc, setWeeklyAcc] = useState<BlogAccount | null>(null);
-    const [noteAcc, setNoteAcc] = useState<BlogAccount | null>(null);
-    // 카테고리 탭(블로그=실제, 나머지=준비 중)
-    const [tab, setTab] = useState<CategoryKey>('blog');
-    const activeCat = categoryByKey(tab);
-    const shortLabel = activeCat.label.replace(' 대시보드', '');
-    // 삭제는 2단계 — 한 번 더 확인 후 실제 삭제.
     const [confirmDel, setConfirmDel] = useState(false);
-    // 기본정보 클릭 편집 — 누르면 모달에서 변경.
     const [editField, setEditField] = useState<{
         patchKey: 'manager' | 'source' | 'contact' | 'email';
         label: string;
         value: string;
         options?: string[];
     } | null>(null);
+    const [addOpen, setAddOpen] = useState(false);
+    const [editContract, setEditContract] = useState<ClientContract | null>(null);
+
     const managerOptions = [
         ...new Set(([client.manager, ...salespeople.map((s) => s.name)].filter(Boolean) as string[])),
     ];
-    // 카테고리별 누적 계약 금액(계약 요약 로그 합산) — 현재 블로그만 데이터, 나머지는 0.
-    const catAmount = (key: CategoryKey) =>
-        (key === 'blog' ? blogs : []).reduce((s, b) => s + (amountTotal(b) || 0), 0);
-    const totalAmount = CATEGORIES.reduce((s, c) => s + catAmount(c.key), 0);
+
+    // 카테고리별 합계 + 총액.
+    const catAmount = (label: string) =>
+        contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
+    const totalAmount = contracts.reduce((s, ct) => s + (ct.amount || 0), 0);
+    // 계약이 있는 카테고리만(부모 순서 유지).
+    const activeCats = PRODUCT_CATEGORIES.filter((c) =>
+        contracts.some((ct) => ct.category === c.label),
+    );
+
     return (
         <section className="grid gap-4">
             <div className="flex items-center gap-3">
@@ -238,257 +497,144 @@ export function ClientDetail({
                 )}
             </div>
 
-            {/* 누적 계약 금액 — 총액(위) + 카테고리별 큰 카드(아래) */}
+            {/* 누적 계약 금액 — 총액 + 6개 카테고리별 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
                 <div className="text-xs font-semibold text-[#94a3b8]">총 계약 금액 (누적)</div>
                 <div className="mt-1 text-3xl font-bold text-[#1e40af]">{fmtWon(totalAmount)}원</div>
-                <div className="mt-0.5 text-[11px] text-[#94a3b8]">5개 카테고리 계약 요약 로그 합산</div>
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                {CATEGORIES.map((c) => (
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+                {PRODUCT_CATEGORIES.map((c) => (
                     <div
-                        className="rounded-xl border border-[#e2e8f0] bg-white px-4 py-5 text-center shadow-sm"
+                        className="rounded-xl border border-[#e2e8f0] bg-white px-3 py-3 text-center shadow-sm"
                         key={c.key}
                     >
-                        <div className="text-sm font-semibold text-[#94a3b8]">{c.label.replace(' 대시보드', '')}</div>
-                        <div className="mt-2 text-xl font-bold text-[#0f172a]">{fmtWon(catAmount(c.key))}원</div>
+                        <div className="text-[11px] font-semibold text-[#94a3b8]">{c.label}</div>
+                        <div className="mt-1 text-sm font-bold text-[#0f172a]">{fmtWon(catAmount(c.label))}원</div>
                     </div>
                 ))}
             </div>
 
-            {/* 카테고리 탭 — 블로그=실제, 나머지=준비 중 */}
-            <div className="flex flex-wrap gap-1 border-b border-[#e2e8f0]">
-                {CATEGORIES.map((c) => {
-                    const sl = c.label.replace(' 대시보드', '');
-                    return (
-                        <button
-                            className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
-                                tab === c.key
-                                    ? 'border-[#1e40af] text-[#1e40af]'
-                                    : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
-                            }`}
-                            key={c.key}
-                            onClick={() => setTab(c.key)}
-                            type="button"
-                        >
-                            {sl}
-                        </button>
-                    );
-                })}
-            </div>
-
-            {/* 활성 카테고리 헤더 + 대시보드 이동 */}
+            {/* 계약 내역 — 카테고리별 세부유형(건수·진행률·금액) */}
             <div className="flex items-center gap-2">
-                <h3 className="m-0 text-base font-bold text-[#0f172a]">{shortLabel}</h3>
+                <h3 className="m-0 text-base font-bold text-[#0f172a]">계약 내역</h3>
                 <button
                     className="rounded-md bg-[#1e40af] px-3 py-1 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
-                    onClick={() =>
-                        navTo(
-                            tab === 'blog'
-                                ? `/blog-rank?tab=sheet&q=${encodeURIComponent(client.company || '')}`
-                                : activeCat.path,
-                        )
-                    }
+                    onClick={() => setAddOpen(true)}
                     type="button"
                 >
-                    {shortLabel} 대시보드 이동 →
+                    + 계약 추가
                 </button>
             </div>
 
-            {tab !== 'blog' ? (
-                <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-5 py-10 text-center text-sm text-[#94a3b8]">
-                    {shortLabel} 카테고리는 준비 중입니다. (블로그와 동일한 구조로 추가 예정)
-                </div>
-            ) : blogs.length ? (
-                blogs.map((b) => {
-                    const prog = progOf(b);
-                    const isNew = b.goal_count == null; // 계약 정보 미입력 = 신규 계약
-                    return (
-                        <div key={b.id} className="rounded-xl border border-[#e2e8f0] bg-[#f8fafc] px-5 py-4">
-                            <div className="mb-3 flex items-center gap-2">
-                                <a
-                                    className="text-sm font-bold text-[#0f172a] hover:text-[#1e40af] hover:underline"
-                                    href={b.blog_url}
-                                    rel="noreferrer"
-                                    target="_blank"
-                                >
-                                    {b.name}
-                                </a>
-                                {isNew ? (
-                                    <span className="rounded-full bg-[#fef3c7] px-2 py-0.5 text-[11px] font-bold text-[#b45309]">
-                                        신규 계약 (세부 미입력)
-                                    </span>
-                                ) : (
-                                    <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#16a34a]">
-                                        계약 중
-                                    </span>
-                                )}
-                            </div>
-                            {isNew ? (
-                                <p className="m-0 text-sm text-[#64748b]">
-                                    계약일·건수·금액 등 세부사항이 아직 입력되지 않았습니다. 위 ‘블로그 대시보드 이동’에서
-                                    입력하세요.
-                                </p>
-                            ) : (
-                                <>
-                                    {/* 계약일·진행률·잔여·계약금액 — 하나하나 카드 */}
-                                    <div className="flex flex-wrap gap-3">
-                                        <MetricCard
-                                            label="계약일"
-                                            onClick={() => setContractAcc(b)}
-                                            value={latestContractDate(b) || '-'}
-                                        />
-                                        <MetricCard
-                                            accent={progColor(prog)}
-                                            barPct={prog}
-                                            label="진행률"
-                                            onClick={() => setProgressAcc(b)}
-                                            value={
-                                                prog == null
-                                                    ? '-'
-                                                    : `${prog}% · ${(b.goal_count || 0) - (b.remain_count || 0)}/${b.goal_count}건`
-                                            }
-                                        />
-                                        <MetricCard
-                                            accent={
-                                                b.remain_count != null && b.remain_count <= 3 ? '#d97706' : undefined
-                                            }
-                                            label="잔여"
-                                            onClick={() => setProgressAcc(b)}
-                                            value={b.remain_count != null ? `${b.remain_count}건` : '-'}
-                                        />
-                                        <MetricCard
-                                            label="최근 계약금액"
-                                            onClick={() => setAmountAcc(b)}
-                                            value={latestAmount(b) ? `${fmtWon(latestAmount(b))}원` : '-'}
-                                        />
-                                    </div>
-                                    {/* 기자단·주발행 — 카드(특이사항은 아래 계약 요약으로 이동) */}
-                                    <div className="mt-3 flex flex-wrap gap-3">
-                                        <MetricCard
-                                            label="기자단"
-                                            onClick={() => setReporterAcc(b)}
-                                            small
-                                            value={currentField(b.reporter_history, b.reporter) || '-'}
-                                        />
-                                        <MetricCard
-                                            label="주 발행"
-                                            onClick={() => setWeeklyAcc(b)}
-                                            small
-                                            value={currentField(b.weekly_history, b.weekly) || '-'}
-                                        />
-                                    </div>
-                                    {/* 기본 정보 — 누르면 모달(탭)에서 변경 */}
-                                    <div className="mt-3 flex flex-wrap gap-3">
-                                        <MetricCard
-                                            label="담당자"
-                                            onClick={() =>
-                                                setEditField({
-                                                    label: '담당자',
-                                                    options: managerOptions,
-                                                    patchKey: 'manager',
-                                                    value: client.manager || '',
-                                                })
-                                            }
-                                            small
-                                            value={client.manager || '-'}
-                                        />
-                                        <MetricCard
-                                            label="문의 경로"
-                                            onClick={() =>
-                                                setEditField({
-                                                    label: '문의 경로',
-                                                    options: SOURCE_OPTIONS,
-                                                    patchKey: 'source',
-                                                    value: client.source || '',
-                                                })
-                                            }
-                                            small
-                                            value={client.source || '-'}
-                                        />
-                                        <MetricCard
-                                            label="연락처"
-                                            onClick={() =>
-                                                setEditField({
-                                                    label: '연락처',
-                                                    patchKey: 'contact',
-                                                    value: client.contact || '',
-                                                })
-                                            }
-                                            small
-                                            value={client.contact || '-'}
-                                        />
-                                        <MetricCard
-                                            label="이메일"
-                                            onClick={() =>
-                                                setEditField({
-                                                    label: '이메일',
-                                                    patchKey: 'email',
-                                                    value: client.email || '',
-                                                })
-                                            }
-                                            small
-                                            value={client.email || '-'}
-                                        />
-                                    </div>
-                                </>
-                            )}
+            {activeCats.length ? (
+                activeCats.map((c) => (
+                    <div key={c.key} className="rounded-xl border border-[#e2e8f0] bg-[#f8fafc] px-4 py-3">
+                        <div className="mb-2 text-sm font-bold text-[#1e40af]">{c.label}</div>
+                        <div className="grid gap-1.5">
+                            {contracts
+                                .filter((ct) => ct.category === c.label)
+                                .map((ct) => {
+                                    const prog = progOf(ct);
+                                    return (
+                                        <button
+                                            className="grid grid-cols-[1.2fr_1.4fr_1fr] items-center gap-2 rounded-lg border border-[#e2e8f0] bg-white px-3 py-2 text-left hover:border-[#1e40af] hover:shadow-sm"
+                                            key={ct.id}
+                                            onClick={() => setEditContract(ct)}
+                                            type="button"
+                                        >
+                                            <span className="truncate text-sm font-semibold text-[#0f172a]">
+                                                {ct.subtype}
+                                            </span>
+                                            <span>
+                                                <span className="text-xs font-semibold text-[#475569]">
+                                                    {ct.goal_count != null
+                                                        ? `${(ct.goal_count || 0) - (ct.remain_count || 0)}/${ct.goal_count}건${
+                                                              prog != null ? ` · ${prog}%` : ''
+                                                          }`
+                                                        : '건수 미입력'}
+                                                </span>
+                                                {prog != null ? (
+                                                    <span className="mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-[#e2e8f0]">
+                                                        <span
+                                                            className="block h-full rounded-full"
+                                                            style={{
+                                                                background: progColor(prog),
+                                                                width: `${Math.min(100, Math.max(0, prog))}%`,
+                                                            }}
+                                                        />
+                                                    </span>
+                                                ) : null}
+                                            </span>
+                                            <span className="text-right text-sm font-bold text-[#0f172a]">
+                                                {ct.amount ? `${fmtWon(ct.amount)}원` : '-'}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
                         </div>
-                    );
-                })
+                    </div>
+                ))
             ) : (
                 <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-5 py-10 text-center text-sm text-[#94a3b8]">
-                    연결된 블로그 계정이 없습니다.
+                    등록된 계약이 없습니다. ‘+ 계약 추가’로 등록하세요.
                 </div>
             )}
 
-            {/* 계약 요약 — 한눈에 보기(계약일·계약 건수·계약 금액·특이사항) */}
-            <div className="overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
-                <div className="border-b border-[#e2e8f0] bg-[#f8fafc] px-5 py-3 text-sm font-bold text-[#0f172a]">
-                    계약 요약
-                </div>
-                {tab === 'blog' && blogs.length ? (
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="border-b border-[#f1f5f9] text-left text-[12px] font-semibold text-[#94a3b8]">
-                                <th className="px-5 py-2.5">업체(블로그)</th>
-                                <th className="px-5 py-2.5">계약일</th>
-                                <th className="px-5 py-2.5">계약 건수</th>
-                                <th className="px-5 py-2.5">계약 금액</th>
-                                <th className="px-5 py-2.5">특이사항</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {blogs.map((b) => (
-                                <tr key={b.id} className="border-b border-[#f8fafc] last:border-0">
-                                    <td className="px-5 py-3 font-semibold text-[#0f172a]">{b.name}</td>
-                                    <td className="px-5 py-3 text-[#475569]">{latestContractDate(b) || '-'}</td>
-                                    <td className="px-5 py-3 text-[#475569]">
-                                        {b.goal_count != null ? `${b.goal_count}건` : '-'}
-                                    </td>
-                                    <td className="px-5 py-3 text-[#475569]">
-                                        {amountTotal(b) ? `${fmtWon(amountTotal(b))}원` : '-'}
-                                    </td>
-                                    <td className="px-5 py-3">
-                                        <button
-                                            className="max-w-[260px] truncate rounded-md border border-[#e2e8f0] px-2.5 py-1 text-left text-[#475569] hover:border-[#1e40af] hover:text-[#1e40af]"
-                                            onClick={() => setNoteAcc(b)}
-                                            title={b.note || ''}
-                                            type="button"
-                                        >
-                                            {b.note || '입력...'}
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                ) : (
-                    <div className="px-5 py-8 text-center text-sm text-[#94a3b8]">{shortLabel} 계약 정보가 없습니다.</div>
-                )}
+            {/* 기본 정보 — 누르면 모달에서 변경 */}
+            <h3 className="m-0 mt-2 text-base font-bold text-[#0f172a]">기본 정보</h3>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {(
+                    [
+                        { key: 'manager', label: '담당자', value: client.manager || '', options: managerOptions },
+                        { key: 'source', label: '문의 경로', value: client.source || '', options: SOURCE_OPTIONS },
+                        { key: 'contact', label: '연락처', value: client.contact || '' },
+                        { key: 'email', label: '이메일', value: client.email || '' },
+                    ] as {
+                        key: 'manager' | 'source' | 'contact' | 'email';
+                        label: string;
+                        value: string;
+                        options?: string[];
+                    }[]
+                ).map((f) => (
+                    <button
+                        className="rounded-lg border border-[#e2e8f0] bg-white px-3 py-2.5 text-left shadow-sm hover:border-[#1e40af]"
+                        key={f.key}
+                        onClick={() => setEditField({ label: f.label, options: f.options, patchKey: f.key, value: f.value })}
+                        type="button"
+                    >
+                        <div className="text-[11px] font-semibold text-[#94a3b8]">{f.label}</div>
+                        <div className="mt-0.5 truncate text-sm font-medium text-[#0f172a]">{f.value || '-'}</div>
+                    </button>
+                ))}
             </div>
 
-            {/* 기본정보 클릭 편집 모달 */}
+            {/* 블로그 대시보드 이동(기존 블로그 순위 추적) */}
+            <div>
+                <button
+                    className="rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                    onClick={() => navTo(`/blog-rank?tab=sheet&q=${encodeURIComponent(client.company || '')}`)}
+                    type="button"
+                >
+                    블로그 순위 추적 대시보드 →
+                </button>
+            </div>
+
+            {addOpen ? (
+                <ContractAddModal
+                    clientId={client.id}
+                    onClose={() => setAddOpen(false)}
+                    onReload={onReloadContracts}
+                    onToast={onToast}
+                />
+            ) : null}
+            {editContract ? (
+                <ContractEditModal
+                    contract={editContract}
+                    onClose={() => setEditContract(null)}
+                    onReload={onReloadContracts}
+                    onToast={onToast}
+                />
+            ) : null}
             {editField ? (
                 <ClientFieldModal
                     label={editField.label}
@@ -497,63 +643,6 @@ export function ClientDetail({
                     options={editField.options}
                     value={editField.value}
                 />
-            ) : null}
-
-            {/* 블로그 시트와 동일한 편집 모달 — 카드 클릭 시 열림(저장 동일) */}
-            {contractAcc ? (
-                <ContractModal
-                    account={contractAcc}
-                    onClose={() => setContractAcc(null)}
-                    onReload={onReload}
-                    onToast={onToast}
-                />
-            ) : null}
-            {amountAcc ? (
-                <AmountModal
-                    account={amountAcc}
-                    onClose={() => setAmountAcc(null)}
-                    onReload={onReload}
-                    onToast={onToast}
-                />
-            ) : null}
-            {progressAcc ? (
-                <ProgressModal
-                    account={progressAcc}
-                    onClose={() => setProgressAcc(null)}
-                    onReload={onReload}
-                    onToast={onToast}
-                />
-            ) : null}
-            {reporterAcc ? (
-                <FieldHistoryModal
-                    account={reporterAcc}
-                    history={reporterAcc.reporter_history}
-                    historyCol="reporter_history"
-                    label="기자단"
-                    legacyCol="reporter"
-                    legacyValue={reporterAcc.reporter}
-                    onClose={() => setReporterAcc(null)}
-                    onReload={onReload}
-                    onToast={onToast}
-                    placeholder="예: A팀"
-                />
-            ) : null}
-            {weeklyAcc ? (
-                <FieldHistoryModal
-                    account={weeklyAcc}
-                    history={weeklyAcc.weekly_history}
-                    historyCol="weekly_history"
-                    label="주 발행"
-                    legacyCol="weekly"
-                    legacyValue={weeklyAcc.weekly}
-                    onClose={() => setWeeklyAcc(null)}
-                    onReload={onReload}
-                    onToast={onToast}
-                    placeholder="예: 주 5회"
-                />
-            ) : null}
-            {noteAcc ? (
-                <NoteModal account={noteAcc} onClose={() => setNoteAcc(null)} onReload={onReload} onToast={onToast} />
             ) : null}
         </section>
     );
