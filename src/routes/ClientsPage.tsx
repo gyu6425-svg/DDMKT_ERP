@@ -67,7 +67,9 @@ function loadFavs(): string[] {
     }
 }
 
-function ClientsPage() {
+// contractsOnly=true → '계약 관리'(실제 계약 진행 중인 건만). false → '고객사 관리'(보류 포함 전체).
+//   두 화면은 동일 UI/상세를 공유하고, 목록 필터만 다르다.
+function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}) {
     const { clients, salespeople, loading, error, refresh } = useErpData();
 
     // 카테고리 = 그 고객사에 연결된 카테고리 계정에서 도출(현재 블로그). client_id 로 묶음.
@@ -116,6 +118,17 @@ function ClientsPage() {
         window.setTimeout(() => setToast(''), 2500);
     };
 
+    // 실제 계약 진행 중 = 미종료(계약종료 안 된) 블로그 계정이 연결된 고객(보류=계정 없음 → 제외).
+    const contractingIds = useMemo(
+        () =>
+            new Set(
+                blogAccounts
+                    .filter((a) => a.client_id && !a.contract_ended_at)
+                    .map((a) => a.client_id as string),
+            ),
+        [blogAccounts],
+    );
+
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
         const list = clients.filter((client) => {
@@ -128,8 +141,9 @@ function ClientsPage() {
             const matchesSource = !sourceFilter || client.source === sourceFilter;
             const matchesStatus = !statusFilter || client.status === statusFilter;
             const matchesFav = !favOnly || favs.includes(client.id);
+            const matchesContract = !contractsOnly || contractingIds.has(client.id);
 
-            return matchesQuery && matchesSource && matchesStatus && matchesFav;
+            return matchesQuery && matchesSource && matchesStatus && matchesFav && matchesContract;
         });
 
         return list.sort((a, b) => {
@@ -137,7 +151,7 @@ function ClientsPage() {
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
         });
-    }, [clients, search, sourceFilter, statusFilter, favOnly, favs]);
+    }, [clients, search, sourceFilter, statusFilter, favOnly, favs, contractsOnly, contractingIds]);
 
     const toggleFav = (id: string) => {
         setFavs((current) => {
@@ -334,7 +348,12 @@ function ClientsPage() {
             <div className="flex items-center justify-between gap-3">
                 <div>
                     <p className="m-0 text-sm text-[#64748b]">
-                        문의·고객을 관리합니다. {loading ? '불러오는 중...' : `총 ${clients.length}건`}
+                        {contractsOnly
+                            ? '실제 계약 진행 중인 건을 관리합니다.'
+                            : '문의·고객(계약·보류 포함)을 관리합니다.'}{' '}
+                        {loading
+                            ? '불러오는 중...'
+                            : `총 ${contractsOnly ? clients.filter((c) => contractingIds.has(c.id)).length : clients.length}건`}
                     </p>
                 </div>
                 <Button

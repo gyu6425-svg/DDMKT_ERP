@@ -7,7 +7,6 @@ import BlogPage from './routes/BlogPage';
 import BlogRankPage from './routes/BlogRankPage';
 import CalendarPage from './routes/CalendarPage';
 import ClientsPage from './routes/ClientsPage';
-import ContractsPage from './routes/ContractsPage';
 import DashboardPage from './routes/DashboardPage';
 import BannerGeneratorPage from './routes/BannerGeneratorPage';
 import LoginPage from './routes/LoginPage';
@@ -25,7 +24,7 @@ import TrafficRankPage from './routes/TrafficRankPage';
 const routes = [
     { path: '/dashboard', element: <DashboardPage /> },
     { path: '/clients', element: <ClientsPage /> },
-    { path: '/contracts', element: <ContractsPage /> },
+    { path: '/contracts', element: <ClientsPage contractsOnly /> },
     { path: '/calendar', element: <CalendarPage /> },
     { path: '/reports', element: <ReportsPage /> },
     { path: '/memos', element: <MemosPage /> },
