@@ -128,6 +128,8 @@ export function ClientDetail({
     const [tab, setTab] = useState<CategoryKey>('blog');
     const activeCat = categoryByKey(tab);
     const shortLabel = activeCat.label.replace(' 대시보드', '');
+    // 삭제는 2단계 — 한 번 더 확인 후 실제 삭제.
+    const [confirmDel, setConfirmDel] = useState(false);
     return (
         <section className="grid gap-4">
             <div className="flex items-center gap-3">
@@ -140,13 +142,33 @@ export function ClientDetail({
                 </button>
                 <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">{client.company || '고객사'}</h2>
                 <div className="flex-1" />
-                <button
-                    className="rounded-md border border-[#fca5a5] bg-white px-3 py-1.5 text-sm font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
-                    onClick={onDelete}
-                    type="button"
-                >
-                    삭제
-                </button>
+                {confirmDel ? (
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-[#dc2626]">정말 삭제할까요?</span>
+                        <button
+                            className="rounded-md bg-[#dc2626] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#b91c1c]"
+                            onClick={onDelete}
+                            type="button"
+                        >
+                            삭제
+                        </button>
+                        <button
+                            className="rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                            onClick={() => setConfirmDel(false)}
+                            type="button"
+                        >
+                            취소
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        className="rounded-md border border-[#fca5a5] bg-white px-3 py-1.5 text-sm font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
+                        onClick={() => setConfirmDel(true)}
+                        type="button"
+                    >
+                        삭제
+                    </button>
+                )}
             </div>
 
             {/* 기본 정보 — 각 카드에서 바로 수정 */}

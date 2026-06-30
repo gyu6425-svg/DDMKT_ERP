@@ -304,14 +304,12 @@ function ClientsPage() {
                 blogs={blogAccounts.filter((a) => a.client_id === detailClient.id)}
                 client={detailClient}
                 onClose={closeDetail}
-                onDelete={() => {
-                    if (window.confirm(`${detailClient.company || '이 고객사'}를 삭제할까요?`)) {
-                        void deleteClient(detailClient.id).then(() => {
-                            closeDetail();
-                            void refresh();
-                        });
-                    }
-                }}
+                onDelete={() =>
+                    void deleteClient(detailClient.id).then(() => {
+                        closeDetail();
+                        void refresh();
+                    })
+                }
                 onReload={reloadBlogs}
                 onSave={(patch) => void updateClient(detailClient.id, patch).then(() => void refresh())}
                 onToast={showToast}
