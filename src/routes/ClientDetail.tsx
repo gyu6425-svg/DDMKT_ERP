@@ -56,11 +56,11 @@ function EditCard({
     const [v, setV] = useState(value);
     useEffect(() => setV(value), [value]);
     return (
-        <div className="rounded-xl border border-[#e2e8f0] bg-white px-4 py-3 shadow-sm">
-            <div className="text-[11px] font-semibold text-[#94a3b8]">{label}</div>
+        <div className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
+            <div className="mb-1.5 text-xs font-semibold text-[#94a3b8]">{label}</div>
             {options ? (
                 <select
-                    className="mt-1 w-full rounded border border-[#cbd5e1] bg-white px-2 py-1.5 text-sm"
+                    className="h-11 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-base font-medium text-[#0f172a]"
                     onChange={(e) => {
                         setV(e.target.value);
                         onSave(e.target.value);
@@ -74,7 +74,7 @@ function EditCard({
                 </select>
             ) : (
                 <input
-                    className="mt-1 w-full rounded border border-[#cbd5e1] px-2 py-1.5 text-sm"
+                    className="h-11 w-full rounded-md border border-[#cbd5e1] px-3 text-base font-medium text-[#0f172a]"
                     onBlur={() => v !== value && onSave(v)}
                     onChange={(e) => setV(e.target.value)}
                     placeholder="입력..."
