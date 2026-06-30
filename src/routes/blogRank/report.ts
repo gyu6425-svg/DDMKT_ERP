@@ -32,9 +32,9 @@ const kwOf = (p: BlogPost): string => p.keyword_manual || p.keyword || '';
 // 보고서 링크 = '측정에 쓴 바로 그 네이버 검색'으로 연결해야 고객이 보는 순위 = 보고서 순위.
 //   crawler/functions 의 측정 URL(TI_URL/BL_URL, m.search.naver.com)과 반드시 동일해야 한다.
 //   PC search.naver.com 으로 보내면 모바일 측정값과 순위가 달라져 신뢰가 깨짐 → m.search 고정.
-const tiSearchUrl = (kw: string): string =>
+export const tiSearchUrl = (kw: string): string =>
     `https://m.search.naver.com/search.naver?query=${encodeURIComponent(kw)}`;
-const blSearchUrl = (kw: string): string =>
+export const blSearchUrl = (kw: string): string =>
     `https://m.search.naver.com/search.naver?ssc=tab.m_blog.all&query=${encodeURIComponent(kw)}`;
 
 // 카카오톡 공유(JavaScript SDK) 앱 키. developers.kakao.com '든든한 마케팅 성과보고' 앱 JS 키.

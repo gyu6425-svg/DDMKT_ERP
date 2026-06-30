@@ -1,4 +1,5 @@
 import type { BlogPost } from '../../api/blogRank';
+import { blSearchUrl, tiSearchUrl } from './report';
 
 export function RankCell({ post, keyName }: { post: BlogPost; keyName: 'ti' | 'bl' }) {
     if (!post.measurements.length) {
@@ -20,11 +21,28 @@ export function RankCell({ post, keyName }: { post: BlogPost; keyName: 'ti' | 'b
                 <span className="block text-[10px] text-[#94a3b8]">—</span>
             );
     }
+    // 순위 클릭 → 측정에 쓴 바로 그 네이버 검색(m.search) 화면 열기. 키워드 없으면 링크 없음.
+    const kw = (post.keyword_manual || post.keyword || '').trim();
+    const url = kw ? (keyName === 'ti' ? tiSearchUrl(kw) : blSearchUrl(kw)) : '';
+    const label = cur > 30 ? '권외' : `${cur}위`;
     return (
         <span>
-            <span className="text-sm font-bold" style={{ color }}>
-                {cur > 30 ? '권외' : `${cur}위`}
-            </span>
+            {url ? (
+                <a
+                    className="text-sm font-bold underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                    href={url}
+                    rel="noopener noreferrer"
+                    style={{ color }}
+                    target="_blank"
+                    title={`네이버 ${keyName === 'ti' ? '통합검색' : '블로그탭'}에서 '${kw}' 순위 확인`}
+                >
+                    {label}
+                </a>
+            ) : (
+                <span className="text-sm font-bold" style={{ color }}>
+                    {label}
+                </span>
+            )}
             {delta}
         </span>
     );
