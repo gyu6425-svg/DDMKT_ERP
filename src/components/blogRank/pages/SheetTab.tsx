@@ -178,29 +178,34 @@ export function SheetTab() {
                     잔여 3건 이하만
                 </label>
                 <span className="ml-auto text-xs text-[#64748b]">{filtered.length}개</span>
-                <button
-                    className="inline-flex h-9 items-center rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white"
-                    onClick={() => setImportOpen(true)}
-                    type="button"
-                >
-                    시트 붙여넣기 등록
-                </button>
-                <button
-                    className="inline-flex h-9 items-center rounded-md bg-[#059669] px-3 text-xs font-semibold text-white hover:bg-[#047857]"
-                    onClick={onGoCrawl}
-                    title="크롤링 현황 페이지로 이동 — 전체 측정 시작/진행률 확인"
-                    type="button"
-                >
-                    전체 측정
-                </button>
-                <button
-                    className="inline-flex h-9 items-center rounded-md border border-[#fca5a5] bg-white px-3 text-xs font-semibold text-[#dc2626] disabled:opacity-50"
-                    disabled={bulkBusy || filtered.length === 0}
-                    onClick={() => void bulkDelete()}
-                    type="button"
-                >
-                    {bulkBusy ? '삭제 중…' : '일괄삭제'}
-                </button>
+                {/* 내부 액션(등록/전체측정/일괄삭제) — 고객 ERP에선 숨김(조회 전용) */}
+                {!customerMode && (
+                    <>
+                        <button
+                            className="inline-flex h-9 items-center rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white"
+                            onClick={() => setImportOpen(true)}
+                            type="button"
+                        >
+                            시트 붙여넣기 등록
+                        </button>
+                        <button
+                            className="inline-flex h-9 items-center rounded-md bg-[#059669] px-3 text-xs font-semibold text-white hover:bg-[#047857]"
+                            onClick={onGoCrawl}
+                            title="크롤링 현황 페이지로 이동 — 전체 측정 시작/진행률 확인"
+                            type="button"
+                        >
+                            전체 측정
+                        </button>
+                        <button
+                            className="inline-flex h-9 items-center rounded-md border border-[#fca5a5] bg-white px-3 text-xs font-semibold text-[#dc2626] disabled:opacity-50"
+                            disabled={bulkBusy || filtered.length === 0}
+                            onClick={() => void bulkDelete()}
+                            type="button"
+                        >
+                            {bulkBusy ? '삭제 중…' : '일괄삭제'}
+                        </button>
+                    </>
+                )}
             </div>
 
             {/* 계약 중 / 계약 종료 탭 — 업체명 검색 밑. 고객 ERP에선 숨김(계약 중만 노출). */}
@@ -292,9 +297,9 @@ export function SheetTab() {
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">업체</th>
                             <th className="px-3 py-2 font-semibold">계약일</th>
-                            <th className="px-3 py-2 font-semibold">계약금액</th>
+                            {!customerMode && <th className="px-3 py-2 font-semibold">계약금액</th>}
                             <th className="px-3 py-2 font-semibold">담당</th>
-                            <th className="px-3 py-2 font-semibold">기자단</th>
+                            {!customerMode && <th className="px-3 py-2 font-semibold">기자단</th>}
                             <th
                                 className="cursor-pointer px-3 py-2 font-semibold"
                                 onClick={() => toggleSort('prog')}
@@ -310,10 +315,14 @@ export function SheetTab() {
                             <th className="px-3 py-2 text-center font-semibold">주 발행</th>
                             <th className="px-3 py-2 text-center font-semibold">추적 글</th>
                             <th className="px-3 py-2 text-center font-semibold">통합 10위↓</th>
-                            <th className="px-3 py-2 text-center font-semibold">상태</th>
-                            <th className="px-3 py-2 font-semibold">특이사항</th>
-                            <th className="px-3 py-2 text-center font-semibold">구글 시트</th>
-                            <th className="px-3 py-2 text-center font-semibold">관리</th>
+                            {!customerMode && (
+                                <>
+                                    <th className="px-3 py-2 text-center font-semibold">상태</th>
+                                    <th className="px-3 py-2 font-semibold">특이사항</th>
+                                    <th className="px-3 py-2 text-center font-semibold">구글 시트</th>
+                                    <th className="px-3 py-2 text-center font-semibold">관리</th>
+                                </>
+                            )}
                         </tr>
                     </thead>
                     <tbody>
@@ -369,16 +378,18 @@ export function SheetTab() {
                                                 ) : null}
                                             </button>
                                         </td>
-                                        <td className="px-2 py-2">
-                                            <button
-                                                className={`min-w-[84px] rounded px-1.5 py-1 text-left text-xs hover:bg-[#f1f5f9] ${amountTotal(a) ? 'font-semibold text-[#475569]' : 'text-[#cbd5e1]'}`}
-                                                onClick={() => setAmountAcc(a)}
-                                                title="클릭해서 계약금액 추가·관리"
-                                                type="button"
-                                            >
-                                                {amountTotal(a) ? `${fmtWon(amountTotal(a))}원` : '+ 금액'}
-                                            </button>
-                                        </td>
+                                        {!customerMode && (
+                                            <td className="px-2 py-2">
+                                                <button
+                                                    className={`min-w-[84px] rounded px-1.5 py-1 text-left text-xs hover:bg-[#f1f5f9] ${amountTotal(a) ? 'font-semibold text-[#475569]' : 'text-[#cbd5e1]'}`}
+                                                    onClick={() => setAmountAcc(a)}
+                                                    title="클릭해서 계약금액 추가·관리"
+                                                    type="button"
+                                                >
+                                                    {amountTotal(a) ? `${fmtWon(amountTotal(a))}원` : '+ 금액'}
+                                                </button>
+                                            </td>
+                                        )}
                                         <td className="px-3 py-2">
                                             {a.manager ? (
                                                 <span className="rounded bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#475569]">
@@ -388,22 +399,24 @@ export function SheetTab() {
                                                 <span className="text-xs text-[#94a3b8]">미지정</span>
                                             )}
                                         </td>
-                                        <td className="px-2 py-2">
-                                            <button
-                                                className="rounded px-1.5 py-1 text-xs hover:bg-[#f1f5f9]"
-                                                onClick={() => setReporterAcc(a)}
-                                                title="클릭해서 기자단 변경·이력 관리"
-                                                type="button"
-                                            >
-                                                {currentField(a.reporter_history, a.reporter) ? (
-                                                    <span className="rounded bg-[#ede9fe] px-2 py-0.5 text-[11px] font-semibold text-[#6d28d9]">
-                                                        {currentField(a.reporter_history, a.reporter)}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-[#cbd5e1]">+ 기자단</span>
-                                                )}
-                                            </button>
-                                        </td>
+                                        {!customerMode && (
+                                            <td className="px-2 py-2">
+                                                <button
+                                                    className="rounded px-1.5 py-1 text-xs hover:bg-[#f1f5f9]"
+                                                    onClick={() => setReporterAcc(a)}
+                                                    title="클릭해서 기자단 변경·이력 관리"
+                                                    type="button"
+                                                >
+                                                    {currentField(a.reporter_history, a.reporter) ? (
+                                                        <span className="rounded bg-[#ede9fe] px-2 py-0.5 text-[11px] font-semibold text-[#6d28d9]">
+                                                            {currentField(a.reporter_history, a.reporter)}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[#cbd5e1]">+ 기자단</span>
+                                                    )}
+                                                </button>
+                                            </td>
+                                        )}
                                         <td className="px-3 py-2">
                                             <button
                                                 className="w-full rounded px-1 py-1 text-left hover:bg-[#f1f5f9]"
@@ -472,6 +485,8 @@ export function SheetTab() {
                                                 <span className="text-xs text-[#94a3b8]">—</span>
                                             )}
                                         </td>
+                                        {!customerMode && (
+                                            <>
                                         <td className="px-3 py-2 text-center">
                                             {/* 상태 = 계약 건수(잔여) 기준: 미입력 → 임박(잔여 거의 소진) → 진행 중 */}
                                             {!a.is_active ? (
@@ -554,12 +569,14 @@ export function SheetTab() {
                                                 </button>
                                             </div>
                                         </td>
+                                            </>
+                                        )}
                                     </tr>
                                 );
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={14}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={customerMode ? 8 : 14}>
                                     등록된 블로그가 없습니다 · '시트 붙여넣기 등록'으로 추가하세요
                                 </td>
                             </tr>
