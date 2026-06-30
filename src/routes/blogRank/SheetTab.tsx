@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { deleteBlogAccount, todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
+import { deleteBlogAccount, todayKST, type BlogAccount } from '../../api/blogRank';
 import { crawlBlog } from '../../api/crawlBlog';
 import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDate, lastM, progOf, PER_SHEET, renewLevel } from './helpers';
 import { Pager, Tag } from './ui';
+import { useBlogRank } from './BlogRankContext';
 import { AccountEditModal } from './AccountEditModal';
 import { AmountModal } from './AmountModal';
 import { GuideAddForm } from './GuideAddForm';
@@ -14,23 +15,16 @@ import { ProgressModal } from './ProgressModal';
 import { openBlogReport } from './report';
 import { ReportSelectModal } from './ReportSelectModal';
 
-export function SheetTab({
-    accounts,
-    posts,
-    onReload,
-    onToast,
-    onGoCrawl,
-    onGoTrackerBlog,
-    initialQ = '',
-}: {
-    accounts: BlogAccount[];
-    posts: BlogPost[];
-    onReload: () => Promise<void>;
-    onToast: (message: string) => void;
-    onGoCrawl: () => void;
-    onGoTrackerBlog: (blogAccountId: string) => void;
-    initialQ?: string; // 대시보드 '재계약 임박' 블로그 클릭으로 들어오면 그 업체명으로 검색 시작
-}) {
+export function SheetTab() {
+    const {
+        accounts,
+        posts,
+        reload: onReload,
+        showToast: onToast,
+        goCrawl: onGoCrawl,
+        goTrackerBlog: onGoTrackerBlog,
+        sheetQ: initialQ,
+    } = useBlogRank();
     const [q, setQ] = useState(initialQ);
     // 대시보드 '재계약 임박' 블로그 클릭으로 진입하면 그 업체명으로 검색 채움(마운트 타이밍 무관).
     useEffect(() => {

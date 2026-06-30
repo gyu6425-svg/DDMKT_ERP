@@ -1,23 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
+import { todayKST } from '../../api/blogRank';
 import { dayN, lastM, PER_FEED } from './helpers';
 import { Pager } from './ui';
+import { useBlogRank } from './BlogRankContext';
 import { PostSearchCell } from './PostSearchCell';
 import { RankCell } from './RankCell';
 
-export function TrackerTab({
-    accounts,
-    posts,
-    onReload,
-    initialInOnly = false,
-    initialCo = '',
-}: {
-    accounts: BlogAccount[];
-    posts: BlogPost[];
-    onReload: () => Promise<void>;
-    initialInOnly?: boolean; // 대시보드 '통합탭 10위 이내' 카드에서 들어오면 true 로 시작
-    initialCo?: string; // 시트에서 특정 업체명 클릭으로 들어오면 그 업체만 보이게(blog_account_id)
-}) {
+export function TrackerTab() {
+    const {
+        accounts,
+        posts,
+        reload: onReload,
+        trackerInOnly: initialInOnly,
+        trackerCo: initialCo,
+    } = useBlogRank();
     const [co, setCo] = useState(initialCo);
     const [nameQ, setNameQ] = useState('');
     const [month, setMonth] = useState('');

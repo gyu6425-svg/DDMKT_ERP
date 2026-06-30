@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { crawlBlog } from '../../api/crawlBlog';
-import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
+import { todayKST, type BlogAccount } from '../../api/blogRank';
 import { supabase } from '../../lib/supabase';
+import { useBlogRank } from './BlogRankContext';
 import { SameDayModal, type SameDayRow } from './SameDayModal';
 import { CrawlListModal, type CrawlRow } from './CrawlListModal';
 
@@ -21,17 +22,8 @@ const COLOR: Record<Status, string> = { done: '#059669', partial: '#d97706', fai
 
 // 크롤링 현황 — 오늘 측정 상황을 실시간(자동 새로고침)으로 보여주고, 블로그별 성공/실패를 리스트로.
 //   PC 자동 크롤러(매일 05시)가 DB에 쌓는 측정을 폴링해 그대로 보여준다. '전체 측정 시작'은 웹에서 즉시 크롤.
-export function CrawlStatusTab({
-    accounts,
-    posts,
-    onReload,
-    onToast,
-}: {
-    accounts: BlogAccount[];
-    posts: BlogPost[];
-    onReload: () => Promise<void>;
-    onToast: (m: string) => void;
-}) {
+export function CrawlStatusTab() {
+    const { accounts, posts, reload: onReload, showToast: onToast } = useBlogRank();
     const today = todayKST();
     const isDone = (a: BlogAccount) =>
         a.goal_count != null && a.remain_count != null && a.goal_count > 0 && a.remain_count === 0;

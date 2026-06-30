@@ -1,27 +1,22 @@
 import { useState } from 'react';
-import { todayKST, type BlogAccount, type BlogPost } from '../../api/blogRank';
-import { lastM, prevM, renewLevel, type Tab } from './helpers';
+import { todayKST } from '../../api/blogRank';
+import { lastM, prevM, renewLevel } from './helpers';
 import { Empty, Kpi, Panel, Tag } from './ui';
+import { useBlogRank } from './BlogRankContext';
 import { LowRemainModal } from './LowRemainModal';
 import { RankMovesModal } from './RankMovesModal';
 import { SameDayModal, type SameDayRow } from './SameDayModal';
 import { CrawlListModal, type CrawlRow } from './CrawlListModal';
 
-export function DashboardTab({
-    accounts,
-    posts,
-    onGo,
-    onGoTracker10,
-    onGoSheetBlog,
-    onToast,
-}: {
-    accounts: BlogAccount[];
-    posts: BlogPost[];
-    onGo: (tab: Tab) => void;
-    onGoTracker10: () => void;
-    onGoSheetBlog: (name: string) => void;
-    onToast: (m: string) => void;
-}) {
+export function DashboardTab() {
+    const {
+        accounts,
+        posts,
+        goTab: onGo,
+        goTracker10: onGoTracker10,
+        goSheetBlog: onGoSheetBlog,
+        showToast: onToast,
+    } = useBlogRank();
     const [showLow, setShowLow] = useState(false);
     const [showMoves, setShowMoves] = useState(false);
     const [showSameDay, setShowSameDay] = useState(false);
