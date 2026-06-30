@@ -100,6 +100,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [statusFilter, setStatusFilter] = useState('');
     const [favOnly, setFavOnly] = useState(false);
     const [favs, setFavs] = useState<string[]>(loadFavs);
+    // 고객사 관리 하단 탭 — 계약 완료(블로그 등 계정 연결) vs 미완료(보류·문의만). contractsOnly 화면에선 미사용.
+    const [clientTab, setClientTab] = useState<'done' | 'pending'>('done');
     const [toast, setToast] = useState('');
 
     const [modalOpen, setModalOpen] = useState(false);
@@ -128,6 +130,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             ),
         [blogAccounts],
     );
+    // 계약 완료 = 카테고리 계정이 연결된 고객(블로그 대시보드 이관분 전부 포함). 미완료 = 계정 없음.
+    const accountClientIds = useMemo(
+        () => new Set(blogAccounts.filter((a) => a.client_id).map((a) => a.client_id as string)),
+        [blogAccounts],
+    );
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -142,8 +149,14 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const matchesStatus = !statusFilter || client.status === statusFilter;
             const matchesFav = !favOnly || favs.includes(client.id);
             const matchesContract = !contractsOnly || contractingIds.has(client.id);
+            // 고객사 관리 전체 화면에서만 완료/미완료 탭 적용.
+            const matchesTab =
+                contractsOnly ||
+                (clientTab === 'done'
+                    ? accountClientIds.has(client.id)
+                    : !accountClientIds.has(client.id));
 
-            return matchesQuery && matchesSource && matchesStatus && matchesFav && matchesContract;
+            return matchesQuery && matchesSource && matchesStatus && matchesFav && matchesContract && matchesTab;
         });
 
         return list.sort((a, b) => {
@@ -151,7 +164,18 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
         });
-    }, [clients, search, sourceFilter, statusFilter, favOnly, favs, contractsOnly, contractingIds]);
+    }, [
+        clients,
+        search,
+        sourceFilter,
+        statusFilter,
+        favOnly,
+        favs,
+        contractsOnly,
+        contractingIds,
+        clientTab,
+        accountClientIds,
+    ]);
 
     const toggleFav = (id: string) => {
         setFavs((current) => {
@@ -423,6 +447,36 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                     새로고침
                 </Button>
             </div>
+
+            {!contractsOnly ? (
+                <div className="flex gap-1 border-b border-[#e2e8f0]">
+                    {(
+                        [
+                            { key: 'done', label: '계약 완료' },
+                            { key: 'pending', label: '계약 미완료' },
+                        ] as { key: 'done' | 'pending'; label: string }[]
+                    ).map((t) => {
+                        const count =
+                            t.key === 'done'
+                                ? clients.filter((c) => accountClientIds.has(c.id)).length
+                                : clients.filter((c) => !accountClientIds.has(c.id)).length;
+                        return (
+                            <button
+                                className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
+                                    clientTab === t.key
+                                        ? 'border-[#1e40af] text-[#1e40af]'
+                                        : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
+                                }`}
+                                key={t.key}
+                                onClick={() => setClientTab(t.key)}
+                                type="button"
+                            >
+                                {t.label} ({count})
+                            </button>
+                        );
+                    })}
+                </div>
+            ) : null}
 
             <div className="overflow-x-auto rounded-[8px] border border-[#e2e8f0] bg-white">
                 <table className="w-full border-collapse text-left text-sm">
