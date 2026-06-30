@@ -111,12 +111,13 @@ export function extractBlogId(url: string): string {
 }
 
 // ── 관리 블로그 ─────────────────────────────────────────
-export async function getBlogAccounts() {
-    const { data, error } = await supabase
-        .from('blog_accounts')
-        .select('*')
-        .order('created_at', { ascending: true })
-        .returns<BlogAccount[]>();
+// clientId 를 주면 그 고객사(업체)만 로드 — 고객 모드용(데이터 격리 + 대역폭 절감). 없으면 전체.
+export async function getBlogAccounts(clientId?: string) {
+    let query = supabase.from('blog_accounts').select('*').order('created_at', { ascending: true });
+    if (clientId) {
+        query = query.eq('client_id', clientId);
+    }
+    const { data, error } = await query.returns<BlogAccount[]>();
 
     return { data: data ?? [], error };
 }
@@ -148,12 +149,16 @@ export async function deleteBlogAccount(id: string) {
 }
 
 // ── 추적 글 ─────────────────────────────────────────────
-export async function getBlogPosts() {
-    const { data, error } = await supabase
-        .from('blog_posts')
-        .select('*')
-        .order('published_date', { ascending: false })
-        .returns<BlogPost[]>();
+// accountIds 를 주면 그 블로그 계정들의 글만 로드 — 고객 모드용. 빈 배열이면 결과 없음. 없으면 전체.
+export async function getBlogPosts(accountIds?: string[]) {
+    if (accountIds && accountIds.length === 0) {
+        return { data: [] as BlogPost[], error: null };
+    }
+    let query = supabase.from('blog_posts').select('*').order('published_date', { ascending: false });
+    if (accountIds) {
+        query = query.in('blog_account_id', accountIds);
+    }
+    const { data, error } = await query.returns<BlogPost[]>();
 
     return { data: data ?? [], error };
 }

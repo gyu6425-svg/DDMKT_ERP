@@ -17,6 +17,7 @@ export type Profile = {
     email: string;
     role: UserRole;
     is_active: boolean;
+    client_id: string | null; // 고객 계정 → 본인 업체(clients.id). 내부 직원은 null.
     department: string | null;
     position: string | null;
     phone: string | null;

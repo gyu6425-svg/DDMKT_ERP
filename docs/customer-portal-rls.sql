@@ -110,3 +110,26 @@ create policy "blog_keywords read 고객" on public.blog_keywords
 
 -- 미래 카테고리(영상/인스타/카페/트래픽) 계정 테이블도 동일 패턴으로 추가:
 --   write = is_internal(), read = client_id in (my_customer_client_ids()).
+
+
+-- =====================================================================
+-- Section A2 (권장·단순형): 고객 1계정 = 1업체 — profiles.client_id 직접 매핑
+--   프론트(BlogRankContext)가 이 컬럼으로 '본인 업체'만 로드한다(추가 쿼리 없음).
+--   고객이 여러 업체를 봐야 하면 위의 customer_companies(다대다)를 쓰고,
+--   대부분(1업체)은 아래 한 줄이면 충분하다.
+-- =====================================================================
+
+-- 1) 컬럼 추가(필수) — 이걸 실행해야 고객 계정이 본인 업체 데이터를 본다.
+alter table public.profiles add column if not exists client_id uuid references public.clients(id) on delete set null;
+
+-- 2) 각 고객 프로필에 담당 업체 연결(예시) — 관리자가 1회 지정.
+--    update public.profiles set client_id = '<clients.id>' where email = '<고객 이메일>';
+
+-- 3) (선택) 서버 강제: 블로그 계정/글 read 를 본인 업체로 제한하는 RLS.
+--    내부 직원(client_id is null 인 profiles)은 영향 없음.
+--    ※ 적용 전 내부 계정으로 데이터 보이는지 반드시 확인.
+-- create policy "customer reads own accounts" on public.blog_accounts
+--   for select to authenticated using (
+--     client_id in (select p.client_id from public.profiles p where p.user_id = auth.uid())
+--     or exists (select 1 from public.profiles p where p.user_id = auth.uid() and p.client_id is null)
+--   );

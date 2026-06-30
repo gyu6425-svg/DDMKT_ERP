@@ -41,7 +41,9 @@ export function useBlogRank(): BlogRankCtx {
 }
 
 export function BlogRankProvider({ children, customerMode = false }: { children: ReactNode; customerMode?: boolean }) {
-    const { isAdmin, loading: authLoading } = useAuth();
+    const { isAdmin, loading: authLoading, profile } = useAuth();
+    // 고객 모드면 본인 업체(client_id)로 데이터 스코프 → 격리 + 대역폭 절감. 내부/관리자는 전체.
+    const scopedClientId = customerMode ? profile?.client_id ?? null : null;
     const [accounts, setAccounts] = useState<BlogAccount[]>([]);
     const [posts, setPosts] = useState<BlogPost[]>([]);
     const [loading, setLoading] = useState(true);
@@ -83,12 +85,29 @@ export function BlogRankProvider({ children, customerMode = false }: { children:
     const reload = async () => {
         setLoading(true);
         setError('');
+        const failMsg = '데이터를 불러오지 못했습니다. blog-rank-tables.sql 실행을 확인하세요.';
+        // 고객 모드: 본인 업체 계정 → 그 계정들의 글만. 관리자: 전체(기존과 동일, 병렬).
+        if (scopedClientId) {
+            const accRes = await getBlogAccounts(scopedClientId);
+            if (accRes.error) {
+                setError(accRes.error.message || failMsg);
+                setLoading(false);
+                return;
+            }
+            const postRes = await getBlogPosts(accRes.data.map((a) => a.id));
+            if (postRes.error) {
+                setError(postRes.error.message || failMsg);
+                setLoading(false);
+                return;
+            }
+            setAccounts(accRes.data);
+            setPosts(postRes.data);
+            setLoading(false);
+            return;
+        }
         const [accRes, postRes] = await Promise.all([getBlogAccounts(), getBlogPosts()]);
         if (accRes.error || postRes.error) {
-            setError(
-                (accRes.error || postRes.error)?.message ||
-                    '데이터를 불러오지 못했습니다. blog-rank-tables.sql 실행을 확인하세요.',
-            );
+            setError((accRes.error || postRes.error)?.message || failMsg);
             setLoading(false);
             return;
         }
@@ -97,7 +116,8 @@ export function BlogRankProvider({ children, customerMode = false }: { children:
         setLoading(false);
     };
 
-    const isAllowed = !authLoading && isAdmin;
+    // 관리자/내부는 전체, 고객은 본인 업체(client_id)가 연결됐을 때만 로드 허용.
+    const isAllowed = !authLoading && (isAdmin || (customerMode && !!scopedClientId));
     useEffect(() => {
         if (isAllowed) {
             void reload();
