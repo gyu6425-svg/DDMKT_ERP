@@ -149,7 +149,8 @@ export function SheetTab() {
 
     return (
         <div className="grid gap-3">
-            <GuideAddForm onReload={onReload} onToast={onToast} />
+            {/* 업체 추가 폼 — 고객 ERP에선 숨김(조회 전용) */}
+            {!customerMode && <GuideAddForm onReload={onReload} onToast={onToast} />}
             <div className="flex flex-wrap items-center gap-2">
                 <input
                     className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
