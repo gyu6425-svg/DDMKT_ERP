@@ -156,27 +156,6 @@ function ClientsPage() {
         setModalOpen(true);
     };
 
-    const openEdit = (client: ErpClient) => {
-        setEditId(client.id);
-        setPasteText('');
-        setForm({
-            amount: client.amount ? String(client.amount) : '',
-            budget: client.budget || '',
-            company: client.company || '',
-            contact: client.contact || '',
-            contract_end: client.contract_end || '',
-            contract_start: client.contract_start || '',
-            email: client.email || '',
-            manager: client.manager || '',
-            next_contact: client.next_contact || '',
-            notes: client.notes || '',
-            phone: client.phone || '',
-            product: client.product || '',
-            source: client.source || '',
-            status: client.status || STATUS_OPTIONS[0],
-        });
-        setModalOpen(true);
-    };
 
     const saveClient = async () => {
         if (!form.manager.trim()) {
@@ -324,6 +303,16 @@ function ClientsPage() {
                 blogs={blogAccounts.filter((a) => a.client_id === detailClient.id)}
                 client={detailClient}
                 onClose={closeDetail}
+                onDelete={() => {
+                    if (window.confirm(`${detailClient.company || '이 고객사'}를 삭제할까요?`)) {
+                        void deleteClient(detailClient.id).then(() => {
+                            closeDetail();
+                            void refresh();
+                        });
+                    }
+                }}
+                onSave={(patch) => void updateClient(detailClient.id, patch).then(() => void refresh())}
+                salespeople={salespeople}
             />
         );
     }
@@ -438,7 +427,14 @@ function ClientsPage() {
                                     c.next_contact &&
                                     c.next_contact <= new Date().toISOString().slice(0, 10);
                                 return (
-                                    <tr key={c.id} className="border-b border-[#e2e8f0]">
+                                    <tr
+                                        key={c.id}
+                                        className="cursor-pointer border-b border-[#e2e8f0] hover:bg-[#f8fafc]"
+                                        onClick={(e) => {
+                                            if ((e.target as HTMLElement).closest('button, a, input, select')) return;
+                                            openDetail(c.id);
+                                        }}
+                                    >
                                         <td className="px-3 py-2">
                                             <button
                                                 className="text-sm"
@@ -450,24 +446,17 @@ function ClientsPage() {
                                         </td>
                                         <td className="px-3 py-2 font-semibold">{c.manager}</td>
                                         <td className="px-3 py-2">
-                                            <button
-                                                className="rounded px-1 py-0.5 hover:bg-[#f1f5f9]"
-                                                onClick={() => openEdit(c)}
-                                                title="클릭해서 문의 경로 수정"
-                                                type="button"
-                                            >
-                                                {c.source ? (
-                                                    <span
-                                                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                                            SOURCE_BADGE[c.source] || 'bg-[#e2e8f0] text-[#64748b]'
-                                                        }`}
-                                                    >
-                                                        {c.source}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-xs text-[#94a3b8]">-</span>
-                                                )}
-                                            </button>
+                                            {c.source ? (
+                                                <span
+                                                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                                        SOURCE_BADGE[c.source] || 'bg-[#e2e8f0] text-[#64748b]'
+                                                    }`}
+                                                >
+                                                    {c.source}
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs text-[#94a3b8]">-</span>
+                                            )}
                                         </td>
                                         <td className="px-3 py-2">
                                             <button
@@ -514,13 +503,6 @@ function ClientsPage() {
                                         <td className="px-3 py-2 text-xs text-[#64748b]">{dt}</td>
                                         <td className="px-3 py-2">
                                             <div className="flex gap-1 whitespace-nowrap">
-                                                <Button
-                                                    className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] text-[#64748b]"
-                                                    onClick={() => openEdit(c)}
-                                                    type="button"
-                                                >
-                                                    수정
-                                                </Button>
                                                 <Button
                                                     className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] text-[#64748b]"
                                                     onClick={() => {

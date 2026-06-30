@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import type { BlogAccount } from '../api/blogRank';
 import type { ErpClient } from '../api/erp';
 import { amountTotal, currentField, fmtWon, latestContractDate, progOf } from '../components/blogRank/lib/helpers';
+import { SOURCE_OPTIONS } from '../lib/erpUtils';
 
 // 고객사 상세 — 업체 기본정보 + 계약한 카테고리(현재 블로그)의 세부(블로그 관리 시트 내용)를 읽기로 표시.
 //   세부 편집은 카테고리 대시보드에서(같은 레코드라 자동 반영). 미입력이면 '신규 계약' 안내 + 이동 버튼.
@@ -11,21 +13,25 @@ function navTo(path: string) {
     }
 }
 
-function Info({ label, value }: { label: string; value: string }) {
-    return (
-        <div>
-            <div className="text-[11px] font-semibold text-[#94a3b8]">{label}</div>
-            <div className="text-sm text-[#0f172a]">{value || '-'}</div>
-        </div>
-    );
-}
-
 // 계약일·진행률·잔여·계약금액 등을 하나하나 카드로.
-function MetricCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
+function MetricCard({
+    label,
+    value,
+    accent,
+    small,
+}: {
+    label: string;
+    value: string;
+    accent?: string;
+    small?: boolean;
+}) {
     return (
         <div className="min-w-[130px] flex-1 rounded-xl border border-[#e2e8f0] bg-white px-4 py-3 shadow-sm">
             <div className="text-[11px] font-semibold text-[#94a3b8]">{label}</div>
-            <div className="mt-1 text-lg font-bold" style={{ color: accent || '#0f172a' }}>
+            <div
+                className={`mt-1 font-bold ${small ? 'text-sm' : 'text-lg'}`}
+                style={{ color: accent || '#0f172a' }}
+            >
                 {value}
             </div>
         </div>
@@ -35,14 +41,64 @@ function MetricCard({ label, value, accent }: { label: string; value: string; ac
 const progColor = (p: number | null) =>
     p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
 
+// 입력/선택으로 바로 수정되는 카드 — 기본정보(담당자·경로·연락처·이메일). 변경 시(블러/선택) onSave 호출.
+function EditCard({
+    label,
+    value,
+    options,
+    onSave,
+}: {
+    label: string;
+    value: string;
+    options?: string[];
+    onSave: (v: string) => void;
+}) {
+    const [v, setV] = useState(value);
+    useEffect(() => setV(value), [value]);
+    return (
+        <div className="rounded-xl border border-[#e2e8f0] bg-white px-4 py-3 shadow-sm">
+            <div className="text-[11px] font-semibold text-[#94a3b8]">{label}</div>
+            {options ? (
+                <select
+                    className="mt-1 w-full rounded border border-[#cbd5e1] bg-white px-2 py-1.5 text-sm"
+                    onChange={(e) => {
+                        setV(e.target.value);
+                        onSave(e.target.value);
+                    }}
+                    value={v}
+                >
+                    <option value="">선택 안 함</option>
+                    {options.map((o) => (
+                        <option key={o}>{o}</option>
+                    ))}
+                </select>
+            ) : (
+                <input
+                    className="mt-1 w-full rounded border border-[#cbd5e1] px-2 py-1.5 text-sm"
+                    onBlur={() => v !== value && onSave(v)}
+                    onChange={(e) => setV(e.target.value)}
+                    placeholder="입력..."
+                    value={v}
+                />
+            )}
+        </div>
+    );
+}
+
 export function ClientDetail({
     client,
     blogs,
+    salespeople,
     onClose,
+    onSave,
+    onDelete,
 }: {
     client: ErpClient;
     blogs: BlogAccount[];
+    salespeople: { id: string; name: string }[];
     onClose: () => void;
+    onSave: (patch: Partial<ErpClient>) => void;
+    onDelete: () => void;
 }) {
     return (
         <section className="grid gap-4">
@@ -55,14 +111,32 @@ export function ClientDetail({
                     ← 목록으로
                 </button>
                 <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">{client.company || '고객사'}</h2>
+                <div className="flex-1" />
+                <button
+                    className="rounded-md border border-[#fca5a5] bg-white px-3 py-1.5 text-sm font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
+                    onClick={onDelete}
+                    type="button"
+                >
+                    삭제
+                </button>
             </div>
 
-            {/* 기본 정보 */}
-            <div className="grid grid-cols-2 gap-4 rounded-xl border border-[#e2e8f0] bg-[#f8fafc] px-5 py-4 sm:grid-cols-4">
-                <Info label="담당자" value={client.manager || ''} />
-                <Info label="문의 경로" value={client.source || ''} />
-                <Info label="연락처" value={client.contact || ''} />
-                <Info label="이메일" value={client.email || ''} />
+            {/* 기본 정보 — 각 카드에서 바로 수정 */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <EditCard
+                    label="담당자"
+                    onSave={(v) => onSave({ manager: v || null })}
+                    options={[...new Set(([client.manager, ...salespeople.map((s) => s.name)].filter(Boolean) as string[]))]}
+                    value={client.manager || ''}
+                />
+                <EditCard
+                    label="문의 경로"
+                    onSave={(v) => onSave({ source: v || null })}
+                    options={SOURCE_OPTIONS}
+                    value={client.source || ''}
+                />
+                <EditCard label="연락처" onSave={(v) => onSave({ contact: v || null })} value={client.contact || ''} />
+                <EditCard label="이메일" onSave={(v) => onSave({ email: v || null })} value={client.email || ''} />
             </div>
 
             {/* 블로그 카테고리 세부 */}
@@ -133,11 +207,19 @@ export function ClientDetail({
                                             value={amountTotal(b) ? `${fmtWon(amountTotal(b))}원` : '-'}
                                         />
                                     </div>
-                                    {/* 기자단·주발행·특이사항 */}
-                                    <div className="mt-3 grid grid-cols-3 gap-4 border-t border-[#e2e8f0] pt-3">
-                                        <Info label="기자단" value={currentField(b.reporter_history, b.reporter) || ''} />
-                                        <Info label="주 발행" value={currentField(b.weekly_history, b.weekly) || ''} />
-                                        <Info label="특이사항" value={b.note || ''} />
+                                    {/* 기자단·주발행·특이사항 — 카드 */}
+                                    <div className="mt-3 flex flex-wrap gap-3">
+                                        <MetricCard
+                                            label="기자단"
+                                            small
+                                            value={currentField(b.reporter_history, b.reporter) || '-'}
+                                        />
+                                        <MetricCard
+                                            label="주 발행"
+                                            small
+                                            value={currentField(b.weekly_history, b.weekly) || '-'}
+                                        />
+                                        <MetricCard label="특이사항" small value={b.note || '-'} />
                                     </div>
                                 </>
                             )}
