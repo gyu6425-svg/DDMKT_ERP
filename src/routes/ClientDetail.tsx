@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { BlogAccount } from '../api/blogRank';
 import type { ErpClient } from '../api/erp';
 import { amountTotal, currentField, fmtWon, latestContractDate, progOf } from '../components/blogRank/lib/helpers';
@@ -54,46 +54,70 @@ function MetricCard({
 const progColor = (p: number | null) =>
     p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
 
-// 입력/선택으로 바로 수정되는 카드 — 기본정보(담당자·경로·연락처·이메일). 변경 시(블러/선택) onSave 호출.
-function EditCard({
+// 기본정보(담당자·문의경로·연락처·이메일) 클릭 시 뜨는 편집 모달 — 계약일/진행률 카드처럼 눌러서 변경.
+function ClientFieldModal({
     label,
     value,
     options,
     onSave,
+    onClose,
 }: {
     label: string;
     value: string;
     options?: string[];
     onSave: (v: string) => void;
+    onClose: () => void;
 }) {
     const [v, setV] = useState(value);
-    useEffect(() => setV(value), [value]);
     return (
-        <div className="rounded-lg border border-[#e2e8f0] bg-white px-3 py-2.5 shadow-sm">
-            <div className="mb-1 text-[11px] font-semibold text-[#94a3b8]">{label}</div>
-            {options ? (
-                <select
-                    className="h-8 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm font-medium text-[#0f172a]"
-                    onChange={(e) => {
-                        setV(e.target.value);
-                        onSave(e.target.value);
-                    }}
-                    value={v}
-                >
-                    <option value="">선택 안 함</option>
-                    {options.map((o) => (
-                        <option key={o}>{o}</option>
-                    ))}
-                </select>
-            ) : (
-                <input
-                    className="h-8 w-full rounded-md border border-[#cbd5e1] px-2 text-sm font-medium text-[#0f172a]"
-                    onBlur={() => v !== value && onSave(v)}
-                    onChange={(e) => setV(e.target.value)}
-                    placeholder="입력..."
-                    value={v}
-                />
-            )}
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+        >
+            <div className="w-[min(380px,94vw)] rounded-2xl bg-white p-6">
+                <h3 className="m-0 text-lg font-bold">{label} 수정</h3>
+                <div className="mt-4">
+                    {options ? (
+                        <select
+                            className="h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm font-medium text-[#0f172a]"
+                            onChange={(e) => setV(e.target.value)}
+                            value={v}
+                        >
+                            <option value="">선택 안 함</option>
+                            {options.map((o) => (
+                                <option key={o}>{o}</option>
+                            ))}
+                        </select>
+                    ) : (
+                        <input
+                            autoFocus
+                            className="h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm font-medium text-[#0f172a]"
+                            onChange={(e) => setV(e.target.value)}
+                            placeholder="입력..."
+                            value={v}
+                        />
+                    )}
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                    <button
+                        className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                        onClick={onClose}
+                        type="button"
+                    >
+                        취소
+                    </button>
+                    <button
+                        className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white"
+                        onClick={() => {
+                            onSave(v.trim());
+                            onClose();
+                        }}
+                        type="button"
+                    >
+                        저장
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }
@@ -130,6 +154,16 @@ export function ClientDetail({
     const shortLabel = activeCat.label.replace(' 대시보드', '');
     // 삭제는 2단계 — 한 번 더 확인 후 실제 삭제.
     const [confirmDel, setConfirmDel] = useState(false);
+    // 기본정보 클릭 편집 — 누르면 모달에서 변경.
+    const [editField, setEditField] = useState<{
+        patchKey: 'manager' | 'source' | 'contact' | 'email';
+        label: string;
+        value: string;
+        options?: string[];
+    } | null>(null);
+    const managerOptions = [
+        ...new Set(([client.manager, ...salespeople.map((s) => s.name)].filter(Boolean) as string[])),
+    ];
     // 카테고리별 누적 계약 금액(계약 요약 로그 합산) — 현재 블로그만 데이터, 나머지는 0.
     const catAmount = (key: CategoryKey) =>
         (key === 'blog' ? blogs : []).reduce((s, b) => s + (amountTotal(b) || 0), 0);
@@ -326,6 +360,59 @@ export function ClientDetail({
                                             value={currentField(b.weekly_history, b.weekly) || '-'}
                                         />
                                     </div>
+                                    {/* 기본 정보 — 누르면 모달(탭)에서 변경 */}
+                                    <div className="mt-3 flex flex-wrap gap-3">
+                                        <MetricCard
+                                            label="담당자"
+                                            onClick={() =>
+                                                setEditField({
+                                                    label: '담당자',
+                                                    options: managerOptions,
+                                                    patchKey: 'manager',
+                                                    value: client.manager || '',
+                                                })
+                                            }
+                                            small
+                                            value={client.manager || '-'}
+                                        />
+                                        <MetricCard
+                                            label="문의 경로"
+                                            onClick={() =>
+                                                setEditField({
+                                                    label: '문의 경로',
+                                                    options: SOURCE_OPTIONS,
+                                                    patchKey: 'source',
+                                                    value: client.source || '',
+                                                })
+                                            }
+                                            small
+                                            value={client.source || '-'}
+                                        />
+                                        <MetricCard
+                                            label="연락처"
+                                            onClick={() =>
+                                                setEditField({
+                                                    label: '연락처',
+                                                    patchKey: 'contact',
+                                                    value: client.contact || '',
+                                                })
+                                            }
+                                            small
+                                            value={client.contact || '-'}
+                                        />
+                                        <MetricCard
+                                            label="이메일"
+                                            onClick={() =>
+                                                setEditField({
+                                                    label: '이메일',
+                                                    patchKey: 'email',
+                                                    value: client.email || '',
+                                                })
+                                            }
+                                            small
+                                            value={client.email || '-'}
+                                        />
+                                    </div>
                                 </>
                             )}
                         </div>
@@ -336,24 +423,6 @@ export function ClientDetail({
                     연결된 블로그 계정이 없습니다.
                 </div>
             )}
-
-            {/* 기본 정보(담당자·문의 경로·연락처·이메일) — 작은 카드, 각 카드에서 바로 수정 */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <EditCard
-                    label="담당자"
-                    onSave={(v) => onSave({ manager: v || null })}
-                    options={[...new Set(([client.manager, ...salespeople.map((s) => s.name)].filter(Boolean) as string[]))]}
-                    value={client.manager || ''}
-                />
-                <EditCard
-                    label="문의 경로"
-                    onSave={(v) => onSave({ source: v || null })}
-                    options={SOURCE_OPTIONS}
-                    value={client.source || ''}
-                />
-                <EditCard label="연락처" onSave={(v) => onSave({ contact: v || null })} value={client.contact || ''} />
-                <EditCard label="이메일" onSave={(v) => onSave({ email: v || null })} value={client.email || ''} />
-            </div>
 
             {/* 계약 요약 — 한눈에 보기(계약일·계약 건수·계약 금액·특이사항) */}
             <div className="overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
@@ -400,6 +469,17 @@ export function ClientDetail({
                     <div className="px-5 py-8 text-center text-sm text-[#94a3b8]">{shortLabel} 계약 정보가 없습니다.</div>
                 )}
             </div>
+
+            {/* 기본정보 클릭 편집 모달 */}
+            {editField ? (
+                <ClientFieldModal
+                    label={editField.label}
+                    onClose={() => setEditField(null)}
+                    onSave={(v) => onSave({ [editField.patchKey]: v || null } as Partial<ErpClient>)}
+                    options={editField.options}
+                    value={editField.value}
+                />
+            ) : null}
 
             {/* 블로그 시트와 동일한 편집 모달 — 카드 클릭 시 열림(저장 동일) */}
             {contractAcc ? (
