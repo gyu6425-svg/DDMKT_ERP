@@ -9,8 +9,7 @@ import {
     type BlogMeasurement,
     type BlogPost,
 } from '../../../api/blogRank';
-import { searchRankPC, type RankSearchResult } from '../../../api/rankSearch';
-import { fmtRank } from '../lib/helpers';
+import { searchRankPC } from '../../../api/rankSearch';
 
 // 전역 쿨다운 — 검색/수정(저장)/재검색을 누르면 잠깐 텀(여러 명이 동시에 써도 네이버 차단 예방).
 //   모든 글 행(PostSearchCell)이 공유 → 한 번 측정하면 전체에서 COOLDOWN 동안 다음 측정 막힘.
@@ -46,7 +45,6 @@ export function PostSearchCell({
 }) {
     const [kw, setKw] = useState('');
     const [busy, setBusy] = useState(false);
-    const [res, setRes] = useState<RankSearchResult | null>(null);
     const [err, setErr] = useState('');
     // 자동키워드 수동 수정
     const effectiveKw = post.keyword_manual || post.keyword || '';
@@ -61,6 +59,8 @@ export function PostSearchCell({
     }
     const blogId = account.blog_id || extractBlogId(account.blog_url);
 
+    // 검색 = 입력 키워드로 이 글을 측정해 '우측 통합탭/블로그탭(저장값)'에 바로 반영.
+    //   (키워드 자체는 저장 안 함 — 그건 '수정'. 다음 자동 크롤은 기존 키워드로 측정.)
     const run = async () => {
         const q = kw.trim();
         if (!q || !blogId) {
@@ -69,11 +69,17 @@ export function PostSearchCell({
         setBusy(true);
         setErr('');
         try {
-            // 이 '글' 단위로 측정(블로그탭은 logNo 매칭) — 6월글이면 6월글 순위, 5월글이면 5월글 순위.
-            setRes(await searchRankPC(q, blogId, extractLogNo(post.post_url || '')));
+            // 이 '글' 단위로 측정(블로그탭은 logNo 매칭).
+            const r = await searchRankPC(q, blogId, extractLogNo(post.post_url || ''));
+            const today = todayKST();
+            const next: BlogMeasurement[] = [
+                ...post.measurements.filter((m) => m.date !== today),
+                { date: today, ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status },
+            ];
+            await updatePostMeasurements(post.id, next);
+            await onSaved(); // 우측 순위(저장값) 즉시 갱신
         } catch (e) {
             setErr(e instanceof Error ? e.message : '검색 실패');
-            setRes(null);
         } finally {
             setBusy(false);
             startMeasureCooldown();
@@ -138,7 +144,6 @@ export function PostSearchCell({
                 { date: today, ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status },
             ];
             await updatePostMeasurements(post.id, next);
-            setRes(r); // 인라인에도 결과 표시
             await onSaved(); // 옆 순위(저장값) 갱신
         } catch (e) {
             setErr(e instanceof Error ? e.message : '재검색 실패');
@@ -224,17 +229,7 @@ export function PostSearchCell({
             {post.keyword_manual ? (
                 <div className="mt-1 text-[12px] font-semibold text-[#7c3aed]">수동 키워드 #{post.keyword_manual}</div>
             ) : null}
-            {res ? (
-                <div className="mt-1 text-[11px] font-semibold text-[#0f172a]">
-                    <span className="text-[#94a3b8]">#{res.keyword}</span> · 통합{' '}
-                    <span className="text-[#059669]">{fmtRank(res.ti, res.ti_status)}</span>
-                    <span className="text-[9px] font-normal text-[#94a3b8]">(이 글)</span> · 블로그탭{' '}
-                    <span className="text-[#1e40af]">{fmtRank(res.bl, res.bl_status)}</span>
-                    <span className="text-[9px] font-normal text-[#94a3b8]">(이 글)</span>
-                </div>
-            ) : err ? (
-                <div className="mt-1 text-[10px] text-[#dc2626]">{err}</div>
-            ) : null}
+            {err ? <div className="mt-1 text-[10px] text-[#dc2626]">{err}</div> : null}
         </div>
     );
 }
