@@ -317,6 +317,7 @@ export function SheetTab({
                             <th className="px-3 py-2 text-center font-semibold">통합 10위↓</th>
                             <th className="px-3 py-2 text-center font-semibold">상태</th>
                             <th className="px-3 py-2 font-semibold">특이사항</th>
+                            <th className="px-3 py-2 text-center font-semibold">구글 시트</th>
                             <th className="px-3 py-2 text-center font-semibold">관리</th>
                         </tr>
                     </thead>
@@ -507,6 +508,25 @@ export function SheetTab({
                                             </div>
                                         </td>
                                         <td className="px-3 py-2 text-center">
+                                            {a.manage_sheet_url ? (
+                                                <a
+                                                    className="inline-flex items-center gap-1 rounded border border-[#16a34a] bg-[#f0fdf4] px-2 py-1 text-[11px] font-semibold text-[#16a34a] hover:bg-[#dcfce7]"
+                                                    href={
+                                                        /^https?:\/\//.test(a.manage_sheet_url)
+                                                            ? a.manage_sheet_url
+                                                            : `https://${a.manage_sheet_url}`
+                                                    }
+                                                    rel="noopener noreferrer"
+                                                    target="_blank"
+                                                    title="이 업체의 발행 관리 구글 시트 열기"
+                                                >
+                                                    구글 시트
+                                                </a>
+                                            ) : (
+                                                <span className="text-xs text-[#cbd5e1]">—</span>
+                                            )}
+                                        </td>
+                                        <td className="px-3 py-2 text-center">
                                             <div className="flex justify-center gap-1">
                                                 <button
                                                     className="rounded bg-[#059669] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#047857] disabled:opacity-50"
@@ -544,7 +564,7 @@ export function SheetTab({
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={13}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={14}>
                                     등록된 블로그가 없습니다 · '시트 붙여넣기 등록'으로 추가하세요
                                 </td>
                             </tr>
