@@ -26,12 +26,14 @@ function MetricCard({
     accent,
     small,
     onClick,
+    barPct,
 }: {
     label: string;
     value: string;
     accent?: string;
     small?: boolean;
     onClick?: () => void;
+    barPct?: number | null; // 있으면 값 아래 게이지바 표시(0~100)
 }) {
     return (
         <button
@@ -47,12 +49,27 @@ function MetricCard({
             >
                 {value}
             </div>
+            {barPct != null ? (
+                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[#e2e8f0]">
+                    <div
+                        className="h-full rounded-full transition-all"
+                        style={{ background: accent || '#1e40af', width: `${Math.min(100, Math.max(0, barPct))}%` }}
+                    />
+                </div>
+            ) : null}
         </button>
     );
 }
 
 const progColor = (p: number | null) =>
     p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
+
+// 최근 계약금액 = amounts 마지막 항목(있으면), 없으면 레거시 amount 텍스트 파싱.
+const latestAmount = (b: BlogAccount): number => {
+    if (b.amounts && b.amounts.length) return Number(b.amounts[b.amounts.length - 1].amount) || 0;
+    const m = (b.amount || '').replace(/[^\d]/g, '');
+    return m ? Number(m) : 0;
+};
 
 // 기본정보(담당자·문의경로·연락처·이메일) 클릭 시 뜨는 편집 모달 — 계약일/진행률 카드처럼 눌러서 변경.
 function ClientFieldModal({
@@ -323,6 +340,7 @@ export function ClientDetail({
                                         />
                                         <MetricCard
                                             accent={progColor(prog)}
+                                            barPct={prog}
                                             label="진행률"
                                             onClick={() => setProgressAcc(b)}
                                             value={
@@ -340,9 +358,9 @@ export function ClientDetail({
                                             value={b.remain_count != null ? `${b.remain_count}건` : '-'}
                                         />
                                         <MetricCard
-                                            label="계약금액"
+                                            label="최근 계약금액"
                                             onClick={() => setAmountAcc(b)}
-                                            value={amountTotal(b) ? `${fmtWon(amountTotal(b))}원` : '-'}
+                                            value={latestAmount(b) ? `${fmtWon(latestAmount(b))}원` : '-'}
                                         />
                                     </div>
                                     {/* 기자단·주발행 — 카드(특이사항은 아래 계약 요약으로 이동) */}
