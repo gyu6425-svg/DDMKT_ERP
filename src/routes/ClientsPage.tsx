@@ -50,7 +50,7 @@ const emptyForm: ClientForm = {
     notes: '',
     phone: '',
     product: '',
-    source: SOURCE_OPTIONS[0],
+    source: '',
     status: STATUS_OPTIONS[0],
 };
 
@@ -178,7 +178,7 @@ function ClientsPage() {
             notes: client.notes || '',
             phone: client.phone || '',
             product: client.product || '',
-            source: client.source || SOURCE_OPTIONS[0],
+            source: client.source || '',
             status: client.status || STATUS_OPTIONS[0],
         });
         setModalOpen(true);
@@ -204,7 +204,7 @@ function ClientsPage() {
             notes: form.notes.trim() || null,
             phone: form.phone.trim() || null,
             product: form.product.trim() || null,
-            source: form.source,
+            source: form.source || null,
             status: form.status,
         };
 
@@ -446,14 +446,24 @@ function ClientsPage() {
                                         </td>
                                         <td className="px-3 py-2 font-semibold">{c.manager}</td>
                                         <td className="px-3 py-2">
-                                            <span
-                                                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                                    SOURCE_BADGE[c.source || ''] ||
-                                                    'bg-[#e2e8f0] text-[#64748b]'
-                                                }`}
+                                            <button
+                                                className="rounded px-1 py-0.5 hover:bg-[#f1f5f9]"
+                                                onClick={() => openEdit(c)}
+                                                title="클릭해서 문의 경로 수정"
+                                                type="button"
                                             >
-                                                {c.source || '기타'}
-                                            </span>
+                                                {c.source ? (
+                                                    <span
+                                                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                                            SOURCE_BADGE[c.source] || 'bg-[#e2e8f0] text-[#64748b]'
+                                                        }`}
+                                                    >
+                                                        {c.source}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs text-[#94a3b8]">-</span>
+                                                )}
+                                            </button>
                                         </td>
                                         <td className="px-3 py-2 font-medium">{c.company || '--'}</td>
                                         <td className="px-3 py-2 text-xs text-[#64748b]">
@@ -588,6 +598,7 @@ function ClientsPage() {
                                     onChange={(event) => updateField('source', event.target.value)}
                                     value={form.source}
                                 >
+                                    <option value="">선택 안 함</option>
                                     {SOURCE_OPTIONS.map((s) => (
                                         <option key={s}>{s}</option>
                                     ))}
