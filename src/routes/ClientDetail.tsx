@@ -69,11 +69,11 @@ function EditCard({
     const [v, setV] = useState(value);
     useEffect(() => setV(value), [value]);
     return (
-        <div className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
-            <div className="mb-1.5 text-xs font-semibold text-[#94a3b8]">{label}</div>
+        <div className="rounded-lg border border-[#e2e8f0] bg-white px-3 py-2.5 shadow-sm">
+            <div className="mb-1 text-[11px] font-semibold text-[#94a3b8]">{label}</div>
             {options ? (
                 <select
-                    className="h-11 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-base font-medium text-[#0f172a]"
+                    className="h-8 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm font-medium text-[#0f172a]"
                     onChange={(e) => {
                         setV(e.target.value);
                         onSave(e.target.value);
@@ -87,7 +87,7 @@ function EditCard({
                 </select>
             ) : (
                 <input
-                    className="h-11 w-full rounded-md border border-[#cbd5e1] px-3 text-base font-medium text-[#0f172a]"
+                    className="h-8 w-full rounded-md border border-[#cbd5e1] px-2 text-sm font-medium text-[#0f172a]"
                     onBlur={() => v !== value && onSave(v)}
                     onChange={(e) => setV(e.target.value)}
                     placeholder="입력..."
@@ -187,47 +187,22 @@ export function ClientDetail({
                 )}
             </div>
 
-            {/* 누적 계약 금액 — 하단 5개 카테고리 계약 요약 로그를 전부 합산 */}
+            {/* 누적 계약 금액 — 총액(위) + 카테고리별 큰 카드(아래) */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
-                <div className="flex flex-wrap items-end justify-between gap-4">
-                    <div>
-                        <div className="text-xs font-semibold text-[#94a3b8]">총 계약 금액 (누적)</div>
-                        <div className="mt-1 text-2xl font-bold text-[#1e40af]">{fmtWon(totalAmount)}원</div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                        {CATEGORIES.map((c) => (
-                            <div
-                                className="min-w-[78px] rounded-lg border border-[#e2e8f0] bg-[#f8fafc] px-3 py-2 text-center"
-                                key={c.key}
-                            >
-                                <div className="text-[11px] font-semibold text-[#94a3b8]">
-                                    {c.label.replace(' 대시보드', '')}
-                                </div>
-                                <div className="mt-0.5 text-sm font-bold text-[#0f172a]">
-                                    {fmtWon(catAmount(c.key))}원
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                <div className="text-xs font-semibold text-[#94a3b8]">총 계약 금액 (누적)</div>
+                <div className="mt-1 text-3xl font-bold text-[#1e40af]">{fmtWon(totalAmount)}원</div>
+                <div className="mt-0.5 text-[11px] text-[#94a3b8]">5개 카테고리 계약 요약 로그 합산</div>
             </div>
-
-            {/* 기본 정보 — 각 카드에서 바로 수정 */}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <EditCard
-                    label="담당자"
-                    onSave={(v) => onSave({ manager: v || null })}
-                    options={[...new Set(([client.manager, ...salespeople.map((s) => s.name)].filter(Boolean) as string[]))]}
-                    value={client.manager || ''}
-                />
-                <EditCard
-                    label="문의 경로"
-                    onSave={(v) => onSave({ source: v || null })}
-                    options={SOURCE_OPTIONS}
-                    value={client.source || ''}
-                />
-                <EditCard label="연락처" onSave={(v) => onSave({ contact: v || null })} value={client.contact || ''} />
-                <EditCard label="이메일" onSave={(v) => onSave({ email: v || null })} value={client.email || ''} />
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                {CATEGORIES.map((c) => (
+                    <div
+                        className="rounded-xl border border-[#e2e8f0] bg-white px-4 py-5 text-center shadow-sm"
+                        key={c.key}
+                    >
+                        <div className="text-sm font-semibold text-[#94a3b8]">{c.label.replace(' 대시보드', '')}</div>
+                        <div className="mt-2 text-xl font-bold text-[#0f172a]">{fmtWon(catAmount(c.key))}원</div>
+                    </div>
+                ))}
             </div>
 
             {/* 카테고리 탭 — 블로그=실제, 나머지=준비 중 */}
@@ -361,6 +336,24 @@ export function ClientDetail({
                     연결된 블로그 계정이 없습니다.
                 </div>
             )}
+
+            {/* 기본 정보(담당자·문의 경로·연락처·이메일) — 작은 카드, 각 카드에서 바로 수정 */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <EditCard
+                    label="담당자"
+                    onSave={(v) => onSave({ manager: v || null })}
+                    options={[...new Set(([client.manager, ...salespeople.map((s) => s.name)].filter(Boolean) as string[]))]}
+                    value={client.manager || ''}
+                />
+                <EditCard
+                    label="문의 경로"
+                    onSave={(v) => onSave({ source: v || null })}
+                    options={SOURCE_OPTIONS}
+                    value={client.source || ''}
+                />
+                <EditCard label="연락처" onSave={(v) => onSave({ contact: v || null })} value={client.contact || ''} />
+                <EditCard label="이메일" onSave={(v) => onSave({ email: v || null })} value={client.email || ''} />
+            </div>
 
             {/* 계약 요약 — 한눈에 보기(계약일·계약 건수·계약 금액·특이사항) */}
             <div className="overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
