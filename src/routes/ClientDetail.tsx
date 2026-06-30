@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import type { BlogAccount } from '../api/blogRank';
 import type { ErpClient } from '../api/erp';
 import { amountTotal, currentField, fmtWon, latestContractDate, progOf } from '../components/blogRank/lib/helpers';
+import { AmountModal } from '../components/blogRank/components/AmountModal';
+import { ContractModal } from '../components/blogRank/components/ContractModal';
+import { FieldHistoryModal } from '../components/blogRank/components/FieldHistoryModal';
+import { NoteModal } from '../components/blogRank/components/NoteModal';
+import { ProgressModal } from '../components/blogRank/components/ProgressModal';
 import { SOURCE_OPTIONS } from '../lib/erpUtils';
 
 // 고객사 상세 — 업체 기본정보 + 계약한 카테고리(현재 블로그)의 세부(블로그 관리 시트 내용)를 읽기로 표시.
@@ -19,14 +24,21 @@ function MetricCard({
     value,
     accent,
     small,
+    onClick,
 }: {
     label: string;
     value: string;
     accent?: string;
     small?: boolean;
+    onClick?: () => void;
 }) {
     return (
-        <div className="min-w-[130px] flex-1 rounded-xl border border-[#e2e8f0] bg-white px-4 py-3 shadow-sm">
+        <button
+            className="min-w-[130px] flex-1 rounded-xl border border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm enabled:cursor-pointer enabled:hover:border-[#1e40af] enabled:hover:shadow"
+            disabled={!onClick}
+            onClick={onClick}
+            type="button"
+        >
             <div className="text-[11px] font-semibold text-[#94a3b8]">{label}</div>
             <div
                 className={`mt-1 font-bold ${small ? 'text-sm' : 'text-lg'}`}
@@ -34,7 +46,7 @@ function MetricCard({
             >
                 {value}
             </div>
-        </div>
+        </button>
     );
 }
 
@@ -92,6 +104,8 @@ export function ClientDetail({
     onClose,
     onSave,
     onDelete,
+    onReload,
+    onToast,
 }: {
     client: ErpClient;
     blogs: BlogAccount[];
@@ -99,7 +113,16 @@ export function ClientDetail({
     onClose: () => void;
     onSave: (patch: Partial<ErpClient>) => void;
     onDelete: () => void;
+    onReload: () => Promise<void>;
+    onToast: (message: string) => void;
 }) {
+    // 블로그 시트와 동일한 편집 모달 — 카드 클릭 시 그 계정으로 연다(편집·저장 동일).
+    const [contractAcc, setContractAcc] = useState<BlogAccount | null>(null);
+    const [amountAcc, setAmountAcc] = useState<BlogAccount | null>(null);
+    const [progressAcc, setProgressAcc] = useState<BlogAccount | null>(null);
+    const [reporterAcc, setReporterAcc] = useState<BlogAccount | null>(null);
+    const [weeklyAcc, setWeeklyAcc] = useState<BlogAccount | null>(null);
+    const [noteAcc, setNoteAcc] = useState<BlogAccount | null>(null);
     return (
         <section className="grid gap-4">
             <div className="flex items-center gap-3">
@@ -185,10 +208,15 @@ export function ClientDetail({
                                 <>
                                     {/* 계약일·진행률·잔여·계약금액 — 하나하나 카드 */}
                                     <div className="flex flex-wrap gap-3">
-                                        <MetricCard label="계약일" value={latestContractDate(b) || '-'} />
+                                        <MetricCard
+                                            label="계약일"
+                                            onClick={() => setContractAcc(b)}
+                                            value={latestContractDate(b) || '-'}
+                                        />
                                         <MetricCard
                                             accent={progColor(prog)}
                                             label="진행률"
+                                            onClick={() => setProgressAcc(b)}
                                             value={
                                                 prog == null
                                                     ? '-'
@@ -200,10 +228,12 @@ export function ClientDetail({
                                                 b.remain_count != null && b.remain_count <= 3 ? '#d97706' : undefined
                                             }
                                             label="잔여"
+                                            onClick={() => setProgressAcc(b)}
                                             value={b.remain_count != null ? `${b.remain_count}건` : '-'}
                                         />
                                         <MetricCard
                                             label="계약금액"
+                                            onClick={() => setAmountAcc(b)}
                                             value={amountTotal(b) ? `${fmtWon(amountTotal(b))}원` : '-'}
                                         />
                                     </div>
@@ -211,15 +241,22 @@ export function ClientDetail({
                                     <div className="mt-3 flex flex-wrap gap-3">
                                         <MetricCard
                                             label="기자단"
+                                            onClick={() => setReporterAcc(b)}
                                             small
                                             value={currentField(b.reporter_history, b.reporter) || '-'}
                                         />
                                         <MetricCard
                                             label="주 발행"
+                                            onClick={() => setWeeklyAcc(b)}
                                             small
                                             value={currentField(b.weekly_history, b.weekly) || '-'}
                                         />
-                                        <MetricCard label="특이사항" small value={b.note || '-'} />
+                                        <MetricCard
+                                            label="특이사항"
+                                            onClick={() => setNoteAcc(b)}
+                                            small
+                                            value={b.note || '-'}
+                                        />
                                     </div>
                                 </>
                             )}
@@ -231,6 +268,63 @@ export function ClientDetail({
                     연결된 블로그 계정이 없습니다.
                 </div>
             )}
+
+            {/* 블로그 시트와 동일한 편집 모달 — 카드 클릭 시 열림(저장 동일) */}
+            {contractAcc ? (
+                <ContractModal
+                    account={contractAcc}
+                    onClose={() => setContractAcc(null)}
+                    onReload={onReload}
+                    onToast={onToast}
+                />
+            ) : null}
+            {amountAcc ? (
+                <AmountModal
+                    account={amountAcc}
+                    onClose={() => setAmountAcc(null)}
+                    onReload={onReload}
+                    onToast={onToast}
+                />
+            ) : null}
+            {progressAcc ? (
+                <ProgressModal
+                    account={progressAcc}
+                    onClose={() => setProgressAcc(null)}
+                    onReload={onReload}
+                    onToast={onToast}
+                />
+            ) : null}
+            {reporterAcc ? (
+                <FieldHistoryModal
+                    account={reporterAcc}
+                    history={reporterAcc.reporter_history}
+                    historyCol="reporter_history"
+                    label="기자단"
+                    legacyCol="reporter"
+                    legacyValue={reporterAcc.reporter}
+                    onClose={() => setReporterAcc(null)}
+                    onReload={onReload}
+                    onToast={onToast}
+                    placeholder="예: A팀"
+                />
+            ) : null}
+            {weeklyAcc ? (
+                <FieldHistoryModal
+                    account={weeklyAcc}
+                    history={weeklyAcc.weekly_history}
+                    historyCol="weekly_history"
+                    label="주 발행"
+                    legacyCol="weekly"
+                    legacyValue={weeklyAcc.weekly}
+                    onClose={() => setWeeklyAcc(null)}
+                    onReload={onReload}
+                    onToast={onToast}
+                    placeholder="예: 주 5회"
+                />
+            ) : null}
+            {noteAcc ? (
+                <NoteModal account={noteAcc} onClose={() => setNoteAcc(null)} onReload={onReload} onToast={onToast} />
+            ) : null}
         </section>
     );
 }

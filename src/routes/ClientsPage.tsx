@@ -68,8 +68,9 @@ function ClientsPage() {
 
     // 카테고리 = 그 고객사에 연결된 카테고리 계정에서 도출(현재 블로그). client_id 로 묶음.
     const [blogAccounts, setBlogAccounts] = useState<BlogAccount[]>([]);
+    const reloadBlogs = () => getBlogAccounts().then(({ data }) => setBlogAccounts(data));
     useEffect(() => {
-        void getBlogAccounts().then(({ data }) => setBlogAccounts(data));
+        void reloadBlogs();
     }, []);
     // 상세 페이지(업체 클릭) — ?id 쿼리로 열고 닫는다.
     const [detailId, setDetailId] = useState<string | null>(
@@ -311,7 +312,9 @@ function ClientsPage() {
                         });
                     }
                 }}
+                onReload={reloadBlogs}
                 onSave={(patch) => void updateClient(detailClient.id, patch).then(() => void refresh())}
+                onToast={showToast}
                 salespeople={salespeople}
             />
         );
