@@ -11,6 +11,10 @@ export default defineConfig({
     exclude: ['@imgly/background-removal', 'onnxruntime-web'],
   },
   server: {
+    // crawler/(파이썬·카카오 자동화 Chrome 프로필)는 감시 제외 — 잠긴 파일(Cookies 등) EBUSY 크래시 방지.
+    watch: {
+      ignored: ['**/crawler/**'],
+    },
     proxy: {
       '/api': {
         changeOrigin: true,
