@@ -83,7 +83,15 @@ const FONT = `'Apple SD Gothic Neo','Pretendard','Malgun Gothic','맑은 고딕'
 const MONO = `'SF Mono','Consolas','D2Coding',monospace`;
 
 // ── 유틸 ──────────────────────────────────────────────────────────────
-const parseLines = (text) => text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+const parseLines = (text) =>
+  (text || "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")   // zero-width(보이지 않는) 문자 제거
+    .replace(/[\u00A0\u3000\t]/g, " ")       // NBSP·전각공백·탭 -> 일반 공백
+    .split(/\r?\n/)
+    .map((s) => s.replace(/ +/g, " ").trim()) // 연속 공백 1칸 + 양끕 정리
+    .filter(Boolean);
+// 네이버 키워드 중복 판정 = 공백 무시(서울 병원 = 서울병원). 중복제거 키로 사용.
+const normKw = (s) => s.replace(/\s+/g, "").toLowerCase();
 const patternKey = (p) => p.join("+");
 
 function cartesian(lists, joiner) {
@@ -423,8 +431,9 @@ export default function PowerLinkPage() {
     if (dedupe) {
       const seen = new Set();
       finalRows = rows.filter((r) => {
-        if (seen.has(r.kw)) { removedDup++; return false; }
-        seen.add(r.kw); return true;
+        const key = normKw(r.kw); // 네이버 방식(공백 무시): "서울 병원" = "서울병원" 같은 중복도 제거
+        if (seen.has(key)) { removedDup++; return false; }
+        seen.add(key); return true;
       });
     }
 
