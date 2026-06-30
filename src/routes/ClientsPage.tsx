@@ -20,6 +20,7 @@ import {
 } from '../lib/erpUtils';
 
 const FAVS_KEY = 'erp_favs';
+const DONE_STATUS = '계약완료'; // 계약 완료 판정 기준(상태). 계약 관리 진입 + 완료/미완료 탭이 공유.
 
 type ClientForm = {
     manager: string;
@@ -101,7 +102,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [favOnly, setFavOnly] = useState(false);
     const [favs, setFavs] = useState<string[]>(loadFavs);
     // 고객사 관리 하단 탭 — 계약 완료(블로그 등 계정 연결) vs 미완료(보류·문의만). contractsOnly 화면에선 미사용.
-    const [clientTab, setClientTab] = useState<'done' | 'pending'>('done');
+    const [clientTab, setClientTab] = useState<'done' | 'pending'>('pending');
     const [toast, setToast] = useState('');
 
     const [modalOpen, setModalOpen] = useState(false);
@@ -120,22 +121,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         window.setTimeout(() => setToast(''), 2500);
     };
 
-    // 실제 계약 진행 중 = 미종료(계약종료 안 된) 블로그 계정이 연결된 고객(보류=계정 없음 → 제외).
-    const contractingIds = useMemo(
-        () =>
-            new Set(
-                blogAccounts
-                    .filter((a) => a.client_id && !a.contract_ended_at)
-                    .map((a) => a.client_id as string),
-            ),
-        [blogAccounts],
-    );
-    // 계약 완료 = 카테고리 계정이 연결된 고객(블로그 대시보드 이관분 전부 포함). 미완료 = 계정 없음.
-    const accountClientIds = useMemo(
-        () => new Set(blogAccounts.filter((a) => a.client_id).map((a) => a.client_id as string)),
-        [blogAccounts],
-    );
-
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
         const list = clients.filter((client) => {
@@ -148,13 +133,14 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const matchesSource = !sourceFilter || client.source === sourceFilter;
             const matchesStatus = !statusFilter || client.status === statusFilter;
             const matchesFav = !favOnly || favs.includes(client.id);
-            const matchesContract = !contractsOnly || contractingIds.has(client.id);
-            // 고객사 관리 전체 화면에서만 완료/미완료 탭 적용.
+            // 계약 관리(contractsOnly)는 '계약완료' 상태만 진입.
+            const matchesContract = !contractsOnly || client.status === DONE_STATUS;
+            // 고객사 관리 전체 화면에서만 완료/미완료 탭 적용(상태 기준).
             const matchesTab =
                 contractsOnly ||
                 (clientTab === 'done'
-                    ? accountClientIds.has(client.id)
-                    : !accountClientIds.has(client.id));
+                    ? client.status === DONE_STATUS
+                    : client.status !== DONE_STATUS);
 
             return matchesQuery && matchesSource && matchesStatus && matchesFav && matchesContract && matchesTab;
         });
@@ -164,18 +150,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
         });
-    }, [
-        clients,
-        search,
-        sourceFilter,
-        statusFilter,
-        favOnly,
-        favs,
-        contractsOnly,
-        contractingIds,
-        clientTab,
-        accountClientIds,
-    ]);
+    }, [clients, search, sourceFilter, statusFilter, favOnly, favs, contractsOnly, clientTab]);
 
     const toggleFav = (id: string) => {
         setFavs((current) => {
@@ -377,7 +352,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             : '문의·고객(계약·보류 포함)을 관리합니다.'}{' '}
                         {loading
                             ? '불러오는 중...'
-                            : `총 ${contractsOnly ? clients.filter((c) => contractingIds.has(c.id)).length : clients.length}건`}
+                            : `총 ${contractsOnly ? clients.filter((c) => c.status === DONE_STATUS).length : clients.length}건`}
                     </p>
                 </div>
                 <Button
@@ -452,14 +427,14 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 <div className="flex gap-1 border-b border-[#e2e8f0]">
                     {(
                         [
-                            { key: 'done', label: '계약 완료' },
                             { key: 'pending', label: '계약 미완료' },
+                            { key: 'done', label: '계약 완료' },
                         ] as { key: 'done' | 'pending'; label: string }[]
                     ).map((t) => {
                         const count =
                             t.key === 'done'
-                                ? clients.filter((c) => accountClientIds.has(c.id)).length
-                                : clients.filter((c) => !accountClientIds.has(c.id)).length;
+                                ? clients.filter((c) => c.status === DONE_STATUS).length
+                                : clients.filter((c) => c.status !== DONE_STATUS).length;
                         return (
                             <button
                                 className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
