@@ -1,5 +1,5 @@
 import AdminOnly from './AdminOnly';
-import { CATEGORIES } from './categoryRank/categories';
+import { CATEGORIES, CUSTOMER_NAV } from './categoryRank/categories';
 import { useAuth } from '../hooks/useAuth';
 import type { MouseEvent } from 'react';
 
@@ -66,6 +66,8 @@ function Sidebar() {
         );
     // 카테고리 대시보드(관리자 전용)를 '계약 관리' 바로 밑에 배치.
     const afterContracts = navigationItems.findIndex((i) => i.path === '/contracts') + 1;
+    // 고객 ERP(/portal*)에서는 내부 메뉴를 숨기고 고객 메뉴(통합 대시보드 + 카테고리)만 보여준다.
+    const isCustomerView = currentPath.startsWith('/portal');
 
     return (
         <aside
@@ -77,31 +79,37 @@ function Sidebar() {
             </div>
 
             <nav className="grid gap-[18px] max-[800px]:grid-cols-2">
-                {navigationItems.slice(0, afterContracts).map(renderNavItem)}
-                <AdminOnly>
-                    {CATEGORIES.map((c) => (
-                        <a
-                            aria-current={c.path === currentPath ? 'page' : undefined}
-                            className={linkClassName(c.path)}
-                            href={c.path}
-                            key={c.path}
-                            onClick={(event) => navigate(event, c.path)}
-                        >
-                            {c.label}
-                        </a>
-                    ))}
-                </AdminOnly>
-                {navigationItems.slice(afterContracts).map(renderNavItem)}
-                <AdminOnly>
-                    <a
-                        aria-current={currentPath === '/admin' ? 'page' : undefined}
-                        className={linkClassName('/admin')}
-                        href="/admin"
-                        onClick={(event) => navigate(event, '/admin')}
-                    >
-                        관리자 페이지
-                    </a>
-                </AdminOnly>
+                {isCustomerView ? (
+                    CUSTOMER_NAV.map(renderNavItem)
+                ) : (
+                    <>
+                        {navigationItems.slice(0, afterContracts).map(renderNavItem)}
+                        <AdminOnly>
+                            {CATEGORIES.map((c) => (
+                                <a
+                                    aria-current={c.path === currentPath ? 'page' : undefined}
+                                    className={linkClassName(c.path)}
+                                    href={c.path}
+                                    key={c.path}
+                                    onClick={(event) => navigate(event, c.path)}
+                                >
+                                    {c.label}
+                                </a>
+                            ))}
+                        </AdminOnly>
+                        {navigationItems.slice(afterContracts).map(renderNavItem)}
+                        <AdminOnly>
+                            <a
+                                aria-current={currentPath === '/admin' ? 'page' : undefined}
+                                className={linkClassName('/admin')}
+                                href="/admin"
+                                onClick={(event) => navigate(event, '/admin')}
+                            >
+                                관리자 페이지
+                            </a>
+                        </AdminOnly>
+                    </>
+                )}
             </nav>
 
             <button

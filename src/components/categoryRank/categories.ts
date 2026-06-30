@@ -24,3 +24,10 @@ export const CATEGORIES: CategoryDef[] = [
 
 export const categoryByKey = (key: CategoryKey): CategoryDef =>
     CATEGORIES.find((c) => c.key === key) ?? CATEGORIES[0];
+
+// 고객 전용 ERP 사이드바 메뉴 — 통합 대시보드 + 5개 카테고리(계약한 것만 보이게는 추후 데이터 연동).
+//   내부 메뉴(배너/파워링크/계약관리/고객사관리 등)는 고객에게 노출하지 않는다.
+export const CUSTOMER_NAV: { path: string; label: string }[] = [
+    { path: '/portal', label: '통합 대시보드' },
+    ...CATEGORIES.map((c) => ({ path: `/portal/${c.key}`, label: c.label.replace(' 대시보드', '') })),
+];
