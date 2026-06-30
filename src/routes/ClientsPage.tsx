@@ -1,4 +1,4 @@
-﻿import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
+﻿import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
     deleteClient,
     insertClient,
@@ -6,6 +6,7 @@ import {
     type ClientHistory,
     type ErpClient,
 } from '../api/erp';
+import { getBlogAccounts } from '../api/blogRank';
 import Button from '../components/Button';
 import { useErpData } from '../context/ErpDataContext';
 import {
@@ -63,6 +64,14 @@ function loadFavs(): string[] {
 
 function ClientsPage() {
     const { clients, salespeople, loading, error, refresh } = useErpData();
+
+    // 카테고리 = 그 고객사에 연결된 카테고리 계정에서 도출(현재 블로그). client_id 로 묶음.
+    const [blogClientIds, setBlogClientIds] = useState<Set<string>>(new Set());
+    useEffect(() => {
+        void getBlogAccounts().then(({ data }) => {
+            setBlogClientIds(new Set(data.filter((a) => a.client_id).map((a) => a.client_id as string)));
+        });
+    }, []);
 
     const [search, setSearch] = useState('');
     const [sourceFilter, setSourceFilter] = useState('');
@@ -400,7 +409,7 @@ function ClientsPage() {
                             <th className="px-3 py-2 font-semibold">경로</th>
                             <th className="px-3 py-2 font-semibold">업체명</th>
                             <th className="px-3 py-2 font-semibold">연락처</th>
-                            <th className="px-3 py-2 font-semibold">상품</th>
+                            <th className="px-3 py-2 font-semibold">카테고리</th>
                             <th className="px-3 py-2 font-semibold">상태</th>
                             <th className="px-3 py-2 font-semibold">최근 히스토리</th>
                             <th className="px-3 py-2 font-semibold">다음연락</th>
@@ -450,8 +459,14 @@ function ClientsPage() {
                                         <td className="px-3 py-2 text-xs text-[#64748b]">
                                             {c.contact || '--'}
                                         </td>
-                                        <td className="px-3 py-2 text-xs text-[#334155]">
-                                            {c.product || '--'}
+                                        <td className="px-3 py-2">
+                                            {blogClientIds.has(c.id) ? (
+                                                <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-semibold text-[#16a34a]">
+                                                    블로그
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs text-[#94a3b8]">--</span>
+                                            )}
                                         </td>
                                         <td className="px-3 py-2">
                                             <span
