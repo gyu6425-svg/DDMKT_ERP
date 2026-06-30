@@ -128,7 +128,7 @@ export function ContractModal({
                                         i === 0 ? 'bg-[#dbeafe] text-[#1e40af]' : 'bg-[#f1f5f9] text-[#475569]'
                                     }`}
                                 >
-                                    {i === 0 ? '최초' : `재${i}`}
+                                    {i === 0 ? '최초 계약일' : `재${i}`}
                                 </span>
                                 <input
                                     className="h-8 w-[110px] rounded border border-[#cbd5e1] bg-white px-1.5 text-xs"
