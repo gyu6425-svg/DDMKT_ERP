@@ -1,5 +1,5 @@
-import type { BlogAccount } from '../../api/blogRank';
-import { renewLevel } from './helpers';
+import type { BlogAccount } from '../../../api/blogRank';
+import { renewLevel } from '../lib/helpers';
 
 // 잔여 3건 이하(재계약 임박) 블로그만 모아 보여주는 모달. 빨강(1건↓) 상단, 노랑(2~3건) 그 아래.
 export function LowRemainModal({

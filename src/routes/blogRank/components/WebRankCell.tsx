@@ -1,5 +1,5 @@
-import type { BlogAccount } from '../../api/blogRank';
-import { lastWe, prevWe } from './helpers';
+import type { BlogAccount } from '../../../api/blogRank';
+import { lastWe, prevWe } from '../lib/helpers';
 
 export function WebRankCell({ account }: { account: BlogAccount }) {
     if (!account.website_url || !account.rep_keyword) {

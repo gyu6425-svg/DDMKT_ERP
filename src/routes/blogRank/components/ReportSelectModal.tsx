@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { BlogAccount, BlogPost } from '../../api/blogRank';
-import { fmtRank, lastM } from './helpers';
+import type { BlogAccount, BlogPost } from '../../../api/blogRank';
+import { fmtRank, lastM } from '../lib/helpers';
 
 // 성과 보고서 만들기 — 보고서 페이지로 가기 전 '글 선택' 모달. 블로그/키워드/순위를 보고 체크해서
 //   원하는 글만 보고서에 넣는다. '성과 보고서 열기'를 눌러야 실제 보고서 페이지로 이동.

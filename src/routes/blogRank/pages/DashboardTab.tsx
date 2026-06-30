@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { todayKST } from '../../api/blogRank';
-import { lastM, prevM, renewLevel } from './helpers';
-import { Empty, Kpi, Panel, Tag } from './ui';
-import { useBlogRank } from './BlogRankContext';
-import { LowRemainModal } from './LowRemainModal';
-import { RankMovesModal } from './RankMovesModal';
-import { SameDayModal, type SameDayRow } from './SameDayModal';
-import { CrawlListModal, type CrawlRow } from './CrawlListModal';
+import { todayKST } from '../../../api/blogRank';
+import { lastM, prevM, renewLevel } from '../lib/helpers';
+import { Empty, Kpi, Panel, Tag } from '../lib/ui';
+import { useBlogRank } from '../lib/BlogRankContext';
+import { LowRemainModal } from '../components/LowRemainModal';
+import { RankMovesModal } from '../components/RankMovesModal';
+import { SameDayModal, type SameDayRow } from '../components/SameDayModal';
+import { CrawlListModal, type CrawlRow } from '../components/CrawlListModal';
 
 export function DashboardTab() {
     const {

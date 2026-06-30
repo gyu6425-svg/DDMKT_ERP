@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { getBlogAccounts, getBlogPosts, type BlogAccount, type BlogPost } from '../../api/blogRank';
-import { useAuth } from '../../hooks/useAuth';
+import { getBlogAccounts, getBlogPosts, type BlogAccount, type BlogPost } from '../../../api/blogRank';
+import { useAuth } from '../../../hooks/useAuth';
 import type { Tab } from './helpers';
 
 // 블로그 대시보드(5개 페이지)의 공유 상태/로직 — accounts·posts 1회 로드, 토스트, 탭·탭간 이동.

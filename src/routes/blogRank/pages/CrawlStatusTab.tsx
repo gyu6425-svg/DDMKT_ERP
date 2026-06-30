@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { crawlBlog } from '../../api/crawlBlog';
-import { todayKST, type BlogAccount } from '../../api/blogRank';
-import { supabase } from '../../lib/supabase';
-import { useBlogRank } from './BlogRankContext';
-import { SameDayModal, type SameDayRow } from './SameDayModal';
-import { CrawlListModal, type CrawlRow } from './CrawlListModal';
+import { crawlBlog } from '../../../api/crawlBlog';
+import { todayKST, type BlogAccount } from '../../../api/blogRank';
+import { supabase } from '../../../lib/supabase';
+import { useBlogRank } from '../lib/BlogRankContext';
+import { SameDayModal, type SameDayRow } from '../components/SameDayModal';
+import { CrawlListModal, type CrawlRow } from '../components/CrawlListModal';
 
 type CrawlStatus = {
     updated_at: string;

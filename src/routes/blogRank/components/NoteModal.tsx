@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateBlogAccount, type BlogAccount } from '../../api/blogRank';
+import { updateBlogAccount, type BlogAccount } from '../../../api/blogRank';
 
 export function NoteModal({
     account,

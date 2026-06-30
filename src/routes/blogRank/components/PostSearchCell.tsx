@@ -8,9 +8,9 @@ import {
     type BlogAccount,
     type BlogMeasurement,
     type BlogPost,
-} from '../../api/blogRank';
-import { searchRankPC, type RankSearchResult } from '../../api/rankSearch';
-import { fmtRank } from './helpers';
+} from '../../../api/blogRank';
+import { searchRankPC, type RankSearchResult } from '../../../api/rankSearch';
+import { fmtRank } from '../lib/helpers';
 
 // 전역 쿨다운 — 검색/수정(저장)/재검색을 누르면 잠깐 텀(여러 명이 동시에 써도 네이버 차단 예방).
 //   모든 글 행(PostSearchCell)이 공유 → 한 번 측정하면 전체에서 COOLDOWN 동안 다음 측정 막힘.

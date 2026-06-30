@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { updateBlogAccount, type AmountEntry, type BlogAccount, type ContractPeriod } from '../../api/blogRank';
-import { fmtWon } from './helpers';
+import { updateBlogAccount, type AmountEntry, type BlogAccount, type ContractPeriod } from '../../../api/blogRank';
+import { fmtWon } from '../lib/helpers';
 
 // 계약금액 누적 편집 창 — '추가 계약 금액' 입력으로 한 건씩 쌓고, '누적 계약 금액'(합계)을 보여준다.
 export function AmountModal({

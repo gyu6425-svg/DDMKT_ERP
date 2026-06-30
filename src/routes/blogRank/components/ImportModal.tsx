@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { extractBlogId, insertBlogAccounts, updateBlogAccount, type BlogAccount } from '../../api/blogRank';
+import { extractBlogId, insertBlogAccounts, updateBlogAccount, type BlogAccount } from '../../../api/blogRank';
 
 export function ImportModal({
     existing,

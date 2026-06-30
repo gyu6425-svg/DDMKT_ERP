@@ -1,4 +1,4 @@
-import type { BlogPost } from '../../api/blogRank';
+import type { BlogPost } from '../../../api/blogRank';
 
 export function Sparkline({ post }: { post: BlogPost }) {
     const pts = post.measurements;

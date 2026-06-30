@@ -1,5 +1,5 @@
-import type { BlogPost } from '../../api/blogRank';
-import { blSearchUrl, tiSearchUrl } from './report';
+import type { BlogPost } from '../../../api/blogRank';
+import { blSearchUrl, tiSearchUrl } from '../lib/report';
 
 export function RankCell({ post, keyName }: { post: BlogPost; keyName: 'ti' | 'bl' }) {
     if (!post.measurements.length) {

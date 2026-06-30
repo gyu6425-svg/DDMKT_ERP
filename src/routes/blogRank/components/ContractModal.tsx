@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateBlogAccount, type BlogAccount, type ContractPeriod } from '../../api/blogRank';
+import { updateBlogAccount, type BlogAccount, type ContractPeriod } from '../../../api/blogRank';
 
 // 계약 편집 창 — 계약 기간(시작일~종료일)을 입력하고, 재계약할 때마다 기간을 쌓는다.
 // 마지막 기간 = 현재 계약. 종료일 = 다음 재계약 예정일(상태 '재계약 임박' 판정 기준).

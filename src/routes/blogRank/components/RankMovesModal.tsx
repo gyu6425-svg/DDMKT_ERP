@@ -1,5 +1,5 @@
-import type { BlogPost } from '../../api/blogRank';
-import { lastM, prevM } from './helpers';
+import type { BlogPost } from '../../../api/blogRank';
+import { lastM, prevM } from '../lib/helpers';
 import { Sparkline } from './Sparkline';
 
 export type RankMove = { p: BlogPost; d: number };

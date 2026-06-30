@@ -1,6 +1,6 @@
-import { todayKST, type BlogAccount, type BlogMeasurement, type BlogPost } from '../../api/blogRank';
+import { todayKST, type BlogAccount, type BlogMeasurement, type BlogPost } from '../../../api/blogRank';
 import { amountTotal, fmtWon, lastM } from './helpers';
-import { KAKAO_JS_KEY, shareKakaoText } from '../../lib/kakao';
+import { KAKAO_JS_KEY, shareKakaoText } from '../../../lib/kakao';
 
 const escapeHtml = (v: unknown): string =>
     String(v ?? '')

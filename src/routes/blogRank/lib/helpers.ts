@@ -1,4 +1,4 @@
-import type { BlogAccount, BlogPost, WebMeasurement } from '../../api/blogRank';
+import type { BlogAccount, BlogPost, WebMeasurement } from '../../../api/blogRank';
 
 export type Tab = 'dashboard' | 'sheet' | 'tracker' | 'crawl' | 'writer';
 

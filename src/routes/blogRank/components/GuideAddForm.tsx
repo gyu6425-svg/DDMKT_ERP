@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { extractBlogId, insertBlogAccounts } from '../../api/blogRank';
+import { extractBlogId, insertBlogAccounts } from '../../../api/blogRank';
 
 // 블로그 관리 시트 '가이드 추가' — 고정 라벨(삭제 불가) 옆 칸에 값을 입력하면 그대로 등록.
 //   업체명/계약일자/계약건수/잔여건수/총 발행건수/발행 URL/기자단.

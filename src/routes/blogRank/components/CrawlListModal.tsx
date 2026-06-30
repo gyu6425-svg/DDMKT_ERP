@@ -1,4 +1,4 @@
-import type { BlogAccount, BlogMeasurement, BlogPost } from '../../api/blogRank';
+import type { BlogAccount, BlogMeasurement, BlogPost } from '../../../api/blogRank';
 
 // 크롤링 현황 KPI(지금 측정한 글 / 누락 건 / 실패 글) 클릭 시 그 글 목록을 보여주는 모달.
 export type CrawlRow = { post: BlogPost; account: BlogAccount | null; m: BlogMeasurement | null };

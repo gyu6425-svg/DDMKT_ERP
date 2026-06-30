@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateBlogAccount, type BlogAccount, type ContractPeriod } from '../../api/blogRank';
+import { updateBlogAccount, type BlogAccount, type ContractPeriod } from '../../../api/blogRank';
 
 // 진행률 관리 창 — '1건 완료'로 잔여 건수를 1 줄여(=발행 1건 처리) 진행률에 자동 반영.
 export function ProgressModal({

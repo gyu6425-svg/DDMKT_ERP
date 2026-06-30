@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { queueReportSend, type BlogAccount, type BlogMeasurement, type BlogPost } from '../../api/blogRank';
-import { buildRankReportMessage } from './report';
+import { queueReportSend, type BlogAccount, type BlogMeasurement, type BlogPost } from '../../../api/blogRank';
+import { buildRankReportMessage } from '../lib/report';
 
 // 측정 글 리스트 모달 — 크롤링 현황 KPI('당일 측정 글' / '전날 측정 글 순위') 클릭 시 표시.
 //   mode='publish'(당일): 업체명 · 블로그(글링크) · [성과] 버튼(=발행 보고 카톡 발송).

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateBlogAccount, type BlogAccount, type HistoryEntry } from '../../api/blogRank';
+import { updateBlogAccount, type BlogAccount, type HistoryEntry } from '../../../api/blogRank';
 
 // 값+날짜 변경 이력 편집 창(주 발행·기자단 공용) — 변경할 때마다 (값+날짜) 한 건씩 쌓고 마지막이 현재값.
 export function FieldHistoryModal({
