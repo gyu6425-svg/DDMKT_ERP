@@ -1,4 +1,5 @@
 import AdminOnly from './AdminOnly';
+import { CATEGORIES } from './categoryRank/categories';
 import { useAuth } from '../hooks/useAuth';
 import type { MouseEvent } from 'react';
 
@@ -75,14 +76,17 @@ function Sidebar() {
                     ),
                 )}
                 <AdminOnly>
-                    <a
-                        aria-current={currentPath === '/blog-rank' ? 'page' : undefined}
-                        className={linkClassName('/blog-rank')}
-                        href="/blog-rank"
-                        onClick={(event) => navigate(event, '/blog-rank')}
-                    >
-                        블로그 대시보드
-                    </a>
+                    {CATEGORIES.map((c) => (
+                        <a
+                            aria-current={c.path === currentPath ? 'page' : undefined}
+                            className={linkClassName(c.path)}
+                            href={c.path}
+                            key={c.path}
+                            onClick={(event) => navigate(event, c.path)}
+                        >
+                            {c.label}
+                        </a>
+                    ))}
                     <a
                         aria-current={currentPath === '/admin' ? 'page' : undefined}
                         className={linkClassName('/admin')}
