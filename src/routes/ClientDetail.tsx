@@ -781,7 +781,7 @@ function ContractEditModal({
                                                 key={i}
                                             >
                                                 <span className="rounded bg-[#dbeafe] px-1.5 py-0.5 text-[11px] font-bold text-[#1e40af]">
-                                                    {l.week}
+                                                    {i + 1}주차
                                                 </span>
                                                 <span className="text-[#64748b]">{l.at}</span>
                                                 <span className="ml-auto font-bold text-[#1e40af]">
