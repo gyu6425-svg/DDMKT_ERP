@@ -35,6 +35,15 @@ const formatBizNo = (s: string) => {
     return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
 };
 
+// 기본정보/업종정보 카드 필드.
+type FieldDef = {
+    key: 'manager' | 'source' | 'contact' | 'email' | 'business_number' | 'address' | 'industry' | 'url';
+    label: string;
+    value: string;
+    options?: string[];
+    format?: (v: string) => string;
+};
+
 const progOf = (ct: ClientContract): number | null => {
     if (ct.goal_count == null || ct.remain_count == null || ct.goal_count === 0) return null;
     return Math.round(((ct.goal_count - ct.remain_count) / ct.goal_count) * 100);
@@ -866,6 +875,26 @@ export function ClientDetail({
         ...new Set(([client.manager, ...salespeople.map((s) => s.name)].filter(Boolean) as string[])),
     ];
 
+    const renderFieldCard = (f: FieldDef) => (
+        <button
+            className="rounded-lg border border-[#e2e8f0] bg-white px-3 py-2.5 text-left shadow-sm hover:border-[#1e40af]"
+            key={f.key}
+            onClick={() =>
+                setEditField({
+                    format: f.format,
+                    label: f.label,
+                    options: f.options,
+                    patchKey: f.key,
+                    value: f.value,
+                })
+            }
+            type="button"
+        >
+            <div className="text-[11px] font-semibold text-[#94a3b8]">{f.label}</div>
+            <div className="mt-0.5 truncate text-sm font-medium text-[#0f172a]">{f.value || '-'}</div>
+        </button>
+    );
+
     // 카테고리별 합계 + 총액.
     const catAmount = (label: string) =>
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
@@ -1044,7 +1073,7 @@ export function ClientDetail({
                 </div>
             )}
 
-            {/* 기본 정보 — 누르면 모달에서 변경 */}
+            {/* 기본 정보 — 담당자·문의 경로·연락처·이메일 */}
             <h3 className="m-0 mt-2 text-base font-bold text-[#0f172a]">기본 정보</h3>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {(
@@ -1053,6 +1082,15 @@ export function ClientDetail({
                         { key: 'source', label: '문의 경로', value: client.source || '', options: SOURCE_OPTIONS },
                         { key: 'contact', label: '연락처', value: client.contact || '' },
                         { key: 'email', label: '이메일', value: client.email || '' },
+                    ] as FieldDef[]
+                ).map(renderFieldCard)}
+            </div>
+
+            {/* 업종 정보 — 사업자등록번호·사업장 주소·업종/업태·URL */}
+            <h3 className="m-0 mt-2 text-base font-bold text-[#0f172a]">업종 정보</h3>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {(
+                    [
                         {
                             key: 'business_number',
                             label: '사업자등록번호',
@@ -1062,40 +1100,8 @@ export function ClientDetail({
                         { key: 'address', label: '사업장 주소', value: client.address || '' },
                         { key: 'industry', label: '업종/업태', value: client.industry || '', options: INDUSTRY_OPTIONS },
                         { key: 'url', label: 'URL', value: client.url || '' },
-                    ] as {
-                        key:
-                            | 'manager'
-                            | 'source'
-                            | 'contact'
-                            | 'email'
-                            | 'business_number'
-                            | 'address'
-                            | 'industry'
-                            | 'url';
-                        label: string;
-                        value: string;
-                        options?: string[];
-                        format?: (v: string) => string;
-                    }[]
-                ).map((f) => (
-                    <button
-                        className="rounded-lg border border-[#e2e8f0] bg-white px-3 py-2.5 text-left shadow-sm hover:border-[#1e40af]"
-                        key={f.key}
-                        onClick={() =>
-                            setEditField({
-                                format: f.format,
-                                label: f.label,
-                                options: f.options,
-                                patchKey: f.key,
-                                value: f.value,
-                            })
-                        }
-                        type="button"
-                    >
-                        <div className="text-[11px] font-semibold text-[#94a3b8]">{f.label}</div>
-                        <div className="mt-0.5 truncate text-sm font-medium text-[#0f172a]">{f.value || '-'}</div>
-                    </button>
-                ))}
+                    ] as FieldDef[]
+                ).map(renderFieldCard)}
             </div>
 
             {addOpen ? (
