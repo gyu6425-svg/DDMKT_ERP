@@ -5,6 +5,7 @@ import {
     insertClientContracts,
     updateClientContract,
     type ClientContract,
+    type ContractHistoryItem,
 } from '../api/clientContracts';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import { PRODUCT_CATEGORIES, categoryByLabel } from '../lib/products';
@@ -264,8 +265,7 @@ function ContractEditModal({
     const [note, setNote] = useState(contract.note ?? '');
     const [saving, setSaving] = useState(false);
     const [confirmDel, setConfirmDel] = useState(false);
-    const [renewing, setRenewing] = useState(false);
-    const [reCount, setReCount] = useState('');
+    const [history, setHistory] = useState<ContractHistoryItem[]>(contract.history ?? []);
 
     const goalN = Number(goal) || 0;
     const remainN = Number(remain) || 0;
@@ -291,34 +291,39 @@ function ContractEditModal({
         await onReload();
     };
 
-    // 재계약 = 새 계약 건수로 리셋(잔여=건수, 0%부터).
-    const renew = async () => {
-        const n = Number(reCount);
-        if (!n || n <= 0) {
-            onToast('계약 건수를 입력하세요');
-            return;
-        }
-        setSaving(true);
-        const { error } = await updateClientContract(contract.id, { goal_count: n, remain_count: n });
-        setSaving(false);
-        if (error) {
-            onToast(`오류: ${error.message}`);
-            return;
-        }
-        onToast(`재계약 — 계약 ${n}건 · 0%부터`);
-        await onReload();
-        onClose();
+    // 재계약 = 기존 계약을 이력으로 보관하고 입력칸을 0/빈칸으로 → 새 계약을 작성.
+    const archive = () => {
+        const snap: ContractHistoryItem = {
+            amount: Number(amount) || 0,
+            at: new Date().toISOString().slice(0, 10),
+            contract_date: date || null,
+            goal_count: goal.trim() ? Number(goal) : null,
+            note: note.trim() || null,
+            remain_count: remain.trim() ? Number(remain) : null,
+        };
+        setHistory([...history, snap]);
+        setGoal('');
+        setRemain('');
+        setAmount('');
+        setDate('');
+        setNote('');
+        onToast('기존 계약을 이력으로 옮겼습니다. 새 계약 내용을 입력 후 저장하세요.');
     };
 
     const save = async () => {
         setSaving(true);
-        const { error } = await updateClientContract(contract.id, {
+        const payload: Partial<ClientContract> = {
             amount: amount.trim() ? Number(amount) : 0,
             contract_date: date || null,
             goal_count: goal.trim() ? Number(goal) : null,
             note: note.trim() || null,
             remain_count: remain.trim() ? Number(remain) : null,
-        });
+        };
+        // 이력이 바뀐 경우에만 history 전송(컬럼 미생성 시 일반 저장은 계속 동작).
+        if (history.length !== (contract.history?.length ?? 0)) {
+            payload.history = history;
+        }
+        const { error } = await updateClientContract(contract.id, payload);
         setSaving(false);
         if (error) {
             onToast(`오류: ${error.message}`);
@@ -383,48 +388,16 @@ function ContractEditModal({
                     </div>
                 ) : null}
 
-                {/* 잔여 3건 미만 → 재계약 / 계약 종료 */}
+                {/* 잔여 3건 미만 → 재계약(기존→이력) / 계약 종료 */}
                 {canRenew ? (
                     <div className="mb-3 flex flex-col gap-2 border-t border-[#e2e8f0] pt-3">
-                        {renewing ? (
-                            <div className="rounded-md border border-[#a7f3d0] bg-[#f0fdf4] p-2.5">
-                                <div className="mb-1.5 text-xs font-bold text-[#047857]">재계약 (새 계약 건수)</div>
-                                <div className="flex gap-2">
-                                    <input
-                                        className="h-9 flex-1 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
-                                        min="1"
-                                        onChange={(e) => setReCount(e.target.value)}
-                                        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), void renew())}
-                                        placeholder="계약 건수 (예: 30)"
-                                        type="number"
-                                        value={reCount}
-                                    />
-                                    <button
-                                        className="rounded-md bg-[#059669] px-4 text-sm font-bold text-white disabled:opacity-50"
-                                        disabled={saving}
-                                        onClick={() => void renew()}
-                                        type="button"
-                                    >
-                                        추가
-                                    </button>
-                                    <button
-                                        className="rounded-md border border-[#cbd5e1] px-3 text-sm font-semibold text-[#475569]"
-                                        onClick={() => setRenewing(false)}
-                                        type="button"
-                                    >
-                                        취소
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            <button
-                                className="w-full rounded-md bg-[#059669] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#047857]"
-                                onClick={() => setRenewing(true)}
-                                type="button"
-                            >
-                                재계약 (새 계약 시작)
-                            </button>
-                        )}
+                        <button
+                            className="w-full rounded-md bg-[#059669] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#047857]"
+                            onClick={archive}
+                            type="button"
+                        >
+                            재계약 (기존 계약 → 이력, 새로 작성)
+                        </button>
                         <button
                             className="w-full rounded-md bg-[#dc2626] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#b91c1c]"
                             onClick={onEnd}
@@ -433,7 +406,7 @@ function ContractEditModal({
                             계약 종료
                         </button>
                         <p className="text-xs text-[#94a3b8]">
-                            계약 종료 = 삭제가 아니라 ‘계약 종료’ 탭으로 이동(보관)됩니다.
+                            재계약 = 기존 계약을 아래 이력으로 옮기고 입력칸을 비웁니다. · 계약 종료 = ‘계약 종료’ 탭으로 이동(보관).
                         </p>
                     </div>
                 ) : null}
@@ -487,6 +460,30 @@ function ContractEditModal({
                         />
                     </label>
                 </div>
+
+                {/* 계약 이력 — 재계약으로 넘긴 기존 계약(읽기 전용) */}
+                {history.length ? (
+                    <div className="mt-3 border-t border-[#e2e8f0] pt-3">
+                        <div className="mb-1.5 text-xs font-bold text-[#334155]">계약 이력</div>
+                        <div className="grid max-h-[28vh] gap-1 overflow-y-auto">
+                            {history
+                                .slice()
+                                .reverse()
+                                .map((h, i) => (
+                                    <div
+                                        className="flex items-center justify-between rounded-md border border-[#eef2f7] bg-[#f8fafc] px-2.5 py-1.5 text-xs text-[#475569]"
+                                        key={i}
+                                    >
+                                        <span className="font-semibold">
+                                            {h.contract_date || h.at} · 계약 {h.goal_count ?? '—'}건
+                                        </span>
+                                        <span>{h.amount ? `${fmtWon(h.amount)}원` : '-'}</span>
+                                    </div>
+                                ))}
+                        </div>
+                    </div>
+                ) : null}
+
                 <div className="mt-5 flex items-center gap-2">
                     {confirmDel ? (
                         <>

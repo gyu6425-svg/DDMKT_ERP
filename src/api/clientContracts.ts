@@ -1,5 +1,15 @@
 import { supabase } from '../lib/supabase';
 
+// 재계약 시 기존 계약을 보관하는 이력 항목.
+export type ContractHistoryItem = {
+    goal_count: number | null;
+    remain_count: number | null;
+    amount: number | null;
+    contract_date: string | null;
+    note: string | null;
+    at: string; // 이력으로 넘긴 날짜(YYYY-MM-DD)
+};
+
 // 고객사 계약 내역(카테고리/세부유형별 건수 계약). client_contracts 테이블(docs/client-contracts.sql).
 export type ClientContract = {
     id: string;
@@ -12,6 +22,7 @@ export type ClientContract = {
     amount: number | null;
     contract_date: string | null;
     note: string | null;
+    history?: ContractHistoryItem[] | null;
 };
 
 // clientId 주면 그 고객만. 테이블 미생성 등 오류 시에도 앱이 죽지 않도록 [] 반환.

@@ -10,8 +10,11 @@ create table if not exists public.client_contracts (
     remain_count int,              -- 잔여 건수(기본=건수)
     amount numeric default 0,      -- 금액
     contract_date date,
-    note text
+    note text,
+    history jsonb not null default '[]'::jsonb  -- 재계약 시 기존 계약 스냅샷 보관
 );
+-- 기존 테이블 마이그레이션: 계약 이력 컬럼 추가
+alter table public.client_contracts add column if not exists history jsonb not null default '[]'::jsonb;
 create index if not exists client_contracts_client_idx on public.client_contracts (client_id);
 alter table public.client_contracts enable row level security;
 drop policy if exists "client_contracts all authenticated" on public.client_contracts;
