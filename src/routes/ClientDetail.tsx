@@ -970,7 +970,7 @@ export function ClientDetail({
                 )}
             </div>
 
-            {/* 누적 금액 — 순매출 + 외주비 = 실매출 (카드별 + 연산자). 순매출·외주비 누르면 상품별 내역 */}
+            {/* 누적 금액 — 순매출 = 실매출 − 외주비 (카드별 + 연산자). 순매출·외주비 누르면 상품별 내역 */}
             <div className="flex items-stretch gap-2">
                 <button
                     className="flex-1 rounded-xl border-2 border-[#059669] bg-[#f0fdf4] px-3 py-3 text-center shadow-sm transition hover:shadow-md"
@@ -980,7 +980,12 @@ export function ClientDetail({
                     <div className="text-[11px] font-semibold text-[#059669]">순매출 · 내역 보기 ↗</div>
                     <div className="mt-0.5 text-lg font-bold text-[#059669] sm:text-2xl">{fmtWon(netRevenue)}원</div>
                 </button>
-                <div className="flex items-center text-xl font-bold text-[#94a3b8]">+</div>
+                <div className="flex items-center text-xl font-bold text-[#94a3b8]">=</div>
+                <div className="flex-1 rounded-xl border border-[#e2e8f0] bg-white px-3 py-3 text-center shadow-sm">
+                    <div className="text-[11px] font-semibold text-[#94a3b8]">실매출 (누적)</div>
+                    <div className="mt-0.5 text-lg font-bold text-[#1e40af] sm:text-2xl">{fmtWon(totalAmount)}원</div>
+                </div>
+                <div className="flex items-center text-xl font-bold text-[#94a3b8]">−</div>
                 <button
                     className="flex-1 rounded-xl border border-[#e2e8f0] bg-white px-3 py-3 text-center shadow-sm transition hover:border-[#dc2626] hover:shadow-md"
                     onClick={() => setBreakdown('outsource')}
@@ -991,11 +996,6 @@ export function ClientDetail({
                         {fmtWon(totalOutsource)}원
                     </div>
                 </button>
-                <div className="flex items-center text-xl font-bold text-[#94a3b8]">=</div>
-                <div className="flex-1 rounded-xl border border-[#e2e8f0] bg-white px-3 py-3 text-center shadow-sm">
-                    <div className="text-[11px] font-semibold text-[#94a3b8]">실매출 (누적)</div>
-                    <div className="mt-0.5 text-lg font-bold text-[#1e40af] sm:text-2xl">{fmtWon(totalAmount)}원</div>
-                </div>
             </div>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
                 {PRODUCT_CATEGORIES.map((c) => (
