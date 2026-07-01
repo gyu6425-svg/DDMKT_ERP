@@ -853,6 +853,7 @@ export function ClientDetail({
     const [editContract, setEditContract] = useState<ClientContract | null>(null);
     const [endOpen, setEndOpen] = useState(false); // 상단 계약 종료 모달(히스토리 입력)
     const [endNote, setEndNote] = useState('');
+    const [breakdown, setBreakdown] = useState<'net' | 'outsource' | null>(null); // 순매출/외주비 상품별 내역
 
     // 계약 종료 = 업체 상태를 '계약종료'로(계약 종료 탭으로 이동, 계약행은 보존) → 목록으로.
     const endClient = () => {
@@ -969,29 +970,32 @@ export function ClientDetail({
                 )}
             </div>
 
-            {/* 누적 금액 — 순매출(실매출 − 외주비) + 카테고리별 실매출 */}
-            <div className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
-                <div className="grid grid-cols-3 gap-3">
-                    <div>
-                        <div className="text-[11px] font-semibold text-[#94a3b8]">실매출 (누적)</div>
-                        <div className="mt-0.5 text-xl font-bold text-[#1e40af] sm:text-2xl">
-                            {fmtWon(totalAmount)}원
-                        </div>
+            {/* 누적 금액 — 순매출 + 외주비 = 실매출 (카드별 + 연산자). 순매출·외주비 누르면 상품별 내역 */}
+            <div className="flex items-stretch gap-2">
+                <button
+                    className="flex-1 rounded-xl border-2 border-[#059669] bg-[#f0fdf4] px-3 py-3 text-center shadow-sm transition hover:shadow-md"
+                    onClick={() => setBreakdown('net')}
+                    type="button"
+                >
+                    <div className="text-[11px] font-semibold text-[#059669]">순매출 · 내역 보기 ↗</div>
+                    <div className="mt-0.5 text-lg font-bold text-[#059669] sm:text-2xl">{fmtWon(netRevenue)}원</div>
+                </button>
+                <div className="flex items-center text-xl font-bold text-[#94a3b8]">+</div>
+                <button
+                    className="flex-1 rounded-xl border border-[#e2e8f0] bg-white px-3 py-3 text-center shadow-sm transition hover:border-[#dc2626] hover:shadow-md"
+                    onClick={() => setBreakdown('outsource')}
+                    type="button"
+                >
+                    <div className="text-[11px] font-semibold text-[#94a3b8]">외주비 합계 · 내역 보기 ↗</div>
+                    <div className="mt-0.5 text-lg font-bold text-[#dc2626] sm:text-2xl">
+                        {fmtWon(totalOutsource)}원
                     </div>
-                    <div>
-                        <div className="text-[11px] font-semibold text-[#94a3b8]">외주비 합계</div>
-                        <div className="mt-0.5 text-xl font-bold text-[#dc2626] sm:text-2xl">
-                            {fmtWon(totalOutsource)}원
-                        </div>
-                    </div>
-                    <div>
-                        <div className="text-[11px] font-semibold text-[#94a3b8]">순매출</div>
-                        <div className="mt-0.5 text-xl font-bold text-[#059669] sm:text-2xl">
-                            {fmtWon(netRevenue)}원
-                        </div>
-                    </div>
+                </button>
+                <div className="flex items-center text-xl font-bold text-[#94a3b8]">=</div>
+                <div className="flex-1 rounded-xl border border-[#e2e8f0] bg-white px-3 py-3 text-center shadow-sm">
+                    <div className="text-[11px] font-semibold text-[#94a3b8]">실매출 (누적)</div>
+                    <div className="mt-0.5 text-lg font-bold text-[#1e40af] sm:text-2xl">{fmtWon(totalAmount)}원</div>
                 </div>
-                <div className="mt-2 text-[11px] text-[#94a3b8]">순매출 = 실매출 − 외주비</div>
             </div>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
                 {PRODUCT_CATEGORIES.map((c) => (
@@ -1189,6 +1193,72 @@ export function ClientDetail({
                                 type="button"
                             >
                                 계약 종료
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+            {breakdown ? (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                    onMouseDown={(e) => e.target === e.currentTarget && setBreakdown(null)}
+                >
+                    <div className="max-h-[80vh] w-[min(460px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
+                        <h3 className="m-0 text-lg font-bold">
+                            {breakdown === 'net' ? '순매출 내역' : '외주비 내역'}
+                        </h3>
+                        <p className="mt-1 mb-3 text-sm text-[#64748b]">
+                            {breakdown === 'net' ? '상품별 순매출 (매출 − 외주비)' : '상품별 외주비'}
+                        </p>
+                        {contracts.length ? (
+                            <div className="grid gap-1">
+                                {contracts.map((ct) => {
+                                    const val =
+                                        breakdown === 'net'
+                                            ? (ct.amount || 0) - (ct.outsource || 0)
+                                            : ct.outsource || 0;
+                                    return (
+                                        <div
+                                            className="flex items-center gap-2 rounded-md border border-[#eef2f7] bg-[#f8fafc] px-3 py-2 text-sm"
+                                            key={ct.id}
+                                        >
+                                            <span className="min-w-0">
+                                                <span className="block font-semibold text-[#0f172a]">
+                                                    {ct.subtype}
+                                                </span>
+                                                <span className="block text-[11px] text-[#94a3b8]">
+                                                    {ct.category}
+                                                    {breakdown === 'net'
+                                                        ? ` · 매출 ${fmtWon(ct.amount || 0)} − 외주 ${fmtWon(ct.outsource || 0)}`
+                                                        : ''}
+                                                </span>
+                                            </span>
+                                            <span
+                                                className="ml-auto shrink-0 font-bold"
+                                                style={{ color: breakdown === 'net' ? '#059669' : '#dc2626' }}
+                                            >
+                                                {fmtWon(val)}원
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="px-2 py-8 text-center text-sm text-[#94a3b8]">계약이 없습니다.</div>
+                        )}
+                        <div className="mt-3 flex items-center justify-between border-t border-[#e2e8f0] pt-3 text-sm font-bold">
+                            <span>합계</span>
+                            <span style={{ color: breakdown === 'net' ? '#059669' : '#dc2626' }}>
+                                {fmtWon(breakdown === 'net' ? netRevenue : totalOutsource)}원
+                            </span>
+                        </div>
+                        <div className="mt-4 flex justify-end">
+                            <button
+                                className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                                onClick={() => setBreakdown(null)}
+                                type="button"
+                            >
+                                닫기
                             </button>
                         </div>
                     </div>
