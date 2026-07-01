@@ -12,6 +12,12 @@ const normCompany = (s: string) => (s || '').trim().replace(/\s+/g, '').toLowerC
 // 품목명 '슈퍼뭉치 외 1건' → '슈퍼뭉치'(외 N건 앞부분만). 매칭·분류에 이 기준값 사용.
 const productBase = (s: string) => (s || '').replace(/\s*외\s*\d+\s*건.*$/, '').trim();
 const normProduct = (s: string) => productBase(s).replace(/\s+/g, '').toLowerCase();
+// 머리글 행에서 컬럼을 이름으로 찾기(순서/개수 무관). 첫 매칭 열 인덱스.
+const findCol = (headers: string[], keys: string[]) =>
+    headers.findIndex((h) => {
+        const x = h.replace(/\s/g, '');
+        return keys.some((k) => x.includes(k));
+    });
 const parseDate = (s: string) => {
     const m = (s || '').match(/(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
     return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : null;
@@ -92,25 +98,34 @@ export function ContractImportModal({
     const [outText, setOutText] = useState('');
     const [saving, setSaving] = useState(false);
 
-    // 외주비 시트 파싱 → 매칭 버킷(업체명|수량 → OutRow[]).
-    //   외주비 열: 일자 | 거래처명(외주업체) | 업체명 | 관리항목명 | 품목명(요약) | 수량 | 단가 | 공급가액 | 부가세 | 합계 | 담당자
-    //   품목명이 '슈퍼뭉치 외 1건' 요약이라 품목 매칭 불가 → 업체명+수량으로 매칭(외주단가로 tie-break).
+    // 외주비 시트 파싱(헤더 기반) → 매칭 버킷(업체명|품목명(외N건제거)|수량 → OutRow[]).
+    //   거래처명=외주업체. 매칭엔 업체명+품목명+수량 사용(거래처명 제외), 외주단가 tie-break.
     const outBuckets = useMemo(() => {
         const m = new Map<string, OutRow[]>();
-        for (const raw of outText.split('\n')) {
-            const c = raw.replace(/\r$/, '').split('\t');
-            if (c.length < 8) continue;
-            const company = (c[2] || '').trim();
-            if (!company || company === '업체명' || company === '거래처명') continue;
-            const qty = num(c[5]);
-            const key = `${normCompany(company)}|${normProduct(c[4] || '')}|${qty}`;
+        const lines = outText.split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => l.trim());
+        if (lines.length < 2) return m;
+        const H = lines[0].split('\t').map((s) => s.trim());
+        const iVendor = findCol(H, ['거래처']);
+        const iCompany = findCol(H, ['업체명']);
+        const iProduct = findCol(H, ['품목']);
+        const iQty = findCol(H, ['수량']);
+        const iUnit = findCol(H, ['단가']);
+        const iAmount = findCol(H, ['공급가']);
+        if (iCompany < 0 || iQty < 0) return m;
+        for (const line of lines.slice(1)) {
+            const c = line.split('\t');
+            const company = (c[iCompany] || '').trim();
+            if (!company) continue;
+            const qty = num(c[iQty]);
+            const product = (c[iProduct] || '').trim();
+            const key = `${normCompany(company)}|${normProduct(product)}|${qty}`;
             const row: OutRow = {
                 company,
-                outAmount: num(c[7]),
-                outUnit: num(c[6]),
-                product: (c[4] || '').trim(),
+                outAmount: iAmount >= 0 ? num(c[iAmount]) : 0,
+                outUnit: iUnit >= 0 ? num(c[iUnit]) : 0,
+                product,
                 qty,
-                vendor: (c[1] || '').trim(),
+                vendor: iVendor >= 0 ? (c[iVendor] || '').trim() : '',
             };
             if (!m.has(key)) m.set(key, []);
             m.get(key)!.push(row);
@@ -118,24 +133,36 @@ export function ContractImportModal({
         return m;
     }, [outText]);
 
+    // 매출(주) 시트 파싱(헤더 기반). 일자·품목명·업체명·수량·단가·공급가액·외주비·순매출·담당자·거래처명을 이름으로.
     const rows = useMemo<Row[]>(() => {
+        const out: Row[] = [];
+        const lines = salesText.split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => l.trim());
+        if (lines.length < 2) return out;
+        const H = lines[0].split('\t').map((s) => s.trim());
+        const iDate = findCol(H, ['일자', '날짜']);
+        const iProduct = findCol(H, ['품목']);
+        const iCompany = findCol(H, ['업체명']);
+        const iPartner = findCol(H, ['거래처']);
+        const iQty = findCol(H, ['수량']);
+        const iUnit = findCol(H, ['단가']);
+        const iAmount = findCol(H, ['공급가']);
+        const iOut = findCol(H, ['외주비', '외주']);
+        const iManager = findCol(H, ['담당', '사원']);
+        if (iCompany < 0 || iProduct < 0 || iQty < 0) return out;
         const seen = new Set<string>();
         const buckets = new Map<string, OutRow[]>();
         for (const [k, v] of outBuckets) buckets.set(k, [...v]); // 소비용 복제
-        const out: Row[] = [];
-        for (const raw of salesText.split('\n')) {
-            const c = raw.replace(/\r$/, '').split('\t');
-            if (c.length < 11) continue;
-            const company = (c[4] || '').trim();
-            const product = (c[3] || '').trim();
-            if (!company || product === '품목명' || company === '거래처명') continue;
-            const qty = num(c[5]);
-            const amount = num(c[7]);
-            const outsource = num(c[10]);
-            const key = `${(c[0] || '').trim()}|${company}|${product}|${qty}|${amount}`;
+        for (const line of lines.slice(1)) {
+            const c = line.split('\t');
+            const company = (c[iCompany] || '').trim();
+            const product = (c[iProduct] || '').trim();
+            if (!company || !product) continue;
+            const qty = num(c[iQty]);
+            const amount = iAmount >= 0 ? num(c[iAmount]) : 0;
+            const outsource = iOut >= 0 ? num(c[iOut]) : 0;
+            const key = `${iDate >= 0 ? (c[iDate] || '').trim() : ''}|${company}|${product}|${qty}|${amount}`;
             const dup = seen.has(key);
             seen.add(key);
-            // 외주비 시트 매칭(업체명+품목명(외N건 제거)+수량, 외주단가 tie-break). 거래처명은 매칭에 안 씀.
             const mkey = `${normCompany(company)}|${normProduct(product)}|${qty}`;
             let vendor: string | null = null;
             let outUnit: number | null = qty ? Math.round(outsource / qty) : null;
@@ -153,16 +180,16 @@ export function ContractImportModal({
             out.push({
                 amount,
                 company,
-                date: parseDate(c[0]) || parseDate(c[1]),
+                date: iDate >= 0 ? parseDate(c[iDate]) : null,
                 dup,
-                manager: (c[12] || '').trim(),
+                manager: iManager >= 0 ? (c[iManager] || '').trim() : '',
                 map: mapProduct(productBase(product)),
                 outUnit,
                 outsource,
-                partner: (c[2] || '').trim(),
+                partner: iPartner >= 0 ? (c[iPartner] || '').trim() : '',
                 product,
                 qty,
-                unit: num(c[6]),
+                unit: iUnit >= 0 ? num(c[iUnit]) : 0,
                 vendor,
             });
         }
@@ -247,8 +274,9 @@ export function ContractImportModal({
             <div className="max-h-[92vh] w-[min(760px,96vw)] overflow-y-auto rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">시트 붙여넣기 일괄 등록</h3>
                 <p className="mt-1 mb-2 text-sm text-[#64748b]">
-                    엑셀에서 복사(탭 구분). 품목명으로 카테고리 자동 분류, 애매/중복 자동 제외. 외주비 시트를 함께
-                    넣으면 외주업체명·외주단가가 매칭됩니다.
+                    엑셀에서 <b>머리글(품목명·업체명·수량 등) 행을 포함</b>해 복사(탭 구분)하세요. 컬럼을 이름으로
+                    인식하므로 순서·개수가 달라도 됩니다. 품목명으로 카테고리 자동 분류, 애매/중복 자동 제외. 외주비
+                    시트를 함께 넣으면 외주업체명·외주단가가 매칭됩니다.
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
                     <label className="block text-xs font-bold text-[#334155]">
@@ -256,7 +284,7 @@ export function ContractImportModal({
                         <textarea
                             className="mt-1 h-28 w-full rounded-md border border-[#cbd5e1] p-2 font-mono text-xs"
                             onChange={(e) => setSalesText(e.target.value)}
-                            placeholder="일자 · 계약일자 · 거래처명 · 품목명 · 업체명 · 수량 · 단가 · 공급가액 · 부가세 · 합계 · 외주비 · 순매출 · 담당자"
+                            placeholder="머리글 행 포함 붙여넣기 (일자·품목명·업체명·수량·단가·공급가액·외주비·순매출·담당자 …)"
                             value={salesText}
                         />
                     </label>
@@ -265,7 +293,7 @@ export function ContractImportModal({
                         <textarea
                             className="mt-1 h-28 w-full rounded-md border border-[#fecaca] p-2 font-mono text-xs"
                             onChange={(e) => setOutText(e.target.value)}
-                            placeholder="일자 · 거래처명(외주업체) · 업체명 · 품목명 · 수량 · 단가 · 공급가액 · 부가세 · 합계 · 담당자"
+                            placeholder="머리글 행 포함 (거래처명=외주업체·업체명·품목명·수량·단가·공급가액 …)"
                             value={outText}
                         />
                     </label>
