@@ -9,7 +9,9 @@ import { insertClientContracts, type ClientContract } from '../api/clientContrac
 
 const num = (s: string) => Number((s || '').replace(/[^\d.-]/g, '')) || 0;
 const normCompany = (s: string) => (s || '').trim().replace(/\s+/g, '').toLowerCase();
-const norm = (s: string) => (s || '').trim().replace(/\s+/g, '').toLowerCase();
+// 품목명 '슈퍼뭉치 외 1건' → '슈퍼뭉치'(외 N건 앞부분만). 매칭·분류에 이 기준값 사용.
+const productBase = (s: string) => (s || '').replace(/\s*외\s*\d+\s*건.*$/, '').trim();
+const normProduct = (s: string) => productBase(s).replace(/\s+/g, '').toLowerCase();
 const parseDate = (s: string) => {
     const m = (s || '').match(/(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
     return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : null;
@@ -90,22 +92,23 @@ export function ContractImportModal({
     const [outText, setOutText] = useState('');
     const [saving, setSaving] = useState(false);
 
-    // 외주비 시트 파싱 → 매칭 버킷(업체명|품목명|수량 → OutRow[])
+    // 외주비 시트 파싱 → 매칭 버킷(업체명|수량 → OutRow[]).
+    //   외주비 열: 일자 | 거래처명(외주업체) | 업체명 | 관리항목명 | 품목명(요약) | 수량 | 단가 | 공급가액 | 부가세 | 합계 | 담당자
+    //   품목명이 '슈퍼뭉치 외 1건' 요약이라 품목 매칭 불가 → 업체명+수량으로 매칭(외주단가로 tie-break).
     const outBuckets = useMemo(() => {
         const m = new Map<string, OutRow[]>();
         for (const raw of outText.split('\n')) {
             const c = raw.replace(/\r$/, '').split('\t');
-            if (c.length < 7) continue;
+            if (c.length < 8) continue;
             const company = (c[2] || '').trim();
-            const product = (c[3] || '').trim();
-            if (!company || company === '업체명' || product === '품목명') continue;
-            const qty = num(c[4]);
-            const key = `${normCompany(company)}|${norm(product)}|${qty}`;
+            if (!company || company === '업체명' || company === '거래처명') continue;
+            const qty = num(c[5]);
+            const key = `${normCompany(company)}|${normProduct(c[4] || '')}|${qty}`;
             const row: OutRow = {
                 company,
-                outAmount: num(c[6]),
-                outUnit: num(c[5]),
-                product,
+                outAmount: num(c[7]),
+                outUnit: num(c[6]),
+                product: (c[4] || '').trim(),
                 qty,
                 vendor: (c[1] || '').trim(),
             };
@@ -132,14 +135,17 @@ export function ContractImportModal({
             const key = `${(c[0] || '').trim()}|${company}|${product}|${qty}|${amount}`;
             const dup = seen.has(key);
             seen.add(key);
-            // 외주비 시트 매칭(업체명+품목명+수량, 1:1 소비)
-            const mkey = `${normCompany(company)}|${norm(product)}|${qty}`;
+            // 외주비 시트 매칭(업체명+품목명(외N건 제거)+수량, 외주단가 tie-break). 거래처명은 매칭에 안 씀.
+            const mkey = `${normCompany(company)}|${normProduct(product)}|${qty}`;
             let vendor: string | null = null;
             let outUnit: number | null = qty ? Math.round(outsource / qty) : null;
             if (!dup) {
                 const b = buckets.get(mkey);
                 if (b && b.length) {
-                    const om = b.shift()!;
+                    const want = qty ? Math.round(outsource / qty) : 0;
+                    let idx = b.findIndex((o) => o.outUnit === want);
+                    if (idx < 0) idx = 0;
+                    const om = b.splice(idx, 1)[0];
                     vendor = om.vendor || null;
                     outUnit = om.outUnit || outUnit;
                 }
@@ -150,7 +156,7 @@ export function ContractImportModal({
                 date: parseDate(c[0]) || parseDate(c[1]),
                 dup,
                 manager: (c[12] || '').trim(),
-                map: mapProduct(product),
+                map: mapProduct(productBase(product)),
                 outUnit,
                 outsource,
                 partner: (c[2] || '').trim(),
