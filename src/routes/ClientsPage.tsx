@@ -989,14 +989,30 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                                 />
                                                                             </div>
                                                                             {amt || outAmt ? (
-                                                                                <div className="mt-1 pl-24 text-[10px] font-semibold text-[#64748b]">
-                                                                                    매출{' '}
-                                                                                    <span className="text-[#0f172a]">
-                                                                                        {amt.toLocaleString('ko-KR')}
-                                                                                    </span>{' '}
-                                                                                    · 외주{' '}
-                                                                                    <span className="text-[#dc2626]">
-                                                                                        {outAmt.toLocaleString('ko-KR')}
+                                                                                <div className="mt-1 flex flex-wrap gap-x-2 pl-24 text-[10px] font-semibold text-[#64748b]">
+                                                                                    <span>
+                                                                                        공급가{' '}
+                                                                                        <b className="text-[#1e40af]">
+                                                                                            {amt.toLocaleString('ko-KR')}
+                                                                                        </b>
+                                                                                    </span>
+                                                                                    <span>
+                                                                                        부가세{' '}
+                                                                                        {Math.round(
+                                                                                            amt * 1.1,
+                                                                                        ).toLocaleString('ko-KR')}
+                                                                                    </span>
+                                                                                    <span>
+                                                                                        외주{' '}
+                                                                                        <b className="text-[#dc2626]">
+                                                                                            {outAmt.toLocaleString('ko-KR')}
+                                                                                        </b>
+                                                                                    </span>
+                                                                                    <span>
+                                                                                        순매출{' '}
+                                                                                        <b className="text-[#059669]">
+                                                                                            {(amt - outAmt).toLocaleString('ko-KR')}
+                                                                                        </b>
                                                                                     </span>
                                                                                 </div>
                                                                             ) : null}
