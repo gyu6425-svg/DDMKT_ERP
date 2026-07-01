@@ -545,9 +545,9 @@ export function ClientDetail({
                                         className="absolute right-1.5 top-1.5 rounded border border-[#cbd5e1] bg-white px-1.5 py-0.5 text-[10px] font-semibold text-[#475569] hover:border-[#1e40af] hover:text-[#1e40af]"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            navTo(dashPath);
+                                            navTo(`${dashPath}?tab=sheet`);
                                         }}
-                                        title={`${ct.category} 대시보드로 이동`}
+                                        title={`${ct.category} 관리 시트로 이동`}
                                         type="button"
                                     >
                                         대시보드 →

@@ -5,9 +5,16 @@ import { useAuth } from '../../hooks/useAuth';
 //   각 카테고리(영상/인스타/카페/트래픽) 페이지가 자기 탭 컴포넌트를 넘겨 재사용. 블로그 대시보드와 동일 UX.
 export type ShellTab = { name: string; el: ReactNode };
 
+// 탭 순서 고정: 대시보드·관리 시트·순위 트래커·크롤링 현황 → ?tab=sheet 등으로 딥링크(계약 카드에서 이동).
+const TAB_SLUGS = ['dashboard', 'sheet', 'tracker', 'crawl'];
+
 export function CategoryShell({ label, badge, tabs }: { label: string; badge?: string; tabs: ShellTab[] }) {
     const { isAdmin, loading: authLoading } = useAuth();
-    const [active, setActive] = useState(0);
+    const [active, setActive] = useState(() => {
+        const t = new URLSearchParams(window.location.search).get('tab');
+        const i = TAB_SLUGS.indexOf(t || '');
+        return i >= 0 && i < tabs.length ? i : 0;
+    });
 
     if (!authLoading && !isAdmin) {
         return (
