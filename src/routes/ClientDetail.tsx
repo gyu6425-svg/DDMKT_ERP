@@ -285,6 +285,7 @@ function ContractEditModal({
     const [renewMode, setRenewMode] = useState(false); // 재계약 클릭 → 계약 추가 UI
     const [reStart, setReStart] = useState('');
     const [reCount, setReCount] = useState('');
+    const [reAmount, setReAmount] = useState('');
 
     const [history, setHistory] = useState<ContractHistoryItem[]>(contract.history ?? []);
     const goalN = Number(goal) || 0;
@@ -345,8 +346,10 @@ function ContractEditModal({
         ];
         const nextGoal = goalN + n; // 기존 건수 + 재계약 건수(누적)
         const nextRemain = remainN + n; // 진행분(done) 유지 → 잔여만 증가
+        const nextAmount = (Number(amount) || 0) + (reAmount.trim() ? Number(reAmount) : 0); // 금액 누적
         setSaving(true);
         const { error } = await updateClientContract(contract.id, {
+            amount: nextAmount,
             contract_date: s,
             goal_count: nextGoal,
             history: newHistory,
@@ -357,7 +360,7 @@ function ContractEditModal({
             onToast(`오류: ${error.message}`);
             return;
         }
-        onToast(`재계약 — ${n}건 추가 (총 ${nextGoal}건, 진행분 유지)`);
+        onToast(`재계약 — ${n}건 추가 (총 ${nextGoal}건 · ${fmtWon(nextAmount)}원)`);
         await onReload();
         onClose();
     };
@@ -464,26 +467,33 @@ function ContractEditModal({
                                     </div>
                                     <div className="mt-0.5 text-[11px] text-[#94a3b8]">총 {periods.length}차 계약</div>
                                 </div>
-                                {/* 계약 추가 (시작일 · 건수) */}
+                                {/* 계약 추가 (시작일 · 건수 · 금액) */}
                                 <div>
                                     <div className="mb-1 text-xs font-bold text-[#334155]">
-                                        계약 추가 (시작일 · 계약 건수)
+                                        계약 추가 (시작일 · 계약 건수 · 금액)
                                     </div>
+                                    <input
+                                        className="mb-2 h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                        onChange={(e) => setReStart(e.target.value)}
+                                        placeholder="계약 시작일 (예: 2026-01-15)"
+                                        value={reStart}
+                                    />
                                     <div className="flex gap-2">
                                         <input
-                                            className="h-9 flex-1 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
-                                            onChange={(e) => setReStart(e.target.value)}
-                                            placeholder="계약 시작일 (예: 2026-01-15)"
-                                            value={reStart}
-                                        />
-                                        <input
-                                            className="h-9 w-[110px] rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                            className="h-9 w-[90px] rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
                                             min="1"
                                             onChange={(e) => setReCount(e.target.value)}
-                                            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), void addRenewal())}
-                                            placeholder="계약 건수 (예: 50)"
+                                            placeholder="건수"
                                             type="number"
                                             value={reCount}
+                                        />
+                                        <input
+                                            className="h-9 flex-1 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                            onChange={(e) => setReAmount(e.target.value)}
+                                            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), void addRenewal())}
+                                            placeholder="금액(원)"
+                                            type="number"
+                                            value={reAmount}
                                         />
                                         <button
                                             className="rounded-md bg-[#1e40af] px-4 text-sm font-bold text-white disabled:opacity-50"
