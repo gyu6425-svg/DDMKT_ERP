@@ -690,6 +690,11 @@ function ContractEditModal({
                 <h3 className="m-0 text-lg font-bold">
                     {contract.category} · {contract.subtype}
                 </h3>
+                {contract.outsource_company ? (
+                    <div className="mt-1 inline-flex items-center gap-1 rounded-md bg-[#fef2f2] px-2 py-0.5 text-xs font-semibold text-[#dc2626]">
+                        외주업체 · {contract.outsource_company}
+                    </div>
+                ) : null}
 
                 {/* 진행률 — 1건 완료로 잔여 감소(자동 반영) */}
                 {hasGoal ? (
@@ -1589,6 +1594,11 @@ export function ClientDetail({
                                                         잔여 외주 {fmtWon(outsourceOf(ct).remain)}원
                                                     </div>
                                                 ) : null}
+                                                {ct.outsource_company ? (
+                                                    <div className="mt-0.5 truncate text-[10px] text-[#94a3b8]">
+                                                        외주업체 · {ct.outsource_company}
+                                                    </div>
+                                                ) : null}
                                             </button>
                                         );
                                     })}
@@ -1751,6 +1761,10 @@ export function ClientDetail({
                                                     </span>
                                                     <span className="block text-[11px] text-[#94a3b8]">
                                                         {ct.category}
+                                                        {(breakdown === 'outsource' || breakdown === 'net') &&
+                                                        ct.outsource_company
+                                                            ? ` · 외주업체 ${ct.outsource_company}`
+                                                            : ''}
                                                         {breakdown === 'net'
                                                             ? ` · 매출 ${fmtWon(ct.amount || 0)} − 외주 ${fmtWon(ct.outsource || 0)}`
                                                             : ''}
@@ -1815,6 +1829,7 @@ export function ClientDetail({
                             {(
                                 breakdown === 'outsource'
                                     ? ([
+                                          ['외주업체', detailC.outsource_company || '-'],
                                           ['수량', `${(detailC.goal_count ?? 0).toLocaleString('ko-KR')}건`],
                                           ['외주단가', `${fmtWon(detailC.unit_outsource || 0)}원`],
                                           ['외주비', `${fmtWon(detailC.outsource || 0)}원`, '#dc2626'],
