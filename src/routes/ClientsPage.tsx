@@ -15,6 +15,7 @@ import {
 import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
 import { ClientDetail } from './ClientDetail';
 import Button from '../components/Button';
+import { ContractImportModal } from './ContractImportModal';
 import { useErpData } from '../context/ErpDataContext';
 import {
     INDUSTRY_OPTIONS,
@@ -139,6 +140,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [showImminent, setShowImminent] = useState(false);
     const [outsourceClient, setOutsourceClient] = useState<string | null>(null); // 잔여 외주비 상세 대상 client_id
     const [dupMatches, setDupMatches] = useState<ErpClient[] | null>(null); // 업체명 중복 안내 대상
+    const [importOpen, setImportOpen] = useState(false); // 시트 붙여넣기 일괄 등록
     const [toast, setToast] = useState('');
 
     const [modalOpen, setModalOpen] = useState(false);
@@ -548,13 +550,24 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             : `총 ${contractsOnly ? clients.filter((c) => c.status === DONE_STATUS).length : clients.length}건`}
                     </p>
                 </div>
-                <Button
-                    className="inline-flex h-10 items-center justify-center rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white"
-                    onClick={openAdd}
-                    type="button"
-                >
-                    {contractsOnly ? '+ 계약 추가' : '+ 문의 추가'}
-                </Button>
+                <div className="flex items-center gap-2">
+                    {contractsOnly ? (
+                        <Button
+                            className="inline-flex h-10 items-center justify-center rounded-md border border-[#1e40af] px-4 text-sm font-semibold text-[#1e40af]"
+                            onClick={() => setImportOpen(true)}
+                            type="button"
+                        >
+                            시트 붙여넣기
+                        </Button>
+                    ) : null}
+                    <Button
+                        className="inline-flex h-10 items-center justify-center rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white"
+                        onClick={openAdd}
+                        type="button"
+                    >
+                        {contractsOnly ? '+ 계약 추가' : '+ 문의 추가'}
+                    </Button>
+                </div>
             </div>
 
             {/* 계약 관리 상단 KPI — 블로그 대시보드 KPI 스타일(라벨/큰 숫자/서브). 재계약 임박은 눌러서 상세. */}
@@ -1519,6 +1532,18 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                         })()}
                     </div>
                 </div>
+            ) : null}
+
+            {importOpen ? (
+                <ContractImportModal
+                    allClients={allClients}
+                    onClose={() => setImportOpen(false)}
+                    onDone={async () => {
+                        await refresh();
+                        await reloadContracts();
+                    }}
+                    onToast={showToast}
+                />
             ) : null}
 
             {/* 업체명 중복 안내 — 이미 등록된 업체면 저장 차단 + 기존 상세로 이동 */}
