@@ -26,6 +26,7 @@ export type ErpClient = {
     address: string | null;
     industry: string | null;
     url: string | null;
+    client_partner: string | null; // 거래처명(총판/리셀러 등, 업체명과 별개)
 };
 
 // ERP의 '영업자 명단'은 기존 인증/역할 테이블 sales_people을 재사용한다.

@@ -28,6 +28,8 @@ create table if not exists public.clients (
 );
 -- 기존 DB 마이그레이션(이미 clients 가 있으면): URL 칸 추가
 alter table public.clients add column if not exists url text;
+-- 거래처명(총판/리셀러 등, 업체명과 별개)
+alter table public.clients add column if not exists client_partner text;
 create index if not exists clients_created_at_idx on public.clients (created_at desc);
 create index if not exists clients_manager_idx on public.clients (manager);
 create index if not exists clients_status_idx on public.clients (status);

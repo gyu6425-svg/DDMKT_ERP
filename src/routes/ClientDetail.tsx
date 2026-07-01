@@ -10,8 +10,9 @@ import {
 } from '../api/clientContracts';
 import { ensureClientBlogAccount } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
+import { Combobox } from '../components/Combobox';
 import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
-import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, todayStr } from '../lib/erpUtils';
+import { INDUSTRY_OPTIONS, OUTSOURCE_COMPANIES, SOURCE_OPTIONS, todayStr } from '../lib/erpUtils';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
 //   계약은 client_contracts 단일 출처. 등록 시(+계약 추가) 또는 여기서 '+ 계약 추가'로 생성.
@@ -38,7 +39,16 @@ const formatBizNo = (s: string) => {
 
 // 기본정보/업종정보 카드 필드.
 type FieldDef = {
-    key: 'manager' | 'source' | 'contact' | 'email' | 'business_number' | 'address' | 'industry' | 'url';
+    key:
+        | 'manager'
+        | 'source'
+        | 'contact'
+        | 'email'
+        | 'business_number'
+        | 'address'
+        | 'industry'
+        | 'url'
+        | 'client_partner';
     label: string;
     value: string;
     options?: string[];
@@ -165,6 +175,7 @@ function ContractAddModal({
     const [days, setDays] = useState('');
     const [unit, setUnit] = useState('');
     const [outUnit, setOutUnit] = useState('');
+    const [outCompany, setOutCompany] = useState(''); // 외주업체명
     const [date, setDate] = useState('');
     const [saving, setSaving] = useState(false);
     const daily = isDailySub(subtype); // 리워드 등 = 일일수량 × 일수
@@ -195,6 +206,7 @@ function ContractAddModal({
                 contract_date: date || null,
                 goal_count: n,
                 outsource: outAmt,
+                outsource_company: outCompany.trim() || null,
                 per_day: daily ? Number(onlyDigits(perDay)) || null : null,
                 remain_count: n,
                 subtype,
@@ -318,6 +330,18 @@ function ContractAddModal({
                             />
                         </label>
                     </div>
+                    <label className="block text-xs font-semibold text-[#475569]">
+                        외주업체명
+                        <div className="mt-1">
+                            <Combobox
+                                className="h-10 w-full rounded-md border border-[#fecaca] px-2 text-sm"
+                                onChange={setOutCompany}
+                                options={OUTSOURCE_COMPANIES}
+                                placeholder="외주업체 선택 또는 직접 입력"
+                                value={outCompany}
+                            />
+                        </div>
+                    </label>
                     <div className="rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
                         매출 <span className="text-[#1e40af]">{amt.toLocaleString('ko-KR')}</span> · 외주{' '}
                         <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
@@ -1299,7 +1323,16 @@ export function ClientDetail({
 }) {
     const [confirmDel, setConfirmDel] = useState(false);
     const [editField, setEditField] = useState<{
-        patchKey: 'manager' | 'source' | 'contact' | 'email' | 'business_number' | 'address' | 'industry' | 'url';
+        patchKey:
+            | 'manager'
+            | 'source'
+            | 'contact'
+            | 'email'
+            | 'business_number'
+            | 'address'
+            | 'industry'
+            | 'url'
+            | 'client_partner';
         label: string;
         value: string;
         options?: string[];
@@ -1578,6 +1611,11 @@ export function ClientDetail({
                 {(
                     [
                         { key: 'manager', label: '담당자', value: client.manager || '', options: managerOptions },
+                        {
+                            key: 'client_partner',
+                            label: '거래처명',
+                            value: client.client_partner || '',
+                        },
                         { key: 'source', label: '문의 경로', value: client.source || '', options: SOURCE_OPTIONS },
                         { key: 'contact', label: '연락처', value: client.contact || '' },
                         { key: 'email', label: '이메일', value: client.email || '' },

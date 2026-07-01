@@ -15,9 +15,11 @@ import {
 import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
 import { ClientDetail } from './ClientDetail';
 import Button from '../components/Button';
+import { Combobox } from '../components/Combobox';
 import { useErpData } from '../context/ErpDataContext';
 import {
     INDUSTRY_OPTIONS,
+    OUTSOURCE_COMPANIES,
     SOURCE_OPTIONS,
     STATUS_BADGE,
     STATUS_OPTIONS,
@@ -59,6 +61,7 @@ type ClientForm = {
     business_number: string;
     address: string;
     industry: string;
+    client_partner: string;
 };
 
 const emptyForm: ClientForm = {
@@ -66,6 +69,7 @@ const emptyForm: ClientForm = {
     amount: '',
     budget: '',
     business_number: '',
+    client_partner: '',
     company: '',
     industry: '',
     contact: '',
@@ -143,7 +147,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     // 등록 가이드 '상품' — 선택한 부모 카테고리(key) + 세부유형별 건수/금액 입력.
     const [prodCats, setProdCats] = useState<string[]>([]);
     const [prodInputs, setProdInputs] = useState<
-        Record<string, { unit: string; count: string; outsource: string; perDay: string; days: string }>
+        Record<
+            string,
+            { unit: string; count: string; outsource: string; perDay: string; days: string; outCompany: string }
+        >
     >({});
     // 세부상품의 수량 — 일 단위(리워드)면 일일수량 × 일수, 아니면 count.
     const subQty = (catKey: string, sub: string) => {
@@ -300,6 +307,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             amount: Number(form.amount) || 0,
             budget: form.budget.trim() || null,
             business_number: form.business_number.trim() || null,
+            client_partner: form.client_partner.trim() || null,
             company: form.company.trim() || null,
             industry: form.industry || null,
             contact: form.contact.trim() || null,
@@ -359,6 +367,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             contract_date: todayStr(),
                             goal_count: count,
                             outsource: outAmt,
+                            outsource_company: inp?.outCompany?.trim() || null,
                             per_day: isDailySub(sub) ? Number(onlyDigits(inp?.perDay || '')) || null : null,
                             remain_count: count,
                             subtype: sub,
@@ -909,6 +918,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             {(
                                 [
                                     { key: 'company', label: '업체명', ph: '업체명 입력' },
+                                    { key: 'client_partner', label: '거래처명', ph: '예: 에이치에스(HS)' },
                                     { key: 'business_number', label: '사업자등록번호', ph: '000-00-00000' },
                                     { key: 'address', label: '사업장 주소', ph: '주소 입력' },
                                 ] as { key: keyof ClientForm; label: string; ph: string }[]
@@ -969,7 +979,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                 </div>
                             ))}
                             {/* 상품 : 카테고리 다중선택 → 세부유형별 건수/금액 (계약 추가 시) */}
-                            {!editId && contractsOnly ? (
+                            {!editId ? (
                                 <div className="flex items-start gap-2">
                                     <span className="mt-2 w-24 shrink-0 text-sm font-semibold text-[#475569]">
                                         상품 :
@@ -1018,6 +1028,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                         prodInputs[k] || {
                                                                             count: '',
                                                                             days: '',
+                                                                            outCompany: '',
                                                                             outsource: '',
                                                                             perDay: '',
                                                                             unit: '',
@@ -1034,6 +1045,12 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                         setProdInputs((prev) => ({
                                                                             ...prev,
                                                                             [k]: { ...inp, [field]: onlyDigits(v) },
+                                                                        }));
+                                                                    // 외주업체명은 텍스트(자리수 제한 없음).
+                                                                    const setOutCompany = (v: string) =>
+                                                                        setProdInputs((prev) => ({
+                                                                            ...prev,
+                                                                            [k]: { ...inp, outCompany: v },
                                                                         }));
                                                                     const daily = isDailySub(sub);
                                                                     const cnt = daily
@@ -1102,6 +1119,15 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                                     type="text"
                                                                                     value={withCommas(inp.outsource)}
                                                                                 />
+                                                                                <div className="w-28 shrink-0">
+                                                                                    <Combobox
+                                                                                        className="h-7 w-full rounded border border-[#fecaca] px-1.5 text-xs"
+                                                                                        onChange={setOutCompany}
+                                                                                        options={OUTSOURCE_COMPANIES}
+                                                                                        placeholder="외주업체"
+                                                                                        value={inp.outCompany || ''}
+                                                                                    />
+                                                                                </div>
                                                                             </div>
                                                                             {daily && cnt ? (
                                                                                 <div className="mt-0.5 pl-24 text-[10px] text-[#94a3b8]">

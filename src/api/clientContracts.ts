@@ -40,6 +40,7 @@ export type ClientContract = {
     outsource?: number | null; // 외주비 = 외주단가 × 수량
     per_day?: number | null; // 리워드: 일일 타수(주간 환산 = per_day × 7)
     weekly_logs?: RewardWeeklyLog[] | null; // 리워드: 주차별 진행 로그
+    outsource_company?: string | null; // 외주업체명(슈퍼뭉치 등) — 전 상품 공통
 };
 
 // clientId 주면 그 고객만. 테이블 미생성 등 오류 시에도 앱이 죽지 않도록 [] 반환.

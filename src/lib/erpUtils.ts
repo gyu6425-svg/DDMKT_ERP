@@ -85,6 +85,9 @@ export const SOURCE_OPTIONS = [
     '기타',
 ];
 
+// 외주업체 프리셋 — 드롭다운 후보. 리스트 밖 값도 직접 입력 허용(Combobox). 외주단가는 매번 직접 입력.
+export const OUTSOURCE_COMPANIES = ['슈퍼뭉치', '저인망', '247', '고스트', '저스트'];
+
 export const STATUS_BADGE: Record<string, string> = {
     계약완료: 'bg-[#d1fae5] text-[#059669]',
     계약종료: 'bg-[#e5e7eb] text-[#475569]',
