@@ -9,7 +9,7 @@ import {
 } from '../api/clientContracts';
 import { ensureClientBlogAccount } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
-import { PRODUCT_CATEGORIES } from '../lib/products';
+import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
 import { SOURCE_OPTIONS, todayStr } from '../lib/erpUtils';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
@@ -121,11 +121,16 @@ function ContractAddModal({
     const cat = PRODUCT_CATEGORIES.find((c) => c.key === catKey) ?? PRODUCT_CATEGORIES[0];
     const [subtype, setSubtype] = useState(cat.subs[0]);
     const [count, setCount] = useState('');
+    const [perDay, setPerDay] = useState('');
+    const [days, setDays] = useState('');
     const [unit, setUnit] = useState('');
     const [outUnit, setOutUnit] = useState('');
     const [date, setDate] = useState('');
     const [saving, setSaving] = useState(false);
-    const cnt = Number(onlyDigits(count)) || 0;
+    const daily = isDailySub(subtype); // 리워드 등 = 일일수량 × 일수
+    const cnt = daily
+        ? (Number(onlyDigits(perDay)) || 0) * (Number(onlyDigits(days)) || 0)
+        : Number(onlyDigits(count)) || 0;
     const amt = (Number(onlyDigits(unit)) || 0) * cnt; // 매출 = 단가 × 수량
     const outAmt = (Number(onlyDigits(outUnit)) || 0) * cnt; // 외주비 = 외주단가 × 수량
 
@@ -136,9 +141,9 @@ function ContractAddModal({
     };
 
     const submit = async () => {
-        const n = count.trim() ? Number(onlyDigits(count)) : null;
+        const n = cnt > 0 ? cnt : null;
         if (!n && !amt) {
-            onToast('건수 또는 단가를 입력하세요');
+            onToast('수량 또는 단가를 입력하세요');
             return;
         }
         setSaving(true);
@@ -217,15 +222,37 @@ function ContractAddModal({
                     </label>
                     <div className="grid grid-cols-3 gap-2">
                         <label className="block text-xs font-semibold text-[#475569]">
-                            수량
-                            <input
-                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-sm"
-                                inputMode="numeric"
-                                onChange={(e) => setCount(e.target.value)}
-                                placeholder="300"
-                                type="text"
-                                value={withCommas(count)}
-                            />
+                            {daily ? '일일 × 일수' : '수량'}
+                            {daily ? (
+                                <div className="mt-1 flex items-center gap-1">
+                                    <input
+                                        className="h-10 w-full rounded-md border border-[#cbd5e1] px-1 text-right text-sm"
+                                        inputMode="numeric"
+                                        onChange={(e) => setPerDay(e.target.value)}
+                                        placeholder="일일"
+                                        type="text"
+                                        value={withCommas(perDay)}
+                                    />
+                                    <span className="text-xs text-[#94a3b8]">×</span>
+                                    <input
+                                        className="h-10 w-full rounded-md border border-[#cbd5e1] px-1 text-right text-sm"
+                                        inputMode="numeric"
+                                        onChange={(e) => setDays(e.target.value)}
+                                        placeholder="일수"
+                                        type="text"
+                                        value={withCommas(days)}
+                                    />
+                                </div>
+                            ) : (
+                                <input
+                                    className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-sm"
+                                    inputMode="numeric"
+                                    onChange={(e) => setCount(e.target.value)}
+                                    placeholder="300"
+                                    type="text"
+                                    value={withCommas(count)}
+                                />
+                            )}
                         </label>
                         <label className="block text-xs font-semibold text-[#475569]">
                             단가(원)

@@ -25,3 +25,7 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
 
 export const categoryByLabel = (label: string): ProductCategory | undefined =>
     PRODUCT_CATEGORIES.find((c) => c.label === label);
+
+// 일 단위 상품 — 총수량 = 일일수량 × 일수(예: 리워드 100타/일 × 90일). 입력을 2칸으로 나눈다.
+export const DAILY_SUBS = new Set<string>(['플레이스 리워드']);
+export const isDailySub = (sub: string) => DAILY_SUBS.has(sub);

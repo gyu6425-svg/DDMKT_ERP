@@ -12,7 +12,7 @@ import {
     insertClientContracts,
     type ClientContract,
 } from '../api/clientContracts';
-import { PRODUCT_CATEGORIES } from '../lib/products';
+import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
 import { ClientDetail } from './ClientDetail';
 import Button from '../components/Button';
 import { useErpData } from '../context/ErpDataContext';
@@ -129,8 +129,16 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     // 등록 가이드 '상품' — 선택한 부모 카테고리(key) + 세부유형별 건수/금액 입력.
     const [prodCats, setProdCats] = useState<string[]>([]);
     const [prodInputs, setProdInputs] = useState<
-        Record<string, { unit: string; count: string; outsource: string }>
+        Record<string, { unit: string; count: string; outsource: string; perDay: string; days: string }>
     >({});
+    // 세부상품의 수량 — 일 단위(리워드)면 일일수량 × 일수, 아니면 count.
+    const subQty = (catKey: string, sub: string) => {
+        const inp = prodInputs[`${catKey}|${sub}`];
+        if (!inp) return 0;
+        return isDailySub(sub)
+            ? (Number(onlyDigits(inp.perDay || '')) || 0) * (Number(onlyDigits(inp.days || '')) || 0)
+            : Number(onlyDigits(inp.count || '')) || 0;
+    };
     // 상품 정산 합계 — 공급가(Σ매출)·부가세포함(×1.1)·외주비(Σ외주)·순매출.
     const prodTotals = useMemo(() => {
         let supply = 0;
@@ -141,12 +149,13 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             for (const sub of cat.subs) {
                 const inp = prodInputs[`${catKey}|${sub}`];
                 if (!inp) continue;
-                const cnt = Number(onlyDigits(inp.count)) || 0;
-                supply += (Number(onlyDigits(inp.unit)) || 0) * cnt;
-                outs += (Number(onlyDigits(inp.outsource)) || 0) * cnt;
+                const q = subQty(catKey, sub);
+                supply += (Number(onlyDigits(inp.unit)) || 0) * q;
+                outs += (Number(onlyDigits(inp.outsource)) || 0) * q;
             }
         }
         return { net: supply - outs, outs, supply, vat: Math.round(supply * 1.1) };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [prodCats, prodInputs]);
 
     const [histClient, setHistClient] = useState<ErpClient | null>(null);
@@ -319,12 +328,13 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 if (!cat) continue;
                 for (const sub of cat.subs) {
                     const inp = prodInputs[`${catKey}|${sub}`];
-                    const count = inp?.count ? Number(onlyDigits(inp.count)) : null;
+                    const qty = subQty(catKey, sub); // 일 단위면 일일수량×일수
+                    const count = qty > 0 ? qty : null;
                     const unit = inp?.unit ? Number(onlyDigits(inp.unit)) : null;
                     const outUnit = inp?.outsource ? Number(onlyDigits(inp.outsource)) : null;
-                    const amt = (unit || 0) * (count || 0); // 매출 = 단가 × 수량
-                    const outAmt = (outUnit || 0) * (count || 0); // 외주비 = 외주단가 × 수량
-                    if ((count && count > 0) || amt > 0) {
+                    const amt = (unit || 0) * qty; // 매출 = 단가 × 수량
+                    const outAmt = (outUnit || 0) * qty; // 외주비 = 외주단가 × 수량
+                    if (qty > 0 || amt > 0) {
                         rows.push({
                             amount: amt,
                             category: cat.label,
@@ -937,18 +947,29 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                     const inp =
                                                                         prodInputs[k] || {
                                                                             count: '',
+                                                                            days: '',
                                                                             outsource: '',
+                                                                            perDay: '',
                                                                             unit: '',
                                                                         };
                                                                     const set = (
-                                                                        field: 'count' | 'unit' | 'outsource',
+                                                                        field:
+                                                                            | 'count'
+                                                                            | 'unit'
+                                                                            | 'outsource'
+                                                                            | 'perDay'
+                                                                            | 'days',
                                                                         v: string,
                                                                     ) =>
                                                                         setProdInputs((prev) => ({
                                                                             ...prev,
                                                                             [k]: { ...inp, [field]: onlyDigits(v) },
                                                                         }));
-                                                                    const cnt = Number(onlyDigits(inp.count)) || 0;
+                                                                    const daily = isDailySub(sub);
+                                                                    const cnt = daily
+                                                                        ? (Number(onlyDigits(inp.perDay || '')) || 0) *
+                                                                          (Number(onlyDigits(inp.days || '')) || 0)
+                                                                        : Number(onlyDigits(inp.count)) || 0;
                                                                     const amt = (Number(onlyDigits(inp.unit)) || 0) * cnt;
                                                                     const outAmt =
                                                                         (Number(onlyDigits(inp.outsource)) || 0) * cnt;
@@ -961,14 +982,38 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                                 <span className="w-24 shrink-0 truncate text-xs font-semibold text-[#334155]">
                                                                                     {sub}
                                                                                 </span>
-                                                                                <input
-                                                                                    className="h-7 w-14 rounded border border-[#cbd5e1] px-1.5 text-right text-xs"
-                                                                                    inputMode="numeric"
-                                                                                    onChange={(e) => set('count', e.target.value)}
-                                                                                    placeholder="수량"
-                                                                                    type="text"
-                                                                                    value={withCommas(inp.count)}
-                                                                                />
+                                                                                {daily ? (
+                                                                                    <>
+                                                                                        <input
+                                                                                            className="h-7 w-12 rounded border border-[#cbd5e1] px-1 text-right text-xs"
+                                                                                            inputMode="numeric"
+                                                                                            onChange={(e) => set('perDay', e.target.value)}
+                                                                                            placeholder="일일"
+                                                                                            title="일일 수량(예: 100타)"
+                                                                                            type="text"
+                                                                                            value={withCommas(inp.perDay || '')}
+                                                                                        />
+                                                                                        <span className="text-[10px] text-[#94a3b8]">×</span>
+                                                                                        <input
+                                                                                            className="h-7 w-12 rounded border border-[#cbd5e1] px-1 text-right text-xs"
+                                                                                            inputMode="numeric"
+                                                                                            onChange={(e) => set('days', e.target.value)}
+                                                                                            placeholder="일수"
+                                                                                            title="일수(예: 90일)"
+                                                                                            type="text"
+                                                                                            value={withCommas(inp.days || '')}
+                                                                                        />
+                                                                                    </>
+                                                                                ) : (
+                                                                                    <input
+                                                                                        className="h-7 w-14 rounded border border-[#cbd5e1] px-1.5 text-right text-xs"
+                                                                                        inputMode="numeric"
+                                                                                        onChange={(e) => set('count', e.target.value)}
+                                                                                        placeholder="수량"
+                                                                                        type="text"
+                                                                                        value={withCommas(inp.count)}
+                                                                                    />
+                                                                                )}
                                                                                 <input
                                                                                     className="h-7 w-20 rounded border border-[#cbd5e1] px-1.5 text-right text-xs"
                                                                                     inputMode="numeric"
@@ -988,6 +1033,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                                     value={withCommas(inp.outsource)}
                                                                                 />
                                                                             </div>
+                                                                            {daily && cnt ? (
+                                                                                <div className="mt-0.5 pl-24 text-[10px] text-[#94a3b8]">
+                                                                                    총 수량 {cnt.toLocaleString('ko-KR')}
+                                                                                </div>
+                                                                            ) : null}
                                                                             {amt || outAmt ? (
                                                                                 <div className="mt-1 flex flex-wrap gap-x-2 pl-24 text-[10px] font-semibold text-[#64748b]">
                                                                                     <span>
