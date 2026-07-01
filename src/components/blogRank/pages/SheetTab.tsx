@@ -5,9 +5,7 @@ import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDat
 import { Pager, Tag } from '../lib/ui';
 import { useBlogRank } from '../lib/BlogRankContext';
 import { AccountEditModal } from '../components/AccountEditModal';
-import { AmountModal } from '../components/AmountModal';
 import { GuideAddForm } from '../components/GuideAddForm';
-import { ContractModal } from '../components/ContractModal';
 import { FieldHistoryModal } from '../components/FieldHistoryModal';
 import { ImportModal } from '../components/ImportModal';
 import { NoteModal } from '../components/NoteModal';
@@ -40,8 +38,6 @@ export function SheetTab() {
     const [importOpen, setImportOpen] = useState(false);
     const [editAcc, setEditAcc] = useState<BlogAccount | null>(null);
     const [noteAcc, setNoteAcc] = useState<BlogAccount | null>(null);
-    const [amountAcc, setAmountAcc] = useState<BlogAccount | null>(null);
-    const [contractAcc, setContractAcc] = useState<BlogAccount | null>(null);
     const [weeklyAcc, setWeeklyAcc] = useState<BlogAccount | null>(null);
     const [reporterAcc, setReporterAcc] = useState<BlogAccount | null>(null);
     const [reportAcc, setReportAcc] = useState<BlogAccount | null>(null); // 성과 보고서 글 선택 모달
@@ -109,7 +105,7 @@ export function SheetTab() {
             (a) =>
                 (!q || a.name.includes(q)) &&
                 (!mgr || a.manager === mgr) &&
-                (!lowOnly || (a.remain_count != null && a.remain_count < 5)) &&
+                (!lowOnly || (a.remain_count != null && a.remain_count <= 5)) &&
                 (tab === 'ended' ? !!a.contract_ended_at : !a.contract_ended_at),
         );
         list = [...list].sort((x, y) => {
@@ -176,7 +172,7 @@ export function SheetTab() {
                 </select>
                 <label className="flex items-center gap-1 text-xs text-[#334155]">
                     <input checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} type="checkbox" />
-                    잔여 5건 미만만
+                    잔여 5건 이하만
                 </label>
                 <span className="ml-auto text-xs text-[#64748b]">{filtered.length}개</span>
                 {/* 내부 액션(등록/전체측정/일괄삭제) — 고객 ERP에선 숨김(조회 전용) */}
@@ -365,30 +361,26 @@ export function SheetTab() {
                                             </a>
                                         </td>
                                         <td className="px-2 py-2">
-                                            <button
-                                                className={`min-w-[82px] rounded px-1.5 py-1 text-left text-xs hover:bg-[#f1f5f9] ${latestContractDate(a) ? 'text-[#475569]' : 'text-[#cbd5e1]'}`}
-                                                onClick={() => setContractAcc(a)}
-                                                title="클릭해서 계약일·재계약 관리"
-                                                type="button"
+                                            <span
+                                                className={`inline-block min-w-[82px] px-1.5 py-1 text-left text-xs ${latestContractDate(a) ? 'text-[#475569]' : 'text-[#cbd5e1]'}`}
+                                                title="계약 수정은 계약 관리에서"
                                             >
-                                                {latestContractDate(a) || '+ 계약'}
+                                                {latestContractDate(a) || '-'}
                                                 {a.contracts && a.contracts.length > 1 ? (
                                                     <span className="ml-1 rounded bg-[#ede9fe] px-1 text-[9px] font-semibold text-[#6d28d9]">
                                                         갱신{a.contracts.length - 1}
                                                     </span>
                                                 ) : null}
-                                            </button>
+                                            </span>
                                         </td>
                                         {!customerMode && (
                                             <td className="px-2 py-2">
-                                                <button
-                                                    className={`min-w-[84px] rounded px-1.5 py-1 text-left text-xs hover:bg-[#f1f5f9] ${amountTotal(a) ? 'font-semibold text-[#475569]' : 'text-[#cbd5e1]'}`}
-                                                    onClick={() => setAmountAcc(a)}
-                                                    title="클릭해서 계약금액 추가·관리"
-                                                    type="button"
+                                                <span
+                                                    className={`inline-block min-w-[84px] px-1.5 py-1 text-left text-xs ${amountTotal(a) ? 'font-semibold text-[#475569]' : 'text-[#cbd5e1]'}`}
+                                                    title="계약금액 수정은 계약 관리에서"
                                                 >
-                                                    {amountTotal(a) ? `${fmtWon(amountTotal(a))}원` : '+ 금액'}
-                                                </button>
+                                                    {amountTotal(a) ? `${fmtWon(amountTotal(a))}원` : '-'}
+                                                </span>
                                             </td>
                                         )}
                                         <td className="px-3 py-2">
@@ -455,8 +447,8 @@ export function SheetTab() {
                                                         color:
                                                             a.remain_count <= 1
                                                                 ? '#dc2626' // 1건↓ 빨강
-                                                                : a.remain_count < 5
-                                                                  ? '#d97706' // 2~4건 노랑
+                                                                : a.remain_count <= 5
+                                                                  ? '#d97706' // 2~5건 노랑
                                                                   : '#0f172a',
                                                     }}
                                                 >
@@ -609,22 +601,6 @@ export function SheetTab() {
                 <NoteModal
                     account={noteAcc}
                     onClose={() => setNoteAcc(null)}
-                    onReload={onReload}
-                    onToast={onToast}
-                />
-            ) : null}
-            {amountAcc ? (
-                <AmountModal
-                    account={amountAcc}
-                    onClose={() => setAmountAcc(null)}
-                    onReload={onReload}
-                    onToast={onToast}
-                />
-            ) : null}
-            {contractAcc ? (
-                <ContractModal
-                    account={contractAcc}
-                    onClose={() => setContractAcc(null)}
                     onReload={onReload}
                     onToast={onToast}
                 />

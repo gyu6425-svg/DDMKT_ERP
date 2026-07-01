@@ -101,12 +101,14 @@ function ClientFieldModal({
 function ContractAddModal({
     clientId,
     companyName,
+    managerName,
     onClose,
     onReload,
     onToast,
 }: {
     clientId: string;
     companyName: string;
+    managerName: string;
     onClose: () => void;
     onReload: () => Promise<void>;
     onToast: (m: string) => void;
@@ -152,8 +154,10 @@ function ContractAddModal({
         // 블로그 계약이면 블로그 관리 시트에도 자동 등록.
         if (cat.label === '블로그') {
             await ensureClientBlogAccount(clientId, companyName || '업체', {
+                amount: amt || null,
                 contract_date: date || null,
                 goal_count: n,
+                manager: managerName || null,
                 remain_count: n,
             });
         }
@@ -256,7 +260,7 @@ function ContractAddModal({
 }
 
 // 계약 수정/재계약/삭제 모달.
-//   잔여 5건 미만이면 편집 필드 숨기고 재계약/계약 종료 노출 + 계약 이력(최초 계약) 표시.
+//   잔여 5건 이하이면 편집 필드 숨기고 재계약/계약 종료 노출 + 계약 이력(최초 계약) 표시.
 //   재계약 클릭 시 블로그 시트의 '계약' 창처럼 현재 계약 + 계약 추가(시작일·건수) UI.
 function ContractEditModal({
     contract,
@@ -288,7 +292,7 @@ function ContractEditModal({
     const hasGoal = goal.trim() !== '';
     const done = Math.max(0, goalN - remainN);
     const pct = goalN ? Math.round((done / goalN) * 100) : 0;
-    const imminent = hasGoal && remainN < 5; // 잔여 5건 미만 → 재계약/종료(필드 숨김)
+    const imminent = hasGoal && remainN <= 5; // 잔여 5건 이하 → 재계약/종료(필드 숨김)
 
     // 계약 이력 표시용: 과거(history) + 현재 계약. 0번=최초, 나머지=재N, 마지막=현재.
     const periods = [
@@ -430,7 +434,7 @@ function ContractEditModal({
                 ) : null}
 
                 {imminent ? (
-                    /* 잔여 5건 미만 — 편집 필드 숨김. 재계약/계약 종료 + 계약 이력. */
+                    /* 잔여 5건 이하 — 편집 필드 숨김. 재계약/계약 종료 + 계약 이력. */
                     <div className="mb-1 flex flex-col gap-2 border-t border-[#e2e8f0] pt-3">
                         {renewMode ? (
                             <>
@@ -554,7 +558,7 @@ function ContractEditModal({
                     </div>
                 )}
 
-                {/* 계약 이력 — 최초 계약 + 재N (마지막=현재). 잔여 5건 미만일 때 표시. */}
+                {/* 계약 이력 — 최초 계약 + 재N (마지막=현재). 잔여 5건 이하일 때 표시. */}
                 {imminent ? (
                     <div className="mt-3 border-t border-[#e2e8f0] pt-3">
                         <div className="mb-1.5 text-xs font-bold text-[#334155]">계약 이력</div>
@@ -876,6 +880,7 @@ export function ClientDetail({
                 <ContractAddModal
                     clientId={client.id}
                     companyName={client.company || ''}
+                    managerName={client.manager || ''}
                     onClose={() => setAddOpen(false)}
                     onReload={onReloadContracts}
                     onToast={onToast}

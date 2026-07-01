@@ -1,3 +1,4 @@
+import BlogPage from './BlogPage';
 import type { Tab } from '../components/blogRank/lib/helpers';
 import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
 import { DashboardTab } from '../components/blogRank/pages/DashboardTab';
@@ -54,6 +55,7 @@ function BlogRankShell() {
                         ['sheet', '관리 시트'],
                         ['tracker', '순위 트래커'],
                         ['crawl', '크롤링 현황'],
+                        ['writer', '블로그 작성기'],
                     ] as const
                 ).map(([key, label]) => (
                     <button
@@ -75,6 +77,7 @@ function BlogRankShell() {
             {tab === 'sheet' ? <SheetTab /> : null}
             {tab === 'tracker' ? <TrackerTab /> : null}
             {tab === 'crawl' ? <CrawlStatusTab /> : null}
+            {tab === 'writer' ? <BlogPage /> : null}
 
             {toastMsg ? (
                 <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-medium text-white shadow-lg">

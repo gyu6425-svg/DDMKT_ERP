@@ -60,7 +60,7 @@ export function Panel({
 
 export function Tag({ kind, children }: { kind: 'run' | 'stop' | 'low' | 'muted' | 'urgent'; children: ReactNode }) {
     const map: Record<string, string> = {
-        low: 'bg-[#fef3c7] text-[#d97706]',       // 노랑(잔여 2~4건)
+        low: 'bg-[#fef3c7] text-[#d97706]',       // 노랑(잔여 2~5건)
         urgent: 'bg-[#fee2e2] text-[#dc2626]',    // 빨강(잔여 1건 이하 = 매우 임박)
         muted: 'bg-[#f1f5f9] text-[#94a3b8]',
         run: 'bg-[#d1fae5] text-[#059669]',

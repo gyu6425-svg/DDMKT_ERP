@@ -1,7 +1,7 @@
 import type { BlogAccount } from '../../../api/blogRank';
 import { renewLevel } from '../lib/helpers';
 
-// 잔여 5건 미만(재계약 임박) 블로그만 모아 보여주는 모달. 빨강(1건↓) 상단, 노랑(2~3건) 그 아래.
+// 잔여 5건 이하(재계약 임박) 블로그만 모아 보여주는 모달. 빨강(1건↓) 상단, 노랑(2~3건) 그 아래.
 export function LowRemainModal({
     accounts,
     onClose,
@@ -12,7 +12,7 @@ export function LowRemainModal({
     onGoBlog: (name: string) => void;
 }) {
     const list = accounts
-        .filter((a) => a.is_active && a.remain_count != null && a.remain_count < 5)
+        .filter((a) => a.is_active && a.remain_count != null && a.remain_count <= 5)
         .map((a) => ({ a, level: renewLevel(a) }))
         .sort((x, y) => (x.a.remain_count ?? 999) - (y.a.remain_count ?? 999)); // 잔여 적은(빨강 1건) 순
 
@@ -22,9 +22,9 @@ export function LowRemainModal({
             onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
             <div className="flex max-h-[85vh] w-[min(560px,94vw)] flex-col rounded-2xl bg-white p-6">
-                <h3 className="m-0 text-lg font-bold text-[#0f172a]">재계약 임박 블로그 · 잔여 5건 미만</h3>
+                <h3 className="m-0 text-lg font-bold text-[#0f172a]">재계약 임박 블로그 · 잔여 5건 이하</h3>
                 <p className="mt-1 mb-3 text-sm text-[#64748b]">
-                    빨강 = 잔여 1건 이하(매우 임박) · 노랑 = 2~4건. 클릭하면 관리 시트로 이동합니다.
+                    빨강 = 잔여 1건 이하(매우 임박) · 노랑 = 2~5건. 클릭하면 관리 시트로 이동합니다.
                 </p>
 
                 <div className="grid gap-1 overflow-y-auto">
@@ -52,7 +52,7 @@ export function LowRemainModal({
                             </button>
                         ))
                     ) : (
-                        <p className="m-0 py-10 text-center text-sm text-[#94a3b8]">잔여 5건 미만 블로그가 없습니다.</p>
+                        <p className="m-0 py-10 text-center text-sm text-[#94a3b8]">잔여 5건 이하 블로그가 없습니다.</p>
                     )}
                 </div>
 

@@ -137,7 +137,13 @@ export async function insertBlogAccounts(payloads: Array<Partial<BlogAccount>>) 
 export async function ensureClientBlogAccount(
     clientId: string,
     name: string,
-    fields: { goal_count?: number | null; remain_count?: number | null; contract_date?: string | null },
+    fields: {
+        manager?: string | null;
+        goal_count?: number | null;
+        remain_count?: number | null;
+        contract_date?: string | null;
+        amount?: number | null;
+    },
 ) {
     const { data } = await getBlogAccounts(clientId);
     if (data.length) {
@@ -145,11 +151,13 @@ export async function ensureClientBlogAccount(
     }
     const { error } = await insertBlogAccounts([
         {
+            amounts: fields.amount ? [{ amount: fields.amount }] : [],
             blog_url: '',
             client_id: clientId,
             contract_date: fields.contract_date ?? null,
             goal_count: fields.goal_count ?? null,
             is_active: true,
+            manager: fields.manager ?? null,
             name,
             remain_count: fields.remain_count ?? null,
         } as Partial<BlogAccount>,
