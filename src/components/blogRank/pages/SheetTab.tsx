@@ -109,7 +109,7 @@ export function SheetTab() {
             (a) =>
                 (!q || a.name.includes(q)) &&
                 (!mgr || a.manager === mgr) &&
-                (!lowOnly || (a.remain_count != null && a.remain_count <= 3)) &&
+                (!lowOnly || (a.remain_count != null && a.remain_count < 5)) &&
                 (tab === 'ended' ? !!a.contract_ended_at : !a.contract_ended_at),
         );
         list = [...list].sort((x, y) => {
@@ -176,7 +176,7 @@ export function SheetTab() {
                 </select>
                 <label className="flex items-center gap-1 text-xs text-[#334155]">
                     <input checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} type="checkbox" />
-                    잔여 3건 이하만
+                    잔여 5건 미만만
                 </label>
                 <span className="ml-auto text-xs text-[#64748b]">{filtered.length}개</span>
                 {/* 내부 액션(등록/전체측정/일괄삭제) — 고객 ERP에선 숨김(조회 전용) */}
@@ -455,8 +455,8 @@ export function SheetTab() {
                                                         color:
                                                             a.remain_count <= 1
                                                                 ? '#dc2626' // 1건↓ 빨강
-                                                                : a.remain_count <= 3
-                                                                  ? '#d97706' // 2~3건 노랑
+                                                                : a.remain_count < 5
+                                                                  ? '#d97706' // 2~4건 노랑
                                                                   : '#0f172a',
                                                     }}
                                                 >

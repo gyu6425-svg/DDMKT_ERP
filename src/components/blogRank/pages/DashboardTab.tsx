@@ -100,12 +100,12 @@ export function DashboardTab() {
     const goal = withGoal.reduce((s, a) => s + (a.goal_count || 0), 0);
     const measured = posts.filter((p) => p.measurements.length);
     const inTen = measured.filter((p) => (lastM(p)?.ti ?? 99) <= 10).length;
-    const lowCnt = accounts.filter((a) => a.remain_count != null && a.remain_count <= 3 && a.is_active).length;
+    const lowCnt = accounts.filter((a) => a.remain_count != null && a.remain_count < 5 && a.is_active).length;
     const stopCnt = accounts.filter((a) => !a.is_active).length;
 
-    // 재계약 임박(잔여 ≤3, 활성) + 진행 중단. 잔여 1건↓=빨강(매우 임박), 2~3건=노랑. 빨강 1건부터 최상단.
+    // 재계약 임박(잔여 <5, 활성) + 진행 중단. 잔여 1건↓=빨강(매우 임박), 2~4건=노랑. 빨강 1건부터 최상단.
     const attn = accounts
-        .filter((a) => (a.remain_count != null && a.remain_count <= 3 && a.is_active) || !a.is_active)
+        .filter((a) => (a.remain_count != null && a.remain_count < 5 && a.is_active) || !a.is_active)
         .map((a) => {
             const level = a.is_active ? renewLevel(a) : null;
             return {
@@ -164,7 +164,7 @@ export function DashboardTab() {
                     onClick={measured.length ? onGoTracker10 : undefined}
                 />
                 <Kpi
-                    label="잔여 3건 이하"
+                    label="잔여 5건 미만"
                     value={`${lowCnt}`}
                     accent={lowCnt ? '#d97706' : undefined}
                     sub="재계약 영업 타이밍 · 눌러서 보기"
@@ -234,7 +234,7 @@ export function DashboardTab() {
             </Panel> */}
 
             <div className="grid gap-4 lg:grid-cols-2">
-                <Panel title="재계약 임박 블로그" sub="잔여 1건↓ 빨강 · 2~3건 노랑 · 진행 중단">
+                <Panel title="재계약 임박 블로그" sub="잔여 1건↓ 빨강 · 2~4건 노랑 · 진행 중단">
                     {attn.length ? (
                         <div className="grid gap-1">
                             {attn.map(({ account, label, tag, why }) => (

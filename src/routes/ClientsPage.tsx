@@ -169,12 +169,12 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         });
     }, [clients, search, statusFilter, favOnly, favs, contractsOnly, clientTab]);
 
-    // 계약 관리 KPI — 계약 중(계약완료 고객 수) + 재계약 임박(카테고리 계약 중 잔여 3건 미만).
+    // 계약 관리 KPI — 계약 중(계약완료 고객 수) + 재계약 임박(카테고리 계약 중 잔여 5건 미만).
     const doneClientIds = useMemo(
         () => new Set(clients.filter((c) => c.status === DONE_STATUS).map((c) => c.id)),
         [clients],
     );
-    // 재계약 임박 = 계약완료 고객의 상품(블로그 계정 + 계약 내역) 중 잔여 3건 미만. 0건=빨강, 1~2건=노랑.
+    // 재계약 임박 = 계약완료 고객의 상품(블로그 계정 + 계약 내역) 중 잔여 5건 미만. 0건=빨강, 1~4건=노랑.
     const imminentList = useMemo(() => {
         const fromBlogs = blogAccounts
             .filter(
@@ -183,7 +183,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                     doneClientIds.has(a.client_id) &&
                     !a.contract_ended_at &&
                     a.remain_count != null &&
-                    a.remain_count < 3,
+                    a.remain_count < 5,
             )
             .map((a) => ({
                 clientId: a.client_id as string,
@@ -192,7 +192,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 remain: a.remain_count as number,
             }));
         const fromContracts = clientContracts
-            .filter((ct) => doneClientIds.has(ct.client_id) && ct.remain_count != null && ct.remain_count < 3)
+            .filter((ct) => doneClientIds.has(ct.client_id) && ct.remain_count != null && ct.remain_count < 5)
             .map((ct) => ({
                 clientId: ct.client_id,
                 company: clients.find((c) => c.id === ct.client_id)?.company || '업체',
@@ -507,7 +507,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                         >
                             {imminentList.length}건
                         </div>
-                        <div className="mt-0.5 text-[11px] font-semibold text-[#64748b]">잔여 3건 미만</div>
+                        <div className="mt-0.5 text-[11px] font-semibold text-[#64748b]">잔여 5건 미만</div>
                     </button>
                 </div>
             ) : null}
@@ -1083,7 +1083,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             </button>
                         </div>
                         <p className="mt-1 mb-3 text-sm text-[#64748b]">
-                            잔여 3건 미만 · 카테고리·업체별 (누르면 상세로)
+                            잔여 5건 미만 · 카테고리·업체별 (누르면 상세로)
                         </p>
                         {imminentList.length ? (
                             <div className="grid gap-1">

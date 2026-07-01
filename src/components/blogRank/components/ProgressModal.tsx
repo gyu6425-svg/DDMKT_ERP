@@ -25,8 +25,8 @@ export function ProgressModal({
     const pct = goal ? Math.round((done / goal) * 100) : 0;
     const pc = pct >= 70 ? '#059669' : pct >= 40 ? '#d97706' : '#dc2626';
     const ended = !!account.contract_ended_at;
-    // 계약 종료 버튼 노출 조건 — 잔여 3건 이하 또는 100% 채움(재계약 판단 시점).
-    const canEnd = hasGoal && (remain <= 3 || pct >= 100);
+    // 계약 종료 버튼 노출 조건 — 잔여 5건 미만 또는 100% 채움(재계약 판단 시점).
+    const canEnd = hasGoal && (remain < 5 || pct >= 100);
 
     const setEnded = async (on: boolean) => {
         if (saving) return;

@@ -272,7 +272,7 @@ function ContractEditModal({
     const hasGoal = goal.trim() !== '';
     const done = Math.max(0, goalN - remainN);
     const pct = goalN ? Math.round((done / goalN) * 100) : 0;
-    const canRenew = hasGoal && remainN < 3; // 잔여 3건 미만 → 재계약/계약 종료 노출
+    const canRenew = hasGoal && remainN < 5; // 잔여 5건 미만 → 재계약/계약 종료 노출
 
     // +1건 완료 / 되돌리기 — 잔여를 바로 저장(진행률 자동 반영).
     const quick = async (delta: number) => {
@@ -388,7 +388,7 @@ function ContractEditModal({
                     </div>
                 ) : null}
 
-                {/* 잔여 3건 미만 → 재계약(기존→이력) / 계약 종료 */}
+                {/* 잔여 5건 미만 → 재계약(기존→이력) / 계약 종료 */}
                 {canRenew ? (
                     <div className="mb-3 flex flex-col gap-2 border-t border-[#e2e8f0] pt-3">
                         <button
