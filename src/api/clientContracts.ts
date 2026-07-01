@@ -8,6 +8,9 @@ export type ContractHistoryItem = {
     contract_date: string | null;
     note: string | null;
     at: string; // 이력으로 넘긴 날짜(YYYY-MM-DD)
+    unit_price?: number | null; // 단가
+    unit_outsource?: number | null; // 외주 단가
+    outsource?: number | null; // 외주비
 };
 
 // 고객사 계약 내역(카테고리/세부유형별 건수 계약). client_contracts 테이블(docs/client-contracts.sql).

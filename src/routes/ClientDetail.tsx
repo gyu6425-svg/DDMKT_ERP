@@ -364,6 +364,17 @@ function ContractEditModal({
     const [reOutUnit, setReOutUnit] = useState('');
     // 특이사항 편집 대상 — 'current'=현재 계약(note), 숫자=history[i]. 각 계약별로 따로 저장.
     const [noteEdit, setNoteEdit] = useState<{ idx: number | 'current'; value: string } | null>(null);
+    // 이력 항목(최초/재N) 클릭 → 그 회차 계약의 상세(누적 아닌 그 회차 실제 금액).
+    const [periodDetail, setPeriodDetail] = useState<{
+        label: string;
+        goal: number;
+        amount: number;
+        outsource: number;
+        unitPrice: number;
+        unitOutsource: number;
+        date: string | null;
+        note: string | null;
+    } | null>(null);
 
     const [history, setHistory] = useState<ContractHistoryItem[]>(contract.history ?? []);
     const goalN = Number(goal) || 0;
@@ -389,9 +400,26 @@ function ContractEditModal({
             contract_date: date || null,
             goal_count: hasGoal ? goalN : null,
             note: note || null,
+            outsource: contract.outsource ?? null,
             remain_count: remainN,
+            unit_outsource: contract.unit_outsource ?? null,
+            unit_price: contract.unit_price ?? null,
         } as ContractHistoryItem,
     ];
+    // 회차 델타 — periods는 누적 스냅샷이라, 그 회차 실제 계약분 = 이번 − 직전.
+    const deltaOf = (i: number) => {
+        const cur = periods[i];
+        const prev = i > 0 ? periods[i - 1] : null;
+        return {
+            amount: (cur.amount ?? 0) - (prev?.amount ?? 0),
+            date: cur.contract_date ?? cur.at ?? null,
+            goal: (cur.goal_count ?? 0) - (prev?.goal_count ?? 0),
+            note: cur.note ?? null,
+            outsource: (cur.outsource ?? 0) - (prev?.outsource ?? 0),
+            unitOutsource: cur.unit_outsource ?? 0,
+            unitPrice: cur.unit_price ?? 0,
+        };
+    };
 
     // +1건 완료 / 되돌리기 — 잔여를 바로 저장(진행률 자동 반영).
     const quick = async (delta: number) => {
@@ -425,7 +453,10 @@ function ContractEditModal({
                 contract_date: date || null,
                 goal_count: hasGoal ? goalN : null,
                 note: note || null,
+                outsource: contract.outsource ?? null,
                 remain_count: remainN,
+                unit_outsource: contract.unit_outsource ?? null,
+                unit_price: contract.unit_price ?? null,
             },
         ];
         const nextGoal = goalN + reQty;
@@ -667,20 +698,23 @@ function ContractEditModal({
                             {periods.map((p, i) => {
                                 const isCurrent = i === periods.length - 1;
                                 const isFirst = i === 0;
+                                const pLabel = isFirst ? '최초 계약' : `재계약 ${i}`;
+                                const d = deltaOf(i); // 그 회차 실제 계약분(누적 아님)
                                 return (
                                     <div
-                                        className="flex items-center gap-1.5 rounded-md border border-[#eef2f7] bg-[#f8fafc] px-2.5 py-1.5 text-xs text-[#475569]"
+                                        className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[#eef2f7] bg-[#f8fafc] px-2.5 py-1.5 text-xs text-[#475569] hover:border-[#1e40af]"
                                         key={i}
+                                        onClick={() => setPeriodDetail({ label: pLabel, ...d })}
                                     >
                                         <span
                                             className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${
                                                 isFirst ? 'bg-[#dbeafe] text-[#1e40af]' : 'bg-[#f1f5f9] text-[#475569]'
                                             }`}
                                         >
-                                            {isFirst ? '최초 계약' : `재${i}`}
+                                            {pLabel}
                                         </span>
                                         <span className="font-semibold">
-                                            {p.contract_date || p.at || '-'} · 계약 {p.goal_count ?? '—'}건
+                                            {d.date || '-'} · 계약 {d.goal.toLocaleString('ko-KR')}건
                                         </span>
                                         {/* 이월 = 이 계약에서 다음 계약으로 넘어간 잔여 건수 */}
                                         {!isCurrent ? (
@@ -688,7 +722,7 @@ function ContractEditModal({
                                                 {p.remain_count ?? 0}건 이월
                                             </span>
                                         ) : null}
-                                        <span className="ml-auto">{p.amount ? `${fmtWon(p.amount)}원` : ''}</span>
+                                        <span className="ml-auto">{d.amount ? `${fmtWon(d.amount)}원` : ''}</span>
                                         <button
                                             className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
                                                 p.note
@@ -786,7 +820,7 @@ function ContractEditModal({
                     >
                         <div className="w-[min(380px,92vw)] rounded-xl bg-white p-5 shadow-xl">
                             <h4 className="m-0 text-sm font-bold text-[#0f172a]">
-                                특이사항 {noteEdit.idx === 'current' ? '(현재 계약)' : `(재${noteEdit.idx})`}
+                                특이사항 {noteEdit.idx === 'current' ? '(현재 계약)' : `(재계약 ${noteEdit.idx})`}
                             </h4>
                             <textarea
                                 autoFocus
@@ -812,6 +846,58 @@ function ContractEditModal({
                                     type="button"
                                 >
                                     저장
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+
+                {/* 이력 회차 상세 — 그 회차 실제 계약분 */}
+                {periodDetail ? (
+                    <div
+                        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+                        onMouseDown={(e) => e.target === e.currentTarget && setPeriodDetail(null)}
+                    >
+                        <div className="w-[min(400px,94vw)] rounded-2xl bg-white p-6">
+                            <h3 className="m-0 text-lg font-bold">
+                                {contract.subtype}{' '}
+                                <span className="text-sm font-semibold text-[#64748b]">· {periodDetail.label}</span>
+                            </h3>
+                            <div className="mt-3 grid gap-1.5 text-sm">
+                                {(
+                                    [
+                                        ['계약일', periodDetail.date || '-'],
+                                        ['수량', `${periodDetail.goal.toLocaleString('ko-KR')}건`],
+                                        ['단가', `${fmtWon(periodDetail.unitPrice)}원`],
+                                        ['매출 (실매출)', `${fmtWon(periodDetail.amount)}원`, '#1e40af'],
+                                        ['외주단가', `${fmtWon(periodDetail.unitOutsource)}원`],
+                                        ['외주비', `${fmtWon(periodDetail.outsource)}원`, '#dc2626'],
+                                        [
+                                            '순매출',
+                                            `${fmtWon(periodDetail.amount - periodDetail.outsource)}원`,
+                                            '#059669',
+                                        ],
+                                        ['특이사항', periodDetail.note || '-'],
+                                    ] as [string, string, string?][]
+                                ).map(([k, v, color]) => (
+                                    <div
+                                        className="flex items-center justify-between border-b border-[#f1f5f9] py-1.5"
+                                        key={k}
+                                    >
+                                        <span className="text-[#64748b]">{k}</span>
+                                        <span className="font-bold" style={{ color: color || '#0f172a' }}>
+                                            {v}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="mt-4 flex justify-end">
+                                <button
+                                    className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                                    onClick={() => setPeriodDetail(null)}
+                                    type="button"
+                                >
+                                    닫기
                                 </button>
                             </div>
                         </div>
@@ -1256,33 +1342,6 @@ export function ClientDetail({
                                                     {fmtWon(val)}원
                                                 </span>
                                             </div>
-                                            {/* 계약 이력 — 최초 계약 + 재N 쌓임 */}
-                                            {ct.history && ct.history.length ? (
-                                                <div className="mt-1 grid gap-0.5 border-t border-[#eef2f7] pt-1">
-                                                    {ct.history.map((h, i) => (
-                                                        <div
-                                                            className="flex items-center gap-1.5 text-[11px] text-[#94a3b8]"
-                                                            key={i}
-                                                        >
-                                                            <span className="rounded bg-[#f1f5f9] px-1 py-0.5 font-bold text-[#475569]">
-                                                                {i === 0 ? '최초' : `재${i}`}
-                                                            </span>
-                                                            <span>
-                                                                {h.contract_date || h.at || '-'} · 계약{' '}
-                                                                {h.goal_count ?? '—'}건
-                                                            </span>
-                                                            <span className="ml-auto">{fmtWon(h.amount || 0)}원</span>
-                                                        </div>
-                                                    ))}
-                                                    <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#059669]">
-                                                        <span className="rounded bg-[#dcfce7] px-1 py-0.5 font-bold">
-                                                            현재
-                                                        </span>
-                                                        <span>계약 {ct.goal_count ?? '—'}건</span>
-                                                        <span className="ml-auto">{fmtWon(ct.amount || 0)}원</span>
-                                                    </div>
-                                                </div>
-                                            ) : null}
                                         </div>
                                     );
                                 })}
@@ -1369,6 +1428,83 @@ export function ClientDetail({
                                 </div>
                             ))}
                         </div>
+                        {/* 계약 히스토리별 (그 회차 실제 계약분 — 누적 아님) */}
+                        {(() => {
+                            const per = [
+                                ...(detailC.history || []),
+                                {
+                                    amount: detailC.amount ?? 0,
+                                    contract_date: detailC.contract_date,
+                                    goal_count: detailC.goal_count,
+                                    outsource: detailC.outsource ?? 0,
+                                    unit_price: detailC.unit_price,
+                                    unit_outsource: detailC.unit_outsource,
+                                },
+                            ];
+                            const label =
+                                breakdown === 'sales'
+                                    ? '실매출'
+                                    : breakdown === 'outsource'
+                                      ? '외주비'
+                                      : '순매출';
+                            const color =
+                                breakdown === 'sales'
+                                    ? '#1e40af'
+                                    : breakdown === 'outsource'
+                                      ? '#dc2626'
+                                      : '#059669';
+                            return (
+                                <div className="mt-4">
+                                    <div className="mb-1.5 text-xs font-bold text-[#64748b]">
+                                        계약 히스토리별 {label}
+                                    </div>
+                                    <div className="grid gap-1">
+                                        {per.map((p, i) => {
+                                            const prev = i > 0 ? per[i - 1] : null;
+                                            const dGoal = (p.goal_count ?? 0) - (prev?.goal_count ?? 0);
+                                            // 그 회차 실제 금액 = 그 회차 수량 × 그 회차 단가(회차값 없으면 현재값)
+                                            const uPrice = (p.unit_price ?? detailC.unit_price) || 0;
+                                            const uOut = (p.unit_outsource ?? detailC.unit_outsource) || 0;
+                                            const dv =
+                                                breakdown === 'sales'
+                                                    ? dGoal * uPrice
+                                                    : breakdown === 'outsource'
+                                                      ? dGoal * uOut
+                                                      : dGoal * (uPrice - uOut);
+                                            const unit = breakdown === 'outsource' ? uOut : uPrice;
+                                            const isCur = i === per.length - 1;
+                                            return (
+                                                <div
+                                                    className="flex items-center gap-1.5 rounded-md bg-[#f8fafc] px-2 py-1.5 text-[12px]"
+                                                    key={i}
+                                                >
+                                                    <span
+                                                        className={`rounded px-1 py-0.5 text-[11px] font-bold ${
+                                                            isCur
+                                                                ? 'bg-[#dcfce7] text-[#16a34a]'
+                                                                : 'bg-[#f1f5f9] text-[#475569]'
+                                                        }`}
+                                                    >
+                                                        {i === 0 ? '최초' : `재계약 ${i}`}
+                                                        {isCur ? '·현재' : ''}
+                                                    </span>
+                                                    <span className="text-[#94a3b8]">
+                                                        {p.contract_date || '-'} ·{' '}
+                                                        {dGoal.toLocaleString('ko-KR')}건
+                                                        {unit
+                                                            ? ` × ${fmtWon(unit)}원`
+                                                            : ''}
+                                                    </span>
+                                                    <span className="ml-auto font-bold" style={{ color }}>
+                                                        {fmtWon(dv)}원
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })()}
                         <div className="mt-4 flex justify-end">
                             <button
                                 className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
