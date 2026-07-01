@@ -1432,7 +1432,16 @@ export function ClientDetail({
                     </svg>
                     목록으로
                 </button>
-                <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">{client.company || '고객사'}</h2>
+                <div className="min-w-0">
+                    <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">
+                        {client.company || '고객사'}
+                        <span className="ml-2 text-xs font-semibold text-[#94a3b8]">업체명</span>
+                    </h2>
+                    <div className="mt-0.5 text-sm font-semibold text-[#64748b]">
+                        {client.client_partner || '—'}
+                        <span className="ml-2 text-xs font-normal text-[#94a3b8]">거래처명</span>
+                    </div>
+                </div>
                 <div className="flex-1" />
                 {!confirmDel && client.status !== '계약종료' ? (
                     <button
