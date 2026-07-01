@@ -17,7 +17,6 @@ import { ClientDetail } from './ClientDetail';
 import Button from '../components/Button';
 import { useErpData } from '../context/ErpDataContext';
 import {
-    SOURCE_BADGE,
     SOURCE_OPTIONS,
     STATUS_BADGE,
     STATUS_OPTIONS,
@@ -108,7 +107,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     };
 
     const [search, setSearch] = useState('');
-    const [sourceFilter, setSourceFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
     const [favOnly, setFavOnly] = useState(false);
     const [favs, setFavs] = useState<string[]>(loadFavs);
@@ -148,7 +146,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 (client.company || '').toLowerCase().includes(q) ||
                 (client.contact || '').toLowerCase().includes(q) ||
                 (client.product || '').toLowerCase().includes(q);
-            const matchesSource = !sourceFilter || client.source === sourceFilter;
             const matchesStatus = !statusFilter || client.status === statusFilter;
             const matchesFav = !favOnly || favs.includes(client.id);
             // 계약 관리(contractsOnly)는 '계약완료' 상태만 진입.
@@ -162,7 +159,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                       ? client.status === ENDED_STATUS
                       : client.status !== DONE_STATUS && client.status !== ENDED_STATUS);
 
-            return matchesQuery && matchesSource && matchesStatus && matchesFav && matchesContract && matchesTab;
+            return matchesQuery && matchesStatus && matchesFav && matchesContract && matchesTab;
         });
 
         return list.sort((a, b) => {
@@ -170,7 +167,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
         });
-    }, [clients, search, sourceFilter, statusFilter, favOnly, favs, contractsOnly, clientTab]);
+    }, [clients, search, statusFilter, favOnly, favs, contractsOnly, clientTab]);
 
     // 계약 관리 KPI — 계약 중(계약완료 고객 수) + 재계약 임박(카테고리 계약 중 잔여 3건 미만).
     const doneClientIds = useMemo(
@@ -511,16 +508,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 />
                 <select
                     className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs"
-                    onChange={(event) => setSourceFilter(event.target.value)}
-                    value={sourceFilter}
-                >
-                    <option value="">전체 경로</option>
-                    {SOURCE_OPTIONS.map((s) => (
-                        <option key={s}>{s}</option>
-                    ))}
-                </select>
-                <select
-                    className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs"
                     onChange={(event) => setStatusFilter(event.target.value)}
                     value={statusFilter}
                 >
@@ -595,7 +582,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">⭐</th>
                             <th className="px-3 py-2 font-semibold">담당자</th>
-                            <th className="px-3 py-2 font-semibold">경로</th>
                             <th className="px-3 py-2 font-semibold">업체명</th>
                             <th className="px-3 py-2 font-semibold">연락처</th>
                             <th className="px-3 py-2 font-semibold">상품</th>
@@ -641,19 +627,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                             </button>
                                         </td>
                                         <td className="px-3 py-2 font-semibold">{c.manager}</td>
-                                        <td className="px-3 py-2">
-                                            {c.source ? (
-                                                <span
-                                                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                                        SOURCE_BADGE[c.source] || 'bg-[#e2e8f0] text-[#64748b]'
-                                                    }`}
-                                                >
-                                                    {c.source}
-                                                </span>
-                                            ) : (
-                                                <span className="text-xs text-[#94a3b8]">-</span>
-                                            )}
-                                        </td>
                                         <td className="px-3 py-2">
                                             <button
                                                 className="font-medium text-[#1e40af] hover:underline"
@@ -763,7 +736,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             <tr>
                                 <td
                                     className="px-3 py-12 text-center text-sm text-[#64748b]"
-                                    colSpan={11}
+                                    colSpan={10}
                                 >
                                     {loading ? '불러오는 중...' : '등록된 문의가 없습니다'}
                                 </td>
