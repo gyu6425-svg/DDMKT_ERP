@@ -1336,19 +1336,27 @@ export function ClientDetail({
                         </h3>
                         <div className="mt-3 grid gap-1.5 text-sm">
                             {(
-                                [
-                                    ['수량', `${(detailC.goal_count ?? 0).toLocaleString('ko-KR')}건`],
-                                    ['단가', `${fmtWon(detailC.unit_price || 0)}원`],
-                                    ['매출 (실매출)', `${fmtWon(detailC.amount || 0)}원`, '#1e40af'],
-                                    ['외주단가', `${fmtWon(detailC.unit_outsource || 0)}원`],
-                                    ['외주비', `${fmtWon(detailC.outsource || 0)}원`, '#dc2626'],
-                                    [
-                                        '순매출',
-                                        `${fmtWon((detailC.amount || 0) - (detailC.outsource || 0))}원`,
-                                        '#059669',
-                                    ],
-                                    ['계약일', detailC.contract_date || '-'],
-                                ] as [string, string, string?][]
+                                breakdown === 'outsource'
+                                    ? ([
+                                          ['수량', `${(detailC.goal_count ?? 0).toLocaleString('ko-KR')}건`],
+                                          ['외주단가', `${fmtWon(detailC.unit_outsource || 0)}원`],
+                                          ['외주비', `${fmtWon(detailC.outsource || 0)}원`, '#dc2626'],
+                                      ] as [string, string, string?][])
+                                    : breakdown === 'net'
+                                      ? ([
+                                            ['실매출 (매출)', `${fmtWon(detailC.amount || 0)}원`, '#1e40af'],
+                                            ['외주비', `${fmtWon(detailC.outsource || 0)}원`, '#dc2626'],
+                                            [
+                                                '순매출 (매출 − 외주비)',
+                                                `${fmtWon((detailC.amount || 0) - (detailC.outsource || 0))}원`,
+                                                '#059669',
+                                            ],
+                                        ] as [string, string, string?][])
+                                      : ([
+                                            ['수량', `${(detailC.goal_count ?? 0).toLocaleString('ko-KR')}건`],
+                                            ['단가', `${fmtWon(detailC.unit_price || 0)}원`],
+                                            ['실매출 (매출)', `${fmtWon(detailC.amount || 0)}원`, '#1e40af'],
+                                        ] as [string, string, string?][])
                             ).map(([k, v, color]) => (
                                 <div
                                     className="flex items-center justify-between border-b border-[#f1f5f9] py-1.5"
