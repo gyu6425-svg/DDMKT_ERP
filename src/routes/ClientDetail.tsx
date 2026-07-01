@@ -523,9 +523,11 @@ function ContractEditModal({
         setSaving(false);
         if (logErr) {
             setWeeklyLogs(weeklyLogs);
-            onToast('진행은 반영됨. 주간 로그 저장 실패 — Supabase에 weekly_logs 컬럼 추가 필요');
+            onToast('진행은 반영됨. 진행 이력 저장 실패 — Supabase에 weekly_logs 컬럼 추가 필요');
         } else {
-            onToast(`주간 처리 — ${applied.toLocaleString('ko-KR')}타 (잔여 ${next.toLocaleString('ko-KR')}타)`);
+            onToast(
+                `${applied.toLocaleString('ko-KR')}${unitLabel} 완료 (잔여 ${next.toLocaleString('ko-KR')}${unitLabel})`,
+            );
         }
         await onReload();
     };
@@ -813,7 +815,74 @@ function ContractEditModal({
                                     </div>
                                 ) : null}
                             </div>
-                            {/* 진행 이력 — 주간 확정한 처리 타수 히스토리(주간 진행 밑) */}
+                            </>
+                        ) : (
+                            <>
+                                <div className="mt-2 flex gap-2">
+                                    <button
+                                        className="flex-1 rounded-md bg-[#059669] px-4 py-2 text-sm font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                                        disabled={saving || remainN <= 0}
+                                        onClick={() => void commitWeek(1, false)}
+                                        type="button"
+                                    >
+                                        + 1건 완료
+                                    </button>
+                                    <button
+                                        className="rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50"
+                                        disabled={saving || remainN >= goalN}
+                                        onClick={() =>
+                                            weeklyLogs.length
+                                                ? void deleteWeekLog(weeklyLogs.length - 1)
+                                                : void quick(-1)
+                                        }
+                                        type="button"
+                                    >
+                                        되돌리기
+                                    </button>
+                                </div>
+                                {/* N건 일괄 완료 — 진행 이력에 기록 남김 */}
+                                <div className="mt-2 flex items-center gap-1.5">
+                                    <input
+                                        className="h-9 w-full rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                        inputMode="numeric"
+                                        onChange={(e) => setBulk(withCommas(e.target.value))}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && Number(onlyDigits(bulk)) > 0) {
+                                                void commitWeek(Number(onlyDigits(bulk)), false);
+                                                setBulk('');
+                                            }
+                                        }}
+                                        placeholder="여러 건 한번에"
+                                        value={bulk}
+                                    />
+                                    <button
+                                        className="shrink-0 rounded-md bg-[#1e40af] px-3 py-2 text-sm font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
+                                        disabled={saving || Number(onlyDigits(bulk)) <= 0 || remainN <= 0}
+                                        onClick={() => {
+                                            void commitWeek(Number(onlyDigits(bulk)), false);
+                                            setBulk('');
+                                        }}
+                                        type="button"
+                                    >
+                                        일괄 완료
+                                    </button>
+                                </div>
+                                {Number(onlyDigits(bulk)) > 0 && (contract.unit_outsource ?? 0) > 0 ? (
+                                    <div className="mt-1 text-right text-[11px] text-[#94a3b8]">
+                                        이번 처리 소진 외주비 ≈{' '}
+                                        <b className="text-[#475569]">
+                                            {fmtWon(
+                                                Math.min(remainN, Number(onlyDigits(bulk))) *
+                                                    (contract.unit_outsource ?? 0),
+                                            )}
+                                            원
+                                        </b>
+                                    </div>
+                                ) : null}
+                            </>
+                        )}
+                        {/* 진행 이력 — 리워드/일반 공통(완료 처리마다 기록) */}
+                        {weeklyLogs.length || !isReward ? (
                             <div className="mt-3 rounded-lg border border-[#e2e8f0] bg-white px-3 py-3 text-left">
                                 <div className="mb-1.5 flex items-center justify-between">
                                     <span className="text-sm font-bold text-[#334155]">진행 이력</span>
@@ -824,10 +893,11 @@ function ContractEditModal({
                                                 : 'text-[11px] font-bold text-[#dc2626]'
                                         }
                                     >
-                                        Σ {weekSum.toLocaleString('ko-KR')}타
+                                        Σ {weekSum.toLocaleString('ko-KR')}
+                                        {unitLabel}
                                         {weekSum === done
                                             ? ' ✓'
-                                            : ` ≠ 소진 ${done.toLocaleString('ko-KR')}타`}
+                                            : ` ≠ 소진 ${done.toLocaleString('ko-KR')}${unitLabel}`}
                                     </span>
                                 </div>
                                 {weeklyLogs.length ? (
@@ -838,7 +908,7 @@ function ContractEditModal({
                                                 key={i}
                                             >
                                                 <span className="rounded bg-[#dbeafe] px-1.5 py-0.5 text-[11px] font-bold text-[#1e40af]">
-                                                    {i + 1}주차
+                                                    {isReward ? `${i + 1}주차` : `${i + 1}회`}
                                                 </span>
                                                 <span className="text-[#64748b]">{l.at}</span>
                                                 {editLog?.idx === i ? (
@@ -877,10 +947,11 @@ function ContractEditModal({
                                                                 value: withCommas(String(l.count)),
                                                             })
                                                         }
-                                                        title="타수 수정"
+                                                        title="수량 수정"
                                                         type="button"
                                                     >
-                                                        {l.count.toLocaleString('ko-KR')}타
+                                                        {l.count.toLocaleString('ko-KR')}
+                                                        {unitLabel}
                                                     </button>
                                                 )}
                                                 {(contract.unit_outsource ?? 0) > 0 ? (
@@ -902,72 +973,11 @@ function ContractEditModal({
                                     </div>
                                 ) : (
                                     <div className="py-4 text-center text-[11px] text-[#94a3b8]">
-                                        아직 진행 이력이 없습니다. 위에서 이번 주 처리 타수를 확정하세요.
+                                        아직 진행 이력이 없습니다. 완료 처리를 하면 기록됩니다.
                                     </div>
                                 )}
                             </div>
-                            </>
-                        ) : (
-                            <>
-                                <div className="mt-2 flex gap-2">
-                                    <button
-                                        className="flex-1 rounded-md bg-[#059669] px-4 py-2 text-sm font-bold text-white hover:bg-[#047857] disabled:opacity-50"
-                                        disabled={saving || remainN <= 0}
-                                        onClick={() => void quick(1)}
-                                        type="button"
-                                    >
-                                        + 1건 완료
-                                    </button>
-                                    <button
-                                        className="rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50"
-                                        disabled={saving || remainN >= goalN}
-                                        onClick={() => void quick(-1)}
-                                        type="button"
-                                    >
-                                        되돌리기
-                                    </button>
-                                </div>
-                                {/* N건 일괄 완료 — quick(delta)에 입력값 전달(경계처리 이미 있음) */}
-                                <div className="mt-2 flex items-center gap-1.5">
-                                    <input
-                                        className="h-9 w-full rounded-md border border-[#cbd5e1] px-2 text-sm"
-                                        inputMode="numeric"
-                                        onChange={(e) => setBulk(withCommas(e.target.value))}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter' && Number(onlyDigits(bulk)) > 0) {
-                                                void quick(Number(onlyDigits(bulk)));
-                                                setBulk('');
-                                            }
-                                        }}
-                                        placeholder="여러 건 한번에"
-                                        value={bulk}
-                                    />
-                                    <button
-                                        className="shrink-0 rounded-md bg-[#1e40af] px-3 py-2 text-sm font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
-                                        disabled={saving || Number(onlyDigits(bulk)) <= 0 || remainN <= 0}
-                                        onClick={() => {
-                                            void quick(Number(onlyDigits(bulk)));
-                                            setBulk('');
-                                        }}
-                                        type="button"
-                                    >
-                                        일괄 완료
-                                    </button>
-                                </div>
-                                {Number(onlyDigits(bulk)) > 0 && (contract.unit_outsource ?? 0) > 0 ? (
-                                    <div className="mt-1 text-right text-[11px] text-[#94a3b8]">
-                                        이번 처리 소진 외주비 ≈{' '}
-                                        <b className="text-[#475569]">
-                                            {fmtWon(
-                                                Math.min(remainN, Number(onlyDigits(bulk))) *
-                                                    (contract.unit_outsource ?? 0),
-                                            )}
-                                            원
-                                        </b>
-                                    </div>
-                                ) : null}
-                            </>
-                        )}
+                        ) : null}
                     </div>
                 ) : null}
 
