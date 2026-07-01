@@ -40,7 +40,7 @@ function Sidebar() {
 
     const linkClassName = (path: string) =>
         path === currentPath
-            ? 'text-[16px] font-semibold text-[#000000] no-underline'
+            ? 'text-[16px] font-semibold text-[#FF6000] no-underline'
             : 'text-[16px] font-normal text-[#777777] no-underline hover:font-normal hover:text-[#000000]';
 
     const renderNavItem = (item: { path: string; label: string; disabled?: boolean }) =>
