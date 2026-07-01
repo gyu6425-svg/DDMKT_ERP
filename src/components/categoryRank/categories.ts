@@ -46,6 +46,10 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
                 label: '플레이스용 블로그 리뷰',
                 href: '/place-rank?sub=' + encodeURIComponent('플레이스용 블로그 리뷰'),
             },
+            {
+                label: '상위노출 보장형',
+                href: '/place-rank?sub=' + encodeURIComponent('상위노출 보장형'),
+            },
         ],
     },
     {
