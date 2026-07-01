@@ -122,9 +122,12 @@ function ContractAddModal({
     const [subtype, setSubtype] = useState(cat.subs[0]);
     const [count, setCount] = useState('');
     const [unit, setUnit] = useState('');
+    const [outUnit, setOutUnit] = useState('');
     const [date, setDate] = useState('');
     const [saving, setSaving] = useState(false);
-    const amt = (Number(onlyDigits(unit)) || 0) * (Number(onlyDigits(count)) || 0); // 단가 × 건수
+    const cnt = Number(onlyDigits(count)) || 0;
+    const amt = (Number(onlyDigits(unit)) || 0) * cnt; // 매출 = 단가 × 수량
+    const outAmt = (Number(onlyDigits(outUnit)) || 0) * cnt; // 외주비 = 외주단가 × 수량
 
     const pickCat = (key: string) => {
         setCatKey(key);
@@ -146,8 +149,11 @@ function ContractAddModal({
                 client_id: clientId,
                 contract_date: date || null,
                 goal_count: n,
+                outsource: outAmt,
                 remain_count: n,
                 subtype,
+                unit_outsource: outUnit.trim() ? Number(onlyDigits(outUnit)) : null,
+                unit_price: unit.trim() ? Number(onlyDigits(unit)) : null,
             },
         ]);
         setSaving(false);
@@ -209,33 +215,45 @@ function ContractAddModal({
                             ))}
                         </select>
                     </label>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-3 gap-2">
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            수량
+                            <input
+                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-sm"
+                                inputMode="numeric"
+                                onChange={(e) => setCount(e.target.value)}
+                                placeholder="300"
+                                type="text"
+                                value={withCommas(count)}
+                            />
+                        </label>
                         <label className="block text-xs font-semibold text-[#475569]">
                             단가(원)
                             <input
-                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-right text-sm"
+                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-sm"
                                 inputMode="numeric"
                                 onChange={(e) => setUnit(e.target.value)}
-                                placeholder="예: 2,000"
+                                placeholder="2,000"
                                 type="text"
                                 value={withCommas(unit)}
                             />
                         </label>
                         <label className="block text-xs font-semibold text-[#475569]">
-                            계약 건수
+                            외주단가(원)
                             <input
-                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-right text-sm"
+                                className="mt-1 h-10 w-full rounded-md border border-[#fecaca] px-2 text-right text-sm"
                                 inputMode="numeric"
-                                onChange={(e) => setCount(e.target.value)}
-                                placeholder="예: 300"
+                                onChange={(e) => setOutUnit(e.target.value)}
+                                placeholder="150"
                                 type="text"
-                                value={withCommas(count)}
+                                value={withCommas(outUnit)}
                             />
                         </label>
                     </div>
                     <div className="rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
-                        금액 = <span className="text-[#1e40af]">{amt.toLocaleString('ko-KR')}원</span>{' '}
-                        <span className="text-[11px] font-normal text-[#94a3b8]">(단가 × 건수 자동)</span>
+                        매출 <span className="text-[#1e40af]">{amt.toLocaleString('ko-KR')}</span> · 외주{' '}
+                        <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
+                        <span className="text-[#059669]">{(amt - outAmt).toLocaleString('ko-KR')}</span>원
                     </div>
                     <label className="block text-xs font-semibold text-[#475569]">
                         계약일

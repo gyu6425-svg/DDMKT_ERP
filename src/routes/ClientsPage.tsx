@@ -128,7 +128,26 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [saving, setSaving] = useState(false);
     // 등록 가이드 '상품' — 선택한 부모 카테고리(key) + 세부유형별 건수/금액 입력.
     const [prodCats, setProdCats] = useState<string[]>([]);
-    const [prodInputs, setProdInputs] = useState<Record<string, { unit: string; count: string }>>({});
+    const [prodInputs, setProdInputs] = useState<
+        Record<string, { unit: string; count: string; outsource: string }>
+    >({});
+    // 상품 정산 합계 — 공급가(Σ매출)·부가세포함(×1.1)·외주비(Σ외주)·순매출.
+    const prodTotals = useMemo(() => {
+        let supply = 0;
+        let outs = 0;
+        for (const catKey of prodCats) {
+            const cat = PRODUCT_CATEGORIES.find((c) => c.key === catKey);
+            if (!cat) continue;
+            for (const sub of cat.subs) {
+                const inp = prodInputs[`${catKey}|${sub}`];
+                if (!inp) continue;
+                const cnt = Number(onlyDigits(inp.count)) || 0;
+                supply += (Number(onlyDigits(inp.unit)) || 0) * cnt;
+                outs += (Number(onlyDigits(inp.outsource)) || 0) * cnt;
+            }
+        }
+        return { net: supply - outs, outs, supply, vat: Math.round(supply * 1.1) };
+    }, [prodCats, prodInputs]);
 
     const [histClient, setHistClient] = useState<ErpClient | null>(null);
     const [histInput, setHistInput] = useState('');
@@ -302,7 +321,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                     const inp = prodInputs[`${catKey}|${sub}`];
                     const count = inp?.count ? Number(onlyDigits(inp.count)) : null;
                     const unit = inp?.unit ? Number(onlyDigits(inp.unit)) : null;
-                    const amt = (unit || 0) * (count || 0); // 단가 × 건수
+                    const outUnit = inp?.outsource ? Number(onlyDigits(inp.outsource)) : null;
+                    const amt = (unit || 0) * (count || 0); // 매출 = 단가 × 수량
+                    const outAmt = (outUnit || 0) * (count || 0); // 외주비 = 외주단가 × 수량
                     if ((count && count > 0) || amt > 0) {
                         rows.push({
                             amount: amt,
@@ -310,8 +331,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             client_id: createdId,
                             contract_date: todayStr(),
                             goal_count: count,
+                            outsource: outAmt,
                             remain_count: count,
                             subtype: sub,
+                            unit_outsource: outUnit,
+                            unit_price: unit,
                         });
                     }
                 }
@@ -911,49 +935,71 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                 {c.subs.map((sub) => {
                                                                     const k = `${c.key}|${sub}`;
                                                                     const inp =
-                                                                        prodInputs[k] || { count: '', unit: '' };
+                                                                        prodInputs[k] || {
+                                                                            count: '',
+                                                                            outsource: '',
+                                                                            unit: '',
+                                                                        };
                                                                     const set = (
-                                                                        field: 'count' | 'unit',
+                                                                        field: 'count' | 'unit' | 'outsource',
                                                                         v: string,
                                                                     ) =>
                                                                         setProdInputs((prev) => ({
                                                                             ...prev,
                                                                             [k]: { ...inp, [field]: onlyDigits(v) },
                                                                         }));
-                                                                    const amt =
-                                                                        (Number(onlyDigits(inp.unit)) || 0) *
-                                                                        (Number(onlyDigits(inp.count)) || 0);
+                                                                    const cnt = Number(onlyDigits(inp.count)) || 0;
+                                                                    const amt = (Number(onlyDigits(inp.unit)) || 0) * cnt;
+                                                                    const outAmt =
+                                                                        (Number(onlyDigits(inp.outsource)) || 0) * cnt;
                                                                     return (
                                                                         <div
-                                                                            className="flex items-center gap-1.5"
+                                                                            className="rounded border border-[#e2e8f0] bg-white p-1.5"
                                                                             key={sub}
                                                                         >
-                                                                            <span className="w-28 shrink-0 truncate text-xs text-[#475569]">
-                                                                                {sub}
-                                                                            </span>
-                                                                            <input
-                                                                                className="h-8 w-20 rounded border border-[#cbd5e1] px-2 text-right text-xs"
-                                                                                inputMode="numeric"
-                                                                                onChange={(e) =>
-                                                                                    set('unit', e.target.value)
-                                                                                }
-                                                                                placeholder="단가"
-                                                                                type="text"
-                                                                                value={withCommas(inp.unit)}
-                                                                            />
-                                                                            <input
-                                                                                className="h-8 w-16 rounded border border-[#cbd5e1] px-2 text-right text-xs"
-                                                                                inputMode="numeric"
-                                                                                onChange={(e) =>
-                                                                                    set('count', e.target.value)
-                                                                                }
-                                                                                placeholder="건수"
-                                                                                type="text"
-                                                                                value={withCommas(inp.count)}
-                                                                            />
-                                                                            <span className="ml-auto shrink-0 text-xs font-semibold text-[#0f172a]">
-                                                                                = {amt.toLocaleString('ko-KR')}원
-                                                                            </span>
+                                                                            <div className="flex items-center gap-1">
+                                                                                <span className="w-24 shrink-0 truncate text-xs font-semibold text-[#334155]">
+                                                                                    {sub}
+                                                                                </span>
+                                                                                <input
+                                                                                    className="h-7 w-14 rounded border border-[#cbd5e1] px-1.5 text-right text-xs"
+                                                                                    inputMode="numeric"
+                                                                                    onChange={(e) => set('count', e.target.value)}
+                                                                                    placeholder="수량"
+                                                                                    type="text"
+                                                                                    value={withCommas(inp.count)}
+                                                                                />
+                                                                                <input
+                                                                                    className="h-7 w-20 rounded border border-[#cbd5e1] px-1.5 text-right text-xs"
+                                                                                    inputMode="numeric"
+                                                                                    onChange={(e) => set('unit', e.target.value)}
+                                                                                    placeholder="단가"
+                                                                                    type="text"
+                                                                                    value={withCommas(inp.unit)}
+                                                                                />
+                                                                                <input
+                                                                                    className="h-7 w-20 rounded border border-[#fecaca] px-1.5 text-right text-xs"
+                                                                                    inputMode="numeric"
+                                                                                    onChange={(e) =>
+                                                                                        set('outsource', e.target.value)
+                                                                                    }
+                                                                                    placeholder="외주단가"
+                                                                                    type="text"
+                                                                                    value={withCommas(inp.outsource)}
+                                                                                />
+                                                                            </div>
+                                                                            {amt || outAmt ? (
+                                                                                <div className="mt-1 pl-24 text-[10px] font-semibold text-[#64748b]">
+                                                                                    매출{' '}
+                                                                                    <span className="text-[#0f172a]">
+                                                                                        {amt.toLocaleString('ko-KR')}
+                                                                                    </span>{' '}
+                                                                                    · 외주{' '}
+                                                                                    <span className="text-[#dc2626]">
+                                                                                        {outAmt.toLocaleString('ko-KR')}
+                                                                                    </span>
+                                                                                </div>
+                                                                            ) : null}
                                                                         </div>
                                                                     );
                                                                 })}
@@ -961,6 +1007,32 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                         </div>
                                                     ),
                                                 )}
+                                                {/* 정산 요약 — 공급가·부가세포함·외주비·순매출 */}
+                                                <div className="rounded-md border border-[#1e40af] bg-[#eff6ff] px-3 py-2 text-[11px] font-semibold text-[#334155]">
+                                                    <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                                                        <span>
+                                                            공급가{' '}
+                                                            <b className="text-[#1e40af]">
+                                                                {prodTotals.supply.toLocaleString('ko-KR')}원
+                                                            </b>
+                                                        </span>
+                                                        <span>
+                                                            부가세포함 {prodTotals.vat.toLocaleString('ko-KR')}원
+                                                        </span>
+                                                        <span>
+                                                            외주비{' '}
+                                                            <b className="text-[#dc2626]">
+                                                                {prodTotals.outs.toLocaleString('ko-KR')}원
+                                                            </b>
+                                                        </span>
+                                                        <span>
+                                                            순매출{' '}
+                                                            <b className="text-[#059669]">
+                                                                {prodTotals.net.toLocaleString('ko-KR')}원
+                                                            </b>
+                                                        </span>
+                                                    </div>
+                                                </div>
                                             </div>
                                         ) : (
                                             <div className="mt-1 text-[11px] text-[#94a3b8]">

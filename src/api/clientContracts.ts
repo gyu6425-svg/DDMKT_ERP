@@ -19,10 +19,13 @@ export type ClientContract = {
     subtype: string;
     goal_count: number | null;
     remain_count: number | null;
-    amount: number | null;
+    amount: number | null; // 매출 = 단가 × 수량
     contract_date: string | null;
     note: string | null;
     history?: ContractHistoryItem[] | null;
+    unit_price?: number | null; // 단가
+    unit_outsource?: number | null; // 외주 단가
+    outsource?: number | null; // 외주비 = 외주단가 × 수량
 };
 
 // clientId 주면 그 고객만. 테이블 미생성 등 오류 시에도 앱이 죽지 않도록 [] 반환.

@@ -15,6 +15,10 @@ create table if not exists public.client_contracts (
 );
 -- 기존 테이블 마이그레이션: 계약 이력 컬럼 추가
 alter table public.client_contracts add column if not exists history jsonb not null default '[]'::jsonb;
+-- 금액 상세: 단가·외주단가·외주비 (매출=amount=단가×수량, 순매출=매출-외주비)
+alter table public.client_contracts add column if not exists unit_price numeric;
+alter table public.client_contracts add column if not exists unit_outsource numeric;
+alter table public.client_contracts add column if not exists outsource numeric;
 create index if not exists client_contracts_client_idx on public.client_contracts (client_id);
 alter table public.client_contracts enable row level security;
 drop policy if exists "client_contracts all authenticated" on public.client_contracts;
