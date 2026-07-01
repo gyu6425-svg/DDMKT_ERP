@@ -1266,6 +1266,7 @@ function ContractEditModal({
                                         ['수량', `${periodDetail.goal.toLocaleString('ko-KR')}건`],
                                         ['단가', `${fmtWon(periodDetail.unitPrice)}원`],
                                         ['매출 (실매출)', `${fmtWon(periodDetail.amount)}원`, '#1e40af'],
+                                        ['외주업체', contract.outsource_company || '-'],
                                         ['외주단가', `${fmtWon(periodDetail.unitOutsource)}원`],
                                         ['외주비', `${fmtWon(periodDetail.outsource)}원`, '#dc2626'],
                                         [
