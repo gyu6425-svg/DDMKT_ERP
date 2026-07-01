@@ -673,8 +673,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             <th className="px-3 py-2 font-semibold">연락처</th>
                             <th className="px-3 py-2 font-semibold">상품</th>
                             <th className="px-3 py-2 font-semibold">상태</th>
+                            <th className="px-3 py-2 font-semibold">잔여 리워드</th>
                             <th className="px-3 py-2 font-semibold">최근 히스토리</th>
-                            <th className="px-3 py-2 font-semibold">다음연락</th>
                             <th className="px-3 py-2 font-semibold">등록일</th>
                             <th className="px-3 py-2 font-semibold">액션</th>
                         </tr>
@@ -692,9 +692,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                           month: '2-digit',
                                       })
                                     : '--';
-                                const overdueContact =
-                                    c.next_contact &&
-                                    c.next_contact <= new Date().toISOString().slice(0, 10);
                                 return (
                                     <tr
                                         key={c.id}
@@ -770,15 +767,28 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                 {c.status || '--'}
                                             </span>
                                         </td>
+                                        <td className="px-3 py-2 text-xs">
+                                            {(() => {
+                                                const remainOut = clientContracts
+                                                    .filter((ct) => ct.client_id === c.id)
+                                                    .reduce(
+                                                        (s, ct) =>
+                                                            s +
+                                                            (ct.unit_outsource ?? 0) *
+                                                                (ct.remain_count ?? 0),
+                                                        0,
+                                                    );
+                                                return remainOut > 0 ? (
+                                                    <span className="font-bold text-[#dc2626]">
+                                                        {remainOut.toLocaleString('ko-KR')}원
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[#94a3b8]">--</span>
+                                                );
+                                            })()}
+                                        </td>
                                         <td className="max-w-[180px] truncate px-3 py-2 text-xs text-[#64748b]">
                                             {lastHist}
-                                        </td>
-                                        <td
-                                            className={`px-3 py-2 text-xs ${
-                                                overdueContact ? 'text-[#dc2626]' : 'text-[#64748b]'
-                                            }`}
-                                        >
-                                            {c.next_contact || '--'}
                                         </td>
                                         <td className="px-3 py-2 text-xs text-[#64748b]">{dt}</td>
                                         <td className="px-3 py-2">
