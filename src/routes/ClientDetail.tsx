@@ -286,7 +286,7 @@ function ContractEditModal({
     const [reStart, setReStart] = useState('');
     const [reCount, setReCount] = useState('');
 
-    const history = contract.history ?? [];
+    const [history, setHistory] = useState<ContractHistoryItem[]>(contract.history ?? []);
     const goalN = Number(goal) || 0;
     const remainN = Number(remain) || 0;
     const hasGoal = goal.trim() !== '';
@@ -324,7 +324,7 @@ function ContractEditModal({
         await onReload();
     };
 
-    // 재계약 = 현재 계약을 이력으로 넣고, 새 계약(시작일·건수)으로 리셋(0%부터).
+    // 재계약 = 현재 계약을 이력으로 넣고, 기존 진행분은 유지한 채 건수 누적(예: 2/5 + 5건 → 2/10).
     const addRenewal = async () => {
         const s = reStart.trim();
         const n = Number(reCount);
@@ -343,21 +343,38 @@ function ContractEditModal({
                 remain_count: remainN,
             },
         ];
+        const nextGoal = goalN + n; // 기존 건수 + 재계약 건수(누적)
+        const nextRemain = remainN + n; // 진행분(done) 유지 → 잔여만 증가
         setSaving(true);
         const { error } = await updateClientContract(contract.id, {
             contract_date: s,
-            goal_count: n,
+            goal_count: nextGoal,
             history: newHistory,
-            remain_count: n,
+            remain_count: nextRemain,
         });
         setSaving(false);
         if (error) {
             onToast(`오류: ${error.message}`);
             return;
         }
-        onToast(`재계약 — 계약 ${n}건 · 0%부터 (기존 계약은 이력으로)`);
+        onToast(`재계약 — ${n}건 추가 (총 ${nextGoal}건, 진행분 유지)`);
         await onReload();
         onClose();
+    };
+
+    // 계약 이력에서 재계약 항목 삭제(최초 계약·현재는 불가).
+    const deleteHistoryEntry = async (i: number) => {
+        const newHistory = history.filter((_, j) => j !== i);
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, { history: newHistory });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        setHistory(newHistory);
+        onToast('재계약 이력 삭제됨');
+        await onReload();
     };
 
     const save = async () => {
@@ -563,29 +580,51 @@ function ContractEditModal({
                     <div className="mt-3 border-t border-[#e2e8f0] pt-3">
                         <div className="mb-1.5 text-xs font-bold text-[#334155]">계약 이력</div>
                         <div className="grid max-h-[26vh] gap-1 overflow-y-auto">
-                            {periods.map((p, i) => (
-                                <div
-                                    className="flex items-center gap-1.5 rounded-md border border-[#eef2f7] bg-[#f8fafc] px-2.5 py-1.5 text-xs text-[#475569]"
-                                    key={i}
-                                >
-                                    <span
-                                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                                            i === 0 ? 'bg-[#dbeafe] text-[#1e40af]' : 'bg-[#f1f5f9] text-[#475569]'
-                                        }`}
+                            {periods.map((p, i) => {
+                                const isCurrent = i === periods.length - 1;
+                                const isFirst = i === 0;
+                                return (
+                                    <div
+                                        className="flex items-center gap-1.5 rounded-md border border-[#eef2f7] bg-[#f8fafc] px-2.5 py-1.5 text-xs text-[#475569]"
+                                        key={i}
                                     >
-                                        {i === 0 ? '최초 계약' : `재${i}`}
-                                    </span>
-                                    <span className="font-semibold">
-                                        {p.contract_date || p.at || '-'} · 계약 {p.goal_count ?? '—'}건
-                                    </span>
-                                    <span className="ml-auto">{p.amount ? `${fmtWon(p.amount)}원` : ''}</span>
-                                    {i === periods.length - 1 ? (
-                                        <span className="shrink-0 rounded bg-[#dcfce7] px-1.5 py-0.5 text-[10px] font-bold text-[#16a34a]">
-                                            현재
+                                        <span
+                                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                                isFirst ? 'bg-[#dbeafe] text-[#1e40af]' : 'bg-[#f1f5f9] text-[#475569]'
+                                            }`}
+                                        >
+                                            {isFirst ? '최초 계약' : `재${i}`}
                                         </span>
-                                    ) : null}
-                                </div>
-                            ))}
+                                        <span className="font-semibold">
+                                            {p.contract_date || p.at || '-'} · 계약 {p.goal_count ?? '—'}건
+                                        </span>
+                                        {/* 이월 = 이 계약에서 다음 계약으로 넘어간 잔여 건수 */}
+                                        {!isCurrent ? (
+                                            <span className="shrink-0 rounded bg-[#fef3c7] px-1.5 py-0.5 text-[10px] font-bold text-[#b45309]">
+                                                {p.remain_count ?? 0}건 이월
+                                            </span>
+                                        ) : null}
+                                        <span className="ml-auto">{p.amount ? `${fmtWon(p.amount)}원` : ''}</span>
+                                        {isCurrent ? (
+                                            <span className="shrink-0 rounded bg-[#dcfce7] px-1.5 py-0.5 text-[10px] font-bold text-[#16a34a]">
+                                                현재
+                                            </span>
+                                        ) : null}
+                                        {/* 재계약 항목만 삭제(최초·현재는 불가) */}
+                                        {!isFirst && !isCurrent ? (
+                                            <button
+                                                className="shrink-0 rounded border border-[#fca5a5] px-1.5 py-0.5 text-[10px] font-bold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
+                                                disabled={saving}
+                                                onClick={() => void deleteHistoryEntry(i)}
+                                                title="재계약 이력 삭제"
+                                                type="button"
+                                            >
+                                                ✕
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 ) : null}
