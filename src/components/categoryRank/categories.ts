@@ -22,6 +22,78 @@ export const CATEGORIES: CategoryDef[] = [
 export const categoryByKey = (key: CategoryKey): CategoryDef =>
     CATEGORIES.find((c) => c.key === key) ?? CATEGORIES[0];
 
+// 사이드바 아코디언 전용 트리 — 최상위(축약 라벨) → [대시보드 + 하위 카테고리].
+//   label = 화면 표기(축약), href = 이동 경로.
+//   하위 href는 대부분 `${path}?sub=<원본 subtype>`(내부값 보존: DAILY_SUBS·client_contracts.subtype과 일치).
+//   단 '브랜드 블로그'는 이미 구현된 /blog-rank(현재 블로그 작업물 전체)로 직접 연결.
+export type SidebarSub = { label: string; href: string };
+export type SidebarCategory = {
+    key: CategoryKey;
+    label: string; // 축약 표기 (플레이스/인스타/...)
+    dashHref: string; // '대시보드' 목적지
+    subs: SidebarSub[];
+};
+
+export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
+    {
+        key: 'place',
+        label: '플레이스',
+        dashHref: '/place-rank',
+        subs: [
+            { label: '영수증 리뷰', href: '/place-rank?sub=' + encodeURIComponent('영수증 리뷰') },
+            { label: '리워드', href: '/place-rank?sub=' + encodeURIComponent('플레이스 리워드') },
+            {
+                label: '플레이스용 블로그 리뷰',
+                href: '/place-rank?sub=' + encodeURIComponent('플레이스용 블로그 리뷰'),
+            },
+        ],
+    },
+    {
+        key: 'insta',
+        label: '인스타',
+        dashHref: '/insta-rank',
+        subs: [
+            { label: '브랜드 인스타', href: '/insta-rank?sub=' + encodeURIComponent('브랜드 인스타') },
+            { label: '인스타 배포', href: '/insta-rank?sub=' + encodeURIComponent('인스타 배포') },
+        ],
+    },
+    {
+        key: 'cafe',
+        label: '카페',
+        dashHref: '/cafe-rank',
+        subs: [{ label: '맘카페', href: '/cafe-rank?sub=' + encodeURIComponent('맘카페') }],
+    },
+    {
+        key: 'shopping',
+        label: '쇼핑',
+        dashHref: '/shopping-rank',
+        subs: [{ label: '쇼핑', href: '/shopping-rank?sub=' + encodeURIComponent('쇼핑') }],
+    },
+    {
+        key: 'powerlink',
+        label: '파워링크',
+        dashHref: '/powerlink-rank',
+        subs: [{ label: '파워링크', href: '/powerlink-rank?sub=' + encodeURIComponent('파워링크') }],
+    },
+    {
+        key: 'blog',
+        label: '블로그',
+        dashHref: '/blog-rank',
+        subs: [
+            // 브랜드 블로그 = 현재 블로그 작업물(BlogRankPage) 그대로.
+            { label: '브랜드 블로그', href: '/blog-rank' },
+            {
+                label: '최적화 블로그 배포',
+                href: '/blog-rank?sub=' + encodeURIComponent('최적화 블로그 배포'),
+            },
+            {
+                label: '준최적화 블로그 배포',
+                href: '/blog-rank?sub=' + encodeURIComponent('준최적화 블로그 배포'),
+            },
+        ],
+    },
+];
+
 // 고객 전용 ERP 사이드바 — 통합 대시보드 + 6개 카테고리.
 export const CUSTOMER_NAV: { path: string; label: string }[] = [
     { path: '/portal', label: '통합 대시보드' },
