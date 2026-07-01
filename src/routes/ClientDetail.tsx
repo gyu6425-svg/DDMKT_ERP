@@ -854,6 +854,7 @@ export function ClientDetail({
     const [endOpen, setEndOpen] = useState(false); // 상단 계약 종료 모달(히스토리 입력)
     const [endNote, setEndNote] = useState('');
     const [breakdown, setBreakdown] = useState<'net' | 'outsource' | 'sales' | null>(null); // 상품별 내역
+    const [detailC, setDetailC] = useState<ClientContract | null>(null); // 내역에서 상품 클릭 시 상세
 
     // 계약 종료 = 업체 상태를 '계약종료'로(계약 종료 탭으로 이동, 계약행은 보존) → 목록으로.
     const endClient = () => {
@@ -1235,8 +1236,9 @@ export function ClientDetail({
                                               : '#dc2626';
                                     return (
                                         <div
-                                            className="rounded-md border border-[#eef2f7] bg-[#f8fafc] px-3 py-2"
+                                            className="cursor-pointer rounded-md border border-[#eef2f7] bg-[#f8fafc] px-3 py-2 hover:border-[#1e40af]"
                                             key={ct.id}
+                                            onClick={() => setDetailC(ct)}
                                         >
                                             <div className="flex items-center gap-2 text-sm">
                                                 <span className="min-w-0">
@@ -1314,6 +1316,55 @@ export function ClientDetail({
                             <button
                                 className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
                                 onClick={() => setBreakdown(null)}
+                                type="button"
+                            >
+                                닫기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+            {/* 내역에서 상품 클릭 → 계약 상세(단가·외주비 등) */}
+            {detailC ? (
+                <div
+                    className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+                    onMouseDown={(e) => e.target === e.currentTarget && setDetailC(null)}
+                >
+                    <div className="w-[min(400px,94vw)] rounded-2xl bg-white p-6">
+                        <h3 className="m-0 text-lg font-bold">
+                            {detailC.category} · {detailC.subtype}
+                        </h3>
+                        <div className="mt-3 grid gap-1.5 text-sm">
+                            {(
+                                [
+                                    ['수량', `${(detailC.goal_count ?? 0).toLocaleString('ko-KR')}건`],
+                                    ['단가', `${fmtWon(detailC.unit_price || 0)}원`],
+                                    ['매출 (실매출)', `${fmtWon(detailC.amount || 0)}원`, '#1e40af'],
+                                    ['외주단가', `${fmtWon(detailC.unit_outsource || 0)}원`],
+                                    ['외주비', `${fmtWon(detailC.outsource || 0)}원`, '#dc2626'],
+                                    [
+                                        '순매출',
+                                        `${fmtWon((detailC.amount || 0) - (detailC.outsource || 0))}원`,
+                                        '#059669',
+                                    ],
+                                    ['계약일', detailC.contract_date || '-'],
+                                ] as [string, string, string?][]
+                            ).map(([k, v, color]) => (
+                                <div
+                                    className="flex items-center justify-between border-b border-[#f1f5f9] py-1.5"
+                                    key={k}
+                                >
+                                    <span className="text-[#64748b]">{k}</span>
+                                    <span className="font-bold" style={{ color: color || '#0f172a' }}>
+                                        {v}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="mt-4 flex justify-end">
+                            <button
+                                className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                                onClick={() => setDetailC(null)}
                                 type="button"
                             >
                                 닫기
