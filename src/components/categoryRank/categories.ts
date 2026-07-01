@@ -57,11 +57,12 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
             { label: '인스타 배포', href: '/insta-rank?sub=' + encodeURIComponent('인스타 배포') },
         ],
     },
+    // 카페도 하위 1개(맘카페)라 드롭다운 없이 상위=대시보드 링크.
     {
         key: 'cafe',
         label: '카페',
         dashHref: '/cafe-rank',
-        subs: [{ label: '맘카페', href: '/cafe-rank?sub=' + encodeURIComponent('맘카페') }],
+        subs: [],
     },
     // 쇼핑·파워링크는 하위가 카테고리명과 동일(1개)이라 드롭다운 없이 상위=대시보드 링크.
     {
