@@ -349,7 +349,10 @@ function ContractEditModal({
     const [renewMode, setRenewMode] = useState(false); // 재계약 클릭 → 계약 추가 UI
     const [reStart, setReStart] = useState('');
     const [reCount, setReCount] = useState('');
-    const [reAmount, setReAmount] = useState('');
+    const [rePerDay, setRePerDay] = useState('');
+    const [reDays, setReDays] = useState('');
+    const [reUnit, setReUnit] = useState('');
+    const [reOutUnit, setReOutUnit] = useState('');
     // 특이사항 편집 대상 — 'current'=현재 계약(note), 숫자=history[i]. 각 계약별로 따로 저장.
     const [noteEdit, setNoteEdit] = useState<{ idx: number | 'current'; value: string } | null>(null);
 
@@ -360,6 +363,13 @@ function ContractEditModal({
     const done = Math.max(0, goalN - remainN);
     const pct = goalN ? Math.round((done / goalN) * 100) : 0;
     const imminent = hasGoal && (remainN <= 5 || pct >= 80); // 잔여 5건 이하 또는 진행률 80%↑ → 재계약/종료
+    // 재계약 입력(계약 추가와 동일) — 수량(리워드는 타×일수) · 단가 · 외주단가 → 매출/외주/순매출.
+    const reDaily = isDailySub(contract.subtype);
+    const reQty = reDaily
+        ? (Number(onlyDigits(rePerDay)) || 0) * (Number(onlyDigits(reDays)) || 0)
+        : Number(onlyDigits(reCount)) || 0;
+    const reSales = (Number(onlyDigits(reUnit)) || 0) * reQty;
+    const reOutAmt = (Number(onlyDigits(reOutUnit)) || 0) * reQty;
 
     // 계약 이력 표시용: 과거(history) + 현재 계약. 0번=최초, 나머지=재N, 마지막=현재.
     const periods = [
@@ -391,12 +401,11 @@ function ContractEditModal({
         await onReload();
     };
 
-    // 재계약 = 현재 계약을 이력으로 넣고, 기존 진행분은 유지한 채 건수 누적(예: 2/5 + 5건 → 2/10).
+    // 재계약 = 현재 계약을 이력으로 넣고, 진행분 유지한 채 수량·매출·외주비 누적(2/5 + 5 → 2/10).
     const addRenewal = async () => {
         const s = reStart.trim();
-        const n = Number(reCount);
-        if (!s || !n || n <= 0) {
-            onToast('계약 시작일과 계약 건수를 입력하세요');
+        if (!s || reQty <= 0) {
+            onToast('계약 시작일과 수량을 입력하세요');
             return;
         }
         const newHistory: ContractHistoryItem[] = [
@@ -410,15 +419,17 @@ function ContractEditModal({
                 remain_count: remainN,
             },
         ];
-        const nextGoal = goalN + n; // 기존 건수 + 재계약 건수(누적)
-        const nextRemain = remainN + n; // 진행분(done) 유지 → 잔여만 증가
-        const nextAmount = (Number(amount) || 0) + (reAmount.trim() ? Number(reAmount) : 0); // 금액 누적
+        const nextGoal = goalN + reQty;
+        const nextRemain = remainN + reQty;
+        const nextAmount = (Number(amount) || 0) + reSales;
+        const nextOutsource = (contract.outsource || 0) + reOutAmt;
         setSaving(true);
         const { error } = await updateClientContract(contract.id, {
             amount: nextAmount,
             contract_date: s,
             goal_count: nextGoal,
             history: newHistory,
+            outsource: nextOutsource,
             remain_count: nextRemain,
         });
         setSaving(false);
@@ -426,7 +437,7 @@ function ContractEditModal({
             onToast(`오류: ${error.message}`);
             return;
         }
-        onToast(`재계약 — ${n}건 추가 (총 ${nextGoal}건 · ${fmtWon(nextAmount)}원)`);
+        onToast(`재계약 — ${reQty.toLocaleString('ko-KR')}건 추가 (총 ${nextGoal.toLocaleString('ko-KR')}건 · 매출 ${fmtWon(nextAmount)}원)`);
         await onReload();
         onClose();
     };
@@ -538,10 +549,10 @@ function ContractEditModal({
                                     </div>
                                     <div className="mt-0.5 text-[11px] text-[#94a3b8]">총 {periods.length}차 계약</div>
                                 </div>
-                                {/* 계약 추가 (시작일 · 건수 · 금액) */}
+                                {/* 재계약 추가 (계약 추가와 동일: 수량·단가·외주단가 → 매출/외주/순매출) */}
                                 <div>
                                     <div className="mb-1 text-xs font-bold text-[#334155]">
-                                        계약 추가 (시작일 · 계약 건수 · 금액)
+                                        재계약 추가 (시작일 · {reDaily ? '타 × 일수' : '수량'} · 단가 · 외주단가)
                                     </div>
                                     <input
                                         className="mb-2 h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
@@ -549,27 +560,65 @@ function ContractEditModal({
                                         placeholder="계약 시작일 (예: 2026-01-15)"
                                         value={reStart}
                                     />
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        {reDaily ? (
+                                            <>
+                                                <input
+                                                    className="h-9 w-14 rounded-md border border-[#cbd5e1] bg-white px-1.5 text-right text-sm"
+                                                    inputMode="numeric"
+                                                    onChange={(e) => setRePerDay(e.target.value)}
+                                                    placeholder="타"
+                                                    type="text"
+                                                    value={withCommas(rePerDay)}
+                                                />
+                                                <span className="text-xs text-[#94a3b8]">×</span>
+                                                <input
+                                                    className="h-9 w-14 rounded-md border border-[#cbd5e1] bg-white px-1.5 text-right text-sm"
+                                                    inputMode="numeric"
+                                                    onChange={(e) => setReDays(e.target.value)}
+                                                    placeholder="일수"
+                                                    type="text"
+                                                    value={withCommas(reDays)}
+                                                />
+                                            </>
+                                        ) : (
+                                            <input
+                                                className="h-9 w-16 rounded-md border border-[#cbd5e1] bg-white px-1.5 text-right text-sm"
+                                                inputMode="numeric"
+                                                onChange={(e) => setReCount(e.target.value)}
+                                                placeholder="수량"
+                                                type="text"
+                                                value={withCommas(reCount)}
+                                            />
+                                        )}
                                         <input
-                                            className="h-9 w-[90px] rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
-                                            min="1"
-                                            onChange={(e) => setReCount(e.target.value)}
-                                            placeholder="건수"
-                                            type="number"
-                                            value={reCount}
+                                            className="h-9 w-24 rounded-md border border-[#cbd5e1] bg-white px-1.5 text-right text-sm"
+                                            inputMode="numeric"
+                                            onChange={(e) => setReUnit(e.target.value)}
+                                            placeholder="단가"
+                                            type="text"
+                                            value={withCommas(reUnit)}
                                         />
                                         <input
-                                            className="h-9 flex-1 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
-                                            onChange={(e) => setReAmount(e.target.value)}
-                                            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), void addRenewal())}
-                                            placeholder="금액(원)"
-                                            type="number"
-                                            value={reAmount}
+                                            className="h-9 w-24 rounded-md border border-[#fecaca] bg-white px-1.5 text-right text-sm"
+                                            inputMode="numeric"
+                                            onChange={(e) => setReOutUnit(e.target.value)}
+                                            placeholder="외주단가"
+                                            type="text"
+                                            value={withCommas(reOutUnit)}
                                         />
                                     </div>
-                                    <p className="mt-1 text-[11px] text-[#94a3b8]">
-                                        아래 <b>계약</b> 버튼을 누르면 재계약이 저장됩니다.
-                                    </p>
+                                    <div className="mt-2 rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
+                                        매출{' '}
+                                        <span className="text-[#1e40af]">{reSales.toLocaleString('ko-KR')}</span> ·
+                                        외주{' '}
+                                        <span className="text-[#dc2626]">{reOutAmt.toLocaleString('ko-KR')}</span> ·
+                                        순매출{' '}
+                                        <span className="text-[#059669]">
+                                            {(reSales - reOutAmt).toLocaleString('ko-KR')}
+                                        </span>
+                                        원
+                                    </div>
                                     <button
                                         className="mt-2 text-xs font-semibold text-[#64748b] hover:text-[#475569]"
                                         onClick={() => setRenewMode(false)}

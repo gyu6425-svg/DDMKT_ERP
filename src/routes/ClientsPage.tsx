@@ -1098,7 +1098,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                                 </div>
                                                                             ) : null}
                                                                             {amt || outAmt ? (
-                                                                                <div className="mt-1 flex flex-wrap gap-x-2 pl-24 text-[10px] font-semibold text-[#64748b]">
+                                                                                <div className="mt-1 flex flex-wrap gap-x-2 pl-24 text-[11px] font-semibold text-[#64748b]">
                                                                                     <span>
                                                                                         공급가{' '}
                                                                                         <b className="text-[#1e40af]">
@@ -1133,7 +1133,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                     ),
                                                 )}
                                                 {/* 정산 요약 — 공급가·부가세포함·외주비·순매출 */}
-                                                <div className="rounded-md border border-[#1e40af] bg-[#eff6ff] px-3 py-2 text-[11px] font-semibold text-[#334155]">
+                                                <div className="rounded-md border border-[#1e40af] bg-[#eff6ff] px-3 py-2.5 text-xs font-semibold text-[#334155]">
                                                     <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                                                         <span>
                                                             공급가{' '}
