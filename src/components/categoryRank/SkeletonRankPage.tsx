@@ -1,4 +1,25 @@
+import { useEffect, useState } from 'react';
 import { CategoryShell } from './CategoryShell';
+import { SIDEBAR_CATEGORIES } from './categories';
+
+// 하위 카테고리(?sub=) 진입 시 '영수증 리뷰 대시보드'처럼 제목 표시. 사이드바 트리에서 표시 라벨 조회.
+function useSubLabel(fallback: string) {
+    const [href, setHref] = useState(() => window.location.pathname + window.location.search);
+    useEffect(() => {
+        const sync = () => setHref(window.location.pathname + window.location.search);
+        window.addEventListener('popstate', sync);
+        window.addEventListener('app:navigate', sync);
+        return () => {
+            window.removeEventListener('popstate', sync);
+            window.removeEventListener('app:navigate', sync);
+        };
+    }, []);
+    for (const c of SIDEBAR_CATEGORIES) {
+        const sub = c.subs.find((s) => s.href === href);
+        if (sub) return `${sub.label} 대시보드`;
+    }
+    return fallback;
+}
 
 // 준비 중 카테고리 대시보드 공용 페이지 — 블로그와 동일 셸/탭 구성, 내용은 '준비 중' 안내.
 function Placeholder({ name }: { name: string }) {
@@ -13,10 +34,11 @@ function Placeholder({ name }: { name: string }) {
 }
 
 export function SkeletonRankPage({ label }: { label: string }) {
+    const displayLabel = useSubLabel(label);
     return (
         <CategoryShell
             badge="준비 중"
-            label={label}
+            label={displayLabel}
             tabs={[
                 { name: '대시보드', el: <Placeholder name="대시보드" /> },
                 { name: '관리 시트', el: <Placeholder name="관리 시트" /> },

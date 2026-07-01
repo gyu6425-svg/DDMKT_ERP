@@ -162,36 +162,46 @@ function Sidebar() {
                                                     />
                                                 </svg>
                                             </button>
-                                            {/* 하위 — 대시보드 + 세부 카테고리 */}
-                                            {expanded ? (
-                                                <div className="mt-2 ml-2 grid gap-2 border-l border-[#eef0f2] pl-3">
-                                                    <a
-                                                        className={`text-[14px] no-underline ${
-                                                            isDashActive(c.dashHref)
-                                                                ? 'font-semibold text-[#FF6000]'
-                                                                : 'font-normal text-[#888888] hover:text-[#000000]'
-                                                        }`}
-                                                        href={c.dashHref}
-                                                        onClick={(event) => navigate(event, c.dashHref)}
-                                                    >
-                                                        대시보드
-                                                    </a>
-                                                    {c.subs.map((s) => (
+                                            {/* 하위 — 대시보드 + 세부 카테고리 (부드러운 높이 슬라이드) */}
+                                            <div
+                                                className={`grid transition-all duration-300 ease-in-out ${
+                                                    expanded
+                                                        ? 'mt-3.5 grid-rows-[1fr] opacity-100'
+                                                        : 'grid-rows-[0fr] opacity-0'
+                                                }`}
+                                            >
+                                                <div className="overflow-hidden">
+                                                    <div className="ml-2 grid gap-2 border-l border-[#eef0f2] pl-3">
                                                         <a
                                                             className={`text-[14px] no-underline ${
-                                                                subActive(s.href)
+                                                                isDashActive(c.dashHref)
                                                                     ? 'font-semibold text-[#FF6000]'
                                                                     : 'font-normal text-[#888888] hover:text-[#000000]'
                                                             }`}
-                                                            href={s.href}
-                                                            key={s.href}
-                                                            onClick={(event) => navigate(event, s.href)}
+                                                            href={c.dashHref}
+                                                            onClick={(event) => navigate(event, c.dashHref)}
+                                                            tabIndex={expanded ? 0 : -1}
                                                         >
-                                                            {s.label}
+                                                            대시보드
                                                         </a>
-                                                    ))}
+                                                        {c.subs.map((s) => (
+                                                            <a
+                                                                className={`text-[14px] no-underline ${
+                                                                    subActive(s.href)
+                                                                        ? 'font-semibold text-[#FF6000]'
+                                                                        : 'font-normal text-[#888888] hover:text-[#000000]'
+                                                                }`}
+                                                                href={s.href}
+                                                                key={s.href}
+                                                                onClick={(event) => navigate(event, s.href)}
+                                                                tabIndex={expanded ? 0 : -1}
+                                                            >
+                                                                {s.label}
+                                                            </a>
+                                                        ))}
+                                                    </div>
                                                 </div>
-                                            ) : null}
+                                            </div>
                                         </div>
                                     );
                                 })}
