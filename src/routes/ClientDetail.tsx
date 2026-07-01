@@ -470,7 +470,8 @@ function ContractEditModal({
         await onReload();
     };
 
-    // 리워드 주간 처리 — 잔여 감소 + 주차 로그 적재를 한 payload로(정합·부분실패 방지).
+    // 리워드 주간 처리 — 잔여(진실의 원천)를 먼저 저장해 게이지/외주비 즉시 반영,
+    //   주차 로그는 별도 저장(weekly_logs 컬럼 미생성 시에도 진행은 반영되게).
     const commitWeek = async (count: number, auto: boolean) => {
         if (saving || !hasGoal || count <= 0) return;
         const applied = Math.min(remainN, count); // 잔여 초과 방지
@@ -484,21 +485,26 @@ function ContractEditModal({
         };
         const newLogs = [...weeklyLogs, log];
         setRemain(String(next));
-        setWeeklyLogs(newLogs);
         setWeekInput('');
         setSaving(true);
-        const { error } = await updateClientContract(contract.id, {
-            remain_count: next,
-            weekly_logs: newLogs,
-        });
-        setSaving(false);
+        // 1) 잔여 먼저 — 실패 시 롤백(핵심 값이라 반드시 저장돼야 함).
+        const { error } = await updateClientContract(contract.id, { remain_count: next });
         if (error) {
+            setSaving(false);
             onToast(`오류: ${error.message}`);
             setRemain(String(remainN));
-            setWeeklyLogs(weeklyLogs);
             return;
         }
-        onToast(`주간 처리 — ${applied.toLocaleString('ko-KR')}타 (잔여 ${next.toLocaleString('ko-KR')}타)`);
+        // 2) 주차 로그 — 컬럼 없으면 실패해도 진행은 유지(안내만).
+        setWeeklyLogs(newLogs);
+        const { error: logErr } = await updateClientContract(contract.id, { weekly_logs: newLogs });
+        setSaving(false);
+        if (logErr) {
+            setWeeklyLogs(weeklyLogs);
+            onToast('진행은 반영됨. 주간 로그 저장 실패 — Supabase에 weekly_logs 컬럼 추가 필요');
+        } else {
+            onToast(`주간 처리 — ${applied.toLocaleString('ko-KR')}타 (잔여 ${next.toLocaleString('ko-KR')}타)`);
+        }
         await onReload();
     };
 
