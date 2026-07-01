@@ -376,6 +376,7 @@ function ContractEditModal({
     const [bulk, setBulk] = useState(''); // N건 일괄 완료 입력
     const [weeklyLogs, setWeeklyLogs] = useState<RewardWeeklyLog[]>(contract.weekly_logs ?? []);
     const [weekInput, setWeekInput] = useState(''); // 리워드 주간 처리 타수
+    const [editLog, setEditLog] = useState<{ idx: number; value: string } | null>(null); // 진행 이력 타수 수정
     const [amount] = useState(contract.amount?.toString() ?? '');
     const [date] = useState(contract.contract_date ?? '');
     const [note, setNote] = useState(contract.note ?? '');
@@ -519,6 +520,36 @@ function ContractEditModal({
         setSaving(true);
         const { error } = await updateClientContract(contract.id, {
             remain_count: next,
+            weekly_logs: newLogs,
+        });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            setRemain(String(remainN));
+            setWeeklyLogs(weeklyLogs);
+        } else {
+            await onReload();
+        }
+    };
+
+    // 진행 이력 타수 수정 — 변경분(신−구)만큼 잔여를 반대로 조정(정합 유지).
+    const editWeekLog = async (i: number, rawCount: number) => {
+        const target = weeklyLogs[i];
+        if (!target) return;
+        const oldCount = target.count || 0;
+        const diff = rawCount - oldCount; // +면 더 진행 → 잔여 감소
+        const nextRemain = remainN - diff;
+        if (nextRemain < 0 || nextRemain > goalN) {
+            onToast(`잔여 범위를 벗어납니다(0~${goalN.toLocaleString('ko-KR')})`);
+            return;
+        }
+        const newLogs = weeklyLogs.map((l, j) => (j === i ? { ...l, count: rawCount } : l));
+        setEditLog(null);
+        setRemain(String(nextRemain));
+        setWeeklyLogs(newLogs);
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, {
+            remain_count: nextRemain,
             weekly_logs: newLogs,
         });
         setSaving(false);
@@ -784,9 +815,48 @@ function ContractEditModal({
                                                     {i + 1}주차
                                                 </span>
                                                 <span className="text-[#64748b]">{l.at}</span>
-                                                <span className="ml-auto font-bold text-[#1e40af]">
-                                                    {l.count.toLocaleString('ko-KR')}타
-                                                </span>
+                                                {editLog?.idx === i ? (
+                                                    <input
+                                                        autoFocus
+                                                        className="ml-auto h-7 w-20 rounded border border-[#1e40af] px-1.5 text-right text-xs"
+                                                        inputMode="numeric"
+                                                        onBlur={() =>
+                                                            void editWeekLog(
+                                                                i,
+                                                                Number(onlyDigits(editLog.value)) || 0,
+                                                            )
+                                                        }
+                                                        onChange={(e) =>
+                                                            setEditLog({
+                                                                idx: i,
+                                                                value: withCommas(e.target.value),
+                                                            })
+                                                        }
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter')
+                                                                void editWeekLog(
+                                                                    i,
+                                                                    Number(onlyDigits(editLog.value)) || 0,
+                                                                );
+                                                            if (e.key === 'Escape') setEditLog(null);
+                                                        }}
+                                                        value={editLog.value}
+                                                    />
+                                                ) : (
+                                                    <button
+                                                        className="ml-auto font-bold text-[#1e40af] hover:underline"
+                                                        onClick={() =>
+                                                            setEditLog({
+                                                                idx: i,
+                                                                value: withCommas(String(l.count)),
+                                                            })
+                                                        }
+                                                        title="타수 수정"
+                                                        type="button"
+                                                    >
+                                                        {l.count.toLocaleString('ko-KR')}타
+                                                    </button>
+                                                )}
                                                 {(contract.unit_outsource ?? 0) > 0 ? (
                                                     <span className="text-[11px] text-[#dc2626]">
                                                         {fmtWon(l.count * (contract.unit_outsource ?? 0))}원
