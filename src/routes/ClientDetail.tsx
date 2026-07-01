@@ -853,7 +853,7 @@ export function ClientDetail({
     const [editContract, setEditContract] = useState<ClientContract | null>(null);
     const [endOpen, setEndOpen] = useState(false); // 상단 계약 종료 모달(히스토리 입력)
     const [endNote, setEndNote] = useState('');
-    const [breakdown, setBreakdown] = useState<'net' | 'outsource' | null>(null); // 순매출/외주비 상품별 내역
+    const [breakdown, setBreakdown] = useState<'net' | 'outsource' | 'sales' | null>(null); // 상품별 내역
 
     // 계약 종료 = 업체 상태를 '계약종료'로(계약 종료 탭으로 이동, 계약행은 보존) → 목록으로.
     const endClient = () => {
@@ -977,21 +977,25 @@ export function ClientDetail({
                     onClick={() => setBreakdown('net')}
                     type="button"
                 >
-                    <div className="text-[11px] font-semibold text-[#059669]">순매출 · 내역 보기 ↗</div>
+                    <div className="text-[11px] font-semibold text-[#059669]">순매출</div>
                     <div className="mt-0.5 text-lg font-bold text-[#059669] sm:text-2xl">{fmtWon(netRevenue)}원</div>
                 </button>
                 <div className="flex items-center text-xl font-bold text-[#94a3b8]">=</div>
-                <div className="flex-1 rounded-xl border border-[#e2e8f0] bg-white px-3 py-3 text-center shadow-sm">
+                <button
+                    className="flex-1 rounded-xl border border-[#e2e8f0] bg-white px-3 py-3 text-center shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
+                    onClick={() => setBreakdown('sales')}
+                    type="button"
+                >
                     <div className="text-[11px] font-semibold text-[#94a3b8]">실매출 (누적)</div>
                     <div className="mt-0.5 text-lg font-bold text-[#1e40af] sm:text-2xl">{fmtWon(totalAmount)}원</div>
-                </div>
+                </button>
                 <div className="flex items-center text-xl font-bold text-[#94a3b8]">−</div>
                 <button
                     className="flex-1 rounded-xl border border-[#e2e8f0] bg-white px-3 py-3 text-center shadow-sm transition hover:border-[#dc2626] hover:shadow-md"
                     onClick={() => setBreakdown('outsource')}
                     type="button"
                 >
-                    <div className="text-[11px] font-semibold text-[#94a3b8]">외주비 합계 · 내역 보기 ↗</div>
+                    <div className="text-[11px] font-semibold text-[#94a3b8]">외주비 합계</div>
                     <div className="mt-0.5 text-lg font-bold text-[#dc2626] sm:text-2xl">
                         {fmtWon(totalOutsource)}원
                     </div>
@@ -1205,10 +1209,14 @@ export function ClientDetail({
                 >
                     <div className="max-h-[80vh] w-[min(460px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
                         <h3 className="m-0 text-lg font-bold">
-                            {breakdown === 'net' ? '순매출 내역' : '외주비 내역'}
+                            {breakdown === 'net' ? '순매출 내역' : breakdown === 'sales' ? '실매출 내역' : '외주비 내역'}
                         </h3>
                         <p className="mt-1 mb-3 text-sm text-[#64748b]">
-                            {breakdown === 'net' ? '상품별 순매출 (매출 − 외주비)' : '상품별 외주비'}
+                            {breakdown === 'net'
+                                ? '상품별 순매출 (매출 − 외주비)'
+                                : breakdown === 'sales'
+                                  ? '상품별 실매출(매출)'
+                                  : '상품별 외주비'}
                         </p>
                         {contracts.length ? (
                             <div className="grid gap-1">
@@ -1216,29 +1224,63 @@ export function ClientDetail({
                                     const val =
                                         breakdown === 'net'
                                             ? (ct.amount || 0) - (ct.outsource || 0)
-                                            : ct.outsource || 0;
+                                            : breakdown === 'sales'
+                                              ? ct.amount || 0
+                                              : ct.outsource || 0;
+                                    const color =
+                                        breakdown === 'net'
+                                            ? '#059669'
+                                            : breakdown === 'sales'
+                                              ? '#1e40af'
+                                              : '#dc2626';
                                     return (
                                         <div
-                                            className="flex items-center gap-2 rounded-md border border-[#eef2f7] bg-[#f8fafc] px-3 py-2 text-sm"
+                                            className="rounded-md border border-[#eef2f7] bg-[#f8fafc] px-3 py-2"
                                             key={ct.id}
                                         >
-                                            <span className="min-w-0">
-                                                <span className="block font-semibold text-[#0f172a]">
-                                                    {ct.subtype}
+                                            <div className="flex items-center gap-2 text-sm">
+                                                <span className="min-w-0">
+                                                    <span className="block font-semibold text-[#0f172a]">
+                                                        {ct.subtype}
+                                                    </span>
+                                                    <span className="block text-[11px] text-[#94a3b8]">
+                                                        {ct.category}
+                                                        {breakdown === 'net'
+                                                            ? ` · 매출 ${fmtWon(ct.amount || 0)} − 외주 ${fmtWon(ct.outsource || 0)}`
+                                                            : ''}
+                                                    </span>
                                                 </span>
-                                                <span className="block text-[11px] text-[#94a3b8]">
-                                                    {ct.category}
-                                                    {breakdown === 'net'
-                                                        ? ` · 매출 ${fmtWon(ct.amount || 0)} − 외주 ${fmtWon(ct.outsource || 0)}`
-                                                        : ''}
+                                                <span className="ml-auto shrink-0 font-bold" style={{ color }}>
+                                                    {fmtWon(val)}원
                                                 </span>
-                                            </span>
-                                            <span
-                                                className="ml-auto shrink-0 font-bold"
-                                                style={{ color: breakdown === 'net' ? '#059669' : '#dc2626' }}
-                                            >
-                                                {fmtWon(val)}원
-                                            </span>
+                                            </div>
+                                            {/* 계약 이력 — 최초 계약 + 재N 쌓임 */}
+                                            {ct.history && ct.history.length ? (
+                                                <div className="mt-1 grid gap-0.5 border-t border-[#eef2f7] pt-1">
+                                                    {ct.history.map((h, i) => (
+                                                        <div
+                                                            className="flex items-center gap-1.5 text-[11px] text-[#94a3b8]"
+                                                            key={i}
+                                                        >
+                                                            <span className="rounded bg-[#f1f5f9] px-1 py-0.5 font-bold text-[#475569]">
+                                                                {i === 0 ? '최초' : `재${i}`}
+                                                            </span>
+                                                            <span>
+                                                                {h.contract_date || h.at || '-'} · 계약{' '}
+                                                                {h.goal_count ?? '—'}건
+                                                            </span>
+                                                            <span className="ml-auto">{fmtWon(h.amount || 0)}원</span>
+                                                        </div>
+                                                    ))}
+                                                    <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#059669]">
+                                                        <span className="rounded bg-[#dcfce7] px-1 py-0.5 font-bold">
+                                                            현재
+                                                        </span>
+                                                        <span>계약 {ct.goal_count ?? '—'}건</span>
+                                                        <span className="ml-auto">{fmtWon(ct.amount || 0)}원</span>
+                                                    </div>
+                                                </div>
+                                            ) : null}
                                         </div>
                                     );
                                 })}
@@ -1248,8 +1290,24 @@ export function ClientDetail({
                         )}
                         <div className="mt-3 flex items-center justify-between border-t border-[#e2e8f0] pt-3 text-sm font-bold">
                             <span>합계</span>
-                            <span style={{ color: breakdown === 'net' ? '#059669' : '#dc2626' }}>
-                                {fmtWon(breakdown === 'net' ? netRevenue : totalOutsource)}원
+                            <span
+                                style={{
+                                    color:
+                                        breakdown === 'net'
+                                            ? '#059669'
+                                            : breakdown === 'sales'
+                                              ? '#1e40af'
+                                              : '#dc2626',
+                                }}
+                            >
+                                {fmtWon(
+                                    breakdown === 'net'
+                                        ? netRevenue
+                                        : breakdown === 'sales'
+                                          ? totalAmount
+                                          : totalOutsource,
+                                )}
+                                원
                             </span>
                         </div>
                         <div className="mt-4 flex justify-end">
