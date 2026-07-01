@@ -64,9 +64,13 @@ function Sidebar() {
             window.dispatchEvent(new Event('app:navigate'));
         }
     };
-    // 대시보드 = 쿼리 없는 카테고리 경로 / 하위 = pathname+search 일치.
-    const isDashActive = (dashHref: string) => currentPath === dashHref && !loc.search;
-    const subActive = (href: string) => currentPath + loc.search === href;
+    // 활성 판정 — pathname + ?sub 기준(내부 ?tab 은 무시해 브랜드 블로그 등 탭 전환에도 유지).
+    const linkActive = (href: string) => {
+        const [p, q] = href.split('?');
+        const linkSub = q ? new URLSearchParams(q).get('sub') : null;
+        const curSub = new URLSearchParams(loc.search).get('sub');
+        return currentPath === p && (linkSub || null) === (curSub || null);
+    };
 
     const linkClassName = (path: string) =>
         path === currentPath
@@ -130,10 +134,10 @@ function Sidebar() {
                                         return (
                                             <a
                                                 aria-current={
-                                                    currentPath === c.dashHref ? 'page' : undefined
+                                                    linkActive(c.dashHref) ? 'page' : undefined
                                                 }
                                                 className={`text-[16px] no-underline ${
-                                                    currentPath === c.dashHref
+                                                    linkActive(c.dashHref)
                                                         ? 'font-semibold text-[#FF6000]'
                                                         : 'font-normal text-[#777777] hover:text-[#000000]'
                                                 }`}
@@ -147,7 +151,7 @@ function Sidebar() {
                                     }
                                     const expanded = openKeys.has(c.key) || hoverKey === c.key;
                                     const childActive =
-                                        isDashActive(c.dashHref) || c.subs.some((s) => subActive(s.href));
+                                        linkActive(c.dashHref) || c.subs.some((s) => linkActive(s.href));
                                     return (
                                         <div
                                             key={c.key}
@@ -193,7 +197,7 @@ function Sidebar() {
                                                     <div className="ml-2 grid gap-2 border-l border-[#eef0f2] pl-3">
                                                         <a
                                                             className={`text-[14px] no-underline ${
-                                                                isDashActive(c.dashHref)
+                                                                linkActive(c.dashHref)
                                                                     ? 'font-semibold text-[#FF6000]'
                                                                     : 'font-normal text-[#888888] hover:text-[#000000]'
                                                             }`}
@@ -206,7 +210,7 @@ function Sidebar() {
                                                         {c.subs.map((s) => (
                                                             <a
                                                                 className={`text-[14px] no-underline ${
-                                                                    subActive(s.href)
+                                                                    linkActive(s.href)
                                                                         ? 'font-semibold text-[#FF6000]'
                                                                         : 'font-normal text-[#888888] hover:text-[#000000]'
                                                                 }`}

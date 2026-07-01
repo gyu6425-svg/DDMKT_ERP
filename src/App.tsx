@@ -33,7 +33,10 @@ const routes = [
     { path: '/cafe-rank', element: <CafeRankPage /> },
     { path: '/shopping-rank', element: <SkeletonRankPage label="쇼핑 대시보드" /> },
     { path: '/powerlink-rank', element: <SkeletonRankPage label="파워링크 대시보드" /> },
-    { path: '/blog-rank', element: <BlogRankPage /> },
+    { path: '/blog-rank', element: <BlogRankPage /> }, // 브랜드 블로그(기존 작업물)
+    { path: '/blog-dash', element: <SkeletonRankPage label="블로그 대시보드" /> },
+    { path: '/blog-optimized', element: <SkeletonRankPage label="최적화 블로그 배포" /> },
+    { path: '/blog-semi', element: <SkeletonRankPage label="준최적화 블로그 배포" /> },
     { path: '/portal', element: <CustomerOverviewPage /> },
     { path: '/portal/place', element: <CustomerCategoryPage /> },
     { path: '/portal/insta', element: <CustomerCategoryPage /> },

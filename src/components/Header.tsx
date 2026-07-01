@@ -14,17 +14,17 @@ const pageTitles: Record<string, string> = {
     '/portal': '고객 ERP',
 };
 
-// 상단 제목 — 카테고리/하위 페이지는 실제 이름으로('대시보드' 글자는 메인에만).
+// 상단 제목 — pathname + ?sub 기준(내부 ?tab 무시). '대시보드' 글자는 메인에만.
 function resolveTitle(path: string, search: string): string {
     if (pageTitles[path]) return pageTitles[path];
-    if (!search) {
-        const cat = SIDEBAR_CATEGORIES.find((c) => c.dashHref === path);
-        if (cat) return cat.label;
-    }
-    const href = path + search;
+    const sub = new URLSearchParams(search).get('sub');
     for (const c of SIDEBAR_CATEGORIES) {
-        const sub = c.subs.find((s) => s.href === href);
-        if (sub) return sub.label;
+        for (const s of c.subs) {
+            const [sp, sq] = s.href.split('?');
+            const ssub = sq ? new URLSearchParams(sq).get('sub') : null;
+            if (sp === path && (ssub || null) === (sub || null)) return s.label;
+        }
+        if (c.dashHref === path && !sub) return c.label;
     }
     return '';
 }

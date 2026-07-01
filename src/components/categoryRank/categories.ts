@@ -79,19 +79,14 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
     },
     {
         key: 'blog',
+        // 하위마다 고유 pathname(App은 pathname으로만 매칭) → 실제로 다른 페이지.
+        //   브랜드 블로그 = 기존 작업물(BlogRankPage). 대시보드·최적화·준최적화는 별도.
         label: '블로그',
-        dashHref: '/blog-rank',
+        dashHref: '/blog-dash',
         subs: [
-            // 대시보드(=/blog-rank 기본 탭)와 분리 — 브랜드 블로그 = 블로그 관리 시트 탭.
-            { label: '브랜드 블로그', href: '/blog-rank?tab=sheet' },
-            {
-                label: '최적화 블로그 배포',
-                href: '/blog-rank?sub=' + encodeURIComponent('최적화 블로그 배포'),
-            },
-            {
-                label: '준최적화 블로그 배포',
-                href: '/blog-rank?sub=' + encodeURIComponent('준최적화 블로그 배포'),
-            },
+            { label: '브랜드 블로그', href: '/blog-rank' },
+            { label: '최적화 블로그 배포', href: '/blog-optimized' },
+            { label: '준최적화 블로그 배포', href: '/blog-semi' },
         ],
     },
 ];
