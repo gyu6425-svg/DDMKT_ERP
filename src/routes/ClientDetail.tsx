@@ -249,11 +249,13 @@ function ContractEditModal({
     onClose,
     onReload,
     onToast,
+    onEnd,
 }: {
     contract: ClientContract;
     onClose: () => void;
     onReload: () => Promise<void>;
     onToast: (m: string) => void;
+    onEnd: () => void; // 계약 종료 → 업체를 '계약 종료' 탭으로(상태 변경, 삭제 아님)
 }) {
     const [goal, setGoal] = useState(contract.goal_count?.toString() ?? '');
     const [remain, setRemain] = useState(contract.remain_count?.toString() ?? '');
@@ -262,6 +264,51 @@ function ContractEditModal({
     const [note, setNote] = useState(contract.note ?? '');
     const [saving, setSaving] = useState(false);
     const [confirmDel, setConfirmDel] = useState(false);
+    const [renewing, setRenewing] = useState(false);
+    const [reCount, setReCount] = useState('');
+
+    const goalN = Number(goal) || 0;
+    const remainN = Number(remain) || 0;
+    const hasGoal = goal.trim() !== '';
+    const done = Math.max(0, goalN - remainN);
+    const pct = goalN ? Math.round((done / goalN) * 100) : 0;
+    const canRenew = hasGoal && remainN < 3; // 잔여 3건 미만 → 재계약/계약 종료 노출
+
+    // +1건 완료 / 되돌리기 — 잔여를 바로 저장(진행률 자동 반영).
+    const quick = async (delta: number) => {
+        if (saving || !hasGoal) return;
+        const next = Math.max(0, Math.min(goalN, remainN - delta));
+        if (next === remainN) return;
+        setRemain(String(next));
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, { remain_count: next });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            setRemain(String(remainN));
+            return;
+        }
+        await onReload();
+    };
+
+    // 재계약 = 새 계약 건수로 리셋(잔여=건수, 0%부터).
+    const renew = async () => {
+        const n = Number(reCount);
+        if (!n || n <= 0) {
+            onToast('계약 건수를 입력하세요');
+            return;
+        }
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, { goal_count: n, remain_count: n });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        onToast(`재계약 — 계약 ${n}건 · 0%부터`);
+        await onReload();
+        onClose();
+    };
 
     const save = async () => {
         setSaving(true);
@@ -302,7 +349,95 @@ function ContractEditModal({
                 <h3 className="m-0 text-lg font-bold">
                     {contract.category} · {contract.subtype}
                 </h3>
-                <p className="mt-1 mb-4 text-sm text-[#64748b]">계약 수정</p>
+
+                {/* 진행률 — 1건 완료로 잔여 감소(자동 반영) */}
+                {hasGoal ? (
+                    <div className="my-3 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] px-4 py-3 text-center">
+                        <div className="text-3xl font-bold" style={{ color: progColor(pct) }}>
+                            {pct}%
+                        </div>
+                        <div className="mt-1 text-sm text-[#475569]">
+                            발행 <b>{done}</b> / 계약 {goalN}건 · 잔여 <b>{remainN}</b>건
+                        </div>
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#eef2f7]">
+                            <div style={{ background: progColor(pct), height: '100%', width: `${pct}%` }} />
+                        </div>
+                        <div className="mt-2 flex gap-2">
+                            <button
+                                className="flex-1 rounded-md bg-[#059669] px-4 py-2 text-sm font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                                disabled={saving || remainN <= 0}
+                                onClick={() => void quick(1)}
+                                type="button"
+                            >
+                                + 1건 완료
+                            </button>
+                            <button
+                                className="rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50"
+                                disabled={saving || remainN >= goalN}
+                                onClick={() => void quick(-1)}
+                                type="button"
+                            >
+                                되돌리기
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
+
+                {/* 잔여 3건 미만 → 재계약 / 계약 종료 */}
+                {canRenew ? (
+                    <div className="mb-3 flex flex-col gap-2 border-t border-[#e2e8f0] pt-3">
+                        {renewing ? (
+                            <div className="rounded-md border border-[#a7f3d0] bg-[#f0fdf4] p-2.5">
+                                <div className="mb-1.5 text-xs font-bold text-[#047857]">재계약 (새 계약 건수)</div>
+                                <div className="flex gap-2">
+                                    <input
+                                        className="h-9 flex-1 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                        min="1"
+                                        onChange={(e) => setReCount(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), void renew())}
+                                        placeholder="계약 건수 (예: 30)"
+                                        type="number"
+                                        value={reCount}
+                                    />
+                                    <button
+                                        className="rounded-md bg-[#059669] px-4 text-sm font-bold text-white disabled:opacity-50"
+                                        disabled={saving}
+                                        onClick={() => void renew()}
+                                        type="button"
+                                    >
+                                        추가
+                                    </button>
+                                    <button
+                                        className="rounded-md border border-[#cbd5e1] px-3 text-sm font-semibold text-[#475569]"
+                                        onClick={() => setRenewing(false)}
+                                        type="button"
+                                    >
+                                        취소
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button
+                                className="w-full rounded-md bg-[#059669] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#047857]"
+                                onClick={() => setRenewing(true)}
+                                type="button"
+                            >
+                                재계약 (새 계약 시작)
+                            </button>
+                        )}
+                        <button
+                            className="w-full rounded-md bg-[#dc2626] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#b91c1c]"
+                            onClick={onEnd}
+                            type="button"
+                        >
+                            계약 종료
+                        </button>
+                        <p className="text-xs text-[#94a3b8]">
+                            계약 종료 = 삭제가 아니라 ‘계약 종료’ 탭으로 이동(보관)됩니다.
+                        </p>
+                    </div>
+                ) : null}
+
                 <div className="grid gap-3">
                     <div className="grid grid-cols-2 gap-3">
                         <label className="block text-xs font-semibold text-[#475569]">
@@ -430,6 +565,13 @@ export function ClientDetail({
     } | null>(null);
     const [addOpen, setAddOpen] = useState(false);
     const [editContract, setEditContract] = useState<ClientContract | null>(null);
+
+    // 계약 종료 = 업체 상태를 '계약종료'로(계약 종료 탭으로 이동, 계약행은 보존) → 목록으로.
+    const endClient = () => {
+        onSave({ status: '계약종료' });
+        setEditContract(null);
+        onClose();
+    };
 
     const managerOptions = [
         ...new Set(([client.manager, ...salespeople.map((s) => s.name)].filter(Boolean) as string[])),
@@ -627,6 +769,7 @@ export function ClientDetail({
                 <ContractEditModal
                     contract={editContract}
                     onClose={() => setEditContract(null)}
+                    onEnd={endClient}
                     onReload={onReloadContracts}
                     onToast={onToast}
                 />
