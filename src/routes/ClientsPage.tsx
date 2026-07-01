@@ -31,6 +31,13 @@ const ENDED_STATUS = '계약종료'; // 계약 종료(터미널). 종료 탭. 5�
 // 숫자 입력 포맷 — 저장은 숫자만, 표시는 천단위 콤마(2000 → 2,000).
 const onlyDigits = (s: string) => s.replace(/[^\d]/g, '');
 const withCommas = (s: string) => (onlyDigits(s) ? Number(onlyDigits(s)).toLocaleString('ko-KR') : '');
+// 사업자등록번호 3-2-5 하이픈 자동(입력하는 동안 000-00-00000).
+const formatBizNo = (s: string) => {
+    const d = onlyDigits(s).slice(0, 10);
+    if (d.length <= 3) return d;
+    if (d.length <= 5) return `${d.slice(0, 3)}-${d.slice(3)}`;
+    return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
+};
 
 type ClientForm = {
     manager: string;
@@ -901,7 +908,14 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     </span>
                                     <input
                                         className="erp-input w-full min-w-0"
-                                        onChange={(event) => updateField(f.key, event.target.value)}
+                                        onChange={(event) =>
+                                            updateField(
+                                                f.key,
+                                                f.key === 'business_number'
+                                                    ? formatBizNo(event.target.value)
+                                                    : event.target.value,
+                                            )
+                                        }
                                         placeholder={f.ph}
                                         value={form[f.key]}
                                     />

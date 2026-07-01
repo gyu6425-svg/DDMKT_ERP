@@ -10,7 +10,7 @@ import {
 import { ensureClientBlogAccount } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
-import { SOURCE_OPTIONS, todayStr } from '../lib/erpUtils';
+import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, todayStr } from '../lib/erpUtils';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
 //   계약은 client_contracts 단일 출처. 등록 시(+계약 추가) 또는 여기서 '+ 계약 추가'로 생성.
@@ -27,6 +27,13 @@ const progColor = (p: number | null) =>
 // 숫자 입력 포맷 — 저장은 숫자만, 표시는 천단위 콤마(2000 → 2,000).
 const onlyDigits = (s: string) => s.replace(/[^\d]/g, '');
 const withCommas = (s: string) => (onlyDigits(s) ? Number(onlyDigits(s)).toLocaleString('ko-KR') : '');
+// 사업자등록번호 3-2-5 하이픈 자동.
+const formatBizNo = (s: string) => {
+    const d = onlyDigits(s).slice(0, 10);
+    if (d.length <= 3) return d;
+    if (d.length <= 5) return `${d.slice(0, 3)}-${d.slice(3)}`;
+    return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
+};
 
 const progOf = (ct: ClientContract): number | null => {
     if (ct.goal_count == null || ct.remain_count == null || ct.goal_count === 0) return null;
@@ -38,12 +45,14 @@ function ClientFieldModal({
     label,
     value,
     options,
+    format,
     onSave,
     onClose,
 }: {
     label: string;
     value: string;
     options?: string[];
+    format?: (v: string) => string;
     onSave: (v: string) => void;
     onClose: () => void;
 }) {
@@ -71,7 +80,7 @@ function ClientFieldModal({
                         <input
                             autoFocus
                             className="h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm font-medium text-[#0f172a]"
-                            onChange={(e) => setV(e.target.value)}
+                            onChange={(e) => setV(format ? format(e.target.value) : e.target.value)}
                             placeholder="입력..."
                             value={v}
                         />
@@ -776,10 +785,11 @@ export function ClientDetail({
 }) {
     const [confirmDel, setConfirmDel] = useState(false);
     const [editField, setEditField] = useState<{
-        patchKey: 'manager' | 'source' | 'contact' | 'email';
+        patchKey: 'manager' | 'source' | 'contact' | 'email' | 'business_number' | 'address' | 'industry' | 'url';
         label: string;
         value: string;
         options?: string[];
+        format?: (v: string) => string;
     } | null>(null);
     const [addOpen, setAddOpen] = useState(false);
     const [editContract, setEditContract] = useState<ClientContract | null>(null);
@@ -994,17 +1004,43 @@ export function ClientDetail({
                         { key: 'source', label: '문의 경로', value: client.source || '', options: SOURCE_OPTIONS },
                         { key: 'contact', label: '연락처', value: client.contact || '' },
                         { key: 'email', label: '이메일', value: client.email || '' },
+                        {
+                            key: 'business_number',
+                            label: '사업자등록번호',
+                            value: client.business_number || '',
+                            format: formatBizNo,
+                        },
+                        { key: 'address', label: '사업장 주소', value: client.address || '' },
+                        { key: 'industry', label: '업종/업태', value: client.industry || '', options: INDUSTRY_OPTIONS },
+                        { key: 'url', label: 'URL', value: client.url || '' },
                     ] as {
-                        key: 'manager' | 'source' | 'contact' | 'email';
+                        key:
+                            | 'manager'
+                            | 'source'
+                            | 'contact'
+                            | 'email'
+                            | 'business_number'
+                            | 'address'
+                            | 'industry'
+                            | 'url';
                         label: string;
                         value: string;
                         options?: string[];
+                        format?: (v: string) => string;
                     }[]
                 ).map((f) => (
                     <button
                         className="rounded-lg border border-[#e2e8f0] bg-white px-3 py-2.5 text-left shadow-sm hover:border-[#1e40af]"
                         key={f.key}
-                        onClick={() => setEditField({ label: f.label, options: f.options, patchKey: f.key, value: f.value })}
+                        onClick={() =>
+                            setEditField({
+                                format: f.format,
+                                label: f.label,
+                                options: f.options,
+                                patchKey: f.key,
+                                value: f.value,
+                            })
+                        }
                         type="button"
                     >
                         <div className="text-[11px] font-semibold text-[#94a3b8]">{f.label}</div>
@@ -1034,6 +1070,7 @@ export function ClientDetail({
             ) : null}
             {editField ? (
                 <ClientFieldModal
+                    format={editField.format}
                     label={editField.label}
                     onClose={() => setEditField(null)}
                     onSave={(v) => onSave({ [editField.patchKey]: v || null } as Partial<ErpClient>)}
