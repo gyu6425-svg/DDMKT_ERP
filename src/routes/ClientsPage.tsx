@@ -598,7 +598,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             <th className="px-3 py-2 font-semibold">경로</th>
                             <th className="px-3 py-2 font-semibold">업체명</th>
                             <th className="px-3 py-2 font-semibold">연락처</th>
-                            <th className="px-3 py-2 font-semibold">카테고리</th>
+                            <th className="px-3 py-2 font-semibold">상품</th>
                             <th className="px-3 py-2 font-semibold">상태</th>
                             <th className="px-3 py-2 font-semibold">최근 히스토리</th>
                             <th className="px-3 py-2 font-semibold">다음연락</th>
@@ -692,7 +692,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                 }
                                                 if (blogAccounts.some((a) => a.client_id === c.id)) {
                                                     return (
-                                                        <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-semibold text-[#16a34a]">
+                                                        <span className="rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-semibold text-[#4338ca]">
                                                             블로그
                                                         </span>
                                                     );
