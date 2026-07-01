@@ -135,6 +135,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [stageClient, setStageClient] = useState<ErpClient | null>(null);
     // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
     const [showImminent, setShowImminent] = useState(false);
+    const [outsourceClient, setOutsourceClient] = useState<string | null>(null); // 잔여 외주비 상세 대상 client_id
     const [toast, setToast] = useState('');
 
     const [modalOpen, setModalOpen] = useState(false);
@@ -787,9 +788,14 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                         0,
                                                     );
                                                 return remainOut > 0 ? (
-                                                    <span className="font-bold text-[#dc2626]">
+                                                    <button
+                                                        className="font-bold text-[#dc2626] hover:underline"
+                                                        onClick={() => setOutsourceClient(c.id)}
+                                                        title="외주비 상세 보기"
+                                                        type="button"
+                                                    >
                                                         {remainOut.toLocaleString('ko-KR')}원
-                                                    </span>
+                                                    </button>
                                                 ) : (
                                                     <span className="text-[#94a3b8]">--</span>
                                                 );
@@ -1391,6 +1397,113 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                 닫기
                             </Button>
                         </div>
+                    </div>
+                </div>
+            ) : null}
+
+            {/* 잔여 외주비 상세 — 상세페이지 KPI(외주비 내역)와 동일 구성: 업체별 계약 외주비 분해 */}
+            {outsourceClient ? (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                    onClick={(event) => event.target === event.currentTarget && setOutsourceClient(null)}
+                >
+                    <div className="max-h-[80vh] w-[min(460px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
+                        {(() => {
+                            const cts = clientContracts.filter(
+                                (ct) => ct.client_id === outsourceClient && (ct.unit_outsource ?? 0) > 0,
+                            );
+                            const co = clients.find((c) => c.id === outsourceClient)?.company || '업체';
+                            const detail = cts.map((ct) => {
+                                const unit = ct.unit_outsource ?? 0;
+                                const goal = ct.goal_count ?? 0;
+                                const remainN = ct.remain_count ?? 0;
+                                const total = ct.outsource ?? unit * goal;
+                                const remain = unit * remainN;
+                                return { ct, unit, goal, remainN, total, remain, used: Math.max(0, total - remain) };
+                            });
+                            const tTotal = detail.reduce((s, d) => s + d.total, 0);
+                            const tRemain = detail.reduce((s, d) => s + d.remain, 0);
+                            const tUsed = Math.max(0, tTotal - tRemain);
+                            return (
+                                <>
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="m-0 text-lg font-bold">{co} · 외주비 내역</h3>
+                                        <button
+                                            className="text-sm text-[#94a3b8] hover:text-[#475569]"
+                                            onClick={() => setOutsourceClient(null)}
+                                            type="button"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                    <div className="mt-2 grid grid-cols-3 gap-1 rounded-lg border border-[#fee2e2] bg-[#fff7f7] px-2 py-2 text-center">
+                                        <div>
+                                            <div className="text-[10px] text-[#94a3b8]">총 외주비</div>
+                                            <div className="text-sm font-bold text-[#475569]">
+                                                {tTotal.toLocaleString('ko-KR')}원
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="text-[10px] text-[#94a3b8]">소진</div>
+                                            <div className="text-sm font-bold text-[#94a3b8]">
+                                                {tUsed.toLocaleString('ko-KR')}원
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="text-[10px] text-[#dc2626]">남은 외주비</div>
+                                            <div className="text-base font-extrabold text-[#dc2626]">
+                                                {tRemain.toLocaleString('ko-KR')}원
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 grid gap-1">
+                                        {detail.map((d) => (
+                                            <div
+                                                className="rounded-md border border-[#eef2f7] bg-[#f8fafc] px-3 py-2"
+                                                key={d.ct.id}
+                                            >
+                                                <div className="flex items-center gap-2 text-sm">
+                                                    <span className="min-w-0">
+                                                        <span className="block font-semibold text-[#0f172a]">
+                                                            {d.ct.subtype}
+                                                        </span>
+                                                        <span className="block text-[11px] text-[#94a3b8]">
+                                                            {d.ct.category}
+                                                            {d.ct.outsource_company
+                                                                ? ` · 외주업체 ${d.ct.outsource_company}`
+                                                                : ''}
+                                                        </span>
+                                                    </span>
+                                                    <span className="ml-auto shrink-0 text-right">
+                                                        <span className="block font-bold text-[#dc2626]">
+                                                            {d.remain.toLocaleString('ko-KR')}원
+                                                        </span>
+                                                        <span className="block text-[10px] text-[#94a3b8]">
+                                                            외주단가 {d.unit.toLocaleString('ko-KR')} × 잔여{' '}
+                                                            {d.remainN.toLocaleString('ko-KR')}
+                                                        </span>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {!detail.length ? (
+                                            <div className="px-2 py-8 text-center text-sm text-[#94a3b8]">
+                                                외주비가 있는 계약이 없습니다.
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                    <div className="mt-4 flex justify-end">
+                                        <Button
+                                            className="rounded-md border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold"
+                                            onClick={() => setOutsourceClient(null)}
+                                            type="button"
+                                        >
+                                            닫기
+                                        </Button>
+                                    </div>
+                                </>
+                            );
+                        })()}
                     </div>
                 </div>
             ) : null}
