@@ -10,7 +10,7 @@ import {
 import { ensureClientBlogAccount } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import { PRODUCT_CATEGORIES } from '../lib/products';
-import { SOURCE_OPTIONS } from '../lib/erpUtils';
+import { SOURCE_OPTIONS, todayStr } from '../lib/erpUtils';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
 //   계약은 client_contracts 단일 출처. 등록 시(+계약 추가) 또는 여기서 '+ 계약 추가'로 생성.
@@ -286,6 +286,7 @@ function ContractEditModal({
     const [reStart, setReStart] = useState('');
     const [reCount, setReCount] = useState('');
     const [reAmount, setReAmount] = useState('');
+    const [noteView, setNoteView] = useState<string | null>(null); // 히스토리 특이사항 보기
 
     const [history, setHistory] = useState<ContractHistoryItem[]>(contract.history ?? []);
     const goalN = Number(goal) || 0;
@@ -495,15 +496,10 @@ function ContractEditModal({
                                             type="number"
                                             value={reAmount}
                                         />
-                                        <button
-                                            className="rounded-md bg-[#1e40af] px-4 text-sm font-bold text-white disabled:opacity-50"
-                                            disabled={saving}
-                                            onClick={() => void addRenewal()}
-                                            type="button"
-                                        >
-                                            추가
-                                        </button>
                                     </div>
+                                    <p className="mt-1 text-[11px] text-[#94a3b8]">
+                                        아래 <b>계약</b> 버튼을 누르면 재계약이 저장됩니다.
+                                    </p>
                                     <button
                                         className="mt-2 text-xs font-semibold text-[#64748b] hover:text-[#475569]"
                                         onClick={() => setRenewMode(false)}
@@ -575,6 +571,16 @@ function ContractEditModal({
                                             </span>
                                         ) : null}
                                         <span className="ml-auto">{p.amount ? `${fmtWon(p.amount)}원` : ''}</span>
+                                        {p.note ? (
+                                            <button
+                                                className="shrink-0 rounded border border-[#cbd5e1] px-1.5 py-0.5 text-[10px] font-semibold text-[#475569] hover:border-[#1e40af] hover:text-[#1e40af]"
+                                                onClick={() => setNoteView(p.note || '')}
+                                                title="특이사항 보기"
+                                                type="button"
+                                            >
+                                                특이사항
+                                            </button>
+                                        ) : null}
                                         {isCurrent ? (
                                             <span className="shrink-0 rounded bg-[#dcfce7] px-1.5 py-0.5 text-[10px] font-bold text-[#16a34a]">
                                                 현재
@@ -638,12 +644,36 @@ function ContractEditModal({
                     <button
                         className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                         disabled={saving}
-                        onClick={() => void save()}
+                        onClick={() => void (renewMode ? addRenewal() : save())}
                         type="button"
                     >
-                        {saving ? '저장 중…' : '저장'}
+                        {saving ? '저장 중…' : renewMode ? '계약' : '저장'}
                     </button>
                 </div>
+
+                {/* 특이사항 보기 팝업 */}
+                {noteView !== null ? (
+                    <div
+                        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+                        onMouseDown={(e) => e.target === e.currentTarget && setNoteView(null)}
+                    >
+                        <div className="w-[min(360px,92vw)] rounded-xl bg-white p-5 shadow-xl">
+                            <h4 className="m-0 text-sm font-bold text-[#0f172a]">특이사항</h4>
+                            <p className="mt-2 whitespace-pre-wrap text-sm text-[#475569]">
+                                {noteView || '(내용 없음)'}
+                            </p>
+                            <div className="mt-4 flex justify-end">
+                                <button
+                                    className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                                    onClick={() => setNoteView(null)}
+                                    type="button"
+                                >
+                                    닫기
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
             </div>
         </div>
     );
@@ -677,11 +707,23 @@ export function ClientDetail({
     } | null>(null);
     const [addOpen, setAddOpen] = useState(false);
     const [editContract, setEditContract] = useState<ClientContract | null>(null);
+    const [endOpen, setEndOpen] = useState(false); // 상단 계약 종료 모달(히스토리 입력)
+    const [endNote, setEndNote] = useState('');
 
     // 계약 종료 = 업체 상태를 '계약종료'로(계약 종료 탭으로 이동, 계약행은 보존) → 목록으로.
     const endClient = () => {
         onSave({ status: '계약종료' });
         setEditContract(null);
+        onClose();
+    };
+    // 상단 계약 종료 — 히스토리(사유)까지 남기고 종료.
+    const confirmEnd = () => {
+        const prev = Array.isArray(client.history) ? client.history : [];
+        onSave({
+            history: [{ date: todayStr(), text: endNote.trim() || '계약 종료' }, ...prev],
+            status: '계약종료',
+        });
+        setEndOpen(false);
         onClose();
     };
 
@@ -720,6 +762,18 @@ export function ClientDetail({
                 </button>
                 <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">{client.company || '고객사'}</h2>
                 <div className="flex-1" />
+                {!confirmDel && client.status !== '계약종료' ? (
+                    <button
+                        className="rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                        onClick={() => {
+                            setEndNote('');
+                            setEndOpen(true);
+                        }}
+                        type="button"
+                    >
+                        계약 종료
+                    </button>
+                ) : null}
                 {confirmDel ? (
                     <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-[#dc2626]">정말 삭제할까요?</span>
@@ -910,6 +964,46 @@ export function ClientDetail({
                     options={editField.options}
                     value={editField.value}
                 />
+            ) : null}
+            {endOpen ? (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                    onMouseDown={(e) => e.target === e.currentTarget && setEndOpen(false)}
+                >
+                    <div className="w-[min(420px,94vw)] rounded-2xl bg-white p-6">
+                        <h3 className="m-0 text-lg font-bold">{client.company || '고객사'} · 계약 종료</h3>
+                        <p className="mt-1 mb-3 text-sm text-[#64748b]">
+                            ‘계약 종료’ 탭으로 이동합니다(삭제 아님). 히스토리에 사유를 남겨두세요.
+                        </p>
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            히스토리 (종료 사유)
+                            <textarea
+                                autoFocus
+                                className="mt-1 w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
+                                onChange={(e) => setEndNote(e.target.value)}
+                                placeholder="예: 계약 만료 · 재계약 미진행"
+                                rows={3}
+                                value={endNote}
+                            />
+                        </label>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button
+                                className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                                onClick={() => setEndOpen(false)}
+                                type="button"
+                            >
+                                취소
+                            </button>
+                            <button
+                                className="rounded-md bg-[#dc2626] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b91c1c]"
+                                onClick={confirmEnd}
+                                type="button"
+                            >
+                                계약 종료
+                            </button>
+                        </div>
+                    </div>
+                </div>
             ) : null}
         </section>
     );
