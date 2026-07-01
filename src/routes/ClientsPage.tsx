@@ -27,6 +27,9 @@ import {
 const FAVS_KEY = 'erp_favs';
 const DONE_STATUS = '계약완료'; // 계약 완료 판정 기준(상태). 계약 관리 진입 + 완료/미완료 탭이 공유.
 const ENDED_STATUS = '계약종료'; // 계약 종료(터미널). 종료 탭. 5단계(신규~보류)와 별개.
+// 숫자 입력 포맷 — 저장은 숫자만, 표시는 천단위 콤마(2000 → 2,000).
+const onlyDigits = (s: string) => s.replace(/[^\d]/g, '');
+const withCommas = (s: string) => (onlyDigits(s) ? Number(onlyDigits(s)).toLocaleString('ko-KR') : '');
 
 type ClientForm = {
     manager: string;
@@ -125,7 +128,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [saving, setSaving] = useState(false);
     // 등록 가이드 '상품' — 선택한 부모 카테고리(key) + 세부유형별 건수/금액 입력.
     const [prodCats, setProdCats] = useState<string[]>([]);
-    const [prodInputs, setProdInputs] = useState<Record<string, { count: string; amount: string }>>({});
+    const [prodInputs, setProdInputs] = useState<Record<string, { unit: string; count: string }>>({});
 
     const [histClient, setHistClient] = useState<ErpClient | null>(null);
     const [histInput, setHistInput] = useState('');
@@ -297,11 +300,12 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 if (!cat) continue;
                 for (const sub of cat.subs) {
                     const inp = prodInputs[`${catKey}|${sub}`];
-                    const count = inp?.count ? Number(inp.count) : null;
-                    const amt = inp?.amount ? Number(inp.amount) : null;
-                    if ((count && count > 0) || (amt && amt > 0)) {
+                    const count = inp?.count ? Number(onlyDigits(inp.count)) : null;
+                    const unit = inp?.unit ? Number(onlyDigits(inp.unit)) : null;
+                    const amt = (unit || 0) * (count || 0); // 단가 × 건수
+                    if ((count && count > 0) || amt > 0) {
                         rows.push({
-                            amount: amt || 0,
+                            amount: amt,
                             category: cat.label,
                             client_id: createdId,
                             contract_date: todayStr(),
@@ -907,41 +911,49 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                 {c.subs.map((sub) => {
                                                                     const k = `${c.key}|${sub}`;
                                                                     const inp =
-                                                                        prodInputs[k] || { amount: '', count: '' };
+                                                                        prodInputs[k] || { count: '', unit: '' };
                                                                     const set = (
-                                                                        field: 'count' | 'amount',
+                                                                        field: 'count' | 'unit',
                                                                         v: string,
                                                                     ) =>
                                                                         setProdInputs((prev) => ({
                                                                             ...prev,
-                                                                            [k]: { ...inp, [field]: v },
+                                                                            [k]: { ...inp, [field]: onlyDigits(v) },
                                                                         }));
+                                                                    const amt =
+                                                                        (Number(onlyDigits(inp.unit)) || 0) *
+                                                                        (Number(onlyDigits(inp.count)) || 0);
                                                                     return (
                                                                         <div
                                                                             className="flex items-center gap-1.5"
                                                                             key={sub}
                                                                         >
-                                                                            <span className="w-32 shrink-0 truncate text-xs text-[#475569]">
+                                                                            <span className="w-28 shrink-0 truncate text-xs text-[#475569]">
                                                                                 {sub}
                                                                             </span>
                                                                             <input
-                                                                                className="h-8 w-20 rounded border border-[#cbd5e1] px-2 text-xs"
+                                                                                className="h-8 w-20 rounded border border-[#cbd5e1] px-2 text-right text-xs"
+                                                                                inputMode="numeric"
+                                                                                onChange={(e) =>
+                                                                                    set('unit', e.target.value)
+                                                                                }
+                                                                                placeholder="단가"
+                                                                                type="text"
+                                                                                value={withCommas(inp.unit)}
+                                                                            />
+                                                                            <input
+                                                                                className="h-8 w-16 rounded border border-[#cbd5e1] px-2 text-right text-xs"
+                                                                                inputMode="numeric"
                                                                                 onChange={(e) =>
                                                                                     set('count', e.target.value)
                                                                                 }
                                                                                 placeholder="건수"
-                                                                                type="number"
-                                                                                value={inp.count}
+                                                                                type="text"
+                                                                                value={withCommas(inp.count)}
                                                                             />
-                                                                            <input
-                                                                                className="h-8 w-full min-w-0 flex-1 rounded border border-[#cbd5e1] px-2 text-xs"
-                                                                                onChange={(e) =>
-                                                                                    set('amount', e.target.value)
-                                                                                }
-                                                                                placeholder="금액(원)"
-                                                                                type="number"
-                                                                                value={inp.amount}
-                                                                            />
+                                                                            <span className="ml-auto shrink-0 text-xs font-semibold text-[#0f172a]">
+                                                                                = {amt.toLocaleString('ko-KR')}원
+                                                                            </span>
                                                                         </div>
                                                                     );
                                                                 })}
