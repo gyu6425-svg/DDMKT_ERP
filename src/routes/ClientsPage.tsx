@@ -1077,7 +1077,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                                     className="h-7 w-20 rounded border border-[#cbd5e1] px-1.5 text-right text-xs"
                                                                                     inputMode="numeric"
                                                                                     onChange={(e) => set('unit', e.target.value)}
-                                                                                    placeholder="단가"
+                                                                                    placeholder="판매 단가"
                                                                                     type="text"
                                                                                     value={withCommas(inp.unit)}
                                                                                 />

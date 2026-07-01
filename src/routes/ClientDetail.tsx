@@ -284,7 +284,7 @@ function ContractAddModal({
                             )}
                         </label>
                         <label className="block text-xs font-semibold text-[#475569]">
-                            단가(원)
+                            판매 단가(원)
                             <input
                                 className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-sm"
                                 inputMode="numeric"
