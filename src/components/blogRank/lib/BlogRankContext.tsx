@@ -77,6 +77,20 @@ export function BlogRankProvider({ children, customerMode = false }: { children:
         window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
     }, [tab]);
 
+    // 사이드바에서 같은 /blog-rank 내 ?tab= 딥링크로 이동하면(대시보드 ⇄ 브랜드 블로그) 탭 반영.
+    useEffect(() => {
+        const syncFromUrl = () => {
+            const t = new URLSearchParams(window.location.search).get('tab');
+            setTab(t === 'sheet' || t === 'tracker' || t === 'crawl' || t === 'writer' ? t : 'dashboard');
+        };
+        window.addEventListener('app:navigate', syncFromUrl);
+        window.addEventListener('popstate', syncFromUrl);
+        return () => {
+            window.removeEventListener('app:navigate', syncFromUrl);
+            window.removeEventListener('popstate', syncFromUrl);
+        };
+    }, []);
+
     const showToast = (message: string) => {
         setToastMsg(message);
         window.setTimeout(() => setToastMsg(''), 2200);

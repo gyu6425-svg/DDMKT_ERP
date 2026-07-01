@@ -32,7 +32,6 @@ function Sidebar() {
         };
     }, []);
     const currentPath = loc.path;
-    const currentSub = new URLSearchParams(loc.search).get('sub');
     // 펼친 카테고리(클릭 토글) + 호버 카테고리. 현재 경로가 속한 카테고리는 기본 펼침.
     const [openKeys, setOpenKeys] = useState<Set<string>>(
         () => new Set(SIDEBAR_CATEGORIES.filter((c) => c.dashHref === window.location.pathname).map((c) => c.key)),
@@ -65,8 +64,8 @@ function Sidebar() {
             window.dispatchEvent(new Event('app:navigate'));
         }
     };
-    // 대시보드(하위값 없음) / 하위(sub=값) 활성 판정.
-    const isDashActive = (dashHref: string) => currentPath === dashHref && !currentSub;
+    // 대시보드 = 쿼리 없는 카테고리 경로 / 하위 = pathname+search 일치.
+    const isDashActive = (dashHref: string) => currentPath === dashHref && !loc.search;
     const subActive = (href: string) => currentPath + loc.search === href;
 
     const linkClassName = (path: string) =>

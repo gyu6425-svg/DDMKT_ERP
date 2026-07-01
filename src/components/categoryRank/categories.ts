@@ -82,8 +82,8 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
         label: '블로그',
         dashHref: '/blog-rank',
         subs: [
-            // 브랜드 블로그 = 현재 블로그 작업물(BlogRankPage) 그대로.
-            { label: '브랜드 블로그', href: '/blog-rank' },
+            // 대시보드(=/blog-rank 기본 탭)와 분리 — 브랜드 블로그 = 블로그 관리 시트 탭.
+            { label: '브랜드 블로그', href: '/blog-rank?tab=sheet' },
             {
                 label: '최적화 블로그 배포',
                 href: '/blog-rank?sub=' + encodeURIComponent('최적화 블로그 배포'),
