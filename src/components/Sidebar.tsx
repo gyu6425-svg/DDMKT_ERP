@@ -126,6 +126,26 @@ function Sidebar() {
                         <AdminOnly>
                             <div className="grid gap-[18px] max-[800px]:col-span-2">
                                 {SIDEBAR_CATEGORIES.map((c) => {
+                                    // 하위가 없으면(쇼핑·파워링크) 드롭다운 없이 상위=대시보드 바로가기.
+                                    if (!c.subs.length) {
+                                        return (
+                                            <a
+                                                aria-current={
+                                                    currentPath === c.dashHref ? 'page' : undefined
+                                                }
+                                                className={`text-[16px] no-underline ${
+                                                    currentPath === c.dashHref
+                                                        ? 'font-semibold text-[#FF6000]'
+                                                        : 'font-normal text-[#777777] hover:text-[#000000]'
+                                                }`}
+                                                href={c.dashHref}
+                                                key={c.key}
+                                                onClick={(event) => navigate(event, c.dashHref)}
+                                            >
+                                                {c.label}
+                                            </a>
+                                        );
+                                    }
                                     const expanded = openKeys.has(c.key) || hoverKey === c.key;
                                     const childActive =
                                         isDashActive(c.dashHref) || c.subs.some((s) => subActive(s.href));

@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { SIDEBAR_CATEGORIES } from './categoryRank/categories';
 
 const pageTitles: Record<string, string> = {
     '/dashboard': '대시보드',
@@ -12,9 +14,38 @@ const pageTitles: Record<string, string> = {
     '/portal': '고객 ERP',
 };
 
+// 상단 제목 — 카테고리/하위 페이지는 실제 이름으로('대시보드' 글자는 메인에만).
+function resolveTitle(path: string, search: string): string {
+    if (pageTitles[path]) return pageTitles[path];
+    if (!search) {
+        const cat = SIDEBAR_CATEGORIES.find((c) => c.dashHref === path);
+        if (cat) return cat.label;
+    }
+    const href = path + search;
+    for (const c of SIDEBAR_CATEGORIES) {
+        const sub = c.subs.find((s) => s.href === href);
+        if (sub) return sub.label;
+    }
+    return '';
+}
+
 function Header() {
-    const currentPath = window.location.pathname;
-    const title = pageTitles[currentPath] ?? '대시보드';
+    const [loc, setLoc] = useState({
+        path: window.location.pathname,
+        search: window.location.search,
+    });
+    useEffect(() => {
+        const sync = () =>
+            setLoc({ path: window.location.pathname, search: window.location.search });
+        window.addEventListener('popstate', sync);
+        window.addEventListener('app:navigate', sync);
+        return () => {
+            window.removeEventListener('popstate', sync);
+            window.removeEventListener('app:navigate', sync);
+        };
+    }, []);
+    const currentPath = loc.path;
+    const title = resolveTitle(loc.path, loc.search);
     const { isAdmin, profile } = useAuth();
     // 내부(관리자·매니저)는 회사/고객 토글, 외부 고객은 토글 대신 본인 업체명 표시.
     const isInternal = isAdmin || profile?.role === 'manager';

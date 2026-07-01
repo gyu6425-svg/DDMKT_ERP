@@ -63,17 +63,18 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
         dashHref: '/cafe-rank',
         subs: [{ label: '맘카페', href: '/cafe-rank?sub=' + encodeURIComponent('맘카페') }],
     },
+    // 쇼핑·파워링크는 하위가 카테고리명과 동일(1개)이라 드롭다운 없이 상위=대시보드 링크.
     {
         key: 'shopping',
         label: '쇼핑',
         dashHref: '/shopping-rank',
-        subs: [{ label: '쇼핑', href: '/shopping-rank?sub=' + encodeURIComponent('쇼핑') }],
+        subs: [],
     },
     {
         key: 'powerlink',
         label: '파워링크',
         dashHref: '/powerlink-rank',
-        subs: [{ label: '파워링크', href: '/powerlink-rank?sub=' + encodeURIComponent('파워링크') }],
+        subs: [],
     },
     {
         key: 'blog',
