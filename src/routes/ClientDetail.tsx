@@ -671,8 +671,18 @@ function ContractEditModal({
                                                   {fmtWon(o.remain)}원
                                               </div>
                                           </div>
+                                          {/* 잔여 외주비 게이지 — 진행될수록 빨간 막대(잔여)가 줄어듦 */}
+                                          <div className="col-span-3 mt-1 h-1.5 overflow-hidden rounded-full bg-[#fee2e2]">
+                                              <div
+                                                  className="h-full rounded-full bg-[#dc2626] transition-all"
+                                                  style={{
+                                                      width: `${o.total > 0 ? Math.round((o.remain / o.total) * 100) : 0}%`,
+                                                  }}
+                                              />
+                                          </div>
                                           <div className="col-span-3 mt-0.5 text-[10px] text-[#94a3b8]">
-                                              외주단가 {fmtWon(o.unit)}원 × 잔여 {remainN}건
+                                              외주단가 {fmtWon(o.unit)}원 × 잔여 {remainN}
+                                              {unitLabel}
                                           </div>
                                       </div>
                                   );
