@@ -174,26 +174,36 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         () => new Set(clients.filter((c) => c.status === DONE_STATUS).map((c) => c.id)),
         [clients],
     );
-    // 재계약 임박 = 계약완료 고객의 계약(client_contracts) 중 잔여 3건 미만(카테고리·세부유형·업체별).
-    const imminentList = useMemo(
-        () =>
-            clientContracts
-                .filter(
-                    (ct) =>
-                        doneClientIds.has(ct.client_id) &&
-                        ct.remain_count != null &&
-                        ct.remain_count < 3,
-                )
-                .map((ct) => ({
-                    category: ct.category,
-                    clientId: ct.client_id,
-                    company: clients.find((c) => c.id === ct.client_id)?.company || '업체',
-                    remain: ct.remain_count as number,
-                    subtype: ct.subtype,
-                }))
-                .sort((x, y) => x.remain - y.remain),
-        [clientContracts, doneClientIds, clients],
-    );
+    // 재계약 임박 = 계약완료 고객의 상품(블로그 계정 + 계약 내역) 중 잔여 3건 미만. 0건=빨강, 1~2건=노랑.
+    const imminentList = useMemo(() => {
+        const fromBlogs = blogAccounts
+            .filter(
+                (a) =>
+                    a.client_id &&
+                    doneClientIds.has(a.client_id) &&
+                    !a.contract_ended_at &&
+                    a.remain_count != null &&
+                    a.remain_count < 3,
+            )
+            .map((a) => ({
+                clientId: a.client_id as string,
+                company: clients.find((c) => c.id === a.client_id)?.company || a.name,
+                product: '블로그',
+                remain: a.remain_count as number,
+            }));
+        const fromContracts = clientContracts
+            .filter((ct) => doneClientIds.has(ct.client_id) && ct.remain_count != null && ct.remain_count < 3)
+            .map((ct) => ({
+                clientId: ct.client_id,
+                company: clients.find((c) => c.id === ct.client_id)?.company || '업체',
+                product: ct.category,
+                remain: ct.remain_count as number,
+            }));
+        return [...fromBlogs, ...fromContracts].sort((x, y) => x.remain - y.remain);
+    }, [blogAccounts, clientContracts, doneClientIds, clients]);
+    // KPI 카드 톤 — 0건 있으면 빨강, 있고 0건 없으면 노랑, 없으면 회색.
+    const kpiTone: 'none' | 'red' | 'yellow' =
+        imminentList.length === 0 ? 'none' : imminentList.some((it) => it.remain === 0) ? 'red' : 'yellow';
 
     const toggleFav = (id: string) => {
         setFavs((current) => {
@@ -468,22 +478,32 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                     </div>
                     <button
                         className={`rounded-lg border-2 px-4 py-3 text-left shadow-sm ring-1 transition hover:shadow-md ${
-                            imminentList.length
+                            kpiTone === 'red'
                                 ? 'border-[#dc2626] bg-[#fef2f2] ring-[#fecaca]'
-                                : 'border-[#e2e8f0] bg-white ring-[#f1f5f9]'
+                                : kpiTone === 'yellow'
+                                  ? 'border-[#eab308] bg-[#fefce8] ring-[#fde68a]'
+                                  : 'border-[#e2e8f0] bg-white ring-[#f1f5f9]'
                         }`}
                         onClick={() => setShowImminent(true)}
                         type="button"
                     >
                         <div className="flex items-center justify-between">
-                            <span className={`text-xs font-bold ${imminentList.length ? 'text-[#b91c1c]' : 'text-[#64748b]'}`}>
+                            <span
+                                className="text-xs font-bold"
+                                style={{
+                                    color:
+                                        kpiTone === 'red' ? '#b91c1c' : kpiTone === 'yellow' ? '#a16207' : '#64748b',
+                                }}
+                            >
                                 재계약 임박
                             </span>
                             <span className="text-[10px] font-semibold text-[#94a3b8]">눌러서 보기 ↗</span>
                         </div>
                         <div
                             className="mt-0.5 text-2xl font-bold"
-                            style={{ color: imminentList.length ? '#dc2626' : '#94a3b8' }}
+                            style={{
+                                color: kpiTone === 'red' ? '#dc2626' : kpiTone === 'yellow' ? '#d97706' : '#94a3b8',
+                            }}
                         >
                             {imminentList.length}건
                         </div>
@@ -1069,7 +1089,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             <div className="grid gap-1">
                                 {imminentList.map((it, i) => (
                                     <button
-                                        className="flex items-center justify-between rounded-md border border-[#fee2e2] px-3 py-2.5 text-left hover:bg-[#fef2f2]"
+                                        className="flex items-center justify-between gap-2 rounded-md border border-[#e2e8f0] px-3 py-2.5 text-left hover:bg-[#f8fafc]"
                                         key={i}
                                         onClick={() => {
                                             setShowImminent(false);
@@ -1077,13 +1097,21 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         }}
                                         type="button"
                                     >
-                                        <span className="min-w-0">
-                                            <span className="block text-sm font-semibold">{it.company}</span>
-                                            <span className="block text-xs text-[#94a3b8]">
-                                                {it.category} · {it.subtype}
+                                        <span className="flex min-w-0 items-center gap-2">
+                                            <span className="shrink-0 rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-semibold text-[#4338ca]">
+                                                {it.product}
+                                            </span>
+                                            <span className="truncate text-sm font-semibold text-[#0f172a]">
+                                                {it.company}
                                             </span>
                                         </span>
-                                        <span className="shrink-0 rounded-full bg-[#fef2f2] px-2.5 py-1 text-xs font-bold text-[#b91c1c] ring-1 ring-[#fecaca]">
+                                        <span
+                                            className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${
+                                                it.remain === 0
+                                                    ? 'bg-[#fef2f2] text-[#b91c1c] ring-[#fecaca]'
+                                                    : 'bg-[#fefce8] text-[#a16207] ring-[#fde68a]'
+                                            }`}
+                                        >
                                             잔여 {it.remain}건
                                         </span>
                                     </button>
