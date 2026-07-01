@@ -778,7 +778,11 @@ export function ClientDetail({
                                 </span>
                                 <button
                                     className="rounded border border-[#cbd5e1] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#475569] hover:border-[#1e40af] hover:text-[#1e40af]"
-                                    onClick={() => navTo(`${dashPath}?tab=sheet`)}
+                                    onClick={() =>
+                                        navTo(
+                                            `${dashPath}?tab=sheet&q=${encodeURIComponent(client.company || '')}`,
+                                        )
+                                    }
                                     type="button"
                                 >
                                     관리 시트 →
