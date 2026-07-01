@@ -914,14 +914,20 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     ))}
                                 </select>
                             </div>
-                            {/* 업체명 · 사업자등록번호 · 사업장 주소 */}
+                            {/* 업체명 (계약 추가만 거래처명·사업자등록번호·사업장 주소 추가) */}
                             {(
-                                [
-                                    { key: 'company', label: '업체명', ph: '업체명 입력' },
-                                    { key: 'client_partner', label: '거래처명', ph: '예: 에이치에스(HS)' },
-                                    { key: 'business_number', label: '사업자등록번호', ph: '000-00-00000' },
-                                    { key: 'address', label: '사업장 주소', ph: '주소 입력' },
-                                ] as { key: keyof ClientForm; label: string; ph: string }[]
+                                (contractsOnly
+                                    ? [
+                                          { key: 'company', label: '업체명', ph: '업체명 입력' },
+                                          { key: 'client_partner', label: '거래처명', ph: '예: 에이치에스(HS)' },
+                                          { key: 'business_number', label: '사업자등록번호', ph: '000-00-00000' },
+                                          { key: 'address', label: '사업장 주소', ph: '주소 입력' },
+                                      ]
+                                    : [{ key: 'company', label: '업체명', ph: '업체명 입력' }]) as {
+                                    key: keyof ClientForm;
+                                    label: string;
+                                    ph: string;
+                                }[]
                             ).map((f) => (
                                 <div className="flex items-center gap-2" key={f.key}>
                                     <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
@@ -979,7 +985,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                 </div>
                             ))}
                             {/* 상품 : 카테고리 다중선택 → 세부유형별 건수/금액 (계약 추가 시) */}
-                            {!editId ? (
+                            {!editId && contractsOnly ? (
                                 <div className="flex items-start gap-2">
                                     <span className="mt-2 w-24 shrink-0 text-sm font-semibold text-[#475569]">
                                         상품 :
