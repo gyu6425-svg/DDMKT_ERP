@@ -696,9 +696,10 @@ function ContractEditModal({
                             : null}
                         {isReward ? (
                             /* 리워드 주간 처리 — 추천치(일일타수×7) 확인/보정 후 확정. 9000타를 주 단위로. */
-                            <div className="mt-3 rounded-lg border border-[#dbeafe] bg-[#eff6ff] px-3 py-3 text-left">
+                            <>
+                            <div className="mt-3 rounded-lg border border-[#dbeafe] bg-[#eff6ff] px-3 py-4 text-left">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-[#1e40af]">주간 진행</span>
+                                    <span className="text-sm font-bold text-[#1e40af]">주간 진행</span>
                                     <span className="text-[10px] text-[#64748b]">
                                         {perDay > 0
                                             ? `일일 ${perDay.toLocaleString('ko-KR')}타 · 주 추천 ${weekRec.toLocaleString('ko-KR')}타`
@@ -754,50 +755,62 @@ function ContractEditModal({
                                         </b>
                                     </div>
                                 ) : null}
-                                {/* 주차 로그 + 정합 검증(Σ주간 = 소진) */}
-                                {weeklyLogs.length ? (
-                                    <div className="mt-2 border-t border-[#dbeafe] pt-2">
-                                        <div className="mb-1 flex items-center justify-between text-[10px]">
-                                            <span className="font-semibold text-[#64748b]">주간 진행 로그</span>
-                                            <span
-                                                className={
-                                                    weekSum === done
-                                                        ? 'text-[#059669]'
-                                                        : 'font-bold text-[#dc2626]'
-                                                }
-                                            >
-                                                Σ {weekSum.toLocaleString('ko-KR')}타
-                                                {weekSum === done ? ' ✓' : ` ≠ 소진 ${done.toLocaleString('ko-KR')}타`}
-                                            </span>
-                                        </div>
-                                        <div className="grid max-h-[22vh] gap-0.5 overflow-y-auto">
-                                            {weeklyLogs.map((l, i) => (
-                                                <div
-                                                    className="flex items-center gap-1.5 rounded bg-white px-2 py-1 text-[11px]"
-                                                    key={i}
-                                                >
-                                                    <span className="rounded bg-[#dbeafe] px-1 py-0.5 font-bold text-[#1e40af]">
-                                                        {l.week}
-                                                    </span>
-                                                    <span className="text-[#475569]">{l.at}</span>
-                                                    <span className="ml-auto font-bold text-[#1e40af]">
-                                                        {l.count.toLocaleString('ko-KR')}타
-                                                    </span>
-                                                    <button
-                                                        className="text-[#cbd5e1] hover:text-[#dc2626]"
-                                                        disabled={saving}
-                                                        onClick={() => void deleteWeekLog(i)}
-                                                        title="이 주간 기록 되돌리기"
-                                                        type="button"
-                                                    >
-                                                        ✕
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ) : null}
                             </div>
+                            {/* 진행 이력 — 주간 확정한 처리 타수 히스토리(주간 진행 밑) */}
+                            <div className="mt-3 rounded-lg border border-[#e2e8f0] bg-white px-3 py-3 text-left">
+                                <div className="mb-1.5 flex items-center justify-between">
+                                    <span className="text-sm font-bold text-[#334155]">진행 이력</span>
+                                    <span
+                                        className={
+                                            weekSum === done
+                                                ? 'text-[11px] text-[#059669]'
+                                                : 'text-[11px] font-bold text-[#dc2626]'
+                                        }
+                                    >
+                                        Σ {weekSum.toLocaleString('ko-KR')}타
+                                        {weekSum === done
+                                            ? ' ✓'
+                                            : ` ≠ 소진 ${done.toLocaleString('ko-KR')}타`}
+                                    </span>
+                                </div>
+                                {weeklyLogs.length ? (
+                                    <div className="grid max-h-[34vh] gap-1 overflow-y-auto">
+                                        {weeklyLogs.map((l, i) => (
+                                            <div
+                                                className="flex items-center gap-1.5 rounded-md border border-[#eef2f7] bg-[#f8fafc] px-2 py-1.5 text-xs"
+                                                key={i}
+                                            >
+                                                <span className="rounded bg-[#dbeafe] px-1.5 py-0.5 text-[11px] font-bold text-[#1e40af]">
+                                                    {l.week}
+                                                </span>
+                                                <span className="text-[#64748b]">{l.at}</span>
+                                                <span className="ml-auto font-bold text-[#1e40af]">
+                                                    {l.count.toLocaleString('ko-KR')}타
+                                                </span>
+                                                {(contract.unit_outsource ?? 0) > 0 ? (
+                                                    <span className="text-[11px] text-[#dc2626]">
+                                                        {fmtWon(l.count * (contract.unit_outsource ?? 0))}원
+                                                    </span>
+                                                ) : null}
+                                                <button
+                                                    className="text-[#cbd5e1] hover:text-[#dc2626]"
+                                                    disabled={saving}
+                                                    onClick={() => void deleteWeekLog(i)}
+                                                    title="이 진행 기록 되돌리기"
+                                                    type="button"
+                                                >
+                                                    ✕
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="py-4 text-center text-[11px] text-[#94a3b8]">
+                                        아직 진행 이력이 없습니다. 위에서 이번 주 처리 타수를 확정하세요.
+                                    </div>
+                                )}
+                            </div>
+                            </>
                         ) : (
                             <>
                                 <div className="mt-2 flex gap-2">
