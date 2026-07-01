@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useEffect, useState, type MouseEvent } from 'react';
 
 const navigationItems = [
-    { path: '/dashboard', label: '대시보드' },
+    // 대시보드는 좌측 상단 'DDMKT ERP' 로고 클릭으로 이동(아래 참고).
     { path: '/clients', label: '고객사 관리' },
     { path: '/contracts', label: '계약 관리' },
     // 리포트·메모·캘린더는 추후 구현 — 지금은 비활성(클릭 불가).
@@ -106,7 +106,15 @@ function Sidebar() {
             aria-label="주요 메뉴"
         >
             <div className="mb-16">
-                <strong className="text-base">DDMKT ERP</strong>
+                <a
+                    aria-current={currentPath === '/dashboard' ? 'page' : undefined}
+                    className="text-base font-bold text-inherit no-underline hover:text-[#FF6000]"
+                    href="/dashboard"
+                    onClick={(event) => navigate(event, '/dashboard')}
+                    title="대시보드로 이동"
+                >
+                    DDMKT ERP
+                </a>
             </div>
 
             <nav className="grid gap-[18px] max-[800px]:grid-cols-2">
