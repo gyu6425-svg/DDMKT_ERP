@@ -6,7 +6,7 @@ import {
     type ClientHistory,
     type ErpClient,
 } from '../api/erp';
-import { getBlogAccounts, type BlogAccount } from '../api/blogRank';
+import { ensureClientBlogAccount, getBlogAccounts, type BlogAccount } from '../api/blogRank';
 import {
     getClientContracts,
     insertClientContracts,
@@ -316,6 +316,16 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 const { error: cErr } = await insertClientContracts(rows);
                 if (cErr) showToast(`계약 저장 오류: ${cErr.message}`);
                 await reloadContracts();
+                // 블로그 계약이면 블로그 관리 시트(blog_accounts)에도 자동 등록.
+                const blogRow = rows.find((r) => r.category === '블로그');
+                if (blogRow) {
+                    await ensureClientBlogAccount(createdId, payload.company || '업체', {
+                        contract_date: blogRow.contract_date ?? null,
+                        goal_count: blogRow.goal_count ?? null,
+                        remain_count: blogRow.remain_count ?? null,
+                    });
+                    await reloadBlogs();
+                }
             }
         }
 

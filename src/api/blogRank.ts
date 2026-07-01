@@ -132,6 +132,31 @@ export async function insertBlogAccounts(payloads: Array<Partial<BlogAccount>>) 
     return { data: data ?? [], error };
 }
 
+// 계약 등록 시 블로그 관리 시트에도 자동 등록 — 그 고객사에 블로그 계정이 아직 없으면 생성(있으면 skip).
+//   URL은 비워두고 시트에 노출 → 사용자가 시트에서 URL 채우면 크롤 대상이 됨.
+export async function ensureClientBlogAccount(
+    clientId: string,
+    name: string,
+    fields: { goal_count?: number | null; remain_count?: number | null; contract_date?: string | null },
+) {
+    const { data } = await getBlogAccounts(clientId);
+    if (data.length) {
+        return { created: false };
+    }
+    const { error } = await insertBlogAccounts([
+        {
+            blog_url: '',
+            client_id: clientId,
+            contract_date: fields.contract_date ?? null,
+            goal_count: fields.goal_count ?? null,
+            is_active: true,
+            name,
+            remain_count: fields.remain_count ?? null,
+        } as Partial<BlogAccount>,
+    ]);
+    return { created: !error, error };
+}
+
 export async function updateBlogAccount(id: string, payload: Partial<BlogAccount>) {
     const { data, error } = await supabase
         .from('blog_accounts')

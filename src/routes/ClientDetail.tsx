@@ -7,8 +7,9 @@ import {
     type ClientContract,
     type ContractHistoryItem,
 } from '../api/clientContracts';
+import { ensureClientBlogAccount } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
-import { PRODUCT_CATEGORIES, categoryByLabel } from '../lib/products';
+import { PRODUCT_CATEGORIES } from '../lib/products';
 import { SOURCE_OPTIONS } from '../lib/erpUtils';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
@@ -99,11 +100,13 @@ function ClientFieldModal({
 // 계약 추가 모달 — 카테고리 → 세부유형 → 건수·금액·계약일.
 function ContractAddModal({
     clientId,
+    companyName,
     onClose,
     onReload,
     onToast,
 }: {
     clientId: string;
+    companyName: string;
     onClose: () => void;
     onReload: () => Promise<void>;
     onToast: (m: string) => void;
@@ -145,6 +148,14 @@ function ContractAddModal({
         if (error) {
             onToast(`오류: ${error.message}`);
             return;
+        }
+        // 블로그 계약이면 블로그 관리 시트에도 자동 등록.
+        if (cat.label === '블로그') {
+            await ensureClientBlogAccount(clientId, companyName || '업체', {
+                contract_date: date || null,
+                goal_count: n,
+                remain_count: n,
+            });
         }
         await onReload();
         onToast('계약 추가 완료');
@@ -578,12 +589,8 @@ export function ClientDetail({
     const catAmount = (label: string) =>
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
     const totalAmount = contracts.reduce((s, ct) => s + (ct.amount || 0), 0);
-    // 카테고리 부모 순서로 정렬해 한 줄에 옆으로 흐르게(같은 카테고리끼리 인접).
-    const catOrder = (label: string) => {
-        const i = PRODUCT_CATEGORIES.findIndex((c) => c.label === label);
-        return i === -1 ? 99 : i;
-    };
-    const sortedContracts = [...contracts].sort((a, b) => catOrder(a.category) - catOrder(b.category));
+    // 계약이 있는 카테고리(상품)만, 부모 순서로 — 상품별 섹션으로 나눠 표시.
+    const activeCats = PRODUCT_CATEGORIES.filter((c) => contracts.some((ct) => ct.category === c.label));
 
     return (
         <section className="grid gap-4">
@@ -667,59 +674,73 @@ export function ClientDetail({
                 </button>
             </div>
 
-            {sortedContracts.length ? (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                    {sortedContracts.map((ct) => {
-                        const prog = progOf(ct);
-                        const done = (ct.goal_count || 0) - (ct.remain_count || 0);
-                        const dashPath = categoryByLabel(ct.category)?.path;
-                        return (
-                            <div
-                                className="relative cursor-pointer rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
-                                key={ct.id}
-                                onClick={() => setEditContract(ct)}
-                            >
-                                {dashPath ? (
-                                    <button
-                                        className="absolute right-1.5 top-1.5 rounded border border-[#cbd5e1] bg-white px-1.5 py-0.5 text-[10px] font-semibold text-[#475569] hover:border-[#1e40af] hover:text-[#1e40af]"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            navTo(`${dashPath}?tab=sheet`);
-                                        }}
-                                        title={`${ct.category} 관리 시트로 이동`}
-                                        type="button"
-                                    >
-                                        대시보드 →
-                                    </button>
-                                ) : null}
-                                <div className="truncate text-[10px] font-bold text-[#1e40af]">{ct.category}</div>
-                                <div className="truncate pr-14 text-xs font-bold text-[#334155]">{ct.subtype}</div>
-                                <div className="mt-0.5 text-2xl font-bold" style={{ color: progColor(prog) }}>
-                                    {prog != null
-                                        ? `${prog}%`
-                                        : ct.goal_count != null
-                                          ? `${ct.goal_count}건`
-                                          : '-'}
-                                </div>
-                                {prog != null ? (
-                                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[#e2e8f0]">
-                                        <div
-                                            className="h-full rounded-full"
-                                            style={{
-                                                background: progColor(prog),
-                                                width: `${Math.min(100, Math.max(0, prog))}%`,
-                                            }}
-                                        />
-                                    </div>
-                                ) : null}
-                                <div className="mt-1 text-[11px] font-semibold text-[#64748b]">
-                                    {ct.goal_count != null ? `${done}/${ct.goal_count}건` : '건수 미입력'}
-                                    {ct.amount ? ` · ${fmtWon(ct.amount)}원` : ''}
-                                </div>
+            {activeCats.length ? (
+                activeCats.map((c) => {
+                    const dashPath = c.path;
+                    return (
+                        <div key={c.key}>
+                            <div className="mb-2 flex items-center gap-2">
+                                <span className="rounded-full bg-[#e0e7ff] px-2.5 py-0.5 text-xs font-bold text-[#4338ca]">
+                                    {c.label}
+                                </span>
+                                <button
+                                    className="rounded border border-[#cbd5e1] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#475569] hover:border-[#1e40af] hover:text-[#1e40af]"
+                                    onClick={() => navTo(`${dashPath}?tab=sheet`)}
+                                    type="button"
+                                >
+                                    관리 시트 →
+                                </button>
                             </div>
-                        );
-                    })}
-                </div>
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                                {contracts
+                                    .filter((ct) => ct.category === c.label)
+                                    .map((ct) => {
+                                        const prog = progOf(ct);
+                                        const done = (ct.goal_count || 0) - (ct.remain_count || 0);
+                                        return (
+                                            <button
+                                                className="rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
+                                                key={ct.id}
+                                                onClick={() => setEditContract(ct)}
+                                                type="button"
+                                            >
+                                                <div className="truncate text-xs font-bold text-[#334155]">
+                                                    {ct.subtype}
+                                                </div>
+                                                <div
+                                                    className="mt-0.5 text-2xl font-bold"
+                                                    style={{ color: progColor(prog) }}
+                                                >
+                                                    {prog != null
+                                                        ? `${prog}%`
+                                                        : ct.goal_count != null
+                                                          ? `${ct.goal_count}건`
+                                                          : '-'}
+                                                </div>
+                                                {prog != null ? (
+                                                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[#e2e8f0]">
+                                                        <div
+                                                            className="h-full rounded-full"
+                                                            style={{
+                                                                background: progColor(prog),
+                                                                width: `${Math.min(100, Math.max(0, prog))}%`,
+                                                            }}
+                                                        />
+                                                    </div>
+                                                ) : null}
+                                                <div className="mt-1 text-[11px] font-semibold text-[#64748b]">
+                                                    {ct.goal_count != null
+                                                        ? `${done}/${ct.goal_count}건`
+                                                        : '건수 미입력'}
+                                                    {ct.amount ? ` · ${fmtWon(ct.amount)}원` : ''}
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                            </div>
+                        </div>
+                    );
+                })
             ) : (
                 <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-5 py-10 text-center text-sm text-[#94a3b8]">
                     등록된 계약이 없습니다. ‘+ 계약 추가’로 등록하세요.
@@ -757,6 +778,7 @@ export function ClientDetail({
             {addOpen ? (
                 <ContractAddModal
                     clientId={client.id}
+                    companyName={client.company || ''}
                     onClose={() => setAddOpen(false)}
                     onReload={onReloadContracts}
                     onToast={onToast}
