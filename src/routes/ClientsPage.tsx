@@ -15,11 +15,9 @@ import {
 import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
 import { ClientDetail } from './ClientDetail';
 import Button from '../components/Button';
-import { Combobox } from '../components/Combobox';
 import { useErpData } from '../context/ErpDataContext';
 import {
     INDUSTRY_OPTIONS,
-    OUTSOURCE_COMPANIES,
     SOURCE_OPTIONS,
     STATUS_BADGE,
     STATUS_OPTIONS,
@@ -1125,15 +1123,13 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                                     type="text"
                                                                                     value={withCommas(inp.outsource)}
                                                                                 />
-                                                                                <div className="w-28 shrink-0">
-                                                                                    <Combobox
-                                                                                        className="h-7 w-full rounded border border-[#fecaca] px-1.5 text-xs"
-                                                                                        onChange={setOutCompany}
-                                                                                        options={OUTSOURCE_COMPANIES}
-                                                                                        placeholder="외주업체"
-                                                                                        value={inp.outCompany || ''}
-                                                                                    />
-                                                                                </div>
+                                                                                <input
+                                                                                    className="h-7 w-28 shrink-0 rounded border border-[#fecaca] px-1.5 text-xs"
+                                                                                    onChange={(e) => setOutCompany(e.target.value)}
+                                                                                    placeholder="외주업체"
+                                                                                    type="text"
+                                                                                    value={inp.outCompany || ''}
+                                                                                />
                                                                             </div>
                                                                             {daily && cnt ? (
                                                                                 <div className="mt-0.5 pl-24 text-[10px] text-[#94a3b8]">

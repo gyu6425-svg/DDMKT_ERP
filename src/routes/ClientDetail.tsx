@@ -10,9 +10,8 @@ import {
 } from '../api/clientContracts';
 import { ensureClientBlogAccount } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
-import { Combobox } from '../components/Combobox';
 import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
-import { INDUSTRY_OPTIONS, OUTSOURCE_COMPANIES, SOURCE_OPTIONS, todayStr } from '../lib/erpUtils';
+import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, todayStr } from '../lib/erpUtils';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
 //   계약은 client_contracts 단일 출처. 등록 시(+계약 추가) 또는 여기서 '+ 계약 추가'로 생성.
@@ -332,15 +331,13 @@ function ContractAddModal({
                     </div>
                     <label className="block text-xs font-semibold text-[#475569]">
                         외주업체명
-                        <div className="mt-1">
-                            <Combobox
-                                className="h-10 w-full rounded-md border border-[#fecaca] px-2 text-sm"
-                                onChange={setOutCompany}
-                                options={OUTSOURCE_COMPANIES}
-                                placeholder="외주업체 선택 또는 직접 입력"
-                                value={outCompany}
-                            />
-                        </div>
+                        <input
+                            className="mt-1 h-10 w-full rounded-md border border-[#fecaca] px-2 text-sm"
+                            onChange={(e) => setOutCompany(e.target.value)}
+                            placeholder="외주업체명 입력"
+                            type="text"
+                            value={outCompany}
+                        />
                     </label>
                     <div className="rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
                         매출 <span className="text-[#1e40af]">{amt.toLocaleString('ko-KR')}</span> · 외주{' '}
