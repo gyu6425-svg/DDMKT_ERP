@@ -222,14 +222,14 @@ function ContractAddModal({
                     </label>
                     <div className="grid grid-cols-3 gap-2">
                         <label className="block text-xs font-semibold text-[#475569]">
-                            {daily ? '일일 × 일수' : '수량'}
+                            {daily ? '타 × 일수' : '수량'}
                             {daily ? (
                                 <div className="mt-1 flex items-center gap-1">
                                     <input
                                         className="h-10 w-full rounded-md border border-[#cbd5e1] px-1 text-right text-sm"
                                         inputMode="numeric"
                                         onChange={(e) => setPerDay(e.target.value)}
-                                        placeholder="일일"
+                                        placeholder="타"
                                         type="text"
                                         value={withCommas(perDay)}
                                     />

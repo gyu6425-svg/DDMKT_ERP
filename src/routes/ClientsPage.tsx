@@ -988,8 +988,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                                             className="h-7 w-12 rounded border border-[#cbd5e1] px-1 text-right text-xs"
                                                                                             inputMode="numeric"
                                                                                             onChange={(e) => set('perDay', e.target.value)}
-                                                                                            placeholder="일일"
-                                                                                            title="일일 수량(예: 100타)"
+                                                                                            placeholder="타"
+                                                                                            title="일일 타수(예: 100타)"
                                                                                             type="text"
                                                                                             value={withCommas(inp.perDay || '')}
                                                                                         />
@@ -1035,7 +1035,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                             </div>
                                                                             {daily && cnt ? (
                                                                                 <div className="mt-0.5 pl-24 text-[10px] text-[#94a3b8]">
-                                                                                    총 수량 {cnt.toLocaleString('ko-KR')}
+                                                                                    총 {cnt.toLocaleString('ko-KR')}타
                                                                                 </div>
                                                                             ) : null}
                                                                             {amt || outAmt ? (
