@@ -350,7 +350,7 @@ function ContractEditModal({
     const hasGoal = goal.trim() !== '';
     const done = Math.max(0, goalN - remainN);
     const pct = goalN ? Math.round((done / goalN) * 100) : 0;
-    const imminent = hasGoal && remainN <= 5; // 잔여 5건 이하 → 재계약/종료(필드 숨김)
+    const imminent = hasGoal && (remainN <= 5 || pct >= 80); // 잔여 5건 이하 또는 진행률 80%↑ → 재계약/종료
 
     // 계약 이력 표시용: 과거(history) + 현재 계약. 0번=최초, 나머지=재N, 마지막=현재.
     const periods = [

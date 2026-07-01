@@ -17,6 +17,7 @@ import { ClientDetail } from './ClientDetail';
 import Button from '../components/Button';
 import { useErpData } from '../context/ErpDataContext';
 import {
+    INDUSTRY_OPTIONS,
     SOURCE_OPTIONS,
     STATUS_BADGE,
     STATUS_OPTIONS,
@@ -48,12 +49,18 @@ type ClientForm = {
     notes: string;
     url: string;
     historyText: string;
+    business_number: string;
+    address: string;
+    industry: string;
 };
 
 const emptyForm: ClientForm = {
+    address: '',
     amount: '',
     budget: '',
+    business_number: '',
     company: '',
+    industry: '',
     contact: '',
     contract_end: '',
     contract_start: '',
@@ -282,9 +289,12 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         setSaving(true);
 
         const payload: Partial<ErpClient> = {
+            address: form.address.trim() || null,
             amount: Number(form.amount) || 0,
             budget: form.budget.trim() || null,
+            business_number: form.business_number.trim() || null,
             company: form.company.trim() || null,
+            industry: form.industry || null,
             contact: form.contact.trim() || null,
             contract_end: form.contract_end || null,
             contract_start: form.contract_start || null,
@@ -877,10 +887,45 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     ))}
                                 </select>
                             </div>
-                            {/* 업체명·연락처·이메일·url */}
+                            {/* 업체명 · 사업자등록번호 · 사업장 주소 */}
                             {(
                                 [
                                     { key: 'company', label: '업체명', ph: '업체명 입력' },
+                                    { key: 'business_number', label: '사업자등록번호', ph: '000-00-00000' },
+                                    { key: 'address', label: '사업장 주소', ph: '주소 입력' },
+                                ] as { key: keyof ClientForm; label: string; ph: string }[]
+                            ).map((f) => (
+                                <div className="flex items-center gap-2" key={f.key}>
+                                    <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
+                                        {f.label} :
+                                    </span>
+                                    <input
+                                        className="erp-input w-full min-w-0"
+                                        onChange={(event) => updateField(f.key, event.target.value)}
+                                        placeholder={f.ph}
+                                        value={form[f.key]}
+                                    />
+                                </div>
+                            ))}
+                            {/* 업종/업태 (선택) */}
+                            <div className="flex items-center gap-2">
+                                <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
+                                    업종/업태 :
+                                </span>
+                                <select
+                                    className="erp-input w-full min-w-0"
+                                    onChange={(event) => updateField('industry', event.target.value)}
+                                    value={form.industry}
+                                >
+                                    <option value="">선택...</option>
+                                    {INDUSTRY_OPTIONS.map((o) => (
+                                        <option key={o}>{o}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            {/* 연락처 · 이메일 · url */}
+                            {(
+                                [
                                     { key: 'contact', label: '연락처', ph: '연락처 입력' },
                                     { key: 'email', label: '이메일', ph: '이메일 입력' },
                                     { key: 'url', label: 'url', ph: 'https://...' },
