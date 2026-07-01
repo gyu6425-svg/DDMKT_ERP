@@ -898,7 +898,9 @@ export function ClientDetail({
     // 카테고리별 합계 + 총액.
     const catAmount = (label: string) =>
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
-    const totalAmount = contracts.reduce((s, ct) => s + (ct.amount || 0), 0);
+    const totalAmount = contracts.reduce((s, ct) => s + (ct.amount || 0), 0); // 실매출
+    const totalOutsource = contracts.reduce((s, ct) => s + (ct.outsource || 0), 0); // 외주비 합계
+    const netRevenue = totalAmount - totalOutsource; // 순매출 = 실매출 − 외주비
     // 계약이 있는 카테고리(상품)만, 부모 순서로 — 상품별 섹션으로 나눠 표시.
     const activeCats = PRODUCT_CATEGORIES.filter((c) => contracts.some((ct) => ct.category === c.label));
 
@@ -967,10 +969,29 @@ export function ClientDetail({
                 )}
             </div>
 
-            {/* 누적 계약 금액 — 총액 + 6개 카테고리별 */}
+            {/* 누적 금액 — 순매출(실매출 − 외주비) + 카테고리별 실매출 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
-                <div className="text-xs font-semibold text-[#94a3b8]">총 계약 금액 (누적)</div>
-                <div className="mt-1 text-3xl font-bold text-[#1e40af]">{fmtWon(totalAmount)}원</div>
+                <div className="grid grid-cols-3 gap-3">
+                    <div>
+                        <div className="text-[11px] font-semibold text-[#94a3b8]">실매출 (누적)</div>
+                        <div className="mt-0.5 text-xl font-bold text-[#1e40af] sm:text-2xl">
+                            {fmtWon(totalAmount)}원
+                        </div>
+                    </div>
+                    <div>
+                        <div className="text-[11px] font-semibold text-[#94a3b8]">외주비 합계</div>
+                        <div className="mt-0.5 text-xl font-bold text-[#dc2626] sm:text-2xl">
+                            {fmtWon(totalOutsource)}원
+                        </div>
+                    </div>
+                    <div>
+                        <div className="text-[11px] font-semibold text-[#94a3b8]">순매출</div>
+                        <div className="mt-0.5 text-xl font-bold text-[#059669] sm:text-2xl">
+                            {fmtWon(netRevenue)}원
+                        </div>
+                    </div>
+                </div>
+                <div className="mt-2 text-[11px] text-[#94a3b8]">순매출 = 실매출 − 외주비</div>
             </div>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
                 {PRODUCT_CATEGORIES.map((c) => (
