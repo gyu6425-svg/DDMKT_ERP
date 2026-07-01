@@ -673,7 +673,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             <th className="px-3 py-2 font-semibold">연락처</th>
                             <th className="px-3 py-2 font-semibold">상품</th>
                             <th className="px-3 py-2 font-semibold">상태</th>
-                            <th className="px-3 py-2 font-semibold">잔여 리워드</th>
+                            <th className="px-3 py-2 font-semibold">잔여 외주비</th>
                             <th className="px-3 py-2 font-semibold">최근 히스토리</th>
                             <th className="px-3 py-2 font-semibold">등록일</th>
                             <th className="px-3 py-2 font-semibold">액션</th>
