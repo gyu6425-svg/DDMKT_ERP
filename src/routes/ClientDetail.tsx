@@ -49,6 +49,17 @@ const progOf = (ct: ClientContract): number | null => {
     return Math.round(((ct.goal_count - ct.remain_count) / ct.goal_count) * 100);
 };
 
+// 외주비 실시간 분해 — 총(계약 시 확정) / 잔여(외주단가 × 남은건수) / 소진(총 − 잔여).
+//   remainOverride: 편집 모달의 낙관적 잔여(remainN)로 즉시 반영할 때 사용.
+const outsourceOf = (ct: ClientContract, remainOverride?: number) => {
+    const unit = ct.unit_outsource ?? 0;
+    const goal = ct.goal_count ?? 0;
+    const remain = remainOverride ?? ct.remain_count ?? 0;
+    const total = ct.outsource ?? unit * goal; // 저장된 총 외주비 우선, 없으면 단가×총건수
+    const remainAmt = unit * remain;
+    return { total, remain: remainAmt, used: Math.max(0, total - remainAmt), unit };
+};
+
 // 기본정보(담당자·문의경로·연락처·이메일) 클릭 편집 모달.
 function ClientFieldModal({
     label,
@@ -350,6 +361,7 @@ function ContractEditModal({
 }) {
     const [goal] = useState(contract.goal_count?.toString() ?? '');
     const [remain, setRemain] = useState(contract.remain_count?.toString() ?? '');
+    const [bulk, setBulk] = useState(''); // N건 일괄 완료 입력
     const [amount] = useState(contract.amount?.toString() ?? '');
     const [date] = useState(contract.contract_date ?? '');
     const [note, setNote] = useState(contract.note ?? '');
@@ -554,6 +566,37 @@ function ContractEditModal({
                         <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#eef2f7]">
                             <div style={{ background: progColor(pct), height: '100%', width: `${pct}%` }} />
                         </div>
+                        {/* 외주비 실시간 — 남은 외주비 = 외주단가 × 잔여건수 */}
+                        {(contract.unit_outsource ?? 0) > 0
+                            ? (() => {
+                                  const o = outsourceOf(contract, remainN);
+                                  return (
+                                      <div className="mt-2 grid grid-cols-3 gap-1 rounded-lg border border-[#fee2e2] bg-[#fff7f7] px-2 py-2 text-center">
+                                          <div>
+                                              <div className="text-[10px] text-[#94a3b8]">총 외주비</div>
+                                              <div className="text-xs font-bold text-[#475569]">
+                                                  {fmtWon(o.total)}원
+                                              </div>
+                                          </div>
+                                          <div>
+                                              <div className="text-[10px] text-[#94a3b8]">소진</div>
+                                              <div className="text-xs font-bold text-[#94a3b8]">
+                                                  {fmtWon(o.used)}원
+                                              </div>
+                                          </div>
+                                          <div>
+                                              <div className="text-[10px] text-[#dc2626]">남은 외주비</div>
+                                              <div className="text-sm font-extrabold text-[#dc2626]">
+                                                  {fmtWon(o.remain)}원
+                                              </div>
+                                          </div>
+                                          <div className="col-span-3 mt-0.5 text-[10px] text-[#94a3b8]">
+                                              외주단가 {fmtWon(o.unit)}원 × 잔여 {remainN}건
+                                          </div>
+                                      </div>
+                                  );
+                              })()
+                            : null}
                         <div className="mt-2 flex gap-2">
                             <button
                                 className="flex-1 rounded-md bg-[#059669] px-4 py-2 text-sm font-bold text-white hover:bg-[#047857] disabled:opacity-50"
@@ -572,6 +615,45 @@ function ContractEditModal({
                                 되돌리기
                             </button>
                         </div>
+                        {/* N건 일괄 완료 — quick(delta)에 입력값 전달(경계처리 이미 있음) */}
+                        <div className="mt-2 flex items-center gap-1.5">
+                            <input
+                                className="h-9 w-full rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                inputMode="numeric"
+                                onChange={(e) => setBulk(withCommas(e.target.value))}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && Number(onlyDigits(bulk)) > 0) {
+                                        void quick(Number(onlyDigits(bulk)));
+                                        setBulk('');
+                                    }
+                                }}
+                                placeholder="여러 건 한번에"
+                                value={bulk}
+                            />
+                            <button
+                                className="shrink-0 rounded-md bg-[#1e40af] px-3 py-2 text-sm font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
+                                disabled={saving || Number(onlyDigits(bulk)) <= 0 || remainN <= 0}
+                                onClick={() => {
+                                    void quick(Number(onlyDigits(bulk)));
+                                    setBulk('');
+                                }}
+                                type="button"
+                            >
+                                일괄 완료
+                            </button>
+                        </div>
+                        {Number(onlyDigits(bulk)) > 0 && (contract.unit_outsource ?? 0) > 0 ? (
+                            <div className="mt-1 text-right text-[11px] text-[#94a3b8]">
+                                이번 처리 소진 외주비 ≈{' '}
+                                <b className="text-[#475569]">
+                                    {fmtWon(
+                                        Math.min(remainN, Number(onlyDigits(bulk))) *
+                                            (contract.unit_outsource ?? 0),
+                                    )}
+                                    원
+                                </b>
+                            </div>
+                        ) : null}
                     </div>
                 ) : null}
 
@@ -988,6 +1070,8 @@ export function ClientDetail({
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
     const totalAmount = contracts.reduce((s, ct) => s + (ct.amount || 0), 0); // 실매출
     const totalOutsource = contracts.reduce((s, ct) => s + (ct.outsource || 0), 0); // 외주비 합계
+    const outRemainSum = contracts.reduce((s, ct) => s + outsourceOf(ct).remain, 0); // 남은 외주비 합계
+    const outUsedSum = Math.max(0, totalOutsource - outRemainSum); // 소진 외주비 합계
     const netRevenue = totalAmount - totalOutsource; // 순매출 = 실매출 − 외주비
     // 계약이 있는 카테고리(상품)만, 부모 순서로 — 상품별 섹션으로 나눠 표시.
     const activeCats = PRODUCT_CATEGORIES.filter((c) => contracts.some((ct) => ct.category === c.label));
@@ -1086,6 +1170,12 @@ export function ClientDetail({
                     <div className="mt-0.5 text-lg font-bold text-[#dc2626] sm:text-2xl">
                         {fmtWon(totalOutsource)}원
                     </div>
+                    {outRemainSum > 0 || outUsedSum > 0 ? (
+                        <div className="mt-0.5 text-[10px] text-[#94a3b8]">
+                            소진 {fmtWon(outUsedSum)} · 잔여{' '}
+                            <b className="text-[#dc2626]">{fmtWon(outRemainSum)}</b>원
+                        </div>
+                    ) : null}
                 </button>
             </div>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
@@ -1176,6 +1266,11 @@ export function ClientDetail({
                                                         : '건수 미입력'}
                                                     {ct.amount ? ` · ${fmtWon(ct.amount)}원` : ''}
                                                 </div>
+                                                {(ct.unit_outsource ?? 0) > 0 ? (
+                                                    <div className="mt-0.5 text-[11px] font-semibold text-[#dc2626]">
+                                                        잔여 외주 {fmtWon(outsourceOf(ct).remain)}원
+                                                    </div>
+                                                ) : null}
                                             </button>
                                         );
                                     })}
