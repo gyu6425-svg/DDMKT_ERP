@@ -341,7 +341,8 @@ function ContractEditModal({
     const [reStart, setReStart] = useState('');
     const [reCount, setReCount] = useState('');
     const [reAmount, setReAmount] = useState('');
-    const [noteView, setNoteView] = useState<string | null>(null); // 히스토리 특이사항 보기
+    // 특이사항 편집 대상 — 'current'=현재 계약(note), 숫자=history[i]. 각 계약별로 따로 저장.
+    const [noteEdit, setNoteEdit] = useState<{ idx: number | 'current'; value: string } | null>(null);
 
     const [history, setHistory] = useState<ContractHistoryItem[]>(contract.history ?? []);
     const goalN = Number(goal) || 0;
@@ -436,23 +437,28 @@ function ContractEditModal({
         await onReload();
     };
 
-    const save = async () => {
+    // 특이사항 저장 — 대상 계약(현재/이력 항목)별로 따로 저장.
+    const saveNote = async () => {
+        if (!noteEdit) return;
+        const v = noteEdit.value.trim() || null;
         setSaving(true);
-        const { error } = await updateClientContract(contract.id, {
-            amount: amount.trim() ? Number(amount) : 0,
-            contract_date: date || null,
-            goal_count: goal.trim() ? Number(goal) : null,
-            note: note.trim() || null,
-            remain_count: remain.trim() ? Number(remain) : null,
-        });
+        let error;
+        if (noteEdit.idx === 'current') {
+            ({ error } = await updateClientContract(contract.id, { note: v }));
+            if (!error) setNote(v || '');
+        } else {
+            const nh = history.map((h, j) => (j === noteEdit.idx ? { ...h, note: v } : h));
+            ({ error } = await updateClientContract(contract.id, { history: nh }));
+            if (!error) setHistory(nh);
+        }
         setSaving(false);
         if (error) {
             onToast(`오류: ${error.message}`);
             return;
         }
+        setNoteEdit(null);
+        onToast('특이사항 저장');
         await onReload();
-        onToast('계약 수정 완료');
-        onClose();
     };
 
     const remove = async () => {
@@ -585,16 +591,6 @@ function ContractEditModal({
                     </div>
                 ) : null}
 
-                {/* 특이사항만 편집 — 계약 건수/잔여/금액/계약일은 아래 계약 이력으로만 표시(수정은 재계약으로) */}
-                <label className="mt-3 block text-xs font-semibold text-[#475569]">
-                    특이사항
-                    <textarea
-                        className="mt-1 w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
-                        onChange={(e) => setNote(e.target.value)}
-                        rows={2}
-                        value={note}
-                    />
-                </label>
 
                 {/* 계약 이력 — 최초 계약 + 재N (마지막=현재). 항상 표시. */}
                 {periods.length ? (
@@ -626,16 +622,23 @@ function ContractEditModal({
                                             </span>
                                         ) : null}
                                         <span className="ml-auto">{p.amount ? `${fmtWon(p.amount)}원` : ''}</span>
-                                        {p.note ? (
-                                            <button
-                                                className="shrink-0 rounded border border-[#cbd5e1] px-1.5 py-0.5 text-[10px] font-semibold text-[#475569] hover:border-[#1e40af] hover:text-[#1e40af]"
-                                                onClick={() => setNoteView(p.note || '')}
-                                                title="특이사항 보기"
-                                                type="button"
-                                            >
-                                                특이사항
-                                            </button>
-                                        ) : null}
+                                        <button
+                                            className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
+                                                p.note
+                                                    ? 'border-[#1e40af] text-[#1e40af]'
+                                                    : 'border-[#cbd5e1] text-[#94a3b8]'
+                                            } hover:bg-[#eff6ff]`}
+                                            onClick={() =>
+                                                setNoteEdit({
+                                                    idx: isCurrent ? 'current' : i,
+                                                    value: p.note || '',
+                                                })
+                                            }
+                                            title="특이사항 편집"
+                                            type="button"
+                                        >
+                                            특이사항{p.note ? '' : ' +'}
+                                        </button>
                                         {isCurrent ? (
                                             <span className="shrink-0 rounded bg-[#dcfce7] px-1.5 py-0.5 text-[10px] font-bold text-[#16a34a]">
                                                 현재
@@ -696,34 +699,52 @@ function ContractEditModal({
                     >
                         닫기
                     </button>
-                    <button
-                        className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                        disabled={saving}
-                        onClick={() => void (renewMode ? addRenewal() : save())}
-                        type="button"
-                    >
-                        {saving ? '저장 중…' : renewMode ? '계약' : '저장'}
-                    </button>
+                    {renewMode ? (
+                        <button
+                            className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                            disabled={saving}
+                            onClick={() => void addRenewal()}
+                            type="button"
+                        >
+                            {saving ? '저장 중…' : '계약'}
+                        </button>
+                    ) : null}
                 </div>
 
-                {/* 특이사항 보기 팝업 */}
-                {noteView !== null ? (
+                {/* 특이사항 편집 팝업 — 계약별로 따로 저장 */}
+                {noteEdit !== null ? (
                     <div
                         className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
-                        onMouseDown={(e) => e.target === e.currentTarget && setNoteView(null)}
+                        onMouseDown={(e) => e.target === e.currentTarget && setNoteEdit(null)}
                     >
-                        <div className="w-[min(360px,92vw)] rounded-xl bg-white p-5 shadow-xl">
-                            <h4 className="m-0 text-sm font-bold text-[#0f172a]">특이사항</h4>
-                            <p className="mt-2 whitespace-pre-wrap text-sm text-[#475569]">
-                                {noteView || '(내용 없음)'}
-                            </p>
-                            <div className="mt-4 flex justify-end">
+                        <div className="w-[min(380px,92vw)] rounded-xl bg-white p-5 shadow-xl">
+                            <h4 className="m-0 text-sm font-bold text-[#0f172a]">
+                                특이사항 {noteEdit.idx === 'current' ? '(현재 계약)' : `(재${noteEdit.idx})`}
+                            </h4>
+                            <textarea
+                                autoFocus
+                                className="mt-2 w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
+                                onChange={(e) =>
+                                    setNoteEdit((prev) => (prev ? { ...prev, value: e.target.value } : prev))
+                                }
+                                rows={4}
+                                value={noteEdit.value}
+                            />
+                            <div className="mt-4 flex justify-end gap-2">
                                 <button
                                     className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
-                                    onClick={() => setNoteView(null)}
+                                    onClick={() => setNoteEdit(null)}
                                     type="button"
                                 >
-                                    닫기
+                                    취소
+                                </button>
+                                <button
+                                    className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                                    disabled={saving}
+                                    onClick={() => void saveNote()}
+                                    type="button"
+                                >
+                                    저장
                                 </button>
                             </div>
                         </div>
