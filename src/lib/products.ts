@@ -19,7 +19,13 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
         label: '블로그',
         path: '/blog-rank',
         ready: true,
-        subs: ['브랜드 블로그', '최적화 블로그 배포', '준최적화 블로그 배포'],
+        subs: [
+            '브랜드 블로그',
+            '최적화 블로그 배포',
+            '준최적화 블로그 배포',
+            '단순 블로그 배포',
+            'AI 블로그 배포',
+        ],
     },
 ];
 

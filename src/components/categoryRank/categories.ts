@@ -87,6 +87,8 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
             { label: '브랜드 블로그', href: '/blog-rank' },
             { label: '최적화 블로그 배포', href: '/blog-optimized' },
             { label: '준최적화 블로그 배포', href: '/blog-semi' },
+            { label: '단순 블로그 배포', href: '/blog-simple' },
+            { label: 'AI 블로그 배포', href: '/blog-ai' },
         ],
     },
 ];
