@@ -6,6 +6,7 @@ import {
     updateClientContract,
     type ClientContract,
     type ContractHistoryItem,
+    type RewardWeeklyLog,
 } from '../api/clientContracts';
 import { ensureClientBlogAccount } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
@@ -47,6 +48,16 @@ type FieldDef = {
 const progOf = (ct: ClientContract): number | null => {
     if (ct.goal_count == null || ct.remain_count == null || ct.goal_count === 0) return null;
     return Math.round(((ct.goal_count - ct.remain_count) / ct.goal_count) * 100);
+};
+
+// ISO 주 키(예: 2026-W27) — 주간 로그 정렬·중복 방지용.
+const isoWeek = (d: Date) => {
+    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    const wk = Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+    return `${t.getUTCFullYear()}-W${String(wk).padStart(2, '0')}`;
 };
 
 // 외주비 실시간 분해 — 총(계약 시 확정) / 잔여(외주단가 × 남은건수) / 소진(총 − 잔여).
@@ -184,6 +195,7 @@ function ContractAddModal({
                 contract_date: date || null,
                 goal_count: n,
                 outsource: outAmt,
+                per_day: daily ? Number(onlyDigits(perDay)) || null : null,
                 remain_count: n,
                 subtype,
                 unit_outsource: outUnit.trim() ? Number(onlyDigits(outUnit)) : null,
@@ -362,6 +374,8 @@ function ContractEditModal({
     const [goal] = useState(contract.goal_count?.toString() ?? '');
     const [remain, setRemain] = useState(contract.remain_count?.toString() ?? '');
     const [bulk, setBulk] = useState(''); // N건 일괄 완료 입력
+    const [weeklyLogs, setWeeklyLogs] = useState<RewardWeeklyLog[]>(contract.weekly_logs ?? []);
+    const [weekInput, setWeekInput] = useState(''); // 리워드 주간 처리 타수
     const [amount] = useState(contract.amount?.toString() ?? '');
     const [date] = useState(contract.contract_date ?? '');
     const [note, setNote] = useState(contract.note ?? '');
@@ -395,6 +409,12 @@ function ContractEditModal({
     const done = Math.max(0, goalN - remainN);
     const pct = goalN ? Math.round((done / goalN) * 100) : 0;
     const imminent = hasGoal && (remainN <= 5 || pct >= 80); // 잔여 5건 이하 또는 진행률 80%↑ → 재계약/종료
+    // 리워드(일 단위) — 주간 처리: 추천치 = 일일타수 × 7(잔여로 캡), Σ주간로그가 소진과 일치해야 함.
+    const isReward = isDailySub(contract.subtype);
+    const perDay = contract.per_day ?? 0;
+    const weekRec = Math.min(remainN, perDay * 7); // 주간 추천 타수
+    const weekSum = weeklyLogs.reduce((s, l) => s + (l.count || 0), 0); // 기록된 총 처리 타수
+    const unitLabel = isReward ? '타' : '건'; // 리워드는 '타' 단위
     // 재계약 입력(계약 추가와 동일) — 수량(리워드는 타×일수) · 단가 · 외주단가 → 매출/외주/순매출.
     const reDaily = isDailySub(contract.subtype);
     const reQty = reDaily
@@ -450,6 +470,61 @@ function ContractEditModal({
         await onReload();
     };
 
+    // 리워드 주간 처리 — 잔여 감소 + 주차 로그 적재를 한 payload로(정합·부분실패 방지).
+    const commitWeek = async (count: number, auto: boolean) => {
+        if (saving || !hasGoal || count <= 0) return;
+        const applied = Math.min(remainN, count); // 잔여 초과 방지
+        if (applied <= 0) return;
+        const next = remainN - applied;
+        const log: RewardWeeklyLog = {
+            at: new Date().toISOString().slice(0, 10),
+            auto,
+            count: applied,
+            week: isoWeek(new Date()),
+        };
+        const newLogs = [...weeklyLogs, log];
+        setRemain(String(next));
+        setWeeklyLogs(newLogs);
+        setWeekInput('');
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, {
+            remain_count: next,
+            weekly_logs: newLogs,
+        });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            setRemain(String(remainN));
+            setWeeklyLogs(weeklyLogs);
+            return;
+        }
+        onToast(`주간 처리 — ${applied.toLocaleString('ko-KR')}타 (잔여 ${next.toLocaleString('ko-KR')}타)`);
+        await onReload();
+    };
+
+    // 주간 로그 삭제(오기입 되돌리기) — 잔여 복원 + 로그 제거.
+    const deleteWeekLog = async (i: number) => {
+        const removed = weeklyLogs[i];
+        if (!removed) return;
+        const next = Math.min(goalN, remainN + (removed.count || 0));
+        const newLogs = weeklyLogs.filter((_, j) => j !== i);
+        setRemain(String(next));
+        setWeeklyLogs(newLogs);
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, {
+            remain_count: next,
+            weekly_logs: newLogs,
+        });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            setRemain(String(remainN));
+            setWeeklyLogs(weeklyLogs);
+        } else {
+            await onReload();
+        }
+    };
+
     // 재계약 = 현재 계약을 이력으로 넣고, 진행분 유지한 채 수량·매출·외주비 누적(2/5 + 5 → 2/10).
     const addRenewal = async () => {
         const s = reStart.trim();
@@ -482,6 +557,10 @@ function ContractEditModal({
             goal_count: nextGoal,
             history: newHistory,
             outsource: nextOutsource,
+            // 리워드 재계약: 일일 타수가 바뀌면 갱신(추천치 정확도 유지)
+            ...(reDaily && Number(onlyDigits(rePerDay)) > 0
+                ? { per_day: Number(onlyDigits(rePerDay)) }
+                : {}),
             remain_count: nextRemain,
         });
         setSaving(false);
@@ -561,7 +640,9 @@ function ContractEditModal({
                             {pct}%
                         </div>
                         <div className="mt-1 text-sm text-[#475569]">
-                            발행 <b>{done}</b> / 계약 {goalN}건 · 잔여 <b>{remainN}</b>건
+                            {isReward ? '진행' : '발행'} <b>{done}</b> / 계약 {goalN}
+                            {unitLabel} · 잔여 <b>{remainN}</b>
+                            {unitLabel}
                         </div>
                         <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#eef2f7]">
                             <div style={{ background: progColor(pct), height: '100%', width: `${pct}%` }} />
@@ -597,63 +678,171 @@ function ContractEditModal({
                                   );
                               })()
                             : null}
-                        <div className="mt-2 flex gap-2">
-                            <button
-                                className="flex-1 rounded-md bg-[#059669] px-4 py-2 text-sm font-bold text-white hover:bg-[#047857] disabled:opacity-50"
-                                disabled={saving || remainN <= 0}
-                                onClick={() => void quick(1)}
-                                type="button"
-                            >
-                                + 1건 완료
-                            </button>
-                            <button
-                                className="rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50"
-                                disabled={saving || remainN >= goalN}
-                                onClick={() => void quick(-1)}
-                                type="button"
-                            >
-                                되돌리기
-                            </button>
-                        </div>
-                        {/* N건 일괄 완료 — quick(delta)에 입력값 전달(경계처리 이미 있음) */}
-                        <div className="mt-2 flex items-center gap-1.5">
-                            <input
-                                className="h-9 w-full rounded-md border border-[#cbd5e1] px-2 text-sm"
-                                inputMode="numeric"
-                                onChange={(e) => setBulk(withCommas(e.target.value))}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && Number(onlyDigits(bulk)) > 0) {
-                                        void quick(Number(onlyDigits(bulk)));
-                                        setBulk('');
-                                    }
-                                }}
-                                placeholder="여러 건 한번에"
-                                value={bulk}
-                            />
-                            <button
-                                className="shrink-0 rounded-md bg-[#1e40af] px-3 py-2 text-sm font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
-                                disabled={saving || Number(onlyDigits(bulk)) <= 0 || remainN <= 0}
-                                onClick={() => {
-                                    void quick(Number(onlyDigits(bulk)));
-                                    setBulk('');
-                                }}
-                                type="button"
-                            >
-                                일괄 완료
-                            </button>
-                        </div>
-                        {Number(onlyDigits(bulk)) > 0 && (contract.unit_outsource ?? 0) > 0 ? (
-                            <div className="mt-1 text-right text-[11px] text-[#94a3b8]">
-                                이번 처리 소진 외주비 ≈{' '}
-                                <b className="text-[#475569]">
-                                    {fmtWon(
-                                        Math.min(remainN, Number(onlyDigits(bulk))) *
-                                            (contract.unit_outsource ?? 0),
-                                    )}
-                                    원
-                                </b>
+                        {isReward ? (
+                            /* 리워드 주간 처리 — 추천치(일일타수×7) 확인/보정 후 확정. 9000타를 주 단위로. */
+                            <div className="mt-3 rounded-lg border border-[#dbeafe] bg-[#eff6ff] px-3 py-3 text-left">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-[#1e40af]">주간 진행</span>
+                                    <span className="text-[10px] text-[#64748b]">
+                                        {perDay > 0
+                                            ? `일일 ${perDay.toLocaleString('ko-KR')}타 · 주 추천 ${weekRec.toLocaleString('ko-KR')}타`
+                                            : '일일 타수 미저장 — 직접 입력'}
+                                    </span>
+                                </div>
+                                <div className="mt-2 flex items-center gap-1.5">
+                                    <input
+                                        className="h-9 w-full rounded-md border border-[#93c5fd] bg-white px-2 text-sm"
+                                        inputMode="numeric"
+                                        onChange={(e) => setWeekInput(withCommas(e.target.value))}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && Number(onlyDigits(weekInput)) > 0) {
+                                                void commitWeek(Number(onlyDigits(weekInput)), false);
+                                            }
+                                        }}
+                                        placeholder="이번 주 처리 타수"
+                                        value={weekInput}
+                                    />
+                                    {perDay > 0 && weekRec > 0 ? (
+                                        <button
+                                            className="shrink-0 rounded-md border border-[#93c5fd] px-2 py-2 text-[11px] font-semibold text-[#1e40af] hover:bg-[#dbeafe] disabled:opacity-50"
+                                            disabled={saving}
+                                            onClick={() => setWeekInput(withCommas(String(weekRec)))}
+                                            type="button"
+                                        >
+                                            추천 {weekRec.toLocaleString('ko-KR')}
+                                        </button>
+                                    ) : null}
+                                    <button
+                                        className="shrink-0 rounded-md bg-[#1e40af] px-3 py-2 text-sm font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
+                                        disabled={saving || Number(onlyDigits(weekInput)) <= 0 || remainN <= 0}
+                                        onClick={() =>
+                                            void commitWeek(
+                                                Number(onlyDigits(weekInput)),
+                                                Number(onlyDigits(weekInput)) === weekRec,
+                                            )
+                                        }
+                                        type="button"
+                                    >
+                                        주간 확정
+                                    </button>
+                                </div>
+                                {Number(onlyDigits(weekInput)) > 0 && (contract.unit_outsource ?? 0) > 0 ? (
+                                    <div className="mt-1 text-right text-[11px] text-[#64748b]">
+                                        이번 주 소진 외주비 ≈{' '}
+                                        <b className="text-[#dc2626]">
+                                            {fmtWon(
+                                                Math.min(remainN, Number(onlyDigits(weekInput))) *
+                                                    (contract.unit_outsource ?? 0),
+                                            )}
+                                            원
+                                        </b>
+                                    </div>
+                                ) : null}
+                                {/* 주차 로그 + 정합 검증(Σ주간 = 소진) */}
+                                {weeklyLogs.length ? (
+                                    <div className="mt-2 border-t border-[#dbeafe] pt-2">
+                                        <div className="mb-1 flex items-center justify-between text-[10px]">
+                                            <span className="font-semibold text-[#64748b]">주간 진행 로그</span>
+                                            <span
+                                                className={
+                                                    weekSum === done
+                                                        ? 'text-[#059669]'
+                                                        : 'font-bold text-[#dc2626]'
+                                                }
+                                            >
+                                                Σ {weekSum.toLocaleString('ko-KR')}타
+                                                {weekSum === done ? ' ✓' : ` ≠ 소진 ${done.toLocaleString('ko-KR')}타`}
+                                            </span>
+                                        </div>
+                                        <div className="grid max-h-[22vh] gap-0.5 overflow-y-auto">
+                                            {weeklyLogs.map((l, i) => (
+                                                <div
+                                                    className="flex items-center gap-1.5 rounded bg-white px-2 py-1 text-[11px]"
+                                                    key={i}
+                                                >
+                                                    <span className="rounded bg-[#dbeafe] px-1 py-0.5 font-bold text-[#1e40af]">
+                                                        {l.week}
+                                                    </span>
+                                                    <span className="text-[#475569]">{l.at}</span>
+                                                    <span className="ml-auto font-bold text-[#1e40af]">
+                                                        {l.count.toLocaleString('ko-KR')}타
+                                                    </span>
+                                                    <button
+                                                        className="text-[#cbd5e1] hover:text-[#dc2626]"
+                                                        disabled={saving}
+                                                        onClick={() => void deleteWeekLog(i)}
+                                                        title="이 주간 기록 되돌리기"
+                                                        type="button"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
                             </div>
-                        ) : null}
+                        ) : (
+                            <>
+                                <div className="mt-2 flex gap-2">
+                                    <button
+                                        className="flex-1 rounded-md bg-[#059669] px-4 py-2 text-sm font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                                        disabled={saving || remainN <= 0}
+                                        onClick={() => void quick(1)}
+                                        type="button"
+                                    >
+                                        + 1건 완료
+                                    </button>
+                                    <button
+                                        className="rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50"
+                                        disabled={saving || remainN >= goalN}
+                                        onClick={() => void quick(-1)}
+                                        type="button"
+                                    >
+                                        되돌리기
+                                    </button>
+                                </div>
+                                {/* N건 일괄 완료 — quick(delta)에 입력값 전달(경계처리 이미 있음) */}
+                                <div className="mt-2 flex items-center gap-1.5">
+                                    <input
+                                        className="h-9 w-full rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                        inputMode="numeric"
+                                        onChange={(e) => setBulk(withCommas(e.target.value))}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && Number(onlyDigits(bulk)) > 0) {
+                                                void quick(Number(onlyDigits(bulk)));
+                                                setBulk('');
+                                            }
+                                        }}
+                                        placeholder="여러 건 한번에"
+                                        value={bulk}
+                                    />
+                                    <button
+                                        className="shrink-0 rounded-md bg-[#1e40af] px-3 py-2 text-sm font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
+                                        disabled={saving || Number(onlyDigits(bulk)) <= 0 || remainN <= 0}
+                                        onClick={() => {
+                                            void quick(Number(onlyDigits(bulk)));
+                                            setBulk('');
+                                        }}
+                                        type="button"
+                                    >
+                                        일괄 완료
+                                    </button>
+                                </div>
+                                {Number(onlyDigits(bulk)) > 0 && (contract.unit_outsource ?? 0) > 0 ? (
+                                    <div className="mt-1 text-right text-[11px] text-[#94a3b8]">
+                                        이번 처리 소진 외주비 ≈{' '}
+                                        <b className="text-[#475569]">
+                                            {fmtWon(
+                                                Math.min(remainN, Number(onlyDigits(bulk))) *
+                                                    (contract.unit_outsource ?? 0),
+                                            )}
+                                            원
+                                        </b>
+                                    </div>
+                                ) : null}
+                            </>
+                        )}
                     </div>
                 ) : null}
 

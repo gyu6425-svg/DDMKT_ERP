@@ -359,6 +359,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             contract_date: todayStr(),
                             goal_count: count,
                             outsource: outAmt,
+                            per_day: isDailySub(sub) ? Number(onlyDigits(inp?.perDay || '')) || null : null,
                             remain_count: count,
                             subtype: sub,
                             unit_outsource: outUnit,

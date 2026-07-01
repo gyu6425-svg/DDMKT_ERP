@@ -13,6 +13,15 @@ export type ContractHistoryItem = {
     outsource?: number | null; // 외주비
 };
 
+// 리워드(일 단위) 상품의 주간 진행 로그 — 감사기록. 진실의 원천은 remain_count.
+export type RewardWeeklyLog = {
+    week: string; // ISO 주 키(예: 2026-W27) — 정렬·중복 방지용
+    count: number; // 그 주 실제 처리 타수
+    at: string; // 기록일(YYYY-MM-DD)
+    note?: string | null;
+    auto?: boolean; // 추천치 그대로 확정했는지
+};
+
 // 고객사 계약 내역(카테고리/세부유형별 건수 계약). client_contracts 테이블(docs/client-contracts.sql).
 export type ClientContract = {
     id: string;
@@ -29,6 +38,8 @@ export type ClientContract = {
     unit_price?: number | null; // 단가
     unit_outsource?: number | null; // 외주 단가
     outsource?: number | null; // 외주비 = 외주단가 × 수량
+    per_day?: number | null; // 리워드: 일일 타수(주간 환산 = per_day × 7)
+    weekly_logs?: RewardWeeklyLog[] | null; // 리워드: 주차별 진행 로그
 };
 
 // clientId 주면 그 고객만. 테이블 미생성 등 오류 시에도 앱이 죽지 않도록 [] 반환.

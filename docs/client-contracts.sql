@@ -19,6 +19,9 @@ alter table public.client_contracts add column if not exists history jsonb not n
 alter table public.client_contracts add column if not exists unit_price numeric;
 alter table public.client_contracts add column if not exists unit_outsource numeric;
 alter table public.client_contracts add column if not exists outsource numeric;
+-- 리워드(일 단위) 상품: 일일 타수 보존 + 주간 진행 로그(감사기록). 진실의 원천은 remain_count.
+alter table public.client_contracts add column if not exists per_day int;
+alter table public.client_contracts add column if not exists weekly_logs jsonb not null default '[]'::jsonb;
 create index if not exists client_contracts_client_idx on public.client_contracts (client_id);
 alter table public.client_contracts enable row level security;
 drop policy if exists "client_contracts all authenticated" on public.client_contracts;
