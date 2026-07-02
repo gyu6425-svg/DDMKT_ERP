@@ -38,7 +38,7 @@ const vendorFromProduct = (base: string): string | null => {
 type Mapped = { category: string; subtype: string } | { exclude: true };
 
 // 품목명 → 카테고리·세부유형. 매핑 밖/애매 품목은 제외.
-function mapProduct(nameRaw: string): Mapped {
+function mapProduct(nameRaw: string, unit = 0): Mapped {
     const p = (nameRaw || '').trim();
     const has = (k: string) => p.includes(k);
     const EXCLUDE = [
@@ -59,8 +59,8 @@ function mapProduct(nameRaw: string): Mapped {
     if (EXCLUDE.some((e) => p.includes(e))) return { exclude: true };
     if (['고스트', '저스트', '슈퍼뭉치', '라인', '마케팅'].includes(p) || p === '리워드')
         return { category: '플레이스', subtype: '플레이스 리워드' };
-    if (has('실계')) return { category: '플레이스', subtype: '플레이스용 블로그 리뷰' };
-    if (has('247')) return { category: '플레이스', subtype: '플레이스용 블로그 리뷰' };
+    if (has('실계')) return { category: '플레이스', subtype: '플레이스용 블로그 배포' };
+    if (has('247')) return { category: '플레이스', subtype: '플레이스용 블로그 배포' };
     if (has('저인망')) return { category: '블로그', subtype: 'AI 블로그 배포' };
     if (has('ai') || has('AI')) return { category: '블로그', subtype: 'AI 블로그 배포' };
     if (has('상위노출') || has('월보장')) return { category: '플레이스', subtype: '상위노출 보장형' };
@@ -68,7 +68,11 @@ function mapProduct(nameRaw: string): Mapped {
     if (has('브랜드블로그') || has('브랜드 블로그')) return { category: '블로그', subtype: '브랜드 블로그' };
     if (has('준최적화')) return { category: '블로그', subtype: '준최적화 블로그 배포' };
     if (has('최적화')) return { category: '블로그', subtype: '최적화 블로그 배포' };
-    if (has('블로그')) return { category: '플레이스', subtype: '플레이스용 블로그 리뷰' };
+    // 일반 블로그 배포/리뷰: 단가 10,000원 미만이면 플레이스용, 이상이면 브랜드 블로그.
+    if (has('블로그'))
+        return unit < 10000
+            ? { category: '플레이스', subtype: '플레이스용 블로그 배포' }
+            : { category: '블로그', subtype: '브랜드 블로그' };
     if (has('인스타그램')) return { category: '인스타', subtype: '브랜드 인스타' };
     if (has('인스타') || has('릴스')) return { category: '인스타', subtype: '인스타 배포' };
     if (has('파워링크')) return { category: '파워링크', subtype: '파워링크' };
@@ -133,6 +137,7 @@ export function ContractImportModal({
             const qty = num(c[iQty]);
             const amount = iAmount >= 0 ? num(c[iAmount]) : 0;
             const outsource = iOut >= 0 ? num(c[iOut]) : 0;
+            const unit = iUnit >= 0 ? num(c[iUnit]) : 0;
             const base = productBase(product);
             const key = `${iDate >= 0 ? (c[iDate] || '').trim() : ''}|${company}|${product}|${qty}|${amount}`;
             const dup = seen.has(key);
@@ -143,14 +148,14 @@ export function ContractImportModal({
                 date: iDate >= 0 ? parseDate(c[iDate]) : null,
                 dup,
                 manager: iManager >= 0 ? (c[iManager] || '').trim() : '',
-                map: mapProduct(base),
+                map: mapProduct(base, unit), // 단가 전달(블로그 배포 10,000원 임계값)
                 // 외주단가 = 외주비 ÷ 수량(외주비가 있을 때만). 외주업체는 알려진 브랜드면 자동.
                 outUnit: qty > 0 && outsource > 0 ? Math.round(outsource / qty) : null,
                 outsource,
                 partner: iPartner >= 0 ? (c[iPartner] || '').trim() : '',
                 product,
                 qty,
-                unit: iUnit >= 0 ? num(c[iUnit]) : 0,
+                unit,
                 vendor: vendorFromProduct(base),
             });
         }
