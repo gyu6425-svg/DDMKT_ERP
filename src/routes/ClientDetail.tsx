@@ -533,7 +533,8 @@ function ContractEditModal({
         contract_date?: string | null;
         amount?: number | null;
     }) => {
-        if (!isBrandBlogSub(contract.subtype)) return;
+        // 부스트 접두(상위노출 보장형 · )가 붙어도 브랜드블로그면 동기화되게 접두 제거 후 판정.
+        if (!isBrandBlogSub(contract.subtype.replace(/^상위노출 보장형 · /, ''))) return;
         await syncBlogAccountFromContract(contract.client_id, fields, contract.blog_name);
     };
 
