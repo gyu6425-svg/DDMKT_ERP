@@ -755,12 +755,19 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     Array.isArray(c.history) && c.history[0]
                                         ? c.history[0].text
                                         : '--';
-                                const dt = c.created_at
-                                    ? new Date(c.created_at).toLocaleDateString('ko-KR', {
-                                          day: '2-digit',
-                                          month: '2-digit',
-                                      })
-                                    : '--';
+                                // 등록일 = 시트 일자(계약 중 가장 이른 contract_date) 우선, 없으면 생성일.
+                                const cds = clientContracts
+                                    .filter((ct) => ct.client_id === c.id && ct.contract_date)
+                                    .map((ct) => ct.contract_date as string)
+                                    .sort();
+                                const dt = cds.length
+                                    ? cds[0]
+                                    : c.created_at
+                                      ? new Date(c.created_at).toLocaleDateString('ko-KR', {
+                                            day: '2-digit',
+                                            month: '2-digit',
+                                        })
+                                      : '--';
                                 return (
                                     <tr
                                         key={c.id}
@@ -1135,6 +1142,23 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                             key={sub}
                                                                         >
                                                                             <div className="flex items-center gap-1">
+                                                                                {sub === '상위노출 보장형' ? (
+                                                                                    <label className="flex items-center gap-2 text-xs font-semibold text-[#334155]">
+                                                                                        <input
+                                                                                            checked={inp.count === '1'}
+                                                                                            className="h-4 w-4"
+                                                                                            onChange={(e) =>
+                                                                                                set('count', e.target.checked ? '1' : '')
+                                                                                            }
+                                                                                            type="checkbox"
+                                                                                        />
+                                                                                        {sub}
+                                                                                        <span className="text-[10px] font-normal text-[#94a3b8]">
+                                                                                            체크 시 계약 1건(세부는 상세에서 추가)
+                                                                                        </span>
+                                                                                    </label>
+                                                                                ) : (
+                                                                                    <>
                                                                                 <span className="w-24 shrink-0 truncate text-xs font-semibold text-[#334155]">
                                                                                     {sub}
                                                                                 </span>
@@ -1195,6 +1219,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                                     type="text"
                                                                                     value={inp.outCompany || ''}
                                                                                 />
+                                                                                    </>
+                                                                                )}
                                                                             </div>
                                                                             {daily && cnt ? (
                                                                                 <div className="mt-0.5 pl-24 text-[10px] text-[#94a3b8]">
