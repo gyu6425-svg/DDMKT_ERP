@@ -8,7 +8,7 @@ import {
     type ContractHistoryItem,
     type RewardWeeklyLog,
 } from '../api/clientContracts';
-import { ensureClientBlogAccount } from '../api/blogRank';
+import { ensureClientBlogAccount, syncBlogAccountFromContract } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
 import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
@@ -506,6 +506,18 @@ function ContractEditModal({
         };
     };
 
+    // 블로그 계약이면 계약 관리 변경을 블로그 관리 시트(blog_accounts)에 반영 — 진행률·금액·날짜·건수.
+    //   블로그 대시보드 = 브랜드 블로그 1:1. 계약 관리가 단일 출처.
+    const syncBlog = async (fields: {
+        goal_count?: number | null;
+        remain_count?: number | null;
+        contract_date?: string | null;
+        amount?: number | null;
+    }) => {
+        if (contract.category !== '블로그') return;
+        await syncBlogAccountFromContract(contract.client_id, fields);
+    };
+
     // +1건 완료 / 되돌리기 — 잔여를 바로 저장(진행률 자동 반영).
     const quick = async (delta: number) => {
         if (saving || !hasGoal) return;
@@ -520,6 +532,7 @@ function ContractEditModal({
             setRemain(String(remainN));
             return;
         }
+        await syncBlog({ remain_count: next });
         await onReload();
     };
 
@@ -591,6 +604,7 @@ function ContractEditModal({
                 `${applied.toLocaleString('ko-KR')}${unitLabel} 완료 (잔여 ${next.toLocaleString('ko-KR')}${unitLabel})`,
             );
         }
+        await syncBlog({ remain_count: next });
         await onReload();
     };
 
@@ -613,6 +627,7 @@ function ContractEditModal({
             setRemain(String(remainN));
             setWeeklyLogs(weeklyLogs);
         } else {
+            await syncBlog({ remain_count: next });
             await onReload();
         }
     };
@@ -659,6 +674,7 @@ function ContractEditModal({
             setRemain(String(remainN));
             setWeeklyLogs(weeklyLogs);
         } else {
+            await syncBlog({ remain_count: nextRemain });
             await onReload();
         }
     };
@@ -707,6 +723,12 @@ function ContractEditModal({
             return;
         }
         onToast(`재계약 — ${reQty.toLocaleString('ko-KR')}건 추가 (총 ${nextGoal.toLocaleString('ko-KR')}건 · 매출 ${fmtWon(nextAmount)}원)`);
+        await syncBlog({
+            amount: nextAmount,
+            contract_date: s,
+            goal_count: nextGoal,
+            remain_count: nextRemain,
+        });
         await onReload();
         onClose();
     };

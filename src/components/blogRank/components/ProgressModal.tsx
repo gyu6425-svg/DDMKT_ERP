@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { updateBlogAccount, type BlogAccount } from '../../../api/blogRank';
+import { syncContractProgressFromBlog } from '../../../api/clientContracts';
 
 // 진행률 관리 창 — '1건 완료'로 잔여 건수를 1 줄여(=발행 1건 처리) 진행률에 자동 반영.
 //   계약(재계약/종료·계약일·금액)은 '계약 관리'에서만 — 여기선 진행률만.
@@ -37,6 +38,8 @@ export function ProgressModal({
             setRemain(remain); // 롤백
             return;
         }
+        // 계약 관리(client_contracts)의 브랜드 블로그 계약에도 진행률 반영(양방향 연동).
+        await syncContractProgressFromBlog(account.client_id, next);
         await onReload();
     };
 

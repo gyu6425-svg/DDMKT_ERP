@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { deleteBlogAccount, extractBlogId, updateBlogAccount, type BlogAccount } from '../../../api/blogRank';
+import { syncContractProgressFromBlog } from '../../../api/clientContracts';
 
 export function AccountEditModal({
     account,
@@ -63,6 +64,11 @@ export function AccountEditModal({
             onToast(`오류: ${error.message}`);
             return;
         }
+        // 진행률(잔여건수) 변경 시 계약 관리의 브랜드 블로그 계약에도 반영(양방향 연동).
+        const nextRemain = parseNum(remainCount);
+        if (nextRemain != null && nextRemain !== account.remain_count) {
+            await syncContractProgressFromBlog(account.client_id, nextRemain);
+        }
         await onReload();
         onToast('저장 완료');
         onClose();
@@ -93,29 +99,46 @@ export function AccountEditModal({
                 {/* ── 관리 정보(시트 전체 항목 · 편집에서 모두 수정 가능) ── */}
                 <div className="mt-4 grid gap-2 rounded-lg border border-[#e2e8f0] p-3">
                     <div className="text-xs font-bold text-[#334155]">관리 정보</div>
+                    <p className="-mt-1 text-[11px] text-[#94a3b8]">
+                        계약일자·금액·계약건수는 <b>계약 관리</b>에서만 수정합니다. 여기선 진행률(잔여건수)만
+                        수정 가능(계약 관리와 자동 연동).
+                    </p>
                     <div className="grid grid-cols-2 gap-2">
                         {(
                             [
-                                ['업체명', name, setName, ''],
-                                ['담당', manager, setManager, ''],
-                                ['연락처', contact, setContact, '010-0000-0000'],
-                                ['계약일자', contractDate, setContractDate, '2026-06-22'],
-                                ['금액', amount, setAmount, '예: 500,000'],
-                                ['계약건수', goalCount, setGoalCount, '20'],
-                                ['잔여건수', remainCount, setRemainCount, '6'],
-                                ['주 발행', weekly, setWeekly, '주 5회'],
-                                ['기자단', reporter, setReporter, 'A팀'],
-                            ] as Array<[string, string, (v: string) => void, string]>
-                        ).map(([label, value, setter, ph]) => (
+                                ['업체명', name, setName, '', false],
+                                ['담당', manager, setManager, '', false],
+                                ['연락처', contact, setContact, '010-0000-0000', false],
+                                ['계약일자', contractDate, setContractDate, '2026-06-22', true],
+                                ['금액', amount, setAmount, '예: 500,000', true],
+                                ['계약건수', goalCount, setGoalCount, '20', true],
+                                ['잔여건수', remainCount, setRemainCount, '6', false],
+                                ['주 발행', weekly, setWeekly, '주 5회', false],
+                                ['기자단', reporter, setReporter, 'A팀', false],
+                            ] as Array<[string, string, (v: string) => void, string, boolean]>
+                        ).map(([label, value, setter, ph, locked]) => (
                             <label
                                 className="block text-xs font-semibold text-[#334155]"
                                 key={label}
                             >
-                                <span className="mb-1 block">{label}</span>
+                                <span className="mb-1 block">
+                                    {label}
+                                    {locked ? (
+                                        <span className="ml-1 font-normal text-[#94a3b8]">
+                                            · 계약 관리
+                                        </span>
+                                    ) : null}
+                                </span>
                                 <input
-                                    className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                    className={`h-9 w-full rounded-md border px-2 text-sm ${
+                                        locked
+                                            ? 'cursor-not-allowed border-[#e2e8f0] bg-[#f1f5f9] text-[#94a3b8]'
+                                            : 'border-[#cbd5e1] bg-white'
+                                    }`}
+                                    disabled={locked}
                                     onChange={(e) => setter(e.target.value)}
                                     placeholder={ph}
+                                    title={locked ? '계약 관리에서 수정하세요' : undefined}
                                     value={value}
                                 />
                             </label>

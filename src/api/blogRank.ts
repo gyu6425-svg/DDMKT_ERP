@@ -165,6 +165,36 @@ export async function ensureClientBlogAccount(
     return { created: !error, error };
 }
 
+// 계약 관리(client_contracts)의 블로그 계약 → 블로그 관리 시트(blog_accounts) 반영.
+//   블로그 대시보드 = 브랜드 블로그 계약 1:1(그 고객사 blog_account 1건). 계약 관리가 단일 출처이므로
+//   금액·계약일·건수·잔여(진행률)를 이쪽으로 미러링. 계정이 없으면 무시(아직 시드 안 됨).
+export async function syncBlogAccountFromContract(
+    clientId: string | null | undefined,
+    fields: {
+        goal_count?: number | null;
+        remain_count?: number | null;
+        contract_date?: string | null;
+        amount?: number | null;
+        name?: string | null;
+        manager?: string | null;
+    },
+) {
+    if (!clientId) return { synced: false };
+    const { data } = await getBlogAccounts(clientId);
+    if (!data.length) return { synced: false };
+    const acc = data[0];
+    const payload: Partial<BlogAccount> = {};
+    if (fields.goal_count !== undefined) payload.goal_count = fields.goal_count;
+    if (fields.remain_count !== undefined) payload.remain_count = fields.remain_count;
+    if (fields.contract_date !== undefined) payload.contract_date = fields.contract_date;
+    if (fields.amount != null) payload.amounts = [{ amount: fields.amount }];
+    if (fields.name) payload.name = fields.name;
+    if (fields.manager !== undefined) payload.manager = fields.manager ?? null;
+    if (!Object.keys(payload).length) return { synced: false };
+    const { error } = await updateBlogAccount(acc.id, payload);
+    return { synced: !error, error };
+}
+
 export async function updateBlogAccount(id: string, payload: Partial<BlogAccount>) {
     const { data, error } = await supabase
         .from('blog_accounts')

@@ -70,6 +70,21 @@ export async function updateClientContract(id: string, payload: Partial<ClientCo
     return { error };
 }
 
+// 블로그 대시보드에서 진행률(잔여) 수정 → 계약 관리(client_contracts)의 블로그 계약에 반영(양방향 연동).
+//   대상 = 그 고객사의 '브랜드 블로그' 계약(없으면 첫 블로그 계약). 진행률만 양방향, 금액·날짜는 계약 관리 전용.
+export async function syncContractProgressFromBlog(
+    clientId: string | null | undefined,
+    remainCount: number,
+) {
+    if (!clientId) return { synced: false };
+    const { data } = await getClientContracts(clientId);
+    const blogs = data.filter((c) => c.category === '블로그');
+    const target = blogs.find((c) => c.subtype === '브랜드 블로그') ?? blogs[0];
+    if (!target) return { synced: false };
+    const { error } = await updateClientContract(target.id, { remain_count: remainCount });
+    return { synced: !error, error };
+}
+
 export async function deleteClientContract(id: string) {
     const { error } = await supabase.from('client_contracts').delete().eq('id', id);
     return { error };
