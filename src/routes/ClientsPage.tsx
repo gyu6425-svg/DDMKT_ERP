@@ -156,7 +156,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [favs, setFavs] = useState<string[]>(loadFavs);
     // 고객사 관리 하단 탭 — 계약 완료(블로그 등 계정 연결) vs 미완료(보류·문의만). contractsOnly 화면에선 미사용.
     const [clientTab, setClientTab] = useState<'done' | 'pending' | 'ended'>('pending');
-    const [tempView, setTempView] = useState(false); // 계약 관리: false=계약완료, true=임시(테스트)
+    // 계약 관리 탭: 신규 등록건(24h)/계약중(DONE−신규)/계약 종료/임시. 신규건 있으면 그 탭으로 시작.
+    const [contractTab, setContractTab] = useState<'new' | 'active' | 'ended' | 'temp'>(() =>
+        Object.keys(readNewContracts()).length ? 'new' : 'active',
+    );
     // 계약 진행 단계 변경 대상(5단계 선택 모달).
     const [stageClient, setStageClient] = useState<ErpClient | null>(null);
     // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
@@ -242,9 +245,16 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 (client.product || '').toLowerCase().includes(q);
             const matchesStatus = !statusFilter || client.status === statusFilter;
             const matchesFav = !favOnly || favs.includes(client.id);
-            // 계약 관리(contractsOnly)는 '계약완료'(또는 임시 탭이면 '임시') 상태만 진입.
+            // 계약 관리(contractsOnly) 탭별 필터: 신규(DONE+24h)/계약중(DONE−신규)/종료/임시.
             const matchesContract =
-                !contractsOnly || client.status === (tempView ? TEMP_STATUS : DONE_STATUS);
+                !contractsOnly ||
+                (contractTab === 'new'
+                    ? client.status === DONE_STATUS && newIds.has(client.id)
+                    : contractTab === 'active'
+                      ? client.status === DONE_STATUS && !newIds.has(client.id)
+                      : contractTab === 'ended'
+                        ? client.status === ENDED_STATUS
+                        : client.status === TEMP_STATUS);
             // 고객사 관리 전체 화면에서만 완료/미완료/종료 탭 적용(상태 기준).
             const matchesTab =
                 contractsOnly ||
@@ -264,14 +274,14 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             if (an !== bn) return an ? -1 : 1;
             if (an && bn) return (newMap[b.id] || 0) - (newMap[a.id] || 0);
             // 임시(테스트) 탭은 등록한 순서(먼저 등록 → 위)로.
-            if (contractsOnly && tempView) {
+            if (contractsOnly && contractTab === 'temp') {
                 return (a.created_at || '').localeCompare(b.created_at || '');
             }
             const af = favs.includes(a.id) ? 0 : 1;
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
         });
-    }, [clients, search, statusFilter, favOnly, favs, contractsOnly, clientTab, tempView, newIds, newMap]);
+    }, [clients, search, statusFilter, favOnly, favs, contractsOnly, clientTab, contractTab, newIds, newMap]);
 
     // 계약 관리 KPI — 계약 중(계약완료 고객 수) + 재계약 임박(카테고리 계약 중 잔여 5건 이하).
     const doneClientIds = useMemo(
@@ -348,6 +358,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         if (status === DONE_STATUS && !contractsOnly) {
             markNewContract(client.id);
             setNewMap(readNewContracts());
+            setContractTab('new'); // 계약 관리 '신규 등록건' 탭으로
             window.history.pushState(null, '', '/contracts');
             window.dispatchEvent(new Event('app:navigate'));
         }
@@ -760,22 +771,36 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 <div className="flex gap-1 border-b border-[#e2e8f0]">
                     {(
                         [
-                            { key: false, label: '계약', status: DONE_STATUS },
-                            { key: true, label: '임시(테스트)', status: TEMP_STATUS },
-                        ] as { key: boolean; label: string; status: string }[]
+                            { key: 'new', label: '신규 등록건' },
+                            { key: 'active', label: '계약중' },
+                            { key: 'ended', label: '계약 종료' },
+                            { key: 'temp', label: '임시(테스트)' },
+                        ] as { key: 'new' | 'active' | 'ended' | 'temp'; label: string }[]
                     ).map((t) => {
-                        const count = clients.filter((c) => c.status === t.status).length;
+                        const count = clients.filter((c) =>
+                            t.key === 'new'
+                                ? c.status === DONE_STATUS && newIds.has(c.id)
+                                : t.key === 'active'
+                                  ? c.status === DONE_STATUS && !newIds.has(c.id)
+                                  : t.key === 'ended'
+                                    ? c.status === ENDED_STATUS
+                                    : c.status === TEMP_STATUS,
+                        ).length;
+                        const active = contractTab === t.key;
+                        // 신규 등록건 탭은 파란 강조(신규건 UI와 통일).
+                        const newTab = t.key === 'new';
                         return (
                             <button
                                 className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
-                                    tempView === t.key
+                                    active
                                         ? 'border-[#1e40af] text-[#1e40af]'
                                         : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
-                                }`}
-                                key={String(t.key)}
-                                onClick={() => setTempView(t.key)}
+                                } ${newTab && count > 0 ? 'text-[#1e40af]' : ''}`}
+                                key={t.key}
+                                onClick={() => setContractTab(t.key)}
                                 type="button"
                             >
+                                {newTab && count > 0 ? '🔵 ' : ''}
                                 {t.label} ({count})
                             </button>
                         );
