@@ -23,6 +23,12 @@ const parseDate = (s: string) => {
     return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : null;
 };
 
+// 미리 채워둘 머리글(탭 구분) — 실제 시트 컬럼과 동일. 사용자는 아래에 데이터만 붙여넣음.
+const SALES_HEADER =
+    '일자-No.\t회계전표일자-No.\t거래처명\t품목명(규격)\t업체명\t수량\t단가\t공급가액\t부가세\t합계\t외주비\t순매출\t사원(담당)명';
+const OUT_HEADER =
+    '일자-No.\t거래처명\t업체명\t관리항목명\t품목명(요약)\t수량\t단가\t공급가액\t부가세\t합계\t사원(담당)명';
+
 type Mapped = { category: string; subtype: string } | { exclude: true };
 
 // 품목명 → 카테고리·세부유형(외주업체는 여기서 결정하지 않음). 매핑 밖/애매 품목은 제외.
@@ -93,8 +99,9 @@ export function ContractImportModal({
     onDone: () => Promise<void>;
     onToast: (m: string) => void;
 }) {
-    const [salesText, setSalesText] = useState('');
-    const [outText, setOutText] = useState('');
+    // 머리글 미리 채움 — 사용자는 이 아래에 시트 데이터만 붙여넣으면 됨(중복 머리글은 자동 무시).
+    const [salesText, setSalesText] = useState(SALES_HEADER + '\n');
+    const [outText, setOutText] = useState(OUT_HEADER + '\n');
     const [saving, setSaving] = useState(false);
 
     // 외주비 시트 파싱(헤더 기반) → 업체명별 외주단가 목록(업체명 동일하면 매칭).
@@ -260,9 +267,8 @@ export function ContractImportModal({
             <div className="max-h-[92vh] w-[min(760px,96vw)] overflow-y-auto rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">시트 붙여넣기 일괄 등록</h3>
                 <p className="mt-1 mb-2 text-sm text-[#64748b]">
-                    엑셀에서 <b>머리글(품목명·업체명·수량 등) 행을 포함</b>해 복사(탭 구분)하세요. 컬럼을 이름으로
-                    인식하므로 순서·개수가 달라도 됩니다. 품목명으로 카테고리 자동 분류, 애매/중복 자동 제외. 외주비
-                    시트를 함께 넣으면 외주업체명·외주단가가 매칭됩니다.
+                    <b>머리글은 미리 채워져 있습니다</b> — 그 아래 줄에 엑셀 데이터만 붙여넣으세요(탭 구분). 업체명이
+                    같으면 매칭돼 외주단가가 적용되고, 품목명으로 카테고리 자동 분류·애매/중복 자동 제외됩니다.
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
                     <label className="block text-xs font-bold text-[#334155]">
