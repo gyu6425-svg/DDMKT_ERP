@@ -520,18 +520,28 @@ function ContractEditModal({
         const applied = Math.min(remainN, count); // 잔여 초과 방지
         if (applied <= 0) return;
         const next = remainN - applied;
+        // 입력한 외주단가·외주업체를 사용(비면 계약의 기존값). 외주비 = 타수 × 외주단가.
+        const unit = outUnitEdit.trim() ? Number(onlyDigits(outUnitEdit)) : contract.unit_outsource ?? null;
+        const vendor = outCompanyEdit.trim() || contract.outsource_company || null;
         const log: RewardWeeklyLog = {
             at: new Date().toISOString().slice(0, 10),
             auto,
             count: applied,
+            outUnit: unit,
+            vendor,
             week: isoWeek(new Date()),
         };
         const newLogs = [...weeklyLogs, log];
         setRemain(String(next));
         setWeekInput('');
         setSaving(true);
-        // 1) 잔여 먼저 — 실패 시 롤백(핵심 값이라 반드시 저장돼야 함).
-        const { error } = await updateClientContract(contract.id, { remain_count: next });
+        // 1) 잔여 + 외주단가/외주업체/총외주비 저장(핵심값) — 실패 시 롤백.
+        const { error } = await updateClientContract(contract.id, {
+            outsource: (unit ?? 0) * goalN,
+            outsource_company: vendor,
+            remain_count: next,
+            unit_outsource: unit,
+        });
         if (error) {
             setSaving(false);
             onToast(`오류: ${error.message}`);
@@ -786,7 +796,30 @@ function ContractEditModal({
                                             : '일일 타수 미저장 — 직접 입력'}
                                     </span>
                                 </div>
-                                <div className="mt-2 flex items-center gap-1.5">
+                                {/* 외주단가·외주업체 — 입력값으로 외주비 계산(로그에도 반영) */}
+                                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                                    <label className="block text-[11px] font-semibold text-[#475569]">
+                                        외주단가(원)
+                                        <input
+                                            className="mt-0.5 h-9 w-full rounded-md border border-[#fecaca] px-2 text-right text-sm"
+                                            inputMode="numeric"
+                                            onChange={(e) => setOutUnitEdit(withCommas(e.target.value))}
+                                            placeholder="예: 33"
+                                            value={withCommas(outUnitEdit)}
+                                        />
+                                    </label>
+                                    <label className="block text-[11px] font-semibold text-[#475569]">
+                                        외주업체명
+                                        <input
+                                            className="mt-0.5 h-9 w-full rounded-md border border-[#fecaca] px-2 text-sm"
+                                            onChange={(e) => setOutCompanyEdit(e.target.value)}
+                                            placeholder="외주업체명"
+                                            value={outCompanyEdit}
+                                        />
+                                    </label>
+                                </div>
+                                <div className="mt-2 text-[11px] font-bold text-[#1e40af]">이번 주 처리 타수</div>
+                                <div className="mt-1 flex items-center gap-1.5">
                                     <input
                                         className="h-9 w-full rounded-md border border-[#93c5fd] bg-white px-2 text-sm"
                                         inputMode="numeric"
@@ -823,13 +856,16 @@ function ContractEditModal({
                                         주간 확정
                                     </button>
                                 </div>
-                                {Number(onlyDigits(weekInput)) > 0 && (contract.unit_outsource ?? 0) > 0 ? (
+                                {Number(onlyDigits(weekInput)) > 0 &&
+                                (Number(onlyDigits(outUnitEdit)) || contract.unit_outsource || 0) > 0 ? (
                                     <div className="mt-1 text-right text-[11px] text-[#64748b]">
                                         이번 주 소진 외주비 ≈{' '}
                                         <b className="text-[#dc2626]">
                                             {fmtWon(
                                                 Math.min(remainN, Number(onlyDigits(weekInput))) *
-                                                    (contract.unit_outsource ?? 0),
+                                                    (Number(onlyDigits(outUnitEdit)) ||
+                                                        contract.unit_outsource ||
+                                                        0),
                                             )}
                                             원
                                         </b>
@@ -975,9 +1011,14 @@ function ContractEditModal({
                                                         {unitLabel}
                                                     </button>
                                                 )}
-                                                {(contract.unit_outsource ?? 0) > 0 ? (
-                                                    <span className="text-[11px] text-[#dc2626]">
-                                                        {fmtWon(l.count * (contract.unit_outsource ?? 0))}원
+                                                {l.vendor ? (
+                                                    <span className="rounded bg-[#fee2e2] px-1.5 py-0.5 text-[10px] font-bold text-[#dc2626]">
+                                                        {l.vendor}
+                                                    </span>
+                                                ) : null}
+                                                {(l.outUnit ?? contract.unit_outsource ?? 0) > 0 ? (
+                                                    <span className="text-[11px] font-semibold text-[#dc2626]">
+                                                        {fmtWon(l.count * (l.outUnit ?? contract.unit_outsource ?? 0))}원
                                                     </span>
                                                 ) : null}
                                                 <button
@@ -1002,8 +1043,8 @@ function ContractEditModal({
                     </div>
                 ) : null}
 
-                {/* 외주 정보 — 나중에 외주단가·외주업체 입력(재계약 이력 없는 계약만). 외주비=외주단가×수량 */}
-                {history.length === 0 ? (
+                {/* 외주 정보 — 비리워드용(리워드는 주간 진행 안에서 입력). 외주비=외주단가×수량 */}
+                {!isReward && history.length === 0 ? (
                     <div className="my-3 rounded-lg border border-[#fee2e2] bg-[#fff7f7] px-4 py-3">
                         <div className="mb-1.5 text-xs font-bold text-[#dc2626]">외주 정보</div>
                         <div className="grid grid-cols-2 gap-2">
