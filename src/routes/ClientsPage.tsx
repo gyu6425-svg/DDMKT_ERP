@@ -27,6 +27,27 @@ import {
 } from '../lib/erpUtils';
 
 const FAVS_KEY = 'erp_favs';
+// 계약완료로 막 넘어온 '신규건' — localStorage에 완료 시각 기록, 24시간 동안 계약 관리에서 강조·상단 고정.
+const NEW_KEY = 'erp_new_contracts';
+const NEW_TTL = 24 * 60 * 60 * 1000; // 24시간
+function readNewContracts(): Record<string, number> {
+    try {
+        const m = JSON.parse(localStorage.getItem(NEW_KEY) || '{}') as Record<string, number>;
+        const now = Date.now();
+        const kept: Record<string, number> = {};
+        for (const [id, ts] of Object.entries(m)) {
+            if (now - ts < NEW_TTL) kept[id] = ts; // 만료분 정리
+        }
+        return kept;
+    } catch {
+        return {};
+    }
+}
+function markNewContract(id: string) {
+    const m = readNewContracts();
+    m[id] = Date.now();
+    localStorage.setItem(NEW_KEY, JSON.stringify(m));
+}
 const DONE_STATUS = '계약완료'; // 계약 완료 판정 기준(상태). 계약 관리 진입 + 완료/미완료 탭이 공유.
 const ENDED_STATUS = '계약종료'; // 계약 종료(터미널). 종료 탭. 5단계(신규~보류)와 별개.
 const TEMP_STATUS = '임시'; // 시트 임포터 테스트 등록 — 계약 관리에서 '임시(테스트)' 탭으로 분리 표시.
@@ -141,19 +162,21 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
     const [showImminent, setShowImminent] = useState(false);
     const [outsourceClient, setOutsourceClient] = useState<string | null>(null); // 잔여 외주비 상세 대상 client_id
-    // 계약완료 처리로 계약 관리에 막 넘어온 신규건(?new=) — 행 하이라이트용. 네비게이션 시 갱신.
-    const [newId, setNewId] = useState<string | null>(
-        () => new URLSearchParams(window.location.search).get('new'),
-    );
+    // 계약완료 처리로 계약 관리에 막 넘어온 신규건 — localStorage 기록 기준 24시간 강조·상단 고정.
+    const [newMap, setNewMap] = useState<Record<string, number>>(readNewContracts);
     useEffect(() => {
-        const sync = () => setNewId(new URLSearchParams(window.location.search).get('new'));
+        const sync = () => setNewMap(readNewContracts());
         window.addEventListener('app:navigate', sync);
         window.addEventListener('popstate', sync);
+        // 남은 TTL 동안 자동 만료되도록 주기 갱신(1분).
+        const timer = window.setInterval(sync, 60 * 1000);
         return () => {
             window.removeEventListener('app:navigate', sync);
             window.removeEventListener('popstate', sync);
+            window.clearInterval(timer);
         };
     }, []);
+    const newIds = useMemo(() => new Set(Object.keys(newMap)), [newMap]);
     const [dupMatches, setDupMatches] = useState<ErpClient[] | null>(null); // 업체명 중복 안내 대상
     const [importOpen, setImportOpen] = useState(false); // 시트 붙여넣기 일괄 등록
     const [toast, setToast] = useState('');
@@ -235,11 +258,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         });
 
         return list.sort((a, b) => {
-            // 계약완료로 막 넘어온 신규건은 항상 맨 위.
-            if (newId) {
-                if (a.id === newId) return -1;
-                if (b.id === newId) return 1;
-            }
+            // 신규건(24h)은 항상 맨 위, 최근 완료 순.
+            const an = newIds.has(a.id);
+            const bn = newIds.has(b.id);
+            if (an !== bn) return an ? -1 : 1;
+            if (an && bn) return (newMap[b.id] || 0) - (newMap[a.id] || 0);
             // 임시(테스트) 탭은 등록한 순서(먼저 등록 → 위)로.
             if (contractsOnly && tempView) {
                 return (a.created_at || '').localeCompare(b.created_at || '');
@@ -248,7 +271,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
         });
-    }, [clients, search, statusFilter, favOnly, favs, contractsOnly, clientTab, tempView, newId]);
+    }, [clients, search, statusFilter, favOnly, favs, contractsOnly, clientTab, tempView, newIds, newMap]);
 
     // 계약 관리 KPI — 계약 중(계약완료 고객 수) + 재계약 임박(카테고리 계약 중 잔여 5건 이하).
     const doneClientIds = useMemo(
@@ -321,9 +344,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         setStageClient(null);
         showToast(toastMsg || `상태 변경: ${status}`);
         await refresh(); // 상태 반영된 목록을 먼저 받은 뒤 이동해야 계약 관리에서 바로 보임.
-        // 고객사 관리에서 계약완료로 바꾸면 → 계약 관리 시트로 이동 + 신규건 하이라이트(?new=).
+        // 고객사 관리에서 계약완료로 바꾸면 → 신규건 기록(24h) 후 계약 관리 시트로 이동.
         if (status === DONE_STATUS && !contractsOnly) {
-            window.history.pushState(null, '', `/contracts?new=${client.id}`);
+            markNewContract(client.id);
+            setNewMap(readNewContracts());
+            window.history.pushState(null, '', '/contracts');
             window.dispatchEvent(new Event('app:navigate'));
         }
     };
@@ -796,7 +821,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                             month: '2-digit',
                                         })
                                       : '--';
-                                const isNew = newId === c.id; // 방금 계약완료로 넘어온 신규건 하이라이트
+                                const isNew = newIds.has(c.id); // 계약완료 후 24시간 신규건 하이라이트
                                 return (
                                     <tr
                                         key={c.id}
