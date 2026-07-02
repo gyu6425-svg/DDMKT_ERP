@@ -1634,6 +1634,15 @@ export function ClientDetail({
                             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                                 {contracts
                                     .filter((ct) => ct.category === c.label)
+                                    // 상위 카테고리 안에서 세부유형끼리 묶기(subs 순서), 같은 유형은 계약일 순.
+                                    .sort((a, b) => {
+                                        const ai = c.subs.indexOf(a.subtype);
+                                        const bi = c.subs.indexOf(b.subtype);
+                                        const an = ai < 0 ? 999 : ai;
+                                        const bn = bi < 0 ? 999 : bi;
+                                        if (an !== bn) return an - bn;
+                                        return (a.contract_date || '').localeCompare(b.contract_date || '');
+                                    })
                                     .map((ct) => {
                                         const prog = progOf(ct);
                                         const done = (ct.goal_count || 0) - (ct.remain_count || 0);
