@@ -1654,6 +1654,11 @@ export function ClientDetail({
                                                         </span>
                                                     ) : null}
                                                 </div>
+                                                {ct.contract_date ? (
+                                                    <div className="mt-0.5 text-[11px] font-semibold text-[#94a3b8]">
+                                                        📅 {ct.contract_date}
+                                                    </div>
+                                                ) : null}
                                                 <div
                                                     className="mt-0.5 text-2xl font-bold"
                                                     style={{ color: progColor(prog) }}
