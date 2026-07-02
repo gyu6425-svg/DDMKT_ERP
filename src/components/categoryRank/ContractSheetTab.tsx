@@ -4,8 +4,9 @@ import { getClientContracts, type ClientContract } from '../../api/clientContrac
 import { SIDEBAR_CATEGORIES } from './categories';
 
 // 하위 카테고리 관리 시트(1차) — 해당 category(+subtype) 계약을 업체별로 나열.
-//   계약 관리(client_contracts)가 단일 출처 → 여기선 표시만. 행 클릭 시 고객사 상세로 이동해 수정.
-//   subtype 미지정(상위 대시보드) 시 카테고리 전체를 세부유형 열과 함께 표시.
+//   브랜드블로그 관리시트(SheetTab)와 동일한 UI/컬럼 구성으로 통일. 계약 관리(client_contracts)가 단일 출처 →
+//   여기선 표시만, 행/관리 클릭 시 고객사 상세로 이동해 수정. 블로그 전용 컬럼(주 발행·추적 글·통합 10위)은
+//   비-블로그 계약엔 값이 없어 '—'로 표시(레이아웃만 통일).
 function navTo(path: string) {
     if (window.location.pathname + window.location.search !== path) {
         window.history.pushState(null, '', path);
@@ -57,13 +58,28 @@ const won = (n: number | null | undefined) => (n ? Number(n).toLocaleString('ko-
 const progColor = (p: number | null) =>
     p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
 
+// 상태 뱃지 — 브랜드블로그 시트의 Tag와 동일 톤(진행 중=초록/재계약 임박=빨강·노랑/미입력=회색).
+function StatusTag({ ct }: { ct: ClientContract }) {
+    const base = 'inline-block rounded-full px-2 py-0.5 text-[11px] font-bold';
+    if (ct.goal_count == null) {
+        return <span className={`${base} bg-[#e2e8f0] text-[#64748b]`}>계약 건수 미입력</span>;
+    }
+    const remain = ct.remain_count ?? ct.goal_count;
+    if (remain <= 1) return <span className={`${base} bg-[#fee2e2] text-[#dc2626]`}>재계약 임박</span>;
+    if (remain <= 5) return <span className={`${base} bg-[#fef3c7] text-[#b45309]`}>재계약 임박</span>;
+    return <span className={`${base} bg-[#dcfce7] text-[#16a34a]`}>진행 중</span>;
+}
+
 export function ContractSheetTab({ category, subtype }: { category: string; subtype?: string }) {
     const [clients, setClients] = useState<ErpClient[]>([]);
     const [contracts, setContracts] = useState<ClientContract[]>([]);
     const [loading, setLoading] = useState(true);
+    const [q, setQ] = useState('');
+    const [mgr, setMgr] = useState('');
 
     useEffect(() => {
         let alive = true;
+        setLoading(true);
         void (async () => {
             const [cl, ct] = await Promise.all([getClients(), getClientContracts()]);
             if (!alive) return;
@@ -82,109 +98,192 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
         return m;
     }, [clients]);
 
+    const allRows = useMemo(
+        () =>
+            contracts
+                .filter((ct) => ct.category === category && (!subtype || ct.subtype === subtype))
+                .map((ct) => ({ ct, cl: clientById.get(ct.client_id) }))
+                .filter((r): r is { ct: ClientContract; cl: ErpClient } => !!r.cl),
+        [contracts, clientById, category, subtype],
+    );
+
+    const managers = useMemo(
+        () => [...new Set(allRows.map((r) => r.cl.manager).filter(Boolean) as string[])].sort(),
+        [allRows],
+    );
+
     const rows = useMemo(() => {
-        return contracts
-            .filter((ct) => ct.category === category && (!subtype || ct.subtype === subtype))
-            .map((ct) => ({ ct, cl: clientById.get(ct.client_id) }))
-            .filter((r) => r.cl) // 계약종료 등으로 client 없으면 제외
-            .sort((a, b) => (a.cl!.company || '').localeCompare(b.cl!.company || '', 'ko'));
-    }, [contracts, clientById, category, subtype]);
+        const qq = q.trim().toLowerCase();
+        return allRows
+            .filter((r) => (!qq || (r.cl.company || '').toLowerCase().includes(qq)) && (!mgr || r.cl.manager === mgr))
+            .sort((a, b) => (a.cl.company || '').localeCompare(b.cl.company || '', 'ko'));
+    }, [allRows, q, mgr]);
 
     if (loading) {
         return <div className="py-16 text-center text-sm text-[#94a3b8]">불러오는 중...</div>;
     }
-    if (!rows.length) {
-        return (
-            <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-6 py-16 text-center text-sm text-[#94a3b8]">
-                {subtype || category} 계약이 없습니다.
-            </div>
-        );
-    }
 
     const totalAmount = rows.reduce((s, r) => s + (r.ct.amount || 0), 0);
     const totalOut = rows.reduce((s, r) => s + (r.ct.outsource || 0), 0);
+    const showSub = !subtype;
+    const dash = <span className="text-xs text-[#cbd5e1]">—</span>;
+    const colSpan = showSub ? 13 : 12;
 
     return (
-        <div className="overflow-x-auto rounded-xl border border-[#e2e8f0]">
-            <div className="flex items-center justify-between gap-2 border-b border-[#e2e8f0] bg-[#f8fafc] px-4 py-2 text-xs font-semibold text-[#475569]">
-                <span>
-                    {subtype || category} · <b className="text-[#1e40af]">{rows.length}</b>건
-                </span>
-                <span>
-                    매출 합계 <b className="text-[#1e40af]">{won(totalAmount)}</b>원 · 외주 합계{' '}
-                    <b className="text-[#dc2626]">{won(totalOut)}</b>원
+        <div className="grid gap-3">
+            {/* 툴바 — 브랜드블로그 시트와 동일: 검색 + 담당 필터 + 개수/합계 */}
+            <div className="flex flex-wrap items-center gap-2">
+                <input
+                    className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="업체명 검색..."
+                    value={q}
+                />
+                <select
+                    className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs"
+                    onChange={(e) => setMgr(e.target.value)}
+                    value={mgr}
+                >
+                    <option value="">담당 전체</option>
+                    {managers.map((m) => (
+                        <option key={m}>{m}</option>
+                    ))}
+                </select>
+                <span className="ml-auto text-xs text-[#64748b]">{rows.length}개</span>
+                <span className="text-xs text-[#64748b]">
+                    매출 <b className="text-[#1e40af]">{won(totalAmount)}</b> · 외주{' '}
+                    <b className="text-[#dc2626]">{won(totalOut)}</b>
                 </span>
             </div>
-            <table className="w-full min-w-[720px] border-collapse text-sm">
-                <thead>
-                    <tr className="border-b border-[#e2e8f0] bg-white text-left text-xs text-[#64748b]">
-                        <th className="px-3 py-2 font-semibold">업체명</th>
-                        <th className="px-3 py-2 font-semibold">담당</th>
-                        <th className="px-3 py-2 font-semibold">계약일</th>
-                        {!subtype && <th className="px-3 py-2 font-semibold">세부유형</th>}
-                        <th className="px-3 py-2 font-semibold">진행률</th>
-                        <th className="px-3 py-2 text-right font-semibold">건수(잔여)</th>
-                        <th className="px-3 py-2 text-right font-semibold">매출</th>
-                        <th className="px-3 py-2 text-right font-semibold">외주단가</th>
-                        <th className="px-3 py-2 text-right font-semibold">외주비</th>
-                        <th className="px-3 py-2 font-semibold">외주업체</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows.map(({ ct, cl }) => {
-                        const goal = ct.goal_count ?? 0;
-                        const remain = ct.remain_count ?? goal;
-                        const done = Math.max(0, goal - remain);
-                        const pct = goal ? Math.round((done / goal) * 100) : null;
-                        return (
-                            <tr
-                                className="cursor-pointer border-b border-[#eef2f7] hover:bg-[#f8fafc]"
-                                key={ct.id}
-                                onClick={() => navTo(`/clients?id=${cl!.id}`)}
-                                title="클릭 → 고객사 상세에서 수정"
-                            >
-                                <td className="px-3 py-2 font-semibold text-[#0f172a]">{cl!.company || '-'}</td>
-                                <td className="px-3 py-2 text-[#475569]">{cl!.manager || '-'}</td>
-                                <td className="px-3 py-2 text-[#64748b]">{ct.contract_date || '-'}</td>
-                                {!subtype && <td className="px-3 py-2 text-[#475569]">{ct.subtype}</td>}
-                                <td className="px-3 py-2">
-                                    {pct == null ? (
-                                        <span className="text-xs text-[#94a3b8]">-</span>
-                                    ) : (
-                                        <div className="min-w-[92px]">
-                                            <span className="text-xs font-bold" style={{ color: progColor(pct) }}>
-                                                {pct}%
-                                            </span>
-                                            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#eef2f7]">
-                                                <div
-                                                    className="h-full rounded-full"
-                                                    style={{ background: progColor(pct), width: `${pct}%` }}
-                                                />
+
+            <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
+                <table className="w-full border-collapse text-left text-sm">
+                    <thead>
+                        <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
+                            <th className="px-3 py-2 font-semibold">업체</th>
+                            <th className="px-3 py-2 font-semibold">계약일</th>
+                            {showSub && <th className="px-3 py-2 font-semibold">세부유형</th>}
+                            <th className="px-3 py-2 font-semibold">계약금액</th>
+                            <th className="px-3 py-2 font-semibold">담당</th>
+                            <th className="px-3 py-2 font-semibold">진행률</th>
+                            <th className="px-3 py-2 text-center font-semibold">잔여</th>
+                            <th className="px-3 py-2 text-center font-semibold">주 발행</th>
+                            <th className="px-3 py-2 text-center font-semibold">추적 글</th>
+                            <th className="px-3 py-2 text-center font-semibold">통합 10위↓</th>
+                            <th className="px-3 py-2 text-center font-semibold">상태</th>
+                            <th className="px-3 py-2 font-semibold">특이사항</th>
+                            <th className="px-3 py-2 text-center font-semibold">관리</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.length ? (
+                            rows.map(({ ct, cl }) => {
+                                const goal = ct.goal_count ?? 0;
+                                const remain = ct.remain_count ?? goal;
+                                const done = Math.max(0, goal - remain);
+                                const pct = goal ? Math.round((done / goal) * 100) : null;
+                                const remainColor =
+                                    ct.remain_count == null
+                                        ? '#94a3b8'
+                                        : remain <= 1
+                                          ? '#dc2626'
+                                          : remain <= 5
+                                            ? '#d97706'
+                                            : '#0f172a';
+                                return (
+                                    <tr
+                                        className="cursor-pointer border-b border-[#e2e8f0] hover:bg-[#f8fafc]"
+                                        key={ct.id}
+                                        onClick={() => navTo(`/clients?id=${cl.id}`)}
+                                        title="클릭 → 고객사 상세에서 수정"
+                                    >
+                                        <td className="px-3 py-2 text-[13px] font-semibold text-[#0f172a]">
+                                            {cl.company || '—'}
+                                        </td>
+                                        <td className="px-3 py-2 text-[13px] font-semibold text-[#475569]">
+                                            {ct.contract_date || '—'}
+                                        </td>
+                                        {showSub && (
+                                            <td className="px-3 py-2 text-[13px] text-[#475569]">{ct.subtype}</td>
+                                        )}
+                                        <td className="px-3 py-2 text-[13px] font-semibold text-[#1e40af]">
+                                            {won(ct.amount)}
+                                        </td>
+                                        <td className="px-3 py-2 text-[13px] text-[#475569]">{cl.manager || '—'}</td>
+                                        <td className="px-3 py-2">
+                                            {pct == null ? (
+                                                dash
+                                            ) : (
+                                                <div className="min-w-[110px]">
+                                                    <div className="flex items-baseline justify-between gap-2">
+                                                        <span
+                                                            className="text-sm font-bold"
+                                                            style={{ color: progColor(pct) }}
+                                                        >
+                                                            {pct}%
+                                                        </span>
+                                                        <span className="text-[10px] text-[#94a3b8]">
+                                                            {done}/{goal}건
+                                                        </span>
+                                                    </div>
+                                                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#eef2f7]">
+                                                        <div
+                                                            className="h-full rounded-full"
+                                                            style={{ background: progColor(pct), width: `${pct}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td
+                                            className="px-3 py-2 text-center text-sm font-bold"
+                                            style={{ color: remainColor }}
+                                        >
+                                            {ct.remain_count == null ? '—' : remain}
+                                        </td>
+                                        {/* 주 발행 · 추적 글 · 통합 10위 = 블로그 전용(크롤) → 비-블로그는 '—' */}
+                                        <td className="px-3 py-2 text-center">{dash}</td>
+                                        <td className="px-3 py-2 text-center">{dash}</td>
+                                        <td className="px-3 py-2 text-center">{dash}</td>
+                                        <td className="px-3 py-2 text-center">
+                                            <StatusTag ct={ct} />
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <div className="flex items-center gap-1">
+                                                <span
+                                                    className="block max-w-[120px] truncate text-xs text-[#94a3b8]"
+                                                    title={ct.note || ''}
+                                                >
+                                                    {ct.note || '—'}
+                                                </span>
                                             </div>
-                                        </div>
-                                    )}
-                                </td>
-                                <td className="px-3 py-2 text-right text-[#475569]">
-                                    {goal ? `${goal}건` : '-'}
-                                    {goal ? <span className="text-[#94a3b8]"> (잔여 {remain})</span> : null}
-                                </td>
-                                <td className="px-3 py-2 text-right font-semibold text-[#1e40af]">{won(ct.amount)}</td>
-                                <td className="px-3 py-2 text-right text-[#64748b]">{won(ct.unit_outsource)}</td>
-                                <td className="px-3 py-2 text-right font-semibold text-[#dc2626]">{won(ct.outsource)}</td>
-                                <td className="px-3 py-2">
-                                    {ct.outsource_company ? (
-                                        <span className="rounded-full bg-[#fee2e2] px-2 py-0.5 text-[11px] font-semibold text-[#dc2626]">
-                                            {ct.outsource_company}
-                                        </span>
-                                    ) : (
-                                        <span className="text-xs text-[#cbd5e1]">-</span>
-                                    )}
+                                        </td>
+                                        <td className="px-3 py-2 text-center">
+                                            <button
+                                                className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    navTo(`/clients?id=${cl.id}`);
+                                                }}
+                                                title="고객사 상세에서 계약 편집"
+                                                type="button"
+                                            >
+                                                관리
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        ) : (
+                            <tr>
+                                <td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={colSpan}>
+                                    {subtype || category} 계약이 없습니다.
                                 </td>
                             </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
+                        )}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }
