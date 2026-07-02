@@ -25,6 +25,16 @@ const TEMP_STATUS = '임시';
 const SALES_HEADER =
     '일자-No.\t회계전표일자-No.\t거래처명\t품목명(규격)\t업체명\t수량\t단가\t공급가액\t부가세\t합계\t외주비\t순매출\t사원(담당)명';
 
+// 알려진 외주업체(품목명이 이 브랜드면 외주업체명 자동 기입). 그 외 품목은 외주업체 공란(나중 입력).
+const VENDORS = ['슈퍼뭉치', '저인망', '247', '고스트', '저스트', '라인', '실계'];
+const vendorFromProduct = (base: string): string | null => {
+    const b = (base || '').trim();
+    for (const v of VENDORS) {
+        if (b === v || b.includes(v)) return v;
+    }
+    return null;
+};
+
 type Mapped = { category: string; subtype: string } | { exclude: true };
 
 // 품목명 → 카테고리·세부유형. 매핑 밖/애매 품목은 제외.
@@ -75,6 +85,9 @@ type Row = {
     qty: number;
     unit: number; // 판매단가
     amount: number; // 매출(공급가액)
+    outsource: number; // 외주비(매출 시트)
+    outUnit: number | null; // 외주단가 = 외주비 ÷ 수량
+    vendor: string | null; // 외주업체명(알려진 브랜드면 자동)
     manager: string;
     map: Mapped;
     dup: boolean;
@@ -108,6 +121,7 @@ export function ContractImportModal({
         const iQty = findCol(H, ['수량']);
         const iUnit = findCol(H, ['단가']);
         const iAmount = findCol(H, ['공급가']);
+        const iOut = findCol(H, ['외주비']);
         const iManager = findCol(H, ['담당', '사원']);
         if (iCompany < 0 || iProduct < 0 || iQty < 0) return out;
         const seen = new Set<string>();
@@ -118,6 +132,8 @@ export function ContractImportModal({
             if (!company || !product) continue;
             const qty = num(c[iQty]);
             const amount = iAmount >= 0 ? num(c[iAmount]) : 0;
+            const outsource = iOut >= 0 ? num(c[iOut]) : 0;
+            const base = productBase(product);
             const key = `${iDate >= 0 ? (c[iDate] || '').trim() : ''}|${company}|${product}|${qty}|${amount}`;
             const dup = seen.has(key);
             seen.add(key);
@@ -127,11 +143,15 @@ export function ContractImportModal({
                 date: iDate >= 0 ? parseDate(c[iDate]) : null,
                 dup,
                 manager: iManager >= 0 ? (c[iManager] || '').trim() : '',
-                map: mapProduct(productBase(product)),
+                map: mapProduct(base),
+                // 외주단가 = 외주비 ÷ 수량(외주비가 있을 때만). 외주업체는 알려진 브랜드면 자동.
+                outUnit: qty > 0 && outsource > 0 ? Math.round(outsource / qty) : null,
+                outsource,
                 partner: iPartner >= 0 ? (c[iPartner] || '').trim() : '',
                 product,
                 qty,
                 unit: iUnit >= 0 ? num(c[iUnit]) : 0,
+                vendor: vendorFromProduct(base),
             });
         }
         return out;
@@ -176,7 +196,7 @@ export function ContractImportModal({
                 tempIdByCompany.set(k, clientId);
                 created += 1;
             }
-            // 외주단가·외주업체·외주비는 나중에 상세페이지에서 입력(여기선 비움).
+            // 외주단가=외주비÷수량, 외주업체=알려진 브랜드면 자동(아니면 null → 나중 입력).
             const payload: Array<Partial<ClientContract>> = grp.map((r) => {
                 const m = r.map as { category: string; subtype: string };
                 return {
@@ -185,11 +205,11 @@ export function ContractImportModal({
                     client_id: clientId!,
                     contract_date: r.date,
                     goal_count: r.qty,
-                    outsource: 0,
-                    outsource_company: null,
+                    outsource: r.outsource,
+                    outsource_company: r.vendor,
                     remain_count: r.qty,
                     subtype: m.subtype,
-                    unit_outsource: null,
+                    unit_outsource: r.outUnit,
                     unit_price: r.unit || null,
                 };
             });
@@ -212,8 +232,9 @@ export function ContractImportModal({
                 <h3 className="m-0 text-lg font-bold">판매 시트 붙여넣기 등록</h3>
                 <p className="mt-1 mb-2 text-sm text-[#64748b]">
                     <b>머리글은 미리 채워져 있습니다</b> — 그 아래 줄에 판매 시트 데이터만 붙여넣으세요(탭 구분).
-                    품목명으로 카테고리 자동 분류, 애매/중복 자동 제외. <b>외주단가·외주업체는 등록 후 상세페이지에서</b>{' '}
-                    입력합니다. 동일 업체명은 한 임시 업체에 상품(계약)만 추가됩니다.
+                    품목명으로 카테고리 자동 분류. <b>외주단가는 외주비÷수량으로 자동 측정</b>, 외주업체는 알려진
+                    브랜드(슈퍼뭉치·고스트 등)면 자동 기입·아니면 공란(상세에서 입력). 동일 업체명은 한 임시 업체에
+                    상품만 추가됩니다.
                 </p>
                 <textarea
                     className="h-32 w-full rounded-md border border-[#cbd5e1] p-2 font-mono text-xs"
@@ -235,8 +256,10 @@ export function ContractImportModal({
                                     <th className="px-2 py-1">업체명</th>
                                     <th className="px-2 py-1">품목</th>
                                     <th className="px-2 py-1">분류</th>
+                                    <th className="px-2 py-1">외주업체</th>
                                     <th className="px-2 py-1 text-right">수량</th>
                                     <th className="px-2 py-1 text-right">판매단가</th>
+                                    <th className="px-2 py-1 text-right">외주단가</th>
                                     <th className="px-2 py-1 text-right">매출</th>
                                     <th className="px-2 py-1">상태</th>
                                 </tr>
@@ -253,8 +276,10 @@ export function ContractImportModal({
                                             <td className="max-w-[120px] truncate px-2 py-1 font-semibold">{r.company}</td>
                                             <td className="max-w-[100px] truncate px-2 py-1 text-[#64748b]">{r.product}</td>
                                             <td className="px-2 py-1 text-[#475569]">{m ? `${m.category}·${m.subtype}` : '—'}</td>
+                                            <td className="px-2 py-1 text-[#dc2626]">{r.vendor || '—'}</td>
                                             <td className="px-2 py-1 text-right">{r.qty.toLocaleString('ko-KR')}</td>
                                             <td className="px-2 py-1 text-right">{r.unit.toLocaleString('ko-KR')}</td>
+                                            <td className="px-2 py-1 text-right text-[#dc2626]">{r.outUnit != null ? r.outUnit.toLocaleString('ko-KR') : '—'}</td>
                                             <td className="px-2 py-1 text-right text-[#1e40af]">{r.amount.toLocaleString('ko-KR')}</td>
                                             <td className="px-2 py-1">
                                                 {r.dup ? (
