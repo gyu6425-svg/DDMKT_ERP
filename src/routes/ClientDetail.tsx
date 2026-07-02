@@ -1631,7 +1631,7 @@ export function ClientDetail({
                                     관리 시트 →
                                 </button>
                             </div>
-                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                            <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                                 {contracts
                                     .filter((ct) => ct.category === c.label)
                                     // 상위 카테고리 안에서 세부유형끼리 묶기(subs 순서), 같은 유형은 계약일 순.
@@ -1648,7 +1648,7 @@ export function ClientDetail({
                                         const done = (ct.goal_count || 0) - (ct.remain_count || 0);
                                         return (
                                             <button
-                                                className="rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
+                                                className="h-full rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
                                                 key={ct.id}
                                                 onClick={() => setEditContract(ct)}
                                                 type="button"
