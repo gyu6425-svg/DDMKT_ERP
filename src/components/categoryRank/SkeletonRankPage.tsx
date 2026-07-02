@@ -48,23 +48,6 @@ const FULL_TABS = [
 export function SkeletonRankPage({ label }: { label: string }) {
     const href = useLocHref();
     const displayLabel = subLabelOf(href, label);
-
-    // 드롭다운(하위 카테고리)이 있는 상위(플레이스·인스타·블로그)의 '대시보드'(=?sub 없음)만
-    //   탭 없는 순수 대시보드. 하위(?sub=)와 드롭다운 없는 카페·쇼핑·파워링크는 기존 4탭 유지.
-    const pathname = href.split('?')[0];
-    const hasSub = new URLSearchParams(href.split('?')[1] || '').has('sub');
-    const scat = SIDEBAR_CATEGORIES.find((c) => c.dashHref.split('?')[0] === pathname);
-    const isDropdownDash = !!scat && scat.subs.length > 0 && !hasSub;
-
-    return (
-        <CategoryShell
-            badge="준비 중"
-            label={displayLabel}
-            tabs={
-                isDropdownDash
-                    ? [{ name: '대시보드', el: <Placeholder name={displayLabel} /> }]
-                    : FULL_TABS
-            }
-        />
-    );
+    // 탭 표시 여부(상위 대시보드=탭 없음)는 CategoryShell이 URL로 판단.
+    return <CategoryShell badge="준비 중" label={displayLabel} tabs={FULL_TABS} />;
 }
