@@ -395,6 +395,8 @@ function ContractEditModal({
     const [goal] = useState(contract.goal_count?.toString() ?? '');
     const [remain, setRemain] = useState(contract.remain_count?.toString() ?? '');
     const [bulk, setBulk] = useState(''); // N건 일괄 완료 입력
+    const [outUnitEdit, setOutUnitEdit] = useState(contract.unit_outsource?.toString() ?? ''); // 나중 외주단가 입력
+    const [outCompanyEdit, setOutCompanyEdit] = useState(contract.outsource_company ?? ''); // 나중 외주업체 입력
     const [weeklyLogs, setWeeklyLogs] = useState<RewardWeeklyLog[]>(contract.weekly_logs ?? []);
     const [weekInput, setWeekInput] = useState(''); // 리워드 주간 처리 타수
     const [editLog, setEditLog] = useState<{ idx: number; value: string } | null>(null); // 진행 이력 타수 수정
@@ -489,6 +491,25 @@ function ContractEditModal({
             setRemain(String(remainN));
             return;
         }
+        await onReload();
+    };
+
+    // 나중 외주 입력 — 외주단가·외주업체 저장. 외주비 = 외주단가 × 수량(상세페이지 계산과 동일).
+    const saveOutsource = async () => {
+        if (saving) return;
+        const unit = outUnitEdit.trim() ? Number(onlyDigits(outUnitEdit)) : null;
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, {
+            outsource: (unit ?? 0) * goalN,
+            outsource_company: outCompanyEdit.trim() || null,
+            unit_outsource: unit,
+        });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        onToast('외주 정보 저장됨');
         await onReload();
     };
 
@@ -978,6 +999,50 @@ function ContractEditModal({
                                 )}
                             </div>
                         ) : null}
+                    </div>
+                ) : null}
+
+                {/* 외주 정보 — 나중에 외주단가·외주업체 입력(재계약 이력 없는 계약만). 외주비=외주단가×수량 */}
+                {history.length === 0 ? (
+                    <div className="my-3 rounded-lg border border-[#fee2e2] bg-[#fff7f7] px-4 py-3">
+                        <div className="mb-1.5 text-xs font-bold text-[#dc2626]">외주 정보</div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <label className="block text-[11px] font-semibold text-[#475569]">
+                                외주단가(원)
+                                <input
+                                    className="mt-1 h-9 w-full rounded-md border border-[#fecaca] px-2 text-right text-sm"
+                                    inputMode="numeric"
+                                    onChange={(e) => setOutUnitEdit(withCommas(e.target.value))}
+                                    placeholder="예: 33"
+                                    value={withCommas(outUnitEdit)}
+                                />
+                            </label>
+                            <label className="block text-[11px] font-semibold text-[#475569]">
+                                외주업체명
+                                <input
+                                    className="mt-1 h-9 w-full rounded-md border border-[#fecaca] px-2 text-sm"
+                                    onChange={(e) => setOutCompanyEdit(e.target.value)}
+                                    placeholder="외주업체명 입력"
+                                    value={outCompanyEdit}
+                                />
+                            </label>
+                        </div>
+                        <div className="mt-1.5 flex items-center justify-between">
+                            <span className="text-[11px] text-[#94a3b8]">
+                                외주비 = 외주단가 × {goalN.toLocaleString('ko-KR')} ={' '}
+                                <b className="text-[#dc2626]">
+                                    {fmtWon((Number(onlyDigits(outUnitEdit)) || 0) * goalN)}원
+                                </b>
+                            </span>
+                            <button
+                                className="rounded-md bg-[#dc2626] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#b91c1c] disabled:opacity-50"
+                                disabled={saving}
+                                onClick={() => void saveOutsource()}
+                                type="button"
+                            >
+                                외주 저장
+                            </button>
+                        </div>
                     </div>
                 ) : null}
 
