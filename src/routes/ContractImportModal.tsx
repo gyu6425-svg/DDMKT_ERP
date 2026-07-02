@@ -66,7 +66,6 @@ function mapProduct(nameRaw: string): Mapped {
     return { exclude: true };
 }
 
-type OutRow = { company: string; product: string; qty: number; outUnit: number; outAmount: number; vendor: string };
 type Row = {
     date: string | null;
     partner: string; // 매출 시트 거래처명 = 고객 청구명
@@ -98,37 +97,24 @@ export function ContractImportModal({
     const [outText, setOutText] = useState('');
     const [saving, setSaving] = useState(false);
 
-    // 외주비 시트 파싱(헤더 기반) → 매칭 버킷(업체명|품목명(외N건제거)|수량 → OutRow[]).
-    //   거래처명=외주업체. 매칭엔 업체명+품목명+수량 사용(거래처명 제외), 외주단가 tie-break.
-    const outBuckets = useMemo(() => {
-        const m = new Map<string, OutRow[]>();
+    // 외주비 시트 파싱(헤더 기반) → 외주단가 조회맵(업체명|품목명(외N건제거) → 외주단가).
+    //   외주비 시트는 '외주단가'만 제공. 거래처명(HS)·수량·금액은 매칭/저장에 쓰지 않음(수량이 매출과 다름).
+    const outUnitByKey = useMemo(() => {
+        const m = new Map<string, number>();
         const lines = outText.split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => l.trim());
         if (lines.length < 2) return m;
         const H = lines[0].split('\t').map((s) => s.trim());
-        const iVendor = findCol(H, ['거래처']);
         const iCompany = findCol(H, ['업체명']);
         const iProduct = findCol(H, ['품목']);
-        const iQty = findCol(H, ['수량']);
         const iUnit = findCol(H, ['단가']);
-        const iAmount = findCol(H, ['공급가']);
-        if (iCompany < 0 || iQty < 0) return m;
+        if (iCompany < 0 || iUnit < 0) return m;
         for (const line of lines.slice(1)) {
             const c = line.split('\t');
             const company = (c[iCompany] || '').trim();
             if (!company) continue;
-            const qty = num(c[iQty]);
-            const product = (c[iProduct] || '').trim();
-            const key = `${normCompany(company)}|${normProduct(product)}|${qty}`;
-            const row: OutRow = {
-                company,
-                outAmount: iAmount >= 0 ? num(c[iAmount]) : 0,
-                outUnit: iUnit >= 0 ? num(c[iUnit]) : 0,
-                product,
-                qty,
-                vendor: iVendor >= 0 ? (c[iVendor] || '').trim() : '',
-            };
-            if (!m.has(key)) m.set(key, []);
-            m.get(key)!.push(row);
+            const unit = num(c[iUnit]);
+            const key = `${normCompany(company)}|${normProduct(c[iProduct] || '')}`;
+            if (!m.has(key) && unit > 0) m.set(key, unit); // 첫 값
         }
         return m;
     }, [outText]);
@@ -150,8 +136,6 @@ export function ContractImportModal({
         const iManager = findCol(H, ['담당', '사원']);
         if (iCompany < 0 || iProduct < 0 || iQty < 0) return out;
         const seen = new Set<string>();
-        const buckets = new Map<string, OutRow[]>();
-        for (const [k, v] of outBuckets) buckets.set(k, [...v]); // 소비용 복제
         for (const line of lines.slice(1)) {
             const c = line.split('\t');
             const company = (c[iCompany] || '').trim();
@@ -159,25 +143,23 @@ export function ContractImportModal({
             if (!company || !product) continue;
             const qty = num(c[iQty]);
             const amount = iAmount >= 0 ? num(c[iAmount]) : 0;
-            let outsource = iOut >= 0 ? num(c[iOut]) : 0; // 매출 시트 외주비(비어있을 수 있음)
+            const salesOut = iOut >= 0 ? num(c[iOut]) : 0; // 매출 시트 외주비(비어있을 수 있음)
             const key = `${iDate >= 0 ? (c[iDate] || '').trim() : ''}|${company}|${product}|${qty}|${amount}`;
             const dup = seen.has(key);
             seen.add(key);
-            const mkey = `${normCompany(company)}|${normProduct(product)}|${qty}`;
-            let vendor: string | null = null;
-            let outUnit: number | null = qty ? Math.round(outsource / qty) : null;
-            if (!dup) {
-                const b = buckets.get(mkey);
-                if (b && b.length) {
-                    const want = qty ? Math.round(outsource / qty) : 0;
-                    let idx = b.findIndex((o) => o.outUnit === want);
-                    if (idx < 0) idx = 0;
-                    const om = b.splice(idx, 1)[0];
-                    vendor = om.vendor || null;
-                    outUnit = om.outUnit || outUnit;
-                    // 매칭 시 외주비 금액은 외주비 시트(공급가액)를 우선 — 매출 시트 외주비가 비어도 반영.
-                    if (om.outAmount > 0) outsource = om.outAmount;
-                }
+            // 외주업체명 = 품목명(외 N건 앞부분) 그대로(리워드 브랜드명 등).
+            const base = productBase(product);
+            const vendor: string | null = base || null;
+            // 외주단가 = 외주비 시트(업체명+품목명 매칭). 없으면 매출 시트 외주비/수량 역산.
+            const matchedUnit = outUnitByKey.get(`${normCompany(company)}|${normProduct(product)}`);
+            let outUnit: number | null;
+            let outsource: number;
+            if (matchedUnit != null && matchedUnit > 0) {
+                outUnit = matchedUnit;
+                outsource = matchedUnit * qty; // 외주비 = 외주단가 × 판매수량(상세페이지 계산과 동일)
+            } else {
+                outsource = salesOut;
+                outUnit = qty ? Math.round(salesOut / qty) : null;
             }
             out.push({
                 amount,
@@ -185,7 +167,7 @@ export function ContractImportModal({
                 date: iDate >= 0 ? parseDate(c[iDate]) : null,
                 dup,
                 manager: iManager >= 0 ? (c[iManager] || '').trim() : '',
-                map: mapProduct(productBase(product)),
+                map: mapProduct(base),
                 outUnit,
                 outsource,
                 partner: iPartner >= 0 ? (c[iPartner] || '').trim() : '',
@@ -196,19 +178,15 @@ export function ContractImportModal({
             });
         }
         return out;
-    }, [salesText, outBuckets]);
+    }, [salesText, outUnitByKey]);
 
     const includable = rows.filter((r) => !r.dup && !('exclude' in r.map));
     const excluded = rows.filter((r) => !r.dup && 'exclude' in r.map);
     const dups = rows.filter((r) => r.dup);
-    const matched = includable.filter((r) => r.vendor);
-    // 외주비 시트에서 매칭 안 된 행 수(경고)
-    const outTotal = useMemo(() => {
-        let n = 0;
-        for (const v of outBuckets.values()) n += v.length;
-        return n;
-    }, [outBuckets]);
-    const outUnmatched = outTotal - matched.length;
+    // 외주단가를 외주비 시트에서 찾은 행 수(외주단가 매칭)
+    const matched = includable.filter((r) =>
+        outUnitByKey.has(`${normCompany(r.company)}|${normProduct(r.product)}`),
+    );
 
     const doImport = async () => {
         if (!includable.length || saving) return;
@@ -303,12 +281,9 @@ export function ContractImportModal({
                 {rows.length ? (
                     <div className="mt-2 text-xs font-semibold text-[#334155]">
                         등록 예정 <b className="text-[#059669]">{includable.length}</b>
-                        <span className="text-[#94a3b8]"> (외주매칭 {matched.length})</span> · 제외{' '}
+                        <span className="text-[#94a3b8]"> (외주단가 매칭 {matched.length})</span> · 제외{' '}
                         <b className="text-[#dc2626]">{excluded.length}</b> · 중복{' '}
                         <b className="text-[#94a3b8]">{dups.length}</b>
-                        {outUnmatched > 0 ? (
-                            <span className="text-[#dc2626]"> · 외주비 미매칭 {outUnmatched}행 ⚠</span>
-                        ) : null}
                     </div>
                 ) : null}
                 {rows.length ? (
