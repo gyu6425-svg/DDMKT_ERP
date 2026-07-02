@@ -151,10 +151,13 @@ function ClientFieldModal({
 }
 
 // 계약 추가 모달 — 카테고리 → 세부유형 → 건수·금액·계약일.
+//   boostPrefix 지정 시 = 상위노출 보장형 2차 등록: 카테고리 고정, subtype 앞에 접두 부착.
 function ContractAddModal({
     clientId,
     companyName,
     managerName,
+    boostPrefix,
+    lockCategoryLabel,
     onClose,
     onReload,
     onToast,
@@ -162,13 +165,20 @@ function ContractAddModal({
     clientId: string;
     companyName: string;
     managerName: string;
+    boostPrefix?: string;
+    lockCategoryLabel?: string;
     onClose: () => void;
     onReload: () => Promise<void>;
     onToast: (m: string) => void;
 }) {
-    const [catKey, setCatKey] = useState(PRODUCT_CATEGORIES[0].key);
+    const lockedCat = lockCategoryLabel
+        ? PRODUCT_CATEGORIES.find((c) => c.label === lockCategoryLabel)
+        : undefined;
+    const [catKey, setCatKey] = useState(lockedCat?.key ?? PRODUCT_CATEGORIES[0].key);
     const cat = PRODUCT_CATEGORIES.find((c) => c.key === catKey) ?? PRODUCT_CATEGORIES[0];
-    const [subtype, setSubtype] = useState(cat.subs[0]);
+    // 2차 등록에선 상위노출 보장형 자기 자신은 하위로 못 넣게 제외.
+    const subOptions = boostPrefix ? cat.subs.filter((s) => s !== '상위노출 보장형') : cat.subs;
+    const [subtype, setSubtype] = useState(subOptions[0]);
     const [count, setCount] = useState('');
     const [perDay, setPerDay] = useState('');
     const [days, setDays] = useState('');
@@ -187,7 +197,7 @@ function ContractAddModal({
     const pickCat = (key: string) => {
         setCatKey(key);
         const c = PRODUCT_CATEGORIES.find((x) => x.key === key);
-        if (c) setSubtype(c.subs[0]);
+        if (c) setSubtype((boostPrefix ? c.subs.filter((s) => s !== '상위노출 보장형') : c.subs)[0]);
     };
 
     const submit = async () => {
@@ -208,7 +218,7 @@ function ContractAddModal({
                 outsource_company: outCompany.trim() || null,
                 per_day: daily ? Number(onlyDigits(perDay)) || null : null,
                 remain_count: n,
-                subtype,
+                subtype: (boostPrefix ?? '') + subtype,
                 unit_outsource: outUnit.trim() ? Number(onlyDigits(outUnit)) : null,
                 unit_price: unit.trim() ? Number(onlyDigits(unit)) : null,
             },
@@ -239,35 +249,39 @@ function ContractAddModal({
             onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
             <div className="w-[min(440px,94vw)] rounded-2xl bg-white p-6">
-                <h3 className="m-0 mb-4 text-lg font-bold">+ 계약 추가</h3>
+                <h3 className="m-0 mb-4 text-lg font-bold">
+                    {boostPrefix ? '상위노출 보장형 · 상품 추가' : '+ 계약 추가'}
+                </h3>
                 <div className="grid gap-3">
+                    {lockCategoryLabel ? null : (
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            카테고리
+                            <div className="mt-1 flex flex-wrap gap-1.5">
+                                {PRODUCT_CATEGORIES.map((c) => (
+                                    <button
+                                        className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
+                                            catKey === c.key
+                                                ? 'border-[#1e40af] bg-[#1e40af] text-white'
+                                                : 'border-[#cbd5e1] bg-white text-[#475569]'
+                                        }`}
+                                        key={c.key}
+                                        onClick={() => pickCat(c.key)}
+                                        type="button"
+                                    >
+                                        {c.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </label>
+                    )}
                     <label className="block text-xs font-semibold text-[#475569]">
-                        카테고리
-                        <div className="mt-1 flex flex-wrap gap-1.5">
-                            {PRODUCT_CATEGORIES.map((c) => (
-                                <button
-                                    className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
-                                        catKey === c.key
-                                            ? 'border-[#1e40af] bg-[#1e40af] text-white'
-                                            : 'border-[#cbd5e1] bg-white text-[#475569]'
-                                    }`}
-                                    key={c.key}
-                                    onClick={() => pickCat(c.key)}
-                                    type="button"
-                                >
-                                    {c.label}
-                                </button>
-                            ))}
-                        </div>
-                    </label>
-                    <label className="block text-xs font-semibold text-[#475569]">
-                        세부유형
+                        {boostPrefix ? '넣을 상품(리워드·영수증 등)' : '세부유형'}
                         <select
                             className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
                             onChange={(e) => setSubtype(e.target.value)}
                             value={subtype}
                         >
-                            {cat.subs.map((s) => (
+                            {subOptions.map((s) => (
                                 <option key={s}>{s}</option>
                             ))}
                         </select>
@@ -435,7 +449,7 @@ function ContractEditModal({
     const pct = goalN ? Math.round((done / goalN) * 100) : 0;
     const imminent = hasGoal && (remainN <= 5 || pct >= 80); // 잔여 5건 이하 또는 진행률 80%↑ → 재계약/종료
     // 리워드(일 단위) — 주간 처리: 추천치 = 일일타수 × 7(잔여로 캡), Σ주간로그가 소진과 일치해야 함.
-    const isReward = isDailySub(contract.subtype);
+    const isReward = isDailySub(contract.subtype) || contract.subtype.includes('리워드');
     const perDay = contract.per_day ?? 0;
     const weekRec = Math.min(remainN, perDay * 7); // 주간 추천 타수
     const weekSum = weeklyLogs.reduce((s, l) => s + (l.count || 0), 0); // 기록된 총 처리 타수
@@ -1515,6 +1529,7 @@ export function ClientDetail({
         format?: (v: string) => string;
     } | null>(null);
     const [addOpen, setAddOpen] = useState(false);
+    const [boostAdd, setBoostAdd] = useState<ClientContract | null>(null); // 상위노출 보장형 2차 등록 대상
     const [editContract, setEditContract] = useState<ClientContract | null>(null);
     const [endOpen, setEndOpen] = useState(false); // 상단 계약 종료 모달(히스토리 입력)
     const [endNote, setEndNote] = useState('');
@@ -1750,6 +1765,37 @@ export function ClientDetail({
                                             .map((ct) => {
                                         const prog = progOf(ct);
                                         const done = (ct.goal_count || 0) - (ct.remain_count || 0);
+                                        const isBoostParent = ct.subtype === '상위노출 보장형';
+                                        const isBoostChild = ct.subtype.startsWith('상위노출 보장형 · ');
+                                        const innerLabel = isBoostChild
+                                            ? ct.subtype
+                                                  .slice('상위노출 보장형 · '.length)
+                                                  .replace(/^플레이스용?\s*/, '')
+                                            : '';
+                                        // 상위노출 보장형 부모 = 흐린 카드 + 상품 선택(2차 등록) 입구.
+                                        if (isBoostParent) {
+                                            return (
+                                                <button
+                                                    className="flex h-full min-h-[120px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#c7b8f0] bg-[#faf8ff] px-4 py-3 text-center transition hover:border-[#7c3aed] hover:bg-[#f3ecff]"
+                                                    key={ct.id}
+                                                    onClick={() => setBoostAdd(ct)}
+                                                    type="button"
+                                                >
+                                                    <div className="text-xs font-bold text-[#7c3aed]">
+                                                        상위노출 보장형
+                                                    </div>
+                                                    <div className="mt-1 text-[11px] text-[#94a3b8] blur-[1.5px]">
+                                                        {ct.goal_count ?? '—'}건 · {fmtWon(ct.amount || 0)}원
+                                                    </div>
+                                                    <div className="mt-2 rounded-full bg-[#7c3aed] px-3 py-1 text-xs font-bold text-white">
+                                                        + 상품 선택
+                                                    </div>
+                                                    <div className="mt-1 text-[10px] text-[#94a3b8]">
+                                                        리워드·영수증 등 추가
+                                                    </div>
+                                                </button>
+                                            );
+                                        }
                                         return (
                                             <button
                                                 className="h-full rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
@@ -1759,7 +1805,12 @@ export function ClientDetail({
                                             >
                                                 <div className="flex items-start justify-between gap-1.5">
                                                     <div className="truncate text-xs font-bold text-[#334155]">
-                                                        {ct.subtype}
+                                                        {isBoostChild ? '상위노출 보장형' : ct.subtype}
+                                                        {isBoostChild ? (
+                                                            <span className="ml-1 rounded-full bg-[#ede9fe] px-1.5 py-0.5 text-[11px] font-extrabold text-[#7c3aed]">
+                                                                {innerLabel}
+                                                            </span>
+                                                        ) : null}
                                                     </div>
                                                     {ct.outsource_company && ct.outsource_company !== '실계' ? (
                                                         <span className="shrink-0 truncate rounded-full bg-[#fee2e2] px-2.5 py-0.5 text-[13px] font-extrabold text-[#dc2626]">
@@ -1861,6 +1912,18 @@ export function ClientDetail({
                     companyName={client.company || ''}
                     managerName={client.manager || ''}
                     onClose={() => setAddOpen(false)}
+                    onReload={onReloadContracts}
+                    onToast={onToast}
+                />
+            ) : null}
+            {boostAdd ? (
+                <ContractAddModal
+                    boostPrefix="상위노출 보장형 · "
+                    clientId={client.id}
+                    companyName={client.company || ''}
+                    lockCategoryLabel={boostAdd.category}
+                    managerName={client.manager || ''}
+                    onClose={() => setBoostAdd(null)}
                     onReload={onReloadContracts}
                     onToast={onToast}
                 />
