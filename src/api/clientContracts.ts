@@ -44,6 +44,7 @@ export type ClientContract = {
     per_day?: number | null; // 리워드: 일일 타수(주간 환산 = per_day × 7)
     weekly_logs?: RewardWeeklyLog[] | null; // 리워드: 주차별 진행 로그
     outsource_company?: string | null; // 외주업체명(슈퍼뭉치 등) — 전 상품 공통
+    blog_name?: string | null; // 브랜드 블로그 전용 — 블로그 관리시트 업체명(한 고객사 다중 블로그 A/B/C 구분)
 };
 
 // clientId 주면 그 고객만. 테이블 미생성 등 오류 시에도 앱이 죽지 않도록 [] 반환.
@@ -75,14 +76,16 @@ export async function updateClientContract(id: string, payload: Partial<ClientCo
 export async function syncContractProgressFromBlog(
     clientId: string | null | undefined,
     remainCount: number,
+    blogName?: string | null,
 ) {
     if (!clientId) return { synced: false };
     const { data } = await getClientContracts(clientId);
-    // 브랜드블로그 계약(신규 '브랜드 블로그' 우선, 레거시 '블로그' 다음)만 대상.
+    // 브랜드블로그 계약만 대상. 다중 블로그면 blog_name(관리시트 업체명)으로 정확 매칭.
     const blogs = data.filter((c) => c.category === '블로그');
     const target =
-        blogs.find((c) => c.subtype === '브랜드 블로그') ??
-        blogs.find((c) => c.subtype === '블로그') ??
+        (blogName && blogs.find((c) => (c.blog_name || '') === blogName)) ||
+        blogs.find((c) => c.subtype === '브랜드 블로그') ||
+        blogs.find((c) => c.subtype === '블로그') ||
         null;
     if (!target) return { synced: false };
     const { error } = await updateClientContract(target.id, { remain_count: remainCount });

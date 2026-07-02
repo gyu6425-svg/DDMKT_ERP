@@ -199,9 +199,11 @@ function ContractAddModal({
     const [unit, setUnit] = useState('');
     const [outUnit, setOutUnit] = useState('');
     const [outCompany, setOutCompany] = useState(''); // 외주업체명
+    const [blogName, setBlogName] = useState(''); // 브랜드 블로그 이름(관리시트 업체명)
     const [date, setDate] = useState('');
     const [saving, setSaving] = useState(false);
     const daily = isDailySub(subtype); // 리워드 등 = 일일수량 × 일수
+    const isBrandBlog = cat.label === '블로그' && isBrandBlogSub(subtype); // 브랜드 블로그 = 블로그 이름 입력
     const cnt = daily
         ? (Number(onlyDigits(perDay)) || 0) * (Number(onlyDigits(days)) || 0)
         : Number(onlyDigits(count)) || 0;
@@ -235,6 +237,8 @@ function ContractAddModal({
                 subtype: (boostPrefix ?? '') + subtype,
                 unit_outsource: outUnit.trim() ? Number(onlyDigits(outUnit)) : null,
                 unit_price: unit.trim() ? Number(onlyDigits(unit)) : null,
+                // 브랜드 블로그일 때만 컬럼 참조(컬럼 미생성 시 다른 계약 추가는 영향 없게).
+                ...(isBrandBlog ? { blog_name: blogName.trim() || null } : {}),
             },
         ]);
         setSaving(false);
@@ -243,9 +247,10 @@ function ContractAddModal({
             return;
         }
         // 브랜드 블로그 계약만 브랜드블로그 관리 시트(blog_accounts)에 등록.
+        //   블로그 이름을 입력하면 그 이름이 관리시트 업체명(다중 블로그 A/B/C 구분). 없으면 업체명.
         //   최적화·준최적화·단순·AI 블로그 배포는 각 하위 카테고리 페이지에서 관리(브랜드블로그 시트 제외).
-        if (cat.label === '블로그' && isBrandBlogSub(subtype)) {
-            await ensureClientBlogAccount(clientId, companyName || '업체', {
+        if (isBrandBlog) {
+            await ensureClientBlogAccount(clientId, blogName.trim() || companyName || '업체', {
                 amount: amt || null,
                 contract_date: date || null,
                 goal_count: n,
@@ -301,6 +306,18 @@ function ContractAddModal({
                             ))}
                         </select>
                     </label>
+                    {isBrandBlog ? (
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            브랜드 블로그 이름
+                            <input
+                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                                onChange={(e) => setBlogName(e.target.value)}
+                                placeholder="관리시트 업체명 (예: 크레인커뮤니케이션A) · 비우면 업체명"
+                                type="text"
+                                value={blogName}
+                            />
+                        </label>
+                    ) : null}
                     <div className="grid grid-cols-3 gap-2">
                         <label className="block text-xs font-semibold text-[#475569]">
                             {daily ? '타 × 일수' : '수량'}
@@ -516,7 +533,7 @@ function ContractEditModal({
         amount?: number | null;
     }) => {
         if (!isBrandBlogSub(contract.subtype)) return;
-        await syncBlogAccountFromContract(contract.client_id, fields);
+        await syncBlogAccountFromContract(contract.client_id, fields, contract.blog_name);
     };
 
     // +1건 완료 / 되돌리기 — 잔여를 바로 저장(진행률 자동 반영).
@@ -1860,11 +1877,18 @@ export function ClientDetail({
                                                             </span>
                                                         ) : null}
                                                     </div>
-                                                    {ct.outsource_company && ct.outsource_company !== '실계' ? (
-                                                        <span className="shrink-0 truncate rounded-full bg-[#fee2e2] px-2.5 py-0.5 text-[13px] font-extrabold text-[#dc2626]">
-                                                            {ct.outsource_company}
-                                                        </span>
-                                                    ) : null}
+                                                    <div className="flex shrink-0 items-center gap-1">
+                                                        {ct.blog_name ? (
+                                                            <span className="max-w-[130px] truncate rounded-full bg-[#ede9fe] px-2.5 py-0.5 text-[12px] font-extrabold text-[#7c3aed]">
+                                                                {ct.blog_name}
+                                                            </span>
+                                                        ) : null}
+                                                        {ct.outsource_company && ct.outsource_company !== '실계' ? (
+                                                            <span className="truncate rounded-full bg-[#fee2e2] px-2.5 py-0.5 text-[13px] font-extrabold text-[#dc2626]">
+                                                                {ct.outsource_company}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
                                                 </div>
                                                 {ct.contract_date ? (
                                                     <div className="mt-0.5 text-[11px] font-semibold text-[#94a3b8]">

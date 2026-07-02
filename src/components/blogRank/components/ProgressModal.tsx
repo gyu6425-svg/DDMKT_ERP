@@ -38,8 +38,8 @@ export function ProgressModal({
             setRemain(remain); // 롤백
             return;
         }
-        // 계약 관리(client_contracts)의 브랜드 블로그 계약에도 진행률 반영(양방향 연동).
-        await syncContractProgressFromBlog(account.client_id, next);
+        // 계약 관리(client_contracts)의 브랜드 블로그 계약에도 진행률 반영(양방향 연동). 다중 블로그는 이름으로 매칭.
+        await syncContractProgressFromBlog(account.client_id, next, account.name);
         await onReload();
     };
 

@@ -67,7 +67,7 @@ export function AccountEditModal({
         // 진행률(잔여건수) 변경 시 계약 관리의 브랜드 블로그 계약에도 반영(양방향 연동).
         const nextRemain = parseNum(remainCount);
         if (nextRemain != null && nextRemain !== account.remain_count) {
-            await syncContractProgressFromBlog(account.client_id, nextRemain);
+            await syncContractProgressFromBlog(account.client_id, nextRemain, account.name);
         }
         await onReload();
         onToast('저장 완료');

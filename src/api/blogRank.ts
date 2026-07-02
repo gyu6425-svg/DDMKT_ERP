@@ -146,7 +146,8 @@ export async function ensureClientBlogAccount(
     },
 ) {
     const { data } = await getBlogAccounts(clientId);
-    if (data.length) {
+    // 같은 이름(관리시트 업체명)의 계정이 이미 있으면 skip. 다중 블로그(A/B/C)는 이름이 달라 각각 생성됨.
+    if (data.some((a) => a.name === name)) {
         return { created: false };
     }
     const { error } = await insertBlogAccounts([
@@ -179,11 +180,13 @@ export async function syncBlogAccountFromContract(
         manager?: string | null;
         contact?: string | null;
     },
+    blogName?: string | null,
 ) {
     if (!clientId) return { synced: false };
     const { data } = await getBlogAccounts(clientId);
     if (!data.length) return { synced: false };
-    const acc = data[0];
+    // 다중 블로그면 blog_name(관리시트 업체명)으로 정확 매칭, 없으면 첫 계정.
+    const acc = (blogName && data.find((a) => a.name === blogName)) || data[0];
     const payload: Partial<BlogAccount> = {};
     if (fields.goal_count !== undefined) payload.goal_count = fields.goal_count;
     if (fields.remain_count !== undefined) payload.remain_count = fields.remain_count;
