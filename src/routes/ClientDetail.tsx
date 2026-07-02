@@ -1140,22 +1140,22 @@ function ContractEditModal({
                                 </div>
                             </>
                         ) : (
-                            <>
+                            <div className="flex gap-2">
                                 <button
-                                    className="w-full rounded-md bg-[#059669] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#047857]"
+                                    className="flex-1 rounded-md bg-[#059669] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#047857]"
                                     onClick={() => setRenewMode(true)}
                                     type="button"
                                 >
-                                    재계약 (새 계약 시작)
+                                    재계약
                                 </button>
                                 <button
-                                    className="w-full rounded-md bg-[#dc2626] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#b91c1c]"
+                                    className="flex-1 rounded-md bg-[#dc2626] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#b91c1c]"
                                     onClick={onEnd}
                                     type="button"
                                 >
                                     계약 종료
                                 </button>
-                            </>
+                            </div>
                         )}
                     </div>
                 ) : null}
