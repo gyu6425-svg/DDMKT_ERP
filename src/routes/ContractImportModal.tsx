@@ -216,7 +216,7 @@ export function ContractImportModal({
                     client_partner: first.partner || null,
                     company: first.company,
                     manager: first.manager || null,
-                    status: '계약완료',
+                    status: '임시', // 계약 관리 '임시(테스트)' 탭에서 따로 확인. 검토 후 계약완료로 전환.
                 });
                 if (error || !data[0]?.id) {
                     failed += grp.length;

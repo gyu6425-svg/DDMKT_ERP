@@ -29,6 +29,7 @@ import {
 const FAVS_KEY = 'erp_favs';
 const DONE_STATUS = '계약완료'; // 계약 완료 판정 기준(상태). 계약 관리 진입 + 완료/미완료 탭이 공유.
 const ENDED_STATUS = '계약종료'; // 계약 종료(터미널). 종료 탭. 5단계(신규~보류)와 별개.
+const TEMP_STATUS = '임시'; // 시트 임포터 테스트 등록 — 계약 관리에서 '임시(테스트)' 탭으로 분리 표시.
 // 숫자 입력 포맷 — 저장은 숫자만, 표시는 천단위 콤마(2000 → 2,000).
 const onlyDigits = (s: string) => s.replace(/[^\d]/g, '');
 const withCommas = (s: string) => (onlyDigits(s) ? Number(onlyDigits(s)).toLocaleString('ko-KR') : '');
@@ -134,6 +135,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [favs, setFavs] = useState<string[]>(loadFavs);
     // 고객사 관리 하단 탭 — 계약 완료(블로그 등 계정 연결) vs 미완료(보류·문의만). contractsOnly 화면에선 미사용.
     const [clientTab, setClientTab] = useState<'done' | 'pending' | 'ended'>('pending');
+    const [tempView, setTempView] = useState(false); // 계약 관리: false=계약완료, true=임시(테스트)
     // 계약 진행 단계 변경 대상(5단계 선택 모달).
     const [stageClient, setStageClient] = useState<ErpClient | null>(null);
     // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
@@ -204,8 +206,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 (client.product || '').toLowerCase().includes(q);
             const matchesStatus = !statusFilter || client.status === statusFilter;
             const matchesFav = !favOnly || favs.includes(client.id);
-            // 계약 관리(contractsOnly)는 '계약완료' 상태만 진입.
-            const matchesContract = !contractsOnly || client.status === DONE_STATUS;
+            // 계약 관리(contractsOnly)는 '계약완료'(또는 임시 탭이면 '임시') 상태만 진입.
+            const matchesContract =
+                !contractsOnly || client.status === (tempView ? TEMP_STATUS : DONE_STATUS);
             // 고객사 관리 전체 화면에서만 완료/미완료/종료 탭 적용(상태 기준).
             const matchesTab =
                 contractsOnly ||
@@ -223,7 +226,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
         });
-    }, [clients, search, statusFilter, favOnly, favs, contractsOnly, clientTab]);
+    }, [clients, search, statusFilter, favOnly, favs, contractsOnly, clientTab, tempView]);
 
     // 계약 관리 KPI — 계약 중(계약완료 고객 수) + 재계약 임박(카테고리 계약 중 잔여 5건 이하).
     const doneClientIds = useMemo(
@@ -689,6 +692,33 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                 }`}
                                 key={t.key}
                                 onClick={() => setClientTab(t.key)}
+                                type="button"
+                            >
+                                {t.label} ({count})
+                            </button>
+                        );
+                    })}
+                </div>
+            ) : null}
+
+            {contractsOnly ? (
+                <div className="flex gap-1 border-b border-[#e2e8f0]">
+                    {(
+                        [
+                            { key: false, label: '계약', status: DONE_STATUS },
+                            { key: true, label: '임시(테스트)', status: TEMP_STATUS },
+                        ] as { key: boolean; label: string; status: string }[]
+                    ).map((t) => {
+                        const count = clients.filter((c) => c.status === t.status).length;
+                        return (
+                            <button
+                                className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
+                                    tempView === t.key
+                                        ? 'border-[#1e40af] text-[#1e40af]'
+                                        : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
+                                }`}
+                                key={String(t.key)}
+                                onClick={() => setTempView(t.key)}
                                 type="button"
                             >
                                 {t.label} ({count})
