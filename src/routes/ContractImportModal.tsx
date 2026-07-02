@@ -52,7 +52,6 @@ function mapProduct(nameRaw: string, unit = 0): Mapped {
         '클립 업로드',
         '월관리 패키지',
         '90패키지',
-        '프리미엄 배포',
         '서비스',
     ];
     if (!p) return { exclude: true };
@@ -65,6 +64,7 @@ function mapProduct(nameRaw: string, unit = 0): Mapped {
     if (has('ai') || has('AI')) return { category: '블로그', subtype: 'AI 블로그 배포' };
     if (has('상위노출') || has('월보장')) return { category: '플레이스', subtype: '상위노출 보장형' };
     if (has('영수증')) return { category: '플레이스', subtype: '영수증 리뷰' };
+    if (has('프리미엄')) return { category: '플레이스', subtype: '플레이스용 블로그 배포' };
     if (has('브랜드블로그') || has('브랜드 블로그')) return { category: '블로그', subtype: '브랜드 블로그' };
     if (has('준최적화')) return { category: '블로그', subtype: '준최적화 블로그 배포' };
     if (has('최적화')) return { category: '블로그', subtype: '최적화 블로그 배포' };
