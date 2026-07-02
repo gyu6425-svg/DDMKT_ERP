@@ -159,7 +159,7 @@ export function ContractImportModal({
             if (!company || !product) continue;
             const qty = num(c[iQty]);
             const amount = iAmount >= 0 ? num(c[iAmount]) : 0;
-            const outsource = iOut >= 0 ? num(c[iOut]) : 0;
+            let outsource = iOut >= 0 ? num(c[iOut]) : 0; // 매출 시트 외주비(비어있을 수 있음)
             const key = `${iDate >= 0 ? (c[iDate] || '').trim() : ''}|${company}|${product}|${qty}|${amount}`;
             const dup = seen.has(key);
             seen.add(key);
@@ -175,6 +175,8 @@ export function ContractImportModal({
                     const om = b.splice(idx, 1)[0];
                     vendor = om.vendor || null;
                     outUnit = om.outUnit || outUnit;
+                    // 매칭 시 외주비 금액은 외주비 시트(공급가액)를 우선 — 매출 시트 외주비가 비어도 반영.
+                    if (om.outAmount > 0) outsource = om.outAmount;
                 }
             }
             out.push({
