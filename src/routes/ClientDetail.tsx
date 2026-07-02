@@ -932,10 +932,68 @@ function ContractEditModal({
                             </div>
                             </>
                         ) : (
-                            <>
+                            <div className="mt-3 rounded-lg border border-[#dbeafe] bg-[#eff6ff] px-3 py-4 text-left">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-bold text-[#1e40af]">진행 처리</span>
+                                    <button
+                                        className="rounded-md border border-[#93c5fd] px-2 py-1 text-[11px] font-semibold text-[#1e40af] hover:bg-[#dbeafe] disabled:opacity-50"
+                                        disabled={saving}
+                                        onClick={() => void saveOutsource()}
+                                        type="button"
+                                    >
+                                        외주 저장
+                                    </button>
+                                </div>
+                                {/* 외주단가·외주업체 — 리워드와 동일 구조. 완료 처리 시 이 값으로 외주비 계산·로그 기록 */}
+                                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                                    <label className="block text-[11px] font-semibold text-[#475569]">
+                                        외주단가(원)
+                                        <input
+                                            className="mt-0.5 h-9 w-full rounded-md border border-[#fecaca] px-2 text-right text-sm"
+                                            inputMode="numeric"
+                                            onChange={(e) => setOutUnitEdit(withCommas(e.target.value))}
+                                            placeholder="예: 8,000"
+                                            value={withCommas(outUnitEdit)}
+                                        />
+                                    </label>
+                                    <label className="block text-[11px] font-semibold text-[#475569]">
+                                        외주업체명
+                                        <input
+                                            className="mt-0.5 h-9 w-full rounded-md border border-[#fecaca] px-2 text-sm"
+                                            onChange={(e) => setOutCompanyEdit(e.target.value)}
+                                            placeholder="외주업체명"
+                                            value={outCompanyEdit}
+                                        />
+                                    </label>
+                                </div>
+                                {/* 입금 처리/미처리 토글 */}
                                 <div className="mt-2 flex gap-2">
                                     <button
-                                        className="flex-1 rounded-md bg-[#059669] px-4 py-2 text-sm font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                                        className={`flex-1 rounded-md py-2 text-sm font-extrabold ${
+                                            weekPaid
+                                                ? 'bg-[#059669] text-white'
+                                                : 'border border-[#cbd5e1] bg-white text-[#94a3b8]'
+                                        }`}
+                                        onClick={() => setWeekPaid(true)}
+                                        type="button"
+                                    >
+                                        입금 처리
+                                    </button>
+                                    <button
+                                        className={`flex-1 rounded-md py-2 text-sm font-extrabold ${
+                                            !weekPaid
+                                                ? 'bg-[#dc2626] text-white'
+                                                : 'border border-[#cbd5e1] bg-white text-[#94a3b8]'
+                                        }`}
+                                        onClick={() => setWeekPaid(false)}
+                                        type="button"
+                                    >
+                                        입금 미처리
+                                    </button>
+                                </div>
+                                <div className="mt-2 flex gap-2">
+                                    <button
+                                        className="flex-1 rounded-md border border-[#059669] bg-white px-4 py-2 text-sm font-bold text-[#059669] hover:bg-[#059669] hover:text-white disabled:opacity-50"
                                         disabled={saving || remainN <= 0}
                                         onClick={() => void commitWeek(1, false)}
                                         type="button"
@@ -943,7 +1001,7 @@ function ContractEditModal({
                                         + 1건 완료
                                     </button>
                                     <button
-                                        className="rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50"
+                                        className="rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50"
                                         disabled={saving || remainN >= goalN}
                                         onClick={() =>
                                             weeklyLogs.length
@@ -958,7 +1016,7 @@ function ContractEditModal({
                                 {/* N건 일괄 완료 — 진행 이력에 기록 남김 */}
                                 <div className="mt-2 flex items-center gap-1.5">
                                     <input
-                                        className="h-9 w-full rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                        className="h-9 w-full rounded-md border border-[#93c5fd] bg-white px-2 text-sm"
                                         inputMode="numeric"
                                         onChange={(e) => setBulk(withCommas(e.target.value))}
                                         onKeyDown={(e) => {
@@ -982,19 +1040,22 @@ function ContractEditModal({
                                         일괄 완료
                                     </button>
                                 </div>
-                                {Number(onlyDigits(bulk)) > 0 && (contract.unit_outsource ?? 0) > 0 ? (
-                                    <div className="mt-1 text-right text-[11px] text-[#94a3b8]">
+                                {Number(onlyDigits(bulk)) > 0 &&
+                                (Number(onlyDigits(outUnitEdit)) || contract.unit_outsource || 0) > 0 ? (
+                                    <div className="mt-1 text-right text-[11px] text-[#64748b]">
                                         이번 처리 소진 외주비 ≈{' '}
-                                        <b className="text-[#475569]">
+                                        <b className="text-[#dc2626]">
                                             {fmtWon(
                                                 Math.min(remainN, Number(onlyDigits(bulk))) *
-                                                    (contract.unit_outsource ?? 0),
+                                                    (Number(onlyDigits(outUnitEdit)) ||
+                                                        contract.unit_outsource ||
+                                                        0),
                                             )}
                                             원
                                         </b>
                                     </div>
                                 ) : null}
-                            </>
+                            </div>
                         )}
                         {/* 진행 이력 — 리워드/일반 공통(완료 처리마다 외주비 사용량 기록, 삭제 시 되돌림) */}
                         {hasGoal ? (
@@ -1111,50 +1172,6 @@ function ContractEditModal({
                                 )}
                             </div>
                         ) : null}
-                    </div>
-                ) : null}
-
-                {/* 외주 정보 — 비리워드용(리워드는 주간 진행 안에서 입력). 외주비=외주단가×수량 */}
-                {!isReward && history.length === 0 ? (
-                    <div className="my-3 rounded-lg border border-[#fee2e2] bg-[#fff7f7] px-4 py-3">
-                        <div className="mb-1.5 text-xs font-bold text-[#dc2626]">외주 정보</div>
-                        <div className="grid grid-cols-2 gap-2">
-                            <label className="block text-[11px] font-semibold text-[#475569]">
-                                외주단가(원)
-                                <input
-                                    className="mt-1 h-9 w-full rounded-md border border-[#fecaca] px-2 text-right text-sm"
-                                    inputMode="numeric"
-                                    onChange={(e) => setOutUnitEdit(withCommas(e.target.value))}
-                                    placeholder="예: 33"
-                                    value={withCommas(outUnitEdit)}
-                                />
-                            </label>
-                            <label className="block text-[11px] font-semibold text-[#475569]">
-                                외주업체명
-                                <input
-                                    className="mt-1 h-9 w-full rounded-md border border-[#fecaca] px-2 text-sm"
-                                    onChange={(e) => setOutCompanyEdit(e.target.value)}
-                                    placeholder="외주업체명 입력"
-                                    value={outCompanyEdit}
-                                />
-                            </label>
-                        </div>
-                        <div className="mt-1.5 flex items-center justify-between">
-                            <span className="text-[11px] text-[#94a3b8]">
-                                외주비 = 외주단가 × {goalN.toLocaleString('ko-KR')} ={' '}
-                                <b className="text-[#dc2626]">
-                                    {fmtWon((Number(onlyDigits(outUnitEdit)) || 0) * goalN)}원
-                                </b>
-                            </span>
-                            <button
-                                className="rounded-md bg-[#dc2626] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#b91c1c] disabled:opacity-50"
-                                disabled={saving}
-                                onClick={() => void saveOutsource()}
-                                type="button"
-                            >
-                                외주 저장
-                            </button>
-                        </div>
                     </div>
                 ) : null}
 
@@ -1746,19 +1763,24 @@ export function ClientDetail({
                             </div>
                             {(() => {
                                 // 세부유형별 그룹 → 각 유형을 별도 그리드로(다음 유형은 새 줄부터 시작).
+                                //   상위노출 보장형은 하위(· 리워드/영수증)까지 한 그룹으로 묶어 같은 줄에.
                                 const catCts = contracts.filter((ct) => ct.category === c.label);
-                                const subs = [...new Set(catCts.map((ct) => ct.subtype))].sort((a, b) => {
-                                    const ai = c.subs.indexOf(a);
-                                    const bi = c.subs.indexOf(b);
-                                    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
-                                });
+                                const groupKey = (s: string) =>
+                                    s.startsWith('상위노출 보장형') ? '상위노출 보장형' : s;
+                                const subs = [...new Set(catCts.map((ct) => groupKey(ct.subtype)))].sort(
+                                    (a, b) => {
+                                        const ai = c.subs.indexOf(a);
+                                        const bi = c.subs.indexOf(b);
+                                        return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+                                    },
+                                );
                                 return subs.map((st) => (
                                     <div
                                         className="mb-3 grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
                                         key={st}
                                     >
                                         {catCts
-                                            .filter((ct) => ct.subtype === st)
+                                            .filter((ct) => groupKey(ct.subtype) === st)
                                             .sort((a, b) =>
                                                 (a.contract_date || '').localeCompare(b.contract_date || ''),
                                             )
