@@ -399,6 +399,7 @@ function ContractEditModal({
     const [outCompanyEdit, setOutCompanyEdit] = useState(contract.outsource_company ?? ''); // 나중 외주업체 입력
     const [weeklyLogs, setWeeklyLogs] = useState<RewardWeeklyLog[]>(contract.weekly_logs ?? []);
     const [weekInput, setWeekInput] = useState(''); // 리워드 주간 처리 타수
+    const [weekPaid, setWeekPaid] = useState(false); // 이번 주 입금 처리 여부
     const [editLog, setEditLog] = useState<{ idx: number; value: string } | null>(null); // 진행 이력 타수 수정
     const [amount] = useState(contract.amount?.toString() ?? '');
     const [date] = useState(contract.contract_date ?? '');
@@ -528,12 +529,14 @@ function ContractEditModal({
             auto,
             count: applied,
             outUnit: unit,
+            paid: weekPaid,
             vendor,
             week: isoWeek(new Date()),
         };
         const newLogs = [...weeklyLogs, log];
         setRemain(String(next));
         setWeekInput('');
+        setWeekPaid(false);
         setSaving(true);
         // 1) 잔여 + 외주단가/외주업체/총외주비 저장(핵심값) — 실패 시 롤백.
         const { error } = await updateClientContract(contract.id, {
@@ -580,6 +583,22 @@ function ContractEditModal({
         if (error) {
             onToast(`오류: ${error.message}`);
             setRemain(String(remainN));
+            setWeeklyLogs(weeklyLogs);
+        } else {
+            await onReload();
+        }
+    };
+
+    // 진행 이력의 입금 처리/미처리 토글.
+    const toggleLogPaid = async (i: number) => {
+        if (saving) return;
+        const newLogs = weeklyLogs.map((l, j) => (j === i ? { ...l, paid: !l.paid } : l));
+        setWeeklyLogs(newLogs);
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, { weekly_logs: newLogs });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
             setWeeklyLogs(weeklyLogs);
         } else {
             await onReload();
@@ -719,7 +738,7 @@ function ContractEditModal({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
             onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
-            <div className="max-h-[92vh] w-[min(440px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
+            <div className="max-h-[92vh] w-[min(520px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">
                     {contract.category} · {contract.subtype}
                 </h3>
@@ -817,6 +836,31 @@ function ContractEditModal({
                                             value={outCompanyEdit}
                                         />
                                     </label>
+                                </div>
+                                {/* 입금 처리/미처리 토글 — 로그에 함께 기록 */}
+                                <div className="mt-2 flex gap-2">
+                                    <button
+                                        className={`flex-1 rounded-md py-2 text-sm font-extrabold ${
+                                            weekPaid
+                                                ? 'bg-[#059669] text-white'
+                                                : 'border border-[#cbd5e1] bg-white text-[#94a3b8]'
+                                        }`}
+                                        onClick={() => setWeekPaid(true)}
+                                        type="button"
+                                    >
+                                        입금 처리
+                                    </button>
+                                    <button
+                                        className={`flex-1 rounded-md py-2 text-sm font-extrabold ${
+                                            !weekPaid
+                                                ? 'bg-[#dc2626] text-white'
+                                                : 'border border-[#cbd5e1] bg-white text-[#94a3b8]'
+                                        }`}
+                                        onClick={() => setWeekPaid(false)}
+                                        type="button"
+                                    >
+                                        입금 미처리
+                                    </button>
                                 </div>
                                 <div className="mt-2 text-[11px] font-bold text-[#1e40af]">이번 주 처리 타수</div>
                                 <div className="mt-1 flex items-center gap-1.5">
@@ -964,6 +1008,19 @@ function ContractEditModal({
                                                 className="flex items-center gap-1.5 rounded-md border border-[#eef2f7] bg-[#f8fafc] px-2 py-1.5 text-xs"
                                                 key={i}
                                             >
+                                                <button
+                                                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                                        l.paid
+                                                            ? 'bg-[#dcfce7] text-[#16a34a]'
+                                                            : 'bg-[#fee2e2] text-[#dc2626]'
+                                                    }`}
+                                                    disabled={saving}
+                                                    onClick={() => void toggleLogPaid(i)}
+                                                    title="클릭해서 처리/미처리 전환"
+                                                    type="button"
+                                                >
+                                                    {l.paid ? '처리' : '미처리'}
+                                                </button>
                                                 <span className="rounded bg-[#dbeafe] px-1.5 py-0.5 text-[11px] font-bold text-[#1e40af]">
                                                     {isReward ? `${i + 1}주차` : `${i + 1}회`}
                                                 </span>
