@@ -237,8 +237,7 @@ function ContractAddModal({
                 subtype: (boostPrefix ?? '') + subtype,
                 unit_outsource: outUnit.trim() ? Number(onlyDigits(outUnit)) : null,
                 unit_price: unit.trim() ? Number(onlyDigits(unit)) : null,
-                // 브랜드 블로그일 때만 컬럼 참조(컬럼 미생성 시 다른 계약 추가는 영향 없게).
-                ...(isBrandBlog ? { blog_name: blogName.trim() || null } : {}),
+                blog_name: blogName.trim() || null, // 업체명/이름 라벨(전 카테고리 공통, 카드 칩 표시)
             },
         ]);
         setSaving(false);
@@ -306,18 +305,20 @@ function ContractAddModal({
                             ))}
                         </select>
                     </label>
-                    {isBrandBlog ? (
-                        <label className="block text-xs font-semibold text-[#475569]">
-                            브랜드 블로그 이름
-                            <input
-                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
-                                onChange={(e) => setBlogName(e.target.value)}
-                                placeholder="관리시트 업체명 (예: 크레인커뮤니케이션A) · 비우면 업체명"
-                                type="text"
-                                value={blogName}
-                            />
-                        </label>
-                    ) : null}
+                    <label className="block text-xs font-semibold text-[#475569]">
+                        {isBrandBlog ? '브랜드 블로그 이름' : '업체명'}
+                        <input
+                            className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                            onChange={(e) => setBlogName(e.target.value)}
+                            placeholder={
+                                isBrandBlog
+                                    ? '관리시트 업체명 (예: 크레인커뮤니케이션A) · 비우면 업체명'
+                                    : '업체명(선택) · 같은 카테고리 여러 건 구분용, 카드에 표시'
+                            }
+                            type="text"
+                            value={blogName}
+                        />
+                    </label>
                     <div className="grid grid-cols-3 gap-2">
                         <label className="block text-xs font-semibold text-[#475569]">
                             {daily ? '타 × 일수' : '수량'}
