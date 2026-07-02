@@ -1646,6 +1646,12 @@ export function ClientDetail({
                                             >
                                                 <div className="truncate text-xs font-bold text-[#334155]">
                                                     {ct.subtype}
+                                                    {ct.outsource_company ? (
+                                                        <span className="text-[#dc2626]">
+                                                            {' · '}
+                                                            {ct.outsource_company}
+                                                        </span>
+                                                    ) : null}
                                                 </div>
                                                 <div
                                                     className="mt-0.5 text-2xl font-bold"
