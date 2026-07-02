@@ -222,6 +222,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         });
 
         return list.sort((a, b) => {
+            // 임시(테스트) 탭은 등록한 순서(먼저 등록 → 위)로.
+            if (contractsOnly && tempView) {
+                return (a.created_at || '').localeCompare(b.created_at || '');
+            }
             const af = favs.includes(a.id) ? 0 : 1;
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
