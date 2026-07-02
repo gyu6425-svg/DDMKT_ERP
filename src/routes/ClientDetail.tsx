@@ -1644,14 +1644,16 @@ export function ClientDetail({
                                                 onClick={() => setEditContract(ct)}
                                                 type="button"
                                             >
-                                                <div className="truncate text-xs font-bold text-[#334155]">
-                                                    {ct.subtype}
+                                                <div className="flex items-start justify-between gap-1.5">
+                                                    <div className="truncate text-xs font-bold text-[#334155]">
+                                                        {ct.subtype}
+                                                    </div>
+                                                    {ct.outsource_company && ct.outsource_company !== '실계' ? (
+                                                        <span className="shrink-0 truncate rounded-full bg-[#fee2e2] px-2.5 py-0.5 text-[13px] font-extrabold text-[#dc2626]">
+                                                            {ct.outsource_company}
+                                                        </span>
+                                                    ) : null}
                                                 </div>
-                                                {ct.outsource_company && ct.outsource_company !== '실계' ? (
-                                                    <span className="mt-1 inline-block max-w-full truncate rounded-full bg-[#fee2e2] px-2.5 py-1 text-[13px] font-extrabold text-[#dc2626]">
-                                                        {ct.outsource_company}
-                                                    </span>
-                                                ) : null}
                                                 <div
                                                     className="mt-0.5 text-2xl font-bold"
                                                     style={{ color: progColor(prog) }}
@@ -1682,11 +1684,6 @@ export function ClientDetail({
                                                 {(ct.unit_outsource ?? 0) > 0 ? (
                                                     <div className="mt-0.5 text-[11px] font-semibold text-[#dc2626]">
                                                         잔여 외주 {fmtWon(outsourceOf(ct).remain)}원
-                                                    </div>
-                                                ) : null}
-                                                {ct.outsource_company ? (
-                                                    <div className="mt-0.5 truncate text-[10px] text-[#94a3b8]">
-                                                        외주업체 · {ct.outsource_company}
                                                     </div>
                                                 ) : null}
                                             </button>
