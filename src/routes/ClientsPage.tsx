@@ -12,7 +12,7 @@ import {
     insertClientContracts,
     type ClientContract,
 } from '../api/clientContracts';
-import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
+import { PRODUCT_CATEGORIES, isDailySub, isBrandBlogSub } from '../lib/products';
 import { ClientDetail } from './ClientDetail';
 import Button from '../components/Button';
 import { ContractImportModal } from './ContractImportModal';
@@ -402,8 +402,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 const { error: cErr } = await insertClientContracts(rows);
                 if (cErr) showToast(`계약 저장 오류: ${cErr.message}`);
                 await reloadContracts();
-                // 블로그 계약이면 블로그 관리 시트(blog_accounts)에도 자동 등록.
-                const blogRow = rows.find((r) => r.category === '블로그');
+                // 브랜드 블로그 계약만 브랜드블로그 관리 시트(blog_accounts)에 등록.
+                //   최적화·준최적화·단순·AI 블로그 배포는 각 하위 카테고리 페이지에서 관리.
+                const blogRow = rows.find(
+                    (r) => r.category === '블로그' && isBrandBlogSub(r.subtype || ''),
+                );
                 if (blogRow) {
                     await ensureClientBlogAccount(createdId, payload.company || '업체', {
                         amount: blogRow.amount ?? null,

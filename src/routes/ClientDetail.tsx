@@ -10,7 +10,7 @@ import {
 } from '../api/clientContracts';
 import { ensureClientBlogAccount, syncBlogAccountFromContract } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
-import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
+import { PRODUCT_CATEGORIES, isDailySub, isBrandBlogSub } from '../lib/products';
 import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
 import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, todayStr } from '../lib/erpUtils';
 
@@ -242,8 +242,9 @@ function ContractAddModal({
             onToast(`오류: ${error.message}`);
             return;
         }
-        // 블로그 계약이면 블로그 관리 시트에도 자동 등록.
-        if (cat.label === '블로그') {
+        // 브랜드 블로그 계약만 브랜드블로그 관리 시트(blog_accounts)에 등록.
+        //   최적화·준최적화·단순·AI 블로그 배포는 각 하위 카테고리 페이지에서 관리(브랜드블로그 시트 제외).
+        if (cat.label === '블로그' && isBrandBlogSub(subtype)) {
             await ensureClientBlogAccount(clientId, companyName || '업체', {
                 amount: amt || null,
                 contract_date: date || null,
@@ -514,7 +515,7 @@ function ContractEditModal({
         contract_date?: string | null;
         amount?: number | null;
     }) => {
-        if (contract.category !== '블로그') return;
+        if (!isBrandBlogSub(contract.subtype)) return;
         await syncBlogAccountFromContract(contract.client_id, fields);
     };
 

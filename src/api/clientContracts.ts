@@ -78,8 +78,12 @@ export async function syncContractProgressFromBlog(
 ) {
     if (!clientId) return { synced: false };
     const { data } = await getClientContracts(clientId);
+    // 브랜드블로그 계약(신규 '브랜드 블로그' 우선, 레거시 '블로그' 다음)만 대상.
     const blogs = data.filter((c) => c.category === '블로그');
-    const target = blogs.find((c) => c.subtype === '브랜드 블로그') ?? blogs[0];
+    const target =
+        blogs.find((c) => c.subtype === '브랜드 블로그') ??
+        blogs.find((c) => c.subtype === '블로그') ??
+        null;
     if (!target) return { synced: false };
     const { error } = await updateClientContract(target.id, { remain_count: remainCount });
     return { synced: !error, error };

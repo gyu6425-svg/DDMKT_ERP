@@ -35,3 +35,9 @@ export const categoryByLabel = (label: string): ProductCategory | undefined =>
 // 일 단위 상품 — 총수량 = 일일수량 × 일수(예: 리워드 100타/일 × 90일). 입력을 2칸으로 나눈다.
 export const DAILY_SUBS = new Set<string>(['플레이스 리워드']);
 export const isDailySub = (sub: string) => DAILY_SUBS.has(sub);
+
+// 브랜드블로그 관리 시트(blog_accounts)에 대응하는 블로그 세부유형.
+//   '브랜드 블로그'(신규 표기) + '블로그'(레거시 표기) = 브랜드블로그. 크롤·순위 추적 대상.
+//   최적화/준최적화/단순/AI 블로그 배포·유료이미지는 각 하위 카테고리에서 관리(브랜드블로그 시트 제외).
+export const BRAND_BLOG_SUBS = new Set<string>(['브랜드 블로그', '블로그']);
+export const isBrandBlogSub = (sub: string) => BRAND_BLOG_SUBS.has(sub);
