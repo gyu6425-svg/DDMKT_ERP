@@ -140,6 +140,9 @@ export function ContractImportModal({
             const outsource = iOut >= 0 ? num(c[iOut]) : 0;
             const unit = iUnit >= 0 ? num(c[iUnit]) : 0;
             const base = productBase(product);
+            const mp = mapProduct(base, unit);
+            // 상위노출 보장형 부모는 외주비 무시(0) — 외주비는 2차 등록 하위에서만 입력.
+            const isBoost = !('exclude' in mp) && mp.subtype === '상위노출 보장형';
             const key = `${iDate >= 0 ? (c[iDate] || '').trim() : ''}|${company}|${product}|${qty}|${amount}`;
             const dup = seen.has(key);
             seen.add(key);
@@ -149,10 +152,10 @@ export function ContractImportModal({
                 date: iDate >= 0 ? parseDate(c[iDate]) : null,
                 dup,
                 manager: iManager >= 0 ? (c[iManager] || '').trim() : '',
-                map: mapProduct(base, unit), // 단가 전달(블로그 배포 10,000원 임계값)
-                // 외주단가 = 외주비 ÷ 수량(외주비가 있을 때만). 외주업체는 알려진 브랜드면 자동.
-                outUnit: qty > 0 && outsource > 0 ? Math.round(outsource / qty) : null,
-                outsource,
+                map: mp, // 단가 전달(블로그 배포 10,000원 임계값)
+                // 외주단가 = 외주비 ÷ 수량. 상위노출 보장형 부모는 0(하위에서 입력).
+                outUnit: isBoost ? null : qty > 0 && outsource > 0 ? Math.round(outsource / qty) : null,
+                outsource: isBoost ? 0 : outsource,
                 partner: iPartner >= 0 ? (c[iPartner] || '').trim() : '',
                 product,
                 qty,
