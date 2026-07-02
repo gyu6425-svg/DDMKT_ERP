@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { insertClient, type ErpClient } from '../api/erp';
+import { insertClient } from '../api/erp';
 import { insertClientContracts, type ClientContract } from '../api/clientContracts';
 
 // 시트 붙여넣기 일괄 등록 — 매출 시트 + (선택) 외주비 시트를 붙여넣어 매칭·병합해 등록.
@@ -89,12 +89,10 @@ type Row = {
 };
 
 export function ContractImportModal({
-    allClients,
     onClose,
     onDone,
     onToast,
 }: {
-    allClients: ErpClient[];
     onClose: () => void;
     onDone: () => Promise<void>;
     onToast: (m: string) => void;
@@ -204,35 +202,31 @@ export function ContractImportModal({
     const doImport = async () => {
         if (!includable.length || saving) return;
         setSaving(true);
-        const idByCompany = new Map<string, string>();
-        for (const c of allClients) if (c.company) idByCompany.set(normCompany(c.company), c.id);
         let created = 0;
         let contracts = 0;
         let failed = 0;
+        // 시트 붙여넣기는 기존 업체 재사용하지 않고 항상 새 '임시' 업체로 등록(임시 탭에서만 확인).
+        //   단, 같은 붙여넣기 안의 동일 업체명은 한 임시 업체로 묶어 계약만 여러 건.
         const groups = new Map<string, Row[]>();
         for (const r of includable) {
             const k = normCompany(r.company);
             if (!groups.has(k)) groups.set(k, []);
             groups.get(k)!.push(r);
         }
-        for (const [key, grp] of groups) {
-            let clientId = idByCompany.get(key);
-            if (!clientId) {
-                const first = grp[0];
-                const { data, error } = await insertClient({
-                    client_partner: first.partner || null,
-                    company: first.company,
-                    manager: first.manager || null,
-                    status: '임시', // 계약 관리 '임시(테스트)' 탭에서 따로 확인. 검토 후 계약완료로 전환.
-                });
-                if (error || !data[0]?.id) {
-                    failed += grp.length;
-                    continue;
-                }
-                clientId = data[0].id;
-                idByCompany.set(key, clientId);
-                created += 1;
+        for (const grp of groups.values()) {
+            const first = grp[0];
+            const { data, error: cErr } = await insertClient({
+                client_partner: first.partner || null,
+                company: first.company,
+                manager: first.manager || null,
+                status: '임시', // 항상 임시로 신규 생성 — 계약 관리 '임시(테스트)' 탭에서 확인.
+            });
+            if (cErr || !data[0]?.id) {
+                failed += grp.length;
+                continue;
             }
+            const clientId = data[0].id;
+            created += 1;
             const payload: Array<Partial<ClientContract>> = grp.map((r) => {
                 const m = r.map as { category: string; subtype: string };
                 return {

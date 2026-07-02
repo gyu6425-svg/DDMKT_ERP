@@ -1566,7 +1566,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
 
             {importOpen ? (
                 <ContractImportModal
-                    allClients={allClients}
                     onClose={() => setImportOpen(false)}
                     onDone={async () => {
                         await refresh();
