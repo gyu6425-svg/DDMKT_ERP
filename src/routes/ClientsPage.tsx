@@ -141,6 +141,19 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
     const [showImminent, setShowImminent] = useState(false);
     const [outsourceClient, setOutsourceClient] = useState<string | null>(null); // 잔여 외주비 상세 대상 client_id
+    // 계약완료 처리로 계약 관리에 막 넘어온 신규건(?new=) — 행 하이라이트용. 네비게이션 시 갱신.
+    const [newId, setNewId] = useState<string | null>(
+        () => new URLSearchParams(window.location.search).get('new'),
+    );
+    useEffect(() => {
+        const sync = () => setNewId(new URLSearchParams(window.location.search).get('new'));
+        window.addEventListener('app:navigate', sync);
+        window.addEventListener('popstate', sync);
+        return () => {
+            window.removeEventListener('app:navigate', sync);
+            window.removeEventListener('popstate', sync);
+        };
+    }, []);
     const [dupMatches, setDupMatches] = useState<ErpClient[] | null>(null); // 업체명 중복 안내 대상
     const [importOpen, setImportOpen] = useState(false); // 시트 붙여넣기 일괄 등록
     const [toast, setToast] = useState('');
@@ -302,6 +315,12 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         }
         setStageClient(null);
         showToast(toastMsg || `상태 변경: ${status}`);
+        // 고객사 관리에서 계약완료로 바꾸면 → 계약 관리 시트로 이동 + 신규건 하이라이트(?new=).
+        if (status === DONE_STATUS && !contractsOnly) {
+            window.history.pushState(null, '', `/contracts?new=${client.id}`);
+            window.dispatchEvent(new Event('app:navigate'));
+            return;
+        }
         await refresh();
     };
 
@@ -773,10 +792,15 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                             month: '2-digit',
                                         })
                                       : '--';
+                                const isNew = newId === c.id; // 방금 계약완료로 넘어온 신규건 하이라이트
                                 return (
                                     <tr
                                         key={c.id}
-                                        className="cursor-pointer border-b border-[#e2e8f0] hover:bg-[#f8fafc]"
+                                        className={`cursor-pointer border-b border-[#e2e8f0] ${
+                                            isNew
+                                                ? 'bg-[#ecfdf5] ring-2 ring-inset ring-[#10b981] hover:bg-[#d1fae5]'
+                                                : 'hover:bg-[#f8fafc]'
+                                        }`}
                                         onClick={(e) => {
                                             if ((e.target as HTMLElement).closest('button, a, input, select')) return;
                                             openDetail(c.id);
@@ -801,6 +825,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                             >
                                                 {c.company || '--'}
                                             </button>
+                                            {isNew ? (
+                                                <span className="ml-1.5 rounded-full bg-[#10b981] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                                    신규
+                                                </span>
+                                            ) : null}
                                         </td>
                                         <td className="px-3 py-2 text-xs text-[#64748b]">
                                             {c.contact || '--'}
@@ -1687,7 +1716,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     {s}
                                     {s === DONE_STATUS ? (
                                         <span className="text-[11px] font-normal text-[#94a3b8]">
-                                            → 계약 완료 탭으로
+                                            → 계약 관리로 이동
                                         </span>
                                     ) : null}
                                 </button>
