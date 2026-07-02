@@ -1647,7 +1647,7 @@ export function ClientDetail({
                                                 <div className="truncate text-xs font-bold text-[#334155]">
                                                     {ct.subtype}
                                                 </div>
-                                                {ct.outsource_company ? (
+                                                {ct.outsource_company && ct.outsource_company !== '실계' ? (
                                                     <span className="mt-1 inline-block max-w-full truncate rounded-full bg-[#fee2e2] px-2.5 py-1 text-[13px] font-extrabold text-[#dc2626]">
                                                         {ct.outsource_company}
                                                     </span>
