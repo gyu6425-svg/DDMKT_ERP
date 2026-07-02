@@ -902,8 +902,8 @@ function ContractEditModal({
                                 ) : null}
                             </>
                         )}
-                        {/* 진행 이력 — 리워드/일반 공통(완료 처리마다 기록) */}
-                        {weeklyLogs.length || !isReward ? (
+                        {/* 진행 이력 — 리워드/일반 공통(완료 처리마다 외주비 사용량 기록, 삭제 시 되돌림) */}
+                        {hasGoal ? (
                             <div className="mt-3 rounded-lg border border-[#e2e8f0] bg-white px-3 py-3 text-left">
                                 <div className="mb-1.5 flex items-center justify-between">
                                     <span className="text-sm font-bold text-[#334155]">진행 이력</span>
