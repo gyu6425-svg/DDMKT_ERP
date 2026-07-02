@@ -44,10 +44,10 @@ function mapProduct(nameRaw: string): Mapped {
         '서비스',
     ];
     if (!p) return { exclude: true };
-    if (p === '마케팅' || EXCLUDE.some((e) => p.includes(e))) return { exclude: true };
-    if (['고스트', '저스트', '슈퍼뭉치', '라인'].includes(p))
+    // 제외(숏폼 마케팅 등)는 먼저. 단순 '마케팅'은 리워드로.
+    if (EXCLUDE.some((e) => p.includes(e))) return { exclude: true };
+    if (['고스트', '저스트', '슈퍼뭉치', '라인', '마케팅'].includes(p) || p === '리워드')
         return { category: '플레이스', subtype: '플레이스 리워드' };
-    if (p === '리워드') return { category: '플레이스', subtype: '플레이스 리워드' };
     if (has('실계')) return { category: '플레이스', subtype: '플레이스용 블로그 리뷰' };
     if (has('247')) return { category: '플레이스', subtype: '플레이스용 블로그 리뷰' };
     if (has('저인망')) return { category: '블로그', subtype: 'AI 블로그 배포' };
@@ -97,10 +97,11 @@ export function ContractImportModal({
     const [outText, setOutText] = useState('');
     const [saving, setSaving] = useState(false);
 
-    // 외주비 시트 파싱(헤더 기반) → 외주단가 조회맵(업체명|품목명(외N건제거) → 외주단가).
+    // 외주비 시트 파싱(헤더 기반) → 업체명별 외주단가 목록(업체명 동일하면 매칭).
     //   외주비 시트는 '외주단가'만 제공. 거래처명(HS)·수량·금액은 매칭/저장에 쓰지 않음(수량이 매출과 다름).
-    const outUnitByKey = useMemo(() => {
-        const m = new Map<string, number>();
+    //   한 업체에 외주 여러 건이면 품목명이 맞는 걸 우선, 없으면 첫 건 사용.
+    const outByCompany = useMemo(() => {
+        const m = new Map<string, { base: string; unit: number }[]>();
         const lines = outText.split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => l.trim());
         if (lines.length < 2) return m;
         const H = lines[0].split('\t').map((s) => s.trim());
@@ -113,8 +114,10 @@ export function ContractImportModal({
             const company = (c[iCompany] || '').trim();
             if (!company) continue;
             const unit = num(c[iUnit]);
-            const key = `${normCompany(company)}|${normProduct(c[iProduct] || '')}`;
-            if (!m.has(key) && unit > 0) m.set(key, unit); // 첫 값
+            if (unit <= 0) continue;
+            const comp = normCompany(company);
+            if (!m.has(comp)) m.set(comp, []);
+            m.get(comp)!.push({ base: normProduct(c[iProduct] || ''), unit });
         }
         return m;
     }, [outText]);
@@ -150,13 +153,18 @@ export function ContractImportModal({
             // 외주업체명 = 품목명(외 N건 앞부분) 그대로(리워드 브랜드명 등).
             const base = productBase(product);
             const vendor: string | null = base || null;
-            // 외주단가 = 외주비 시트(업체명+품목명 매칭). 없으면 매출 시트 외주비/수량 역산.
-            const matchedUnit = outUnitByKey.get(`${normCompany(company)}|${normProduct(product)}`);
+            // 외주단가 = 외주비 시트에서 업체명 매칭. 같은 업체 여러 건이면 품목명 일치 우선, 없으면 첫 건.
+            const entries = outByCompany.get(normCompany(company));
+            let matchedUnit: number | undefined;
+            if (entries && entries.length) {
+                const pb = normProduct(product);
+                matchedUnit = (entries.find((e) => e.base === pb) ?? entries[0]).unit;
+            }
             let outUnit: number | null;
             let outsource: number;
             if (matchedUnit != null && matchedUnit > 0) {
                 outUnit = matchedUnit;
-                outsource = matchedUnit * qty; // 외주비 = 외주단가 × 판매수량(상세페이지 계산과 동일)
+                outsource = matchedUnit * qty; // 외주비 = 외주단가 × 매출수량(상세페이지 계산과 동일)
             } else {
                 outsource = salesOut;
                 outUnit = qty ? Math.round(salesOut / qty) : null;
@@ -178,15 +186,13 @@ export function ContractImportModal({
             });
         }
         return out;
-    }, [salesText, outUnitByKey]);
+    }, [salesText, outByCompany]);
 
     const includable = rows.filter((r) => !r.dup && !('exclude' in r.map));
     const excluded = rows.filter((r) => !r.dup && 'exclude' in r.map);
     const dups = rows.filter((r) => r.dup);
     // 외주단가를 외주비 시트에서 찾은 행 수(외주단가 매칭)
-    const matched = includable.filter((r) =>
-        outUnitByKey.has(`${normCompany(r.company)}|${normProduct(r.product)}`),
-    );
+    const matched = includable.filter((r) => outByCompany.has(normCompany(r.company)));
 
     const doImport = async () => {
         if (!includable.length || saving) return;
