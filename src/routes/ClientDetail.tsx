@@ -1646,13 +1646,12 @@ export function ClientDetail({
                                             >
                                                 <div className="truncate text-xs font-bold text-[#334155]">
                                                     {ct.subtype}
-                                                    {ct.outsource_company ? (
-                                                        <span className="text-[#dc2626]">
-                                                            {' · '}
-                                                            {ct.outsource_company}
-                                                        </span>
-                                                    ) : null}
                                                 </div>
+                                                {ct.outsource_company ? (
+                                                    <span className="mt-1 inline-block max-w-full truncate rounded-full bg-[#fee2e2] px-2.5 py-1 text-[13px] font-extrabold text-[#dc2626]">
+                                                        {ct.outsource_company}
+                                                    </span>
+                                                ) : null}
                                                 <div
                                                     className="mt-0.5 text-2xl font-bold"
                                                     style={{ color: progColor(prog) }}
