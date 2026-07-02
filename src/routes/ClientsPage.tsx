@@ -320,13 +320,12 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         }
         setStageClient(null);
         showToast(toastMsg || `상태 변경: ${status}`);
+        await refresh(); // 상태 반영된 목록을 먼저 받은 뒤 이동해야 계약 관리에서 바로 보임.
         // 고객사 관리에서 계약완료로 바꾸면 → 계약 관리 시트로 이동 + 신규건 하이라이트(?new=).
         if (status === DONE_STATUS && !contractsOnly) {
             window.history.pushState(null, '', `/contracts?new=${client.id}`);
             window.dispatchEvent(new Event('app:navigate'));
-            return;
         }
-        await refresh();
     };
 
 
