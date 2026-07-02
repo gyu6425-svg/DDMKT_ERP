@@ -1631,19 +1631,25 @@ export function ClientDetail({
                                     관리 시트 →
                                 </button>
                             </div>
-                            <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                                {contracts
-                                    .filter((ct) => ct.category === c.label)
-                                    // 상위 카테고리 안에서 세부유형끼리 묶기(subs 순서), 같은 유형은 계약일 순.
-                                    .sort((a, b) => {
-                                        const ai = c.subs.indexOf(a.subtype);
-                                        const bi = c.subs.indexOf(b.subtype);
-                                        const an = ai < 0 ? 999 : ai;
-                                        const bn = bi < 0 ? 999 : bi;
-                                        if (an !== bn) return an - bn;
-                                        return (a.contract_date || '').localeCompare(b.contract_date || '');
-                                    })
-                                    .map((ct) => {
+                            {(() => {
+                                // 세부유형별 그룹 → 각 유형을 별도 그리드로(다음 유형은 새 줄부터 시작).
+                                const catCts = contracts.filter((ct) => ct.category === c.label);
+                                const subs = [...new Set(catCts.map((ct) => ct.subtype))].sort((a, b) => {
+                                    const ai = c.subs.indexOf(a);
+                                    const bi = c.subs.indexOf(b);
+                                    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+                                });
+                                return subs.map((st) => (
+                                    <div
+                                        className="mb-3 grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
+                                        key={st}
+                                    >
+                                        {catCts
+                                            .filter((ct) => ct.subtype === st)
+                                            .sort((a, b) =>
+                                                (a.contract_date || '').localeCompare(b.contract_date || ''),
+                                            )
+                                            .map((ct) => {
                                         const prog = progOf(ct);
                                         const done = (ct.goal_count || 0) - (ct.remain_count || 0);
                                         return (
@@ -1702,8 +1708,10 @@ export function ClientDetail({
                                                 ) : null}
                                             </button>
                                         );
-                                    })}
-                            </div>
+                                            })}
+                                    </div>
+                                ));
+                            })()}
                         </div>
                     );
                 })
