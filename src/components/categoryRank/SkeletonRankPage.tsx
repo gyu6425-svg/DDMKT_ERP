@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { CategoryShell } from './CategoryShell';
 import { SIDEBAR_CATEGORIES } from './categories';
 
-// 하위 카테고리(?sub=) 진입 시 '영수증 리뷰 대시보드'처럼 제목 표시. 사이드바 트리에서 표시 라벨 조회.
-function useSubLabel(fallback: string) {
+// 현재 URL(경로+쿼리)을 반응형으로 추적 — 네비게이션(app:navigate/popstate) 시 갱신.
+function useLocHref() {
     const [href, setHref] = useState(() => window.location.pathname + window.location.search);
     useEffect(() => {
         const sync = () => setHref(window.location.pathname + window.location.search);
@@ -14,6 +14,11 @@ function useSubLabel(fallback: string) {
             window.removeEventListener('app:navigate', sync);
         };
     }, []);
+    return href;
+}
+
+// 하위 카테고리(?sub=) 진입 시 '영수증 리뷰 대시보드'처럼 제목 표시. 사이드바 트리에서 표시 라벨 조회.
+function subLabelOf(href: string, fallback: string) {
     for (const c of SIDEBAR_CATEGORIES) {
         const sub = c.subs.find((s) => s.href === href);
         if (sub) return `${sub.label} 대시보드`;
@@ -33,13 +38,33 @@ function Placeholder({ name }: { name: string }) {
     );
 }
 
+const FULL_TABS = [
+    { name: '대시보드', el: <Placeholder name="대시보드" /> },
+    { name: '관리 시트', el: <Placeholder name="관리 시트" /> },
+    { name: '순위 트래커', el: <Placeholder name="순위 트래커" /> },
+    { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" /> },
+];
+
 export function SkeletonRankPage({ label }: { label: string }) {
-    const displayLabel = useSubLabel(label);
+    const href = useLocHref();
+    const displayLabel = subLabelOf(href, label);
+
+    // 드롭다운(하위 카테고리)이 있는 상위(플레이스·인스타·블로그)의 '대시보드'(=?sub 없음)만
+    //   탭 없는 순수 대시보드. 하위(?sub=)와 드롭다운 없는 카페·쇼핑·파워링크는 기존 4탭 유지.
+    const pathname = href.split('?')[0];
+    const hasSub = new URLSearchParams(href.split('?')[1] || '').has('sub');
+    const scat = SIDEBAR_CATEGORIES.find((c) => c.dashHref.split('?')[0] === pathname);
+    const isDropdownDash = !!scat && scat.subs.length > 0 && !hasSub;
+
     return (
         <CategoryShell
             badge="준비 중"
             label={displayLabel}
-            tabs={[{ name: '대시보드', el: <Placeholder name={displayLabel} /> }]}
+            tabs={
+                isDropdownDash
+                    ? [{ name: '대시보드', el: <Placeholder name={displayLabel} /> }]
+                    : FULL_TABS
+            }
         />
     );
 }
