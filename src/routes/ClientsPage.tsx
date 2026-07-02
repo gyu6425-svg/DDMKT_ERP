@@ -235,6 +235,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         });
 
         return list.sort((a, b) => {
+            // 계약완료로 막 넘어온 신규건은 항상 맨 위.
+            if (newId) {
+                if (a.id === newId) return -1;
+                if (b.id === newId) return 1;
+            }
             // 임시(테스트) 탭은 등록한 순서(먼저 등록 → 위)로.
             if (contractsOnly && tempView) {
                 return (a.created_at || '').localeCompare(b.created_at || '');
@@ -243,7 +248,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
         });
-    }, [clients, search, statusFilter, favOnly, favs, contractsOnly, clientTab, tempView]);
+    }, [clients, search, statusFilter, favOnly, favs, contractsOnly, clientTab, tempView, newId]);
 
     // 계약 관리 KPI — 계약 중(계약완료 고객 수) + 재계약 임박(카테고리 계약 중 잔여 5건 이하).
     const doneClientIds = useMemo(
@@ -798,7 +803,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         key={c.id}
                                         className={`cursor-pointer border-b border-[#e2e8f0] ${
                                             isNew
-                                                ? 'bg-[#ecfdf5] ring-2 ring-inset ring-[#10b981] hover:bg-[#d1fae5]'
+                                                ? 'bg-[#eff6ff] ring-2 ring-inset ring-[#1e40af] hover:bg-[#dbeafe]'
                                                 : 'hover:bg-[#f8fafc]'
                                         }`}
                                         onClick={(e) => {
@@ -826,7 +831,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                 {c.company || '--'}
                                             </button>
                                             {isNew ? (
-                                                <span className="ml-1.5 rounded-full bg-[#10b981] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                                <span className="ml-1.5 rounded-full bg-[#1e40af] px-1.5 py-0.5 text-[10px] font-bold text-white">
                                                     신규
                                                 </span>
                                             ) : null}
