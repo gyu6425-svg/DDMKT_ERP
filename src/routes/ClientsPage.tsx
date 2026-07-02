@@ -795,22 +795,21 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         </td>
                                         <td className="px-3 py-2">
                                             {(() => {
-                                                const cats = [
-                                                    ...new Set(
-                                                        clientContracts
-                                                            .filter((ct) => ct.client_id === c.id)
-                                                            .map((ct) => ct.category),
-                                                    ),
-                                                ];
-                                                if (cats.length) {
+                                                // 카테고리별 계약 건수 집계 → '플레이스 3' 처럼 표시.
+                                                const counts = new Map<string, number>();
+                                                for (const ct of clientContracts) {
+                                                    if (ct.client_id !== c.id) continue;
+                                                    counts.set(ct.category, (counts.get(ct.category) || 0) + 1);
+                                                }
+                                                if (counts.size) {
                                                     return (
                                                         <span className="flex flex-wrap gap-1">
-                                                            {cats.map((cat) => (
+                                                            {[...counts.entries()].map(([cat, n]) => (
                                                                 <span
                                                                     className="rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-semibold text-[#4338ca]"
                                                                     key={cat}
                                                                 >
-                                                                    {cat}
+                                                                    {cat} <b className="text-[#1e40af]">{n}</b>
                                                                 </span>
                                                             ))}
                                                         </span>
