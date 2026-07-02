@@ -26,6 +26,11 @@ export function formatAmount(value: number | null | undefined): string {
     return `${num.toLocaleString()}원`;
 }
 
+// '신규 등록 건' 판정 컷오프 — 이 시점(2026-07-02T09:12Z) 이후 생성된 계약/블로그만 신규로 표시.
+//   기존(오늘 임포트 포함) 건은 제외하고, 지금부터 등록하는 건부터 신규 처리.
+export const NEW_CONTRACT_CUTOFF_MS = 1782983565623;
+export const NEW_CONTRACT_TTL_MS = 24 * 60 * 60 * 1000; // 신규 표시 유지 24시간
+
 export function todayStr(): string {
     return new Date()
         .toLocaleDateString('ko-KR', { day: '2-digit', month: '2-digit', year: 'numeric' })

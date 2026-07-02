@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { deleteBlogAccount, todayKST, type BlogAccount } from '../../../api/blogRank';
 import { crawlBlog } from '../../../api/crawlBlog';
 import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDate, lastM, progOf, PER_SHEET, renewLevel } from '../lib/helpers';
+import { NEW_CONTRACT_CUTOFF_MS, NEW_CONTRACT_TTL_MS } from '../../../lib/erpUtils';
 import { Pager, Tag } from '../lib/ui';
 import { useBlogRank } from '../lib/BlogRankContext';
 import { AccountEditModal } from '../components/AccountEditModal';
@@ -33,7 +34,7 @@ export function SheetTab() {
     const [lowOnly, setLowOnly] = useState(false);
     const [sortKey, setSortKey] = useState<'remain' | 'prog'>('remain');
     const [sortDir, setSortDir] = useState(1);
-    const [tab, setTab] = useState<'active' | 'ended'>('active'); // 계약 중 / 계약 종료
+    const [tab, setTab] = useState<'active' | 'new' | 'ended'>('active'); // 계약 중 / 신규 등록 건 / 계약 종료
     const [page, setPage] = useState(1);
     const [importOpen, setImportOpen] = useState(false);
     const [editAcc, setEditAcc] = useState<BlogAccount | null>(null);
@@ -100,13 +101,28 @@ export function SheetTab() {
 
     const postCountOf = (id: string) => posts.filter((p) => p.blog_account_id === id);
 
+    // 신규 등록 건 = 컷오프(지금부터) 이후 생성 + 24시간 이내(계약 종료 아닌) 블로그 계정. 기존 건 제외.
+    const isNewAcc = (a: BlogAccount) => {
+        const t = a.created_at ? Date.parse(a.created_at) : NaN;
+        return (
+            !Number.isNaN(t) &&
+            t > NEW_CONTRACT_CUTOFF_MS &&
+            Date.now() - t < NEW_CONTRACT_TTL_MS &&
+            !a.contract_ended_at
+        );
+    };
+
     const filtered = useMemo(() => {
         let list = accounts.filter(
             (a) =>
                 (!q || a.name.includes(q)) &&
                 (!mgr || a.manager === mgr) &&
                 (!lowOnly || (a.remain_count != null && a.remain_count <= 5)) &&
-                (tab === 'ended' ? !!a.contract_ended_at : !a.contract_ended_at),
+                (tab === 'ended'
+                    ? !!a.contract_ended_at
+                    : tab === 'new'
+                      ? isNewAcc(a)
+                      : !a.contract_ended_at && !isNewAcc(a)),
         );
         list = [...list].sort((x, y) => {
             if (sortKey === 'prog') {
@@ -117,17 +133,19 @@ export function SheetTab() {
         return list;
     }, [accounts, q, mgr, lowOnly, sortKey, sortDir, tab]);
 
-    // 계약 중 / 계약 종료 개수(현재 업체명·담당 검색 범위 기준).
+    // 계약 중 / 신규 등록 건 / 계약 종료 개수(현재 업체명·담당 검색 범위 기준).
     const tabCounts = useMemo(() => {
         let active = 0;
+        let neu = 0;
         let ended = 0;
         for (const a of accounts) {
             if (q && !a.name.includes(q)) continue;
             if (mgr && a.manager !== mgr) continue;
             if (a.contract_ended_at) ended += 1;
+            else if (isNewAcc(a)) neu += 1;
             else active += 1;
         }
-        return { active, ended };
+        return { active, new: neu, ended };
     }, [accounts, q, mgr]);
 
     const pages = Math.max(1, Math.ceil(filtered.length / PER_SHEET));
@@ -205,28 +223,33 @@ export function SheetTab() {
                 )}
             </div>
 
-            {/* 계약 중 / 계약 종료 탭 — 업체명 검색 밑. 고객 ERP에선 숨김(계약 중만 노출). */}
+            {/* 신규 등록 건 / 계약 중 / 계약 종료 탭 — 업체명 검색 밑. 고객 ERP에선 숨김(계약 중만 노출). */}
             <div className={`flex gap-1 border-b border-[#e2e8f0] ${customerMode ? 'hidden' : ''}`}>
                 {([
+                    ['new', '신규 등록 건', tabCounts.new],
                     ['active', '계약 중', tabCounts.active],
                     ['ended', '계약 종료', tabCounts.ended],
-                ] as const).map(([key, label, n]) => (
-                    <button
-                        key={key}
-                        className={`-mb-px rounded-t-md border-b-2 px-4 py-2 text-sm font-bold ${
-                            tab === key
-                                ? 'border-[#1e40af] text-[#1e40af]'
-                                : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
-                        }`}
-                        onClick={() => {
-                            setTab(key);
-                            setPage(1);
-                        }}
-                        type="button"
-                    >
-                        {label} <span className="text-xs font-semibold">({n})</span>
-                    </button>
-                ))}
+                ] as const).map(([key, label, n]) => {
+                    const hot = key === 'new' && n > 0;
+                    return (
+                        <button
+                            key={key}
+                            className={`-mb-px rounded-t-md border-b-2 px-4 py-2 text-sm font-bold ${
+                                tab === key
+                                    ? 'border-[#1e40af] text-[#1e40af]'
+                                    : `border-transparent hover:text-[#475569] ${hot ? 'text-[#1e40af]' : 'text-[#94a3b8]'}`
+                            }`}
+                            onClick={() => {
+                                setTab(key);
+                                setPage(1);
+                            }}
+                            type="button"
+                        >
+                            {hot ? '🔵 ' : ''}
+                            {label} <span className="text-xs font-semibold">({n})</span>
+                        </button>
+                    );
+                })}
             </div>
 
             {tab === 'ended' ? (

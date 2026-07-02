@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getClients, type ErpClient } from '../../api/erp';
 import { getClientContracts, type ClientContract } from '../../api/clientContracts';
+import { NEW_CONTRACT_CUTOFF_MS, NEW_CONTRACT_TTL_MS } from '../../lib/erpUtils';
 import { SIDEBAR_CATEGORIES } from './categories';
 
 // 하위 카테고리 관리 시트(1차) — 해당 category(+subtype) 계약을 업체별로 나열.
@@ -76,6 +77,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
     const [loading, setLoading] = useState(true);
     const [q, setQ] = useState('');
     const [mgr, setMgr] = useState('');
+    const [tab, setTab] = useState<'active' | 'new' | 'ended'>('active'); // 계약 중 / 신규 등록 건(24h) / 계약 종료
 
     useEffect(() => {
         let alive = true;
@@ -112,12 +114,31 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
         [allRows],
     );
 
+    // 신규 등록 건 = 컷오프(지금부터) 이후 생성 + 24시간 이내. 기존/오늘 임포트 건은 제외. 종료=고객사 계약종료.
+    const isNewCt = (created?: string) => {
+        const t = created ? Date.parse(created) : NaN;
+        return !Number.isNaN(t) && t > NEW_CONTRACT_CUTOFF_MS && Date.now() - t < NEW_CONTRACT_TTL_MS;
+    };
+    const tabOf = (r: { ct: ClientContract; cl: ErpClient }) =>
+        isNewCt(r.ct.created_at) ? 'new' : r.cl.status === '계약종료' ? 'ended' : 'active';
+
+    const counts = useMemo(() => {
+        const c = { active: 0, new: 0, ended: 0 };
+        for (const r of allRows) c[tabOf(r)] += 1;
+        return c;
+    }, [allRows]);
+
     const rows = useMemo(() => {
         const qq = q.trim().toLowerCase();
         return allRows
-            .filter((r) => (!qq || (r.cl.company || '').toLowerCase().includes(qq)) && (!mgr || r.cl.manager === mgr))
+            .filter(
+                (r) =>
+                    tabOf(r) === tab &&
+                    (!qq || (r.cl.company || '').toLowerCase().includes(qq)) &&
+                    (!mgr || r.cl.manager === mgr),
+            )
             .sort((a, b) => (a.cl.company || '').localeCompare(b.cl.company || '', 'ko'));
-    }, [allRows, q, mgr]);
+    }, [allRows, q, mgr, tab]);
 
     if (loading) {
         return <div className="py-16 text-center text-sm text-[#94a3b8]">불러오는 중...</div>;
@@ -154,6 +175,35 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                     매출 <b className="text-[#1e40af]">{won(totalAmount)}</b> · 외주{' '}
                     <b className="text-[#dc2626]">{won(totalOut)}</b>
                 </span>
+            </div>
+
+            {/* 신규 등록 건(24h) / 계약 중 / 계약 종료 — 브랜드블로그 시트와 동일 탭 구성 */}
+            <div className="flex gap-1 border-b border-[#e2e8f0]">
+                {(
+                    [
+                        { key: 'new', label: '신규 등록 건' },
+                        { key: 'active', label: '계약 중' },
+                        { key: 'ended', label: '계약 종료' },
+                    ] as { key: 'new' | 'active' | 'ended'; label: string }[]
+                ).map((t) => {
+                    const on = tab === t.key;
+                    const hot = t.key === 'new' && counts.new > 0;
+                    return (
+                        <button
+                            className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
+                                on
+                                    ? 'border-[#1e40af] text-[#1e40af]'
+                                    : `border-transparent hover:text-[#475569] ${hot ? 'text-[#1e40af]' : 'text-[#94a3b8]'}`
+                            }`}
+                            key={t.key}
+                            onClick={() => setTab(t.key)}
+                            type="button"
+                        >
+                            {hot ? '🔵 ' : ''}
+                            {t.label} ({counts[t.key]})
+                        </button>
+                    );
+                })}
             </div>
 
             <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
