@@ -177,6 +177,7 @@ export async function syncBlogAccountFromContract(
         amount?: number | null;
         name?: string | null;
         manager?: string | null;
+        contact?: string | null;
     },
 ) {
     if (!clientId) return { synced: false };
@@ -190,6 +191,7 @@ export async function syncBlogAccountFromContract(
     if (fields.amount != null) payload.amounts = [{ amount: fields.amount }];
     if (fields.name) payload.name = fields.name;
     if (fields.manager !== undefined) payload.manager = fields.manager ?? null;
+    if (fields.contact !== undefined) payload.contact = fields.contact ?? null;
     if (!Object.keys(payload).length) return { synced: false };
     const { error } = await updateBlogAccount(acc.id, payload);
     return { synced: !error, error };

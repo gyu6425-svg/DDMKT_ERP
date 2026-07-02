@@ -2005,7 +2005,18 @@ export function ClientDetail({
                     format={editField.format}
                     label={editField.label}
                     onClose={() => setEditField(null)}
-                    onSave={(v) => onSave({ [editField.patchKey]: v || null } as Partial<ErpClient>)}
+                    onSave={(v) => {
+                        const val = v || null;
+                        onSave({ [editField.patchKey]: val } as Partial<ErpClient>);
+                        // 업체명·담당·연락처는 브랜드블로그 관리시트에도 반영(계정이 있으면).
+                        const map: Record<string, 'name' | 'manager' | 'contact'> = {
+                            company: 'name',
+                            contact: 'contact',
+                            manager: 'manager',
+                        };
+                        const key = map[editField.patchKey];
+                        if (key) void syncBlogAccountFromContract(client.id, { [key]: val });
+                    }}
                     options={editField.options}
                     value={editField.value}
                 />
