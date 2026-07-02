@@ -11,6 +11,7 @@ import {
 import { ensureClientBlogAccount } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import { PRODUCT_CATEGORIES, isDailySub } from '../lib/products';
+import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
 import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, todayStr } from '../lib/erpUtils';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
@@ -20,6 +21,19 @@ function navTo(path: string) {
         window.history.pushState(null, '', path);
         window.dispatchEvent(new Event('app:navigate'));
     }
+}
+
+// 계약 카드 → 해당 세부유형의 관리 시트(하위 카테고리 페이지)로 이동할 경로.
+//   subtype을 사이드바 하위와 매칭(부분 일치) → 매칭 없으면 카테고리 대시보드로. 업체명(q)로 필터.
+function cardSheetHref(category: string, subtype: string, company: string): string {
+    const scat = SIDEBAR_CATEGORIES.find((s) => s.label === category);
+    const q = 'q=' + encodeURIComponent(company || '');
+    if (!scat) return '';
+    const sub = scat.subs.find(
+        (s) => subtype === s.label || subtype.includes(s.label) || s.label.includes(subtype),
+    );
+    const base = sub ? sub.href : scat.dashHref;
+    return base + (base.includes('?') ? '&' : '?') + q;
 }
 
 const progColor = (p: number | null) =>
@@ -1742,24 +1756,12 @@ export function ClientDetail({
 
             {activeCats.length ? (
                 activeCats.map((c) => {
-                    const dashPath = c.path;
                     return (
                         <div key={c.key}>
                             <div className="mb-2 flex items-center gap-2">
                                 <span className="rounded-full bg-[#e0e7ff] px-2.5 py-0.5 text-xs font-bold text-[#4338ca]">
                                     {c.label}
                                 </span>
-                                <button
-                                    className="rounded border border-[#cbd5e1] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#475569] hover:border-[#1e40af] hover:text-[#1e40af]"
-                                    onClick={() =>
-                                        navTo(
-                                            `${dashPath}?tab=sheet&q=${encodeURIComponent(client.company || '')}`,
-                                        )
-                                    }
-                                    type="button"
-                                >
-                                    관리 시트 →
-                                </button>
                             </div>
                             {(() => {
                                 // 세부유형별 그룹 → 각 유형을 별도 그리드로(다음 유형은 새 줄부터 시작).
@@ -1819,11 +1821,12 @@ export function ClientDetail({
                                             );
                                         }
                                         return (
-                                            <button
-                                                className="h-full rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
+                                            <div
+                                                className="flex h-full cursor-pointer flex-col rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
                                                 key={ct.id}
                                                 onClick={() => setEditContract(ct)}
-                                                type="button"
+                                                role="button"
+                                                tabIndex={0}
                                             >
                                                 <div className="flex items-start justify-between gap-1.5">
                                                     <div className="truncate text-xs font-bold text-[#334155]">
@@ -1877,7 +1880,23 @@ export function ClientDetail({
                                                         잔여 외주 {fmtWon(outsourceOf(ct).remain)}원
                                                     </div>
                                                 ) : null}
-                                            </button>
+                                                <button
+                                                    className="mt-auto self-start pt-2 text-[10px] font-semibold text-[#94a3b8] hover:text-[#1e40af]"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navTo(
+                                                            cardSheetHref(
+                                                                ct.category,
+                                                                ct.subtype,
+                                                                client.company || '',
+                                                            ),
+                                                        );
+                                                    }}
+                                                    type="button"
+                                                >
+                                                    관리 시트 →
+                                                </button>
+                                            </div>
                                         );
                                             })}
                                     </div>

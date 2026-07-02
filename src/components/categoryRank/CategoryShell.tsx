@@ -36,6 +36,7 @@ export function CategoryShell({ label, badge, tabs }: { label: string; badge?: s
                 ) : null}
             </div>
 
+            {tabs.length > 1 ? (
             <div className="flex gap-1 border-b border-[#e2e8f0]">
                 {tabs.map((t, i) => (
                     <button
@@ -50,6 +51,7 @@ export function CategoryShell({ label, badge, tabs }: { label: string; badge?: s
                     </button>
                 ))}
             </div>
+            ) : null}
 
             {tabs[active]?.el}
         </section>

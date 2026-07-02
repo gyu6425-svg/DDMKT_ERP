@@ -39,12 +39,7 @@ export function SkeletonRankPage({ label }: { label: string }) {
         <CategoryShell
             badge="준비 중"
             label={displayLabel}
-            tabs={[
-                { name: '대시보드', el: <Placeholder name="대시보드" /> },
-                { name: '관리 시트', el: <Placeholder name="관리 시트" /> },
-                { name: '순위 트래커', el: <Placeholder name="순위 트래커" /> },
-                { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" /> },
-            ]}
+            tabs={[{ name: '대시보드', el: <Placeholder name={displayLabel} /> }]}
         />
     );
 }
