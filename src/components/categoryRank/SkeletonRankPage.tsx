@@ -42,7 +42,7 @@ export function SkeletonRankPage({ label }: { label: string }) {
     const href = useLocHref();
     const displayLabel = subLabelOf(href, label);
     const scope = resolveScope(href);
-    // 계약 시트를 대시보드/관리 시트 탭에 뿌린다(1차). 나머지 탭은 준비 중.
+    // 계약 시트는 '관리 시트' 탭에서만. 대시보드/순위/크롤은 준비 중.
     const sheet = scope ? (
         <ContractSheetTab category={scope.category} subtype={scope.subtype} />
     ) : (
@@ -53,7 +53,7 @@ export function SkeletonRankPage({ label }: { label: string }) {
             badge="준비 중"
             label={displayLabel}
             tabs={[
-                { name: '대시보드', el: sheet },
+                { name: '대시보드', el: <Placeholder name={displayLabel} /> },
                 { name: '관리 시트', el: sheet },
                 { name: '순위 트래커', el: <Placeholder name="순위 트래커" /> },
                 { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" /> },
