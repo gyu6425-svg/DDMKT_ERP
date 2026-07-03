@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ErpClient, OutsourcePaidLog } from '../api/erp';
+import type { ErpClient } from '../api/erp';
 import {
     deleteClientContract,
     insertClientContracts,
@@ -1742,11 +1742,6 @@ export function ClientDetail({
     const [endNote, setEndNote] = useState('');
     const [breakdown, setBreakdown] = useState<'net' | 'outsource' | 'sales' | null>(null); // 상품별 내역
     const [detailC, setDetailC] = useState<ClientContract | null>(null); // 내역에서 상품 클릭 시 상세
-    // 외주업체 지급 외주비 입력(건수 × 단가 + 기간).
-    const [paidCount, setPaidCount] = useState('');
-    const [paidUnit, setPaidUnit] = useState('');
-    const [paidDays, setPaidDays] = useState('');
-    const [paidDate, setPaidDate] = useState('');
 
     // 계약 종료 = 업체 상태를 '계약종료'로(계약 종료 탭으로 이동, 계약행은 보존) → 목록으로.
     const endClient = () => {
@@ -1818,41 +1813,17 @@ export function ClientDetail({
     const outUsedSum = Math.max(0, totalOutsource - outRemainSum); // 소진 외주비 합계
     const netRevenue = totalAmount - totalOutsource; // 순매출 = 실매출 − 외주비
 
-    // 외주비 정산 — 받은 외주비(R, 계약 outsource 합) − 지급 외주비(P, 이력 누적) = 차액(마진).
-    const receivedItems = contracts.filter((ct) => (ct.outsource || 0) > 0); // 받은 외주비 내역
-    const receivedTotal = totalOutsource; // R = 상단 외주비 합계와 동일
-    const paidLogs: OutsourcePaidLog[] = Array.isArray(client.outsource_paid_logs)
-        ? client.outsource_paid_logs
-        : [];
-    const paidTotal = paidLogs.reduce((s, l) => s + (l.amount || 0), 0); // P
-    const outMargin = receivedTotal - paidTotal; // 차액
-    const paidPreview =
-        (Number(onlyDigits(paidCount)) || 0) * (Number(onlyDigits(paidUnit)) || 0); // 입력 미리보기
-    const addPaid = () => {
-        const cnt = Number(onlyDigits(paidCount)) || 0;
-        const u = Number(onlyDigits(paidUnit)) || 0;
-        const amount = cnt * u;
-        if (!amount) {
-            onToast('건수와 단가를 입력하세요');
-            return;
-        }
-        const entry: OutsourcePaidLog = {
-            amount,
-            count: cnt,
-            date: paidDate || todayStr(),
-            days: Number(onlyDigits(paidDays)) || null,
-            unit: u,
-        };
-        onSave({ outsource_paid_logs: [entry, ...paidLogs] });
-        setPaidCount('');
-        setPaidUnit('');
-        setPaidDays('');
-        setPaidDate('');
-        onToast('지급 외주비 추가');
-    };
-    const deletePaid = (idx: number) => {
-        onSave({ outsource_paid_logs: paidLogs.filter((_, i) => i !== idx) });
-    };
+    // 외주비 정산 — 품목별로 받은 외주비(단가×계약수량) vs 실제 사용 외주비(완료분 소진).
+    //   실제 사용 = 진행 처리(완료)로 잔여가 줄면 자동 반영. 별도 수기 입력 없음.
+    const outsourceRows = contracts
+        .filter((ct) => (ct.outsource || 0) > 0 || (ct.unit_outsource || 0) > 0)
+        .map((ct) => {
+            const o = outsourceOf(ct);
+            return { id: ct.id, subtype: ct.subtype, date: ct.contract_date, received: o.total, used: o.used };
+        });
+    const receivedTotal = totalOutsource; // 받은 외주비 = 상단 외주비 합계
+    const usedTotal = outUsedSum; // 실제 사용 = 소진 외주비 합계
+    const outMargin = receivedTotal - usedTotal; // 차액 = 받은 − 사용
     // 계약이 있는 카테고리(상품)만, 부모 순서로 — 상품별 섹션으로 나눠 표시.
     const activeCats = PRODUCT_CATEGORIES.filter((c) => contracts.some((ct) => ct.category === c.label));
 
@@ -1981,12 +1952,12 @@ export function ClientDetail({
                 ))}
             </div>
 
-            {/* 외주비 정산 — 받은 외주비(업체) − 준 외주비(외주업체) = 우리 차액(마진). 순매출엔 미반영(받은 금액 기준 유지). */}
+            {/* 외주비 정산 — 품목별 받은 외주비 − 실제 사용 외주비(진행 처리 완료분 자동 반영) = 차액. 순매출엔 미반영. */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                     <h3 className="m-0 text-sm font-bold text-[#0f172a]">외주비 정산</h3>
                     <span className="text-[11px] text-[#94a3b8]">
-                        업체한테 받은 외주비 − 외주업체에 준 외주비 = 우리 차액
+                        업체한테 받은 외주비 − 실제 사용 외주비(진행 완료분) = 우리 차액
                     </span>
                 </div>
                 <div className="mb-2 grid grid-cols-3 gap-2">
@@ -1996,105 +1967,38 @@ export function ClientDetail({
                     </div>
                     <div className="rounded-lg border border-[#fecaca] bg-[#fff7f7] px-3 py-2 text-center">
                         <div className="text-[11px] font-semibold text-[#dc2626]">실제 사용 외주비</div>
-                        <div className="text-base font-bold text-[#dc2626]">{fmtWon(paidTotal)}원</div>
+                        <div className="text-base font-bold text-[#dc2626]">{fmtWon(usedTotal)}원</div>
                     </div>
                     <div className="rounded-lg border-2 border-[#1e40af] bg-[#eff6ff] px-3 py-2 text-center">
-                        <div className="text-[11px] font-semibold text-[#1e40af]">차액(마진)</div>
+                        <div className="text-[11px] font-semibold text-[#1e40af]">차액</div>
                         <div className="text-base font-bold text-[#1e40af]">{fmtWon(outMargin)}원</div>
                     </div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                    {/* A. 업체한테 받은 외주비 — 계약별 외주비 내역 */}
-                    <div className="rounded-lg border border-[#e2e8f0] p-2">
-                        <div className="mb-1 text-xs font-bold text-[#059669]">업체한테 받은 외주비</div>
-                        {receivedItems.length ? (
-                            <div className="grid gap-1">
-                                {receivedItems.map((ct) => (
-                                    <div
-                                        className="flex items-center justify-between rounded bg-[#f8fafc] px-2 py-1 text-[11px]"
-                                        key={ct.id}
-                                    >
-                                        <span className="min-w-0 truncate text-[#475569]">
-                                            {ct.subtype}
-                                            {ct.contract_date ? ` · ${ct.contract_date}` : ''}
-                                        </span>
-                                        <b className="shrink-0 text-[#059669]">{fmtWon(ct.outsource || 0)}원</b>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-[11px] text-[#94a3b8]">받은 외주비 없음</div>
-                        )}
-                    </div>
-                    {/* B. 외주업체한테 준 외주비 — 건수 × 단가(+기간) 입력 → 이력 누적 */}
-                    <div className="rounded-lg border border-[#e2e8f0] p-2">
-                        <div className="mb-1 text-xs font-bold text-[#dc2626]">외주업체한테 준 외주비</div>
-                        <div className="mb-1 grid grid-cols-2 gap-1">
-                            <input
-                                className="h-8 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-xs"
-                                inputMode="numeric"
-                                onChange={(e) => setPaidCount(e.target.value)}
-                                placeholder="건수 (100)"
-                                value={withCommas(paidCount)}
-                            />
-                            <input
-                                className="h-8 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-xs"
-                                inputMode="numeric"
-                                onChange={(e) => setPaidUnit(e.target.value)}
-                                placeholder="단가 (10)"
-                                value={withCommas(paidUnit)}
-                            />
-                            <input
-                                className="h-8 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-xs"
-                                inputMode="numeric"
-                                onChange={(e) => setPaidDays(e.target.value)}
-                                placeholder="기간(일, 선택)"
-                                value={withCommas(paidDays)}
-                            />
-                            <input
-                                className="h-8 w-full rounded-md border border-[#cbd5e1] px-2 text-xs"
-                                onChange={(e) => setPaidDate(e.target.value)}
-                                type="date"
-                                value={paidDate}
-                            />
+                {/* 품목별 한 줄 — 받은/사용을 같은 줄에 나란히(품목이 섞이지 않게). 사용액은 진행 처리 완료 시 자동 누적. */}
+                {outsourceRows.length ? (
+                    <div className="overflow-hidden rounded-lg border border-[#e2e8f0]">
+                        <div className="grid grid-cols-[1fr_auto_auto] gap-2 bg-[#f8fafc] px-3 py-1.5 text-[11px] font-semibold text-[#94a3b8]">
+                            <span>품목</span>
+                            <span className="w-24 text-right text-[#059669]">받은 외주비</span>
+                            <span className="w-24 text-right text-[#dc2626]">실제 사용</span>
                         </div>
-                        <button
-                            className="mb-2 w-full rounded-md bg-[#dc2626] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#b91c1c]"
-                            onClick={addPaid}
-                            type="button"
-                        >
-                            + 지급 외주비 추가{paidPreview ? ` (${fmtWon(paidPreview)}원)` : ''}
-                        </button>
-                        {paidLogs.length ? (
-                            <div className="grid gap-1">
-                                {paidLogs.map((l, i) => (
-                                    <div
-                                        className="flex items-center justify-between rounded bg-[#f8fafc] px-2 py-1 text-[11px]"
-                                        key={i}
-                                    >
-                                        <span className="min-w-0 truncate text-[#475569]">
-                                            {l.count.toLocaleString('ko-KR')}건
-                                            {l.days ? ` ${l.days}일` : ''} × {fmtWon(l.unit)}원
-                                            {l.date ? ` · ${l.date}` : ''}
-                                        </span>
-                                        <span className="flex shrink-0 items-center gap-1">
-                                            <b className="text-[#dc2626]">{fmtWon(l.amount)}원</b>
-                                            <button
-                                                className="text-[#cbd5e1] hover:text-[#dc2626]"
-                                                onClick={() => deletePaid(i)}
-                                                type="button"
-                                            >
-                                                ✕
-                                            </button>
-                                        </span>
-                                    </div>
-                                ))}
+                        {outsourceRows.map((r) => (
+                            <div
+                                className="grid grid-cols-[1fr_auto_auto] items-center gap-2 border-t border-[#f1f5f9] px-3 py-1.5 text-[11px]"
+                                key={r.id}
+                            >
+                                <span className="min-w-0 truncate text-[#475569]">
+                                    {r.subtype}
+                                    {r.date ? <span className="text-[#cbd5e1]"> · {r.date}</span> : null}
+                                </span>
+                                <b className="w-24 text-right text-[#059669]">{fmtWon(r.received)}원</b>
+                                <b className="w-24 text-right text-[#dc2626]">{fmtWon(r.used)}원</b>
                             </div>
-                        ) : (
-                            <div className="text-[11px] text-[#94a3b8]">지급 내역 없음</div>
-                        )}
+                        ))}
                     </div>
-                </div>
+                ) : (
+                    <div className="text-[11px] text-[#94a3b8]">외주비 내역 없음</div>
+                )}
             </div>
 
             {/* 계약 내역 — 카테고리별 세부유형(건수·진행률·금액) */}
