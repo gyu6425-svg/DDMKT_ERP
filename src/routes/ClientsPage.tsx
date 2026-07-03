@@ -61,6 +61,17 @@ const progColor = (p: number | null) =>
     p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
 const progOf = (goal: number | null, remain: number | null): number | null =>
     goal == null || remain == null || goal === 0 ? null : Math.round(((goal - remain) / goal) * 100);
+// 카테고리별 박스 색(연한 배경 + 테두리) — 상품 셀 구분용.
+const CAT_STYLE: Record<string, { bg: string; border: string }> = {
+    플레이스: { bg: '#eff6ff', border: '#93c5fd' },
+    인스타: { bg: '#fdf4ff', border: '#e9d5ff' },
+    카페: { bg: '#fffbeb', border: '#fcd34d' },
+    쇼핑: { bg: '#f0fdf4', border: '#86efac' },
+    파워링크: { bg: '#ecfeff', border: '#67e8f9' },
+    블로그: { bg: '#eef2ff', border: '#a5b4fc' },
+    종합광고: { bg: '#f1f5f9', border: '#cbd5e1' },
+};
+const catStyle = (c: string) => CAT_STYLE[c] || { bg: '#f8fafc', border: '#e2e8f0' };
 // 업체명 중복 비교용 정규화 — 공백 제거 + 소문자(저장값은 그대로, 비교에만 사용).
 const normCompany = (s: string) => s.trim().replace(/\s+/g, '').toLowerCase();
 // 사업자등록번호 3-2-5 하이픈 자동(입력하는 동안 000-00-00000).
@@ -1081,22 +1092,15 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                 [...m.entries()].map(([sub, v]) => {
                                                                     const done = v.goal - v.remain;
                                                                     const prog = progOf(v.goal, v.remain);
-                                                                    // 진행률별 연한 배경 + 색 테두리로 박스 구분.
-                                                                    const tint =
-                                                                        prog == null
-                                                                            ? '#f8fafc'
-                                                                            : prog >= 70
-                                                                              ? '#f0fdf4'
-                                                                              : prog >= 40
-                                                                                ? '#fefce8'
-                                                                                : '#fef2f2';
+                                                                    // 카테고리별 연한 배경 + 테두리로 박스 구분.
+                                                                    const cs = catStyle(cat);
                                                                     return (
                                                                         <div
                                                                             className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px]"
                                                                             key={cat + sub}
                                                                             style={{
-                                                                                background: tint,
-                                                                                borderColor: progColor(prog),
+                                                                                background: cs.bg,
+                                                                                borderColor: cs.border,
                                                                             }}
                                                                         >
                                                                             <span className="w-28 shrink-0 truncate font-semibold text-[#334155]">
