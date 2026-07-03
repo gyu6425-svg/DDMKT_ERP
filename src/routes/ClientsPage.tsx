@@ -1274,58 +1274,49 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     {contractsOnly && expanded && byCat.size ? (
                                         <tr className="border-b border-[#e2e8f0] bg-[#f8fafc]">
                                             <td className="px-6 py-3" colSpan={8}>
-                                                <div className="grid gap-2">
-                                                    {[...byCat.entries()].map(([cat, subs]) => (
-                                                        <div key={cat}>
-                                                            <div className="mb-1 text-[11px] font-bold text-[#4338ca]">
-                                                                {cat}
-                                                            </div>
-                                                            <div className="grid gap-1">
-                                                                {[...subs.entries()].map(([sub, v]) => {
-                                                                    const done = v.goal - v.remain;
-                                                                    const prog = progOf(v.goal, v.remain);
-                                                                    return (
-                                                                        <div
-                                                                            className="flex items-center gap-3 text-[11px]"
-                                                                            key={sub}
-                                                                        >
-                                                                            <span className="w-44 shrink-0 truncate font-semibold text-[#334155]">
-                                                                                {sub}
-                                                                                {v.n > 1 ? (
-                                                                                    <span className="text-[#94a3b8]">
-                                                                                        {' '}
-                                                                                        ×{v.n}
-                                                                                    </span>
-                                                                                ) : null}
-                                                                            </span>
-                                                                            <div className="h-1.5 w-32 shrink-0 overflow-hidden rounded-full bg-[#e2e8f0]">
-                                                                                {prog != null ? (
-                                                                                    <div
-                                                                                        className="h-full rounded-full"
-                                                                                        style={{
-                                                                                            background: progColor(prog),
-                                                                                            width: `${Math.min(100, Math.max(0, prog))}%`,
-                                                                                        }}
-                                                                                    />
-                                                                                ) : null}
-                                                                            </div>
-                                                                            <span
-                                                                                className="w-10 shrink-0 text-right font-bold"
-                                                                                style={{ color: progColor(prog) }}
-                                                                            >
-                                                                                {prog != null ? `${prog}%` : '-'}
-                                                                            </span>
-                                                                            <span className="text-[#64748b]">
-                                                                                계약 <b className="text-[#334155]">{v.goal || 0}</b> ·
-                                                                                진행 <b className="text-[#059669]">{done}</b> ·
-                                                                                잔여 <b className="text-[#dc2626]">{v.remain}</b>
-                                                                            </span>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                                {/* 인라인과 동일한 카테고리별 박스 UI(펼침은 전체폭이라 wrap으로 많이 배치) */}
+                                                <div className="flex flex-wrap gap-2">
+                                                    {[...byCat.entries()].flatMap(([cat, subs]) =>
+                                                        [...subs.entries()].map(([sub, v]) => {
+                                                            const done = v.goal - v.remain;
+                                                            const prog = progOf(v.goal, v.remain);
+                                                            const cs = catStyle(cat);
+                                                            return (
+                                                                <div
+                                                                    className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px]"
+                                                                    key={cat + sub}
+                                                                    style={{ background: cs.bg, borderColor: cs.border }}
+                                                                >
+                                                                    <span className="max-w-[160px] truncate font-semibold text-[#334155]">
+                                                                        {sub}
+                                                                        {v.n > 1 ? (
+                                                                            <span className="text-[#94a3b8]"> ×{v.n}</span>
+                                                                        ) : null}
+                                                                    </span>
+                                                                    <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-white/70">
+                                                                        {prog != null ? (
+                                                                            <div
+                                                                                className="h-full rounded-full"
+                                                                                style={{
+                                                                                    background: progColor(prog),
+                                                                                    width: `${Math.min(100, Math.max(0, prog))}%`,
+                                                                                }}
+                                                                            />
+                                                                        ) : null}
+                                                                    </div>
+                                                                    <span
+                                                                        className="shrink-0 font-bold"
+                                                                        style={{ color: progColor(prog) }}
+                                                                    >
+                                                                        {prog != null ? `${prog}%` : '-'}
+                                                                    </span>
+                                                                    <span className="whitespace-nowrap text-[#64748b]">
+                                                                        계약 {v.goal || 0}·진행 {done}·잔여 {v.remain}
+                                                                    </span>
+                                                                </div>
+                                                            );
+                                                        }),
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
