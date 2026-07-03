@@ -1253,27 +1253,44 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         {contractsOnly ? (
                                         <td className="px-3 py-2 text-xs">
                                             {(() => {
-                                                const remainOut = clientContracts
-                                                    .filter((ct) => ct.client_id === c.id)
-                                                    .reduce(
-                                                        (s, ct) =>
-                                                            s +
-                                                            (ct.unit_outsource ?? 0) *
-                                                                (ct.remain_count ?? 0),
-                                                        0,
-                                                    );
-                                                return remainOut > 0 ? (
-                                                    <button
-                                                        className="font-bold text-[#dc2626] hover:underline"
-                                                        onClick={() => setOutsourceClient(c.id)}
-                                                        title="외주비 상세 보기"
-                                                        type="button"
-                                                    >
-                                                        {remainOut.toLocaleString('ko-KR')}원
-                                                    </button>
-                                                ) : (
-                                                    <span className="text-[#94a3b8]">--</span>
+                                                const mine = clientContracts.filter(
+                                                    (ct) => ct.client_id === c.id,
                                                 );
+                                                // 잔여 외주비 = 외주단가 × 잔여수량(건별 소진 추적).
+                                                const remainOut = mine.reduce(
+                                                    (s, ct) =>
+                                                        s +
+                                                        (ct.unit_outsource ?? 0) * (ct.remain_count ?? 0),
+                                                    0,
+                                                );
+                                                // 직접입력 등 총 외주비(단가 없는 건 포함) — 잔여가 0이어도 총액이 있으면 표시.
+                                                const totalOut = mine.reduce(
+                                                    (s, ct) => s + (ct.outsource ?? 0),
+                                                    0,
+                                                );
+                                                if (remainOut > 0)
+                                                    return (
+                                                        <button
+                                                            className="font-bold text-[#dc2626] hover:underline"
+                                                            onClick={() => setOutsourceClient(c.id)}
+                                                            title="외주비 상세 보기"
+                                                            type="button"
+                                                        >
+                                                            {remainOut.toLocaleString('ko-KR')}원
+                                                        </button>
+                                                    );
+                                                if (totalOut > 0)
+                                                    return (
+                                                        <button
+                                                            className="text-[#94a3b8] hover:underline"
+                                                            onClick={() => setOutsourceClient(c.id)}
+                                                            title="외주비 상세 보기(총액)"
+                                                            type="button"
+                                                        >
+                                                            {totalOut.toLocaleString('ko-KR')}원
+                                                        </button>
+                                                    );
+                                                return <span className="text-[#94a3b8]">--</span>;
                                             })()}
                                         </td>
                                         ) : null}
@@ -1983,7 +2000,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                     <div className="max-h-[80vh] w-[min(460px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
                         {(() => {
                             const cts = clientContracts.filter(
-                                (ct) => ct.client_id === outsourceClient && (ct.unit_outsource ?? 0) > 0,
+                                (ct) =>
+                                    ct.client_id === outsourceClient &&
+                                    ((ct.unit_outsource ?? 0) > 0 || (ct.outsource ?? 0) > 0),
                             );
                             const co = clients.find((c) => c.id === outsourceClient)?.company || '업체';
                             const detail = cts.map((ct) => {

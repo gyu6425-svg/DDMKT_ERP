@@ -219,6 +219,7 @@ function ContractAddModal({
     const [unit, setUnit] = useState('');
     const [amountInput, setAmountInput] = useState(''); // 기타 = 금액 직접 입력
     const [outUnit, setOutUnit] = useState('');
+    const [outTotal, setOutTotal] = useState(''); // 외주비 직접입력(총액) — 입력 시 외주단가×수량 대신 사용
     const [outCompany, setOutCompany] = useState(''); // 외주업체명
     const [blogName, setBlogName] = useState(''); // 브랜드 블로그 이름(관리시트 업체명)
     const [date, setDate] = useState('');
@@ -231,7 +232,9 @@ function ContractAddModal({
         : Number(onlyDigits(count)) || 0;
     // 기타는 금액 직접 입력, 그 외는 단가 × 수량.
     const amt = isEtc ? Number(onlyDigits(amountInput)) || 0 : (Number(onlyDigits(unit)) || 0) * cnt;
-    const outAmt = (Number(onlyDigits(outUnit)) || 0) * cnt; // 외주비 = 외주단가 × 수량
+    // 외주비: 총액을 직접 입력하면 그 값을 우선 사용(기존 등록 건). 없으면 외주단가 × 수량.
+    const outDirect = Number(onlyDigits(outTotal)) || 0;
+    const outAmt = outDirect > 0 ? outDirect : (Number(onlyDigits(outUnit)) || 0) * cnt;
 
     const pickCat = (key: string) => {
         setCatKey(key);
@@ -267,7 +270,8 @@ function ContractAddModal({
                 per_day: daily ? Number(onlyDigits(perDay)) || null : null,
                 remain_count: n,
                 subtype: (boostPrefix ?? '') + subtype,
-                unit_outsource: outUnit.trim() ? Number(onlyDigits(outUnit)) : null,
+                // 외주비 직접입력 시 단가는 없음(null) → outsource(총액)만 저장.
+                unit_outsource: outDirect > 0 ? null : outUnit.trim() ? Number(onlyDigits(outUnit)) : null,
                 unit_price: unit.trim() ? Number(onlyDigits(unit)) : null,
                 blog_name: blogName.trim() || null, // 업체명/이름 라벨(전 카테고리 공통, 카드 칩 표시)
             },
@@ -492,16 +496,35 @@ function ContractAddModal({
                             />
                         </label>
                     </div>
-                    <label className="block text-xs font-semibold text-[#475569]">
-                        외주업체명
-                        <input
-                            className="mt-1 h-10 w-full rounded-md border border-[#fecaca] px-2 text-sm"
-                            onChange={(e) => setOutCompany(e.target.value)}
-                            placeholder="외주업체명 입력"
-                            type="text"
-                            value={outCompany}
-                        />
-                    </label>
+                    {/* 외주업체 + 외주비 직접입력 — 외주단가×수량 대신 총액을 바로 입력(기존 등록 건). 입력 시 우선 적용. */}
+                    <div className="grid grid-cols-2 gap-2">
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            외주업체
+                            <input
+                                className="mt-1 h-10 w-full rounded-md border border-[#fecaca] px-2 text-sm"
+                                onChange={(e) => setOutCompany(e.target.value)}
+                                placeholder="외주업체명"
+                                type="text"
+                                value={outCompany}
+                            />
+                        </label>
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            외주비(직접입력·원)
+                            <input
+                                className="mt-1 h-10 w-full rounded-md border border-[#fecaca] px-2 text-right text-sm"
+                                inputMode="numeric"
+                                onChange={(e) => setOutTotal(e.target.value)}
+                                placeholder="총 외주비"
+                                type="text"
+                                value={withCommas(outTotal)}
+                            />
+                        </label>
+                    </div>
+                    {outDirect > 0 ? (
+                        <div className="-mt-1 text-[11px] text-[#dc2626]">
+                            외주비를 직접 입력해 외주단가×수량 대신 이 값을 사용합니다.
+                        </div>
+                    ) : null}
                     <div className="rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
                         실매출(VAT) <span className="text-[#1e40af]">{withVat(amt).toLocaleString('ko-KR')}</span> · 외주{' '}
                         <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
