@@ -52,6 +52,8 @@ function markNewContract(id: string) {
     localStorage.setItem(NEW_KEY, JSON.stringify(m));
 }
 const DONE_STATUS = '계약완료'; // 계약 완료 판정 기준(상태). 계약 관리 진입 + 완료/미완료 탭이 공유.
+// 계약 관리 상단 월 매출 요약 카드 표시 여부 — 임시 비활성화(사용자 요청). 나중에 true 로 되살림.
+const SHOW_REVENUE_SUMMARY = false;
 const ENDED_STATUS = '계약종료'; // 계약 종료(터미널). 종료 탭. 5단계(신규~보류)와 별개.
 const TEMP_STATUS = '임시'; // 시트 임포터 테스트 등록 — 계약 관리에서 '임시(테스트)' 탭으로 분리 표시.
 // 숫자 입력 포맷 — 저장은 숫자만, 표시는 천단위 콤마(2000 → 2,000).
@@ -869,8 +871,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 </Button>
             </div>
 
-            {/* 월 매출 요약 카드 — 필터(전체/6월/7월)대로 합산. 검색줄 바로 밑. */}
-            {contractsOnly ? (
+            {/* 월 매출 요약 카드 — 필터(전체/6월/7월)대로 합산. 검색줄 바로 밑.
+                SHOW_REVENUE_SUMMARY=false 로 임시 비활성화(사용자 요청). 나중에 true 로 되살림. */}
+            {contractsOnly && SHOW_REVENUE_SUMMARY ? (
                 <div className="rounded-[10px] border border-[#e2e8f0] bg-white p-3">
                     <div className="mb-2 flex items-baseline gap-2">
                         <span className="rounded-md bg-[#1e40af] px-2 py-0.5 text-xs font-bold text-white">
