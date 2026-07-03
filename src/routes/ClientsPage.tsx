@@ -1059,48 +1059,94 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                             ) : null}
                                         </td>
                                         {contractsOnly ? (
-                                        <td className="min-w-[280px] px-3 py-2">
+                                        <td className="min-w-[320px] px-3 py-2">
                                             {(() => {
-                                                // 카테고리별 계약 건수 집계 → '플레이스 3' 처럼 표시.
-                                                const counts = new Map<string, number>();
-                                                for (const ct of clientContracts) {
-                                                    if (ct.client_id !== c.id) continue;
-                                                    counts.set(ct.category, (counts.get(ct.category) || 0) + 1);
+                                                const entries = [...byCat.entries()];
+                                                const subCount = entries.reduce((s, [, m]) => s + m.size, 0);
+                                                // 계약 없음 → 블로그 계정만 있으면 칩, 아니면 --
+                                                if (!subCount) {
+                                                    return blogAccounts.some((a) => a.client_id === c.id) ? (
+                                                        <span className="rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-semibold text-[#4338ca]">
+                                                            블로그
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-xs text-[#94a3b8]">--</span>
+                                                    );
                                                 }
-                                                if (counts.size) {
+                                                // 세부유형 4개 이하 → 인라인(가로) 표시. 초과 → 카테고리 칩 + 상세보기 아코디언.
+                                                if (subCount <= 4) {
                                                     return (
+                                                        <div className="grid gap-1">
+                                                            {entries.flatMap(([cat, m]) =>
+                                                                [...m.entries()].map(([sub, v]) => {
+                                                                    const done = v.goal - v.remain;
+                                                                    const prog = progOf(v.goal, v.remain);
+                                                                    return (
+                                                                        <div
+                                                                            className="flex items-center gap-1.5 text-[11px]"
+                                                                            key={cat + sub}
+                                                                        >
+                                                                            <span className="w-28 shrink-0 truncate font-semibold text-[#334155]">
+                                                                                {sub}
+                                                                                {v.n > 1 ? (
+                                                                                    <span className="text-[#94a3b8]"> ×{v.n}</span>
+                                                                                ) : null}
+                                                                            </span>
+                                                                            <div className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-[#e2e8f0]">
+                                                                                {prog != null ? (
+                                                                                    <div
+                                                                                        className="h-full rounded-full"
+                                                                                        style={{
+                                                                                            background: progColor(prog),
+                                                                                            width: `${Math.min(100, Math.max(0, prog))}%`,
+                                                                                        }}
+                                                                                    />
+                                                                                ) : null}
+                                                                            </div>
+                                                                            <span
+                                                                                className="w-8 shrink-0 text-right font-bold"
+                                                                                style={{ color: progColor(prog) }}
+                                                                            >
+                                                                                {prog != null ? `${prog}%` : '-'}
+                                                                            </span>
+                                                                            <span className="whitespace-nowrap text-[#64748b]">
+                                                                                {done}/{v.goal || 0}·잔여{v.remain}
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                }),
+                                                            )}
+                                                        </div>
+                                                    );
+                                                }
+                                                // 5개 이상 → 카테고리 칩 + 상세보기
+                                                return (
+                                                    <>
                                                         <span className="flex flex-wrap gap-1">
-                                                            {[...counts.entries()].map(([cat, n]) => (
+                                                            {entries.map(([cat, m]) => (
                                                                 <span
                                                                     className="rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-semibold text-[#4338ca]"
                                                                     key={cat}
                                                                 >
-                                                                    {cat} <b className="text-[#1e40af]">{n}</b>
+                                                                    {cat}{' '}
+                                                                    <b className="text-[#1e40af]">
+                                                                        {[...m.values()].reduce((s, v) => s + v.n, 0)}
+                                                                    </b>
                                                                 </span>
                                                             ))}
                                                         </span>
-                                                    );
-                                                }
-                                                if (blogAccounts.some((a) => a.client_id === c.id)) {
-                                                    return (
-                                                        <span className="rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-semibold text-[#4338ca]">
-                                                            블로그
-                                                        </span>
-                                                    );
-                                                }
-                                                return <span className="text-xs text-[#94a3b8]">--</span>;
+                                                        <button
+                                                            className="mt-1 block text-[11px] font-semibold text-[#4338ca] hover:underline"
+                                                            onClick={() =>
+                                                                setExpandedProduct((p) => (p === c.id ? null : c.id))
+                                                            }
+                                                            type="button"
+                                                        >
+                                                            상세보기 {expanded ? '▲' : '▼'}
+                                                        </button>
+                                                    </>
+                                                );
                                             })()}
-                                            {myCts.length ? (
-                                                <button
-                                                    className="mt-1 block text-[11px] font-semibold text-[#4338ca] hover:underline"
-                                                    onClick={() =>
-                                                        setExpandedProduct((p) => (p === c.id ? null : c.id))
-                                                    }
-                                                    type="button"
-                                                >
-                                                    상세보기 {expanded ? '▲' : '▼'}
-                                                </button>
-                                            ) : null}
                                         </td>
                                         ) : null}
                                         {!contractsOnly ? (
@@ -1210,7 +1256,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     </tr>
                                     {contractsOnly && expanded && byCat.size ? (
                                         <tr className="border-b border-[#e2e8f0] bg-[#f8fafc]">
-                                            <td className="px-6 py-3" colSpan={9}>
+                                            <td className="px-6 py-3" colSpan={8}>
                                                 <div className="grid gap-2">
                                                     {[...byCat.entries()].map(([cat, subs]) => (
                                                         <div key={cat}>
