@@ -12,7 +12,7 @@ import { ensureClientBlogAccount, syncBlogAccountFromContract } from '../api/blo
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import { PRODUCT_CATEGORIES, isDailySub, isBrandBlogSub, CONTAINER_SUBS } from '../lib/products';
 import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
-import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, todayStr, withVat } from '../lib/erpUtils';
+import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, todayStr, withVat } from '../lib/erpUtils';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
 //   계약은 client_contracts 단일 출처. 등록 시(+계약 추가) 또는 여기서 '+ 계약 추가'로 생성.
@@ -1989,7 +1989,7 @@ export function ClientDetail({
                             value: client.client_partner || '',
                         },
                         { key: 'source', label: '문의 경로', value: client.source || '', options: SOURCE_OPTIONS },
-                        { key: 'contact', label: '연락처', value: client.contact || '' },
+                        { key: 'contact', label: '연락처', value: client.contact || '', format: formatPhone },
                         { key: 'email', label: '이메일', value: client.email || '' },
                     ] as FieldDef[]
                 ).map(renderFieldCard)}

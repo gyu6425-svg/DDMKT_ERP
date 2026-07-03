@@ -34,6 +34,22 @@ export const NEW_CONTRACT_TTL_MS = 24 * 60 * 60 * 1000; // 신규 표시 유지 
 // 실매출 = 공급가(저장된 amount) × 1.1 (부가세 10% 포함). 순매출은 부가세 전(공급가−외주) 그대로 사용.
 export const withVat = (n: number | null | undefined): number => Math.round((Number(n) || 0) * 1.1);
 
+// 연락처 하이픈 자동 — 010-0000-0000(휴대폰 3-4-4), 서울 02-...(2-3/4-4), 그 외 3자리 국번.
+export function formatPhone(v: string): string {
+    const d = (v || '').replace(/\D/g, '').slice(0, 11);
+    if (!d) return '';
+    if (d.startsWith('02')) {
+        if (d.length <= 2) return d;
+        if (d.length <= 5) return `${d.slice(0, 2)}-${d.slice(2)}`;
+        if (d.length <= 9) return `${d.slice(0, 2)}-${d.slice(2, d.length - 4)}-${d.slice(d.length - 4)}`;
+        return `${d.slice(0, 2)}-${d.slice(2, 6)}-${d.slice(6, 10)}`;
+    }
+    // 010 등 3자리 국번(휴대폰/지역)
+    if (d.length <= 3) return d;
+    if (d.length <= 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
+    return `${d.slice(0, 3)}-${d.slice(3, d.length - 4)}-${d.slice(d.length - 4)}`;
+}
+
 export function todayStr(): string {
     return new Date()
         .toLocaleDateString('ko-KR', { day: '2-digit', month: '2-digit', year: 'numeric' })

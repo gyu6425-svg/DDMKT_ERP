@@ -22,6 +22,7 @@ import {
     SOURCE_OPTIONS,
     STATUS_BADGE,
     STATUS_OPTIONS,
+    formatPhone,
     parsePaste,
     todayStr,
     withVat,
@@ -208,17 +209,18 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     // 붙여넣기 → 자동 채우기: 업체명·담당자·연락처·이메일은 칸에, 마케팅상품·광고예산·문의내용은 히스토리로.
     const applyPaste = () => {
         const p = parsePaste(pasteText);
+        // 광고예산·문의내용(긴 글)은 히스토리로. 마케팅상품은 상품 칸으로.
         const hist: string[] = [];
-        if (p.product) hist.push(`마케팅상품: ${p.product}`);
         if (p.budget) hist.push(`광고예산: ${p.budget}`);
         if (p.inquiry) hist.push(p.inquiry);
         setForm((f) => ({
             ...f,
             company: p.company || f.company,
             manager: p.manager || f.manager,
-            contact: p.contact || f.contact,
+            contact: p.contact ? formatPhone(p.contact) : f.contact,
             email: p.email || f.email,
             source: p.source || f.source,
+            product: p.product || f.product,
             historyText: hist.join('\n') || f.historyText,
         }));
         setEntryMode('guide'); // 채운 뒤 가이드로 전환해 확인·수정
@@ -964,6 +966,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             {contractsOnly ? (
                                 <th className="px-3 py-2 font-semibold">잔여 외주비</th>
                             ) : null}
+                            {!contractsOnly ? <th className="px-3 py-2 font-semibold">상품</th> : null}
                             <th className="px-3 py-2 font-semibold">최근 히스토리</th>
                             <th className="px-3 py-2 font-semibold">
                                 <button
@@ -1140,6 +1143,27 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                             })()}
                                         </td>
                                         ) : null}
+                                        {!contractsOnly ? (
+                                            <td className="px-3 py-2">
+                                                {(() => {
+                                                    const prod = c.product || '';
+                                                    if (!prod)
+                                                        return <span className="text-xs text-[#94a3b8]">--</span>;
+                                                    // 브랜드 블로그 관련이면 보라 칩, 아니면 원문 회색 칩.
+                                                    if (/브랜드\s*블로그/.test(prod))
+                                                        return (
+                                                            <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[11px] font-bold text-[#7c3aed]">
+                                                                브랜드 블로그
+                                                            </span>
+                                                        );
+                                                    return (
+                                                        <span className="rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-semibold text-[#4338ca]">
+                                                            {prod}
+                                                        </span>
+                                                    );
+                                                })()}
+                                            </td>
+                                        ) : null}
                                         <td className="max-w-[180px] truncate px-3 py-2 text-xs text-[#64748b]">
                                             {lastHist}
                                         </td>
@@ -1246,7 +1270,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             <tr>
                                 <td
                                     className="px-3 py-12 text-center text-sm text-[#64748b]"
-                                    colSpan={contractsOnly ? 9 : 8}
+                                    colSpan={9}
                                 >
                                     {loading ? '불러오는 중...' : '등록된 문의가 없습니다'}
                                 </td>
@@ -1424,12 +1448,33 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     </span>
                                     <input
                                         className="erp-input w-full min-w-0"
-                                        onChange={(event) => updateField(f.key, event.target.value)}
+                                        onChange={(event) =>
+                                            updateField(
+                                                f.key,
+                                                f.key === 'contact'
+                                                    ? formatPhone(event.target.value)
+                                                    : event.target.value,
+                                            )
+                                        }
                                         placeholder={f.ph}
                                         value={form[f.key]}
                                     />
                                 </div>
                             ))}
+                            {/* 마케팅상품 (문의 등록) — 붙여넣기 자동 채움 대상. 브랜드 블로그면 목록에 칩 표시. */}
+                            {!contractsOnly ? (
+                                <div className="flex items-center gap-2">
+                                    <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
+                                        마케팅상품 :
+                                    </span>
+                                    <input
+                                        className="erp-input w-full min-w-0"
+                                        onChange={(event) => updateField('product', event.target.value)}
+                                        placeholder="예: 브랜드블로그 마케팅"
+                                        value={form.product}
+                                    />
+                                </div>
+                            ) : null}
                             {/* 상품 : 카테고리 다중선택 → 세부유형별 건수/금액 (계약 추가 시) */}
                             {!editId && contractsOnly ? (
                                 <div className="flex items-start gap-2">
