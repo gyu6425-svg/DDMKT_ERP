@@ -1658,6 +1658,26 @@ export function ClientDetail({
         </button>
     );
 
+    // 컨테이너(종합광고·상위노출 보장형) + 그 하위 상품 통째 삭제.
+    const deleteContainer = async (parent: ClientContract) => {
+        const targets = contracts.filter(
+            (c) =>
+                c.category === parent.category &&
+                (c.subtype === parent.subtype || c.subtype.startsWith(parent.subtype + ' · ')),
+        );
+        if (
+            !window.confirm(
+                `'${parent.subtype}'와(과) 하위 상품 ${targets.length - 1}건을 모두 삭제할까요? 되돌릴 수 없습니다.`,
+            )
+        )
+            return;
+        for (const t of targets) {
+            await deleteClientContract(t.id);
+        }
+        await onReloadContracts();
+        onToast(`'${parent.subtype}' 삭제됨`);
+    };
+
     // 카테고리별 합계 + 총액.
     const catAmount = (label: string) =>
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
@@ -1856,12 +1876,25 @@ export function ClientDetail({
                                         // 컨테이너 부모 = 흐린 카드 + 상품 선택(2차 등록) 입구.
                                         if (isBoostParent) {
                                             return (
-                                                <button
-                                                    className="flex h-full min-h-[120px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#c7b8f0] bg-[#faf8ff] px-4 py-3 text-center transition hover:border-[#7c3aed] hover:bg-[#f3ecff]"
+                                                <div
+                                                    className="relative flex h-full min-h-[120px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#c7b8f0] bg-[#faf8ff] px-4 py-3 text-center transition hover:border-[#7c3aed] hover:bg-[#f3ecff]"
                                                     key={ct.id}
                                                     onClick={() => setBoostAdd(ct)}
-                                                    type="button"
+                                                    role="button"
+                                                    tabIndex={0}
                                                 >
+                                                    {/* 컨테이너(+하위 상품) 통째 삭제 */}
+                                                    <button
+                                                        className="absolute right-1.5 top-1.5 rounded-full px-1.5 text-[13px] font-bold text-[#c4b5fd] hover:bg-white hover:text-[#dc2626]"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            void deleteContainer(ct);
+                                                        }}
+                                                        title="종합광고/보장형 및 하위 상품 삭제"
+                                                        type="button"
+                                                    >
+                                                        ✕
+                                                    </button>
                                                     <div className="text-xs font-bold text-[#7c3aed]">
                                                         {ct.subtype}
                                                     </div>
@@ -1876,7 +1909,7 @@ export function ClientDetail({
                                                             ? '모든 카테고리 상품 추가'
                                                             : '리워드·영수증 등 추가'}
                                                     </div>
-                                                </button>
+                                                </div>
                                             );
                                         }
                                         return (
