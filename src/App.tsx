@@ -19,6 +19,7 @@ import CustomerCategoryPage from './routes/CustomerCategoryPage';
 import { SkeletonRankPage } from './components/categoryRank/SkeletonRankPage';
 import InstaRankPage from './routes/InstaRankPage';
 import CafeRankPage from './routes/CafeRankPage';
+import { UpdateBanner } from './components/UpdateBanner';
 
 const routes = [
     { path: '/dashboard', element: <DashboardPage /> },
@@ -71,23 +72,31 @@ function App() {
     }, []);
 
     if (currentPath === '/login') {
-        return <LoginPage />;
+        return (
+            <>
+                <UpdateBanner />
+                <LoginPage />
+            </>
+        );
     }
 
     const currentRoute = routes.find((route) => route.path === currentPath) ?? routes[0];
     const isBannerGeneratorActive = currentPath === '/banner-generator';
 
     return (
-        <ProtectedRoute>
-            <ErpDataProvider>
-                <Layout>
-                    <div hidden={!isBannerGeneratorActive}>
-                        <BannerGeneratorPage />
-                    </div>
-                    {!isBannerGeneratorActive ? currentRoute.element : null}
-                </Layout>
-            </ErpDataProvider>
-        </ProtectedRoute>
+        <>
+            <UpdateBanner />
+            <ProtectedRoute>
+                <ErpDataProvider>
+                    <Layout>
+                        <div hidden={!isBannerGeneratorActive}>
+                            <BannerGeneratorPage />
+                        </div>
+                        {!isBannerGeneratorActive ? currentRoute.element : null}
+                    </Layout>
+                </ErpDataProvider>
+            </ProtectedRoute>
+        </>
     );
 }
 
