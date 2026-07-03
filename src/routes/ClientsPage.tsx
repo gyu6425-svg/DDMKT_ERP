@@ -165,6 +165,13 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [contractTab, setContractTab] = useState<'new' | 'active' | 'ended' | 'temp'>(() =>
         Object.keys(readNewContracts()).length ? 'new' : 'active',
     );
+    // 계약 관리 월 필터 — 6월~현재월 드롭다운, 기본 = 이번 달. (앞으로 12월까지 자동 확장)
+    const currentMonth = new Date().getMonth() + 1;
+    const [monthFilter, setMonthFilter] = useState(currentMonth);
+    const monthOptions = Array.from(
+        { length: Math.max(1, Math.min(12, currentMonth) - 5) },
+        (_, i) => 6 + i,
+    ); // [6 .. 현재월]
     // 계약 진행 단계 변경 대상(5단계 선택 모달).
     const [stageClient, setStageClient] = useState<ErpClient | null>(null);
     // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
@@ -270,7 +277,22 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                       ? client.status === ENDED_STATUS
                       : client.status !== DONE_STATUS && client.status !== ENDED_STATUS);
 
-            return matchesQuery && matchesStatus && matchesFav && matchesContract && matchesTab;
+            // 계약 관리 월 필터 — 계약 contract_date의 월(없으면 등록월)로 판정.
+            const matchesMonth =
+                !contractsOnly ||
+                (() => {
+                    const cs = clientContracts.filter(
+                        (ct) => ct.client_id === client.id && ct.contract_date,
+                    );
+                    if (cs.length)
+                        return cs.some((ct) => Number((ct.contract_date || '').slice(5, 7)) === monthFilter);
+                    const cm = client.created_at ? new Date(client.created_at).getMonth() + 1 : 0;
+                    return cm === monthFilter;
+                })();
+
+            return (
+                matchesQuery && matchesStatus && matchesFav && matchesContract && matchesTab && matchesMonth
+            );
         });
 
         return list.sort((a, b) => {
@@ -287,7 +309,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
         });
-    }, [clients, search, statusFilter, favOnly, favs, contractsOnly, clientTab, contractTab, newIds, newMap]);
+    }, [clients, clientContracts, search, statusFilter, favOnly, favs, contractsOnly, clientTab, contractTab, monthFilter, newIds, newMap]);
 
     // 계약 관리 KPI — 계약 중(계약완료 고객 수) + 재계약 임박(카테고리 계약 중 잔여 5건 이하).
     const doneClientIds = useMemo(
@@ -697,6 +719,20 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             ) : null}
 
             <div className="flex flex-wrap items-center gap-2 rounded-[8px] border border-[#e2e8f0] bg-[#f1f5f9] p-3">
+                {contractsOnly ? (
+                    <select
+                        className="h-9 rounded-md border border-[#1e40af] bg-white px-2 text-sm font-bold text-[#1e40af]"
+                        onChange={(e) => setMonthFilter(Number(e.target.value))}
+                        title="월별 보기"
+                        value={monthFilter}
+                    >
+                        {monthOptions.map((m) => (
+                            <option key={m} value={m}>
+                                {m}월
+                            </option>
+                        ))}
+                    </select>
+                ) : null}
                 <input
                     className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
                     onChange={(event) => setSearch(event.target.value)}
