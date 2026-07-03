@@ -119,26 +119,22 @@ function ClientFieldModal({
             <div className="w-[min(380px,94vw)] rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">{label} 수정</h3>
                 <div className="mt-4">
+                    {/* 선택지가 있어도 자유 입력 가능(datalist 제안). 담당자·업종 등 직접 입력 허용. */}
+                    <input
+                        autoFocus
+                        className="h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm font-medium text-[#0f172a]"
+                        list={options ? 'field-suggest' : undefined}
+                        onChange={(e) => setV(format ? format(e.target.value) : e.target.value)}
+                        placeholder={options ? '입력 또는 선택' : '입력...'}
+                        value={v}
+                    />
                     {options ? (
-                        <select
-                            className="h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm font-medium text-[#0f172a]"
-                            onChange={(e) => setV(e.target.value)}
-                            value={v}
-                        >
-                            <option value="">선택 안 함</option>
+                        <datalist id="field-suggest">
                             {options.map((o) => (
-                                <option key={o}>{o}</option>
+                                <option key={o} value={o} />
                             ))}
-                        </select>
-                    ) : (
-                        <input
-                            autoFocus
-                            className="h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm font-medium text-[#0f172a]"
-                            onChange={(e) => setV(format ? format(e.target.value) : e.target.value)}
-                            placeholder="입력..."
-                            value={v}
-                        />
-                    )}
+                        </datalist>
+                    ) : null}
                 </div>
                 <div className="mt-5 flex justify-end gap-2">
                     <button

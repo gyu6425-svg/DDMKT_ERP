@@ -203,7 +203,27 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [editId, setEditId] = useState<string | null>(null);
     const [form, setForm] = useState<ClientForm>(emptyForm);
     const [pasteText, setPasteText] = useState('');
+    const [entryMode, setEntryMode] = useState<'guide' | 'paste'>('guide'); // 가이드 입력 / 붙여넣기
     const [saving, setSaving] = useState(false);
+    // 붙여넣기 → 자동 채우기: 업체명·담당자·연락처·이메일은 칸에, 마케팅상품·광고예산·문의내용은 히스토리로.
+    const applyPaste = () => {
+        const p = parsePaste(pasteText);
+        const hist: string[] = [];
+        if (p.product) hist.push(`마케팅상품: ${p.product}`);
+        if (p.budget) hist.push(`광고예산: ${p.budget}`);
+        if (p.inquiry) hist.push(p.inquiry);
+        setForm((f) => ({
+            ...f,
+            company: p.company || f.company,
+            manager: p.manager || f.manager,
+            contact: p.contact || f.contact,
+            email: p.email || f.email,
+            source: p.source || f.source,
+            historyText: hist.join('\n') || f.historyText,
+        }));
+        setEntryMode('guide'); // 채운 뒤 가이드로 전환해 확인·수정
+        showToast('붙여넣기 내용을 채웠습니다 — 확인 후 등록하세요');
+    };
     // 등록 가이드 '상품' — 선택한 부모 카테고리(key) + 세부유형별 건수/금액 입력.
     const [prodCats, setProdCats] = useState<string[]>([]);
     const [prodInputs, setProdInputs] = useState<
@@ -409,6 +429,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         // 계약 관리에서 추가 = 바로 계약완료 기본값. 고객사 관리(문의) = 신규문의.
         setForm({ ...emptyForm, status: contractsOnly ? DONE_STATUS : STATUS_OPTIONS[0] });
         setPasteText('');
+        setEntryMode('guide');
         setProdCats([]);
         setProdInputs({});
         setModalOpen(true);
@@ -652,7 +673,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         link.click();
     };
 
-    const managerIsListed = salespeople.some((s) => s.name === form.manager);
 
     // 업체명 클릭 시 상세 페이지
     const detailClient = detailId ? clients.find((c) => c.id === detailId) : null;
@@ -1246,40 +1266,81 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             {editId
                                 ? '고객사 수정'
                                 : contractsOnly
-                                  ? '+ 계약 추가 (가이드 입력)'
-                                  : '+ 문의 추가 (가이드 입력)'}
+                                  ? '+ 계약 추가'
+                                  : '+ 문의 추가'}
                         </h3>
 
+                        {/* 입력 방식 선택 — 가이드 입력 / 붙여넣기 (신규 등록만) */}
+                        {!editId ? (
+                            <div className="mb-3 flex gap-1 border-b border-[#e2e8f0]">
+                                {(
+                                    [
+                                        ['guide', '가이드 입력'],
+                                        ['paste', '붙여넣기'],
+                                    ] as ['guide' | 'paste', string][]
+                                ).map(([k, label]) => (
+                                    <button
+                                        className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
+                                            entryMode === k
+                                                ? 'border-[#1e40af] text-[#1e40af]'
+                                                : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
+                                        }`}
+                                        key={k}
+                                        onClick={() => setEntryMode(k)}
+                                        type="button"
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
+
+                        {/* 붙여넣기 — 카카오/메일 문의 통째로 붙여넣고 자동 채우기 */}
+                        {!editId && entryMode === 'paste' ? (
+                            <div className="mb-3 grid gap-2">
+                                <textarea
+                                    className="min-h-[200px] w-full resize-y rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-sm"
+                                    onChange={(e) => setPasteText(e.target.value)}
+                                    placeholder={
+                                        '문의 내용을 통째로 붙여넣으세요.\n예)\n업체명\nWillog\n담당자명\n김수정\n연락처\n01063742667\ne-mail\nolivia@willog.io\n마케팅상품\n브랜드블로그 마케팅\n광고예산(예정)\n0~100만원\n문의내용\n안녕하세요, ...'
+                                    }
+                                    value={pasteText}
+                                />
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                                        disabled={!pasteText.trim()}
+                                        onClick={applyPaste}
+                                        type="button"
+                                    >
+                                        자동 채우기 →
+                                    </Button>
+                                    <span className="text-xs text-[#94a3b8]">
+                                        업체명·담당자·연락처·이메일은 칸에, 마케팅상품·광고예산·문의내용은 히스토리로 들어갑니다.
+                                    </span>
+                                </div>
+                            </div>
+                        ) : null}
+
                         {/* 가이드 입력 — 고정 라벨 옆 칸에 값 입력(블로그 대시보드와 동일 방식) */}
-                        <div className="grid gap-2">
-                            {/* 담당자 : */}
-                            <div className="flex items-start gap-2">
-                                <span className="mt-2 w-24 shrink-0 text-sm font-semibold text-[#475569]">
+                        <div className={`grid gap-2 ${!editId && entryMode === 'paste' ? 'hidden' : ''}`}>
+                            {/* 담당자 : 입력+선택(직접 입력 자유) */}
+                            <div className="flex items-center gap-2">
+                                <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
                                     담당자 :
                                 </span>
-                                <div className="w-full min-w-0">
-                                    <select
-                                        className="erp-input"
-                                        onChange={(event) => updateField('manager', event.target.value)}
-                                        value={managerIsListed ? form.manager : form.manager ? '__direct__' : ''}
-                                    >
-                                        <option value="">선택...</option>
-                                        {salespeople.map((s) => (
-                                            <option key={s.id} value={s.name}>
-                                                {s.name}
-                                            </option>
-                                        ))}
-                                        <option value="__direct__">직접 입력...</option>
-                                    </select>
-                                    {!managerIsListed ? (
-                                        <input
-                                            className="erp-input mt-1"
-                                            onChange={(event) => updateField('manager', event.target.value)}
-                                            placeholder="담당자 이름"
-                                            value={form.manager}
-                                        />
-                                    ) : null}
-                                </div>
+                                <input
+                                    className="erp-input w-full min-w-0"
+                                    list="manager-suggest"
+                                    onChange={(event) => updateField('manager', event.target.value)}
+                                    placeholder="담당자 입력 또는 선택"
+                                    value={form.manager}
+                                />
+                                <datalist id="manager-suggest">
+                                    {salespeople.map((s) => (
+                                        <option key={s.id} value={s.name} />
+                                    ))}
+                                </datalist>
                             </div>
                             {/* 문의 경로 : */}
                             <div className="flex items-center gap-2">
@@ -1331,21 +1392,23 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     />
                                 </div>
                             ))}
-                            {/* 업종/업태 (선택) */}
+                            {/* 업종/업태 : 입력+선택(직접 입력 자유) */}
                             <div className="flex items-center gap-2">
                                 <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
                                     업종/업태 :
                                 </span>
-                                <select
+                                <input
                                     className="erp-input w-full min-w-0"
+                                    list="industry-suggest"
                                     onChange={(event) => updateField('industry', event.target.value)}
+                                    placeholder="업종/업태 입력 또는 선택"
                                     value={form.industry}
-                                >
-                                    <option value="">선택...</option>
+                                />
+                                <datalist id="industry-suggest">
                                     {INDUSTRY_OPTIONS.map((o) => (
-                                        <option key={o}>{o}</option>
+                                        <option key={o} value={o} />
                                     ))}
-                                </select>
+                                </datalist>
                             </div>
                             {/* 연락처 · 이메일 · url */}
                             {(
