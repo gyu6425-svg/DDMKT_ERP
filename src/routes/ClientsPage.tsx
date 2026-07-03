@@ -65,11 +65,12 @@ const progOf = (goal: number | null, remain: number | null): number | null =>
 // 카테고리별 박스 색(연한 배경 + 테두리) — 상품 셀 구분용.
 const CAT_STYLE: Record<string, { bg: string; border: string }> = {
     플레이스: { bg: '#eff6ff', border: '#93c5fd' }, // 파란색
-    블로그: { bg: '#eff6ff', border: '#3b82f6' }, // 파란색(테두리 진하게 구분)
+    블로그: { bg: '#f0fdf4', border: '#86efac' }, // 초록색
+    쇼핑: { bg: '#fef2f2', border: '#fca5a5' }, // 빨간색
     카페: { bg: '#fdf2f8', border: '#f9a8d4' }, // 분홍색
-    인스타: { bg: '#fdf4ff', border: '#e9d5ff' }, // 그대로
-    파워링크: { bg: '#ecfeff', border: '#67e8f9' }, // 그대로
-    쇼핑: { bg: '#f0fdf4', border: '#86efac' },
+    인스타: { bg: '#fdf4ff', border: '#e9d5ff' }, // 그대로(연보라)
+    파워링크: { bg: '#ecfeff', border: '#67e8f9' }, // 그대로(하늘)
+    영상: { bg: '#fff7ed', border: '#fdba74' }, // 주황색
     종합광고: { bg: '#f1f5f9', border: '#cbd5e1' },
 };
 const catStyle = (c: string) => CAT_STYLE[c] || { bg: '#f8fafc', border: '#e2e8f0' };

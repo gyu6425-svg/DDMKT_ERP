@@ -1,7 +1,7 @@
 // 카테고리 대시보드 정의 — 사이드바·라우트·고객포털이 공유하는 단일 출처.
 //   계약 상품(src/lib/products.ts)의 부모 6 카테고리와 동일하게 맞춤: 플레이스/인스타/카페/쇼핑/파워링크/블로그.
 //   blog 만 구현됨(ready) — BlogRankPage. 나머지 5개는 뼈대(준비 중).
-export type CategoryKey = 'place' | 'insta' | 'cafe' | 'shopping' | 'powerlink' | 'blog';
+export type CategoryKey = 'place' | 'insta' | 'cafe' | 'shopping' | 'powerlink' | 'video' | 'blog';
 
 export type CategoryDef = {
     key: CategoryKey;
@@ -16,6 +16,7 @@ export const CATEGORIES: CategoryDef[] = [
     { key: 'cafe', label: '카페 대시보드', path: '/cafe-rank', ready: false },
     { key: 'shopping', label: '쇼핑 대시보드', path: '/shopping-rank', ready: false },
     { key: 'powerlink', label: '파워링크 대시보드', path: '/powerlink-rank', ready: false },
+    { key: 'video', label: '영상 대시보드', path: '/video-rank', ready: false },
     { key: 'blog', label: '블로그 대시보드', path: '/blog-rank', ready: true },
 ];
 
@@ -80,6 +81,16 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
         label: '파워링크',
         dashHref: '/powerlink-rank',
         subs: [],
+    },
+    {
+        key: 'video',
+        label: '영상',
+        dashHref: '/video-rank',
+        subs: [
+            { label: '영상제작 롱폼', href: '/video-rank?sub=' + encodeURIComponent('영상제작 롱폼') },
+            { label: '숏폼 마케팅', href: '/video-rank?sub=' + encodeURIComponent('숏폼 마케팅') },
+            { label: '클립 업로드', href: '/video-rank?sub=' + encodeURIComponent('클립 업로드') },
+        ],
     },
     {
         key: 'blog',

@@ -15,6 +15,13 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
     { key: 'shopping', label: '쇼핑', path: '/shopping-rank', ready: false, subs: ['쇼핑'] },
     { key: 'powerlink', label: '파워링크', path: '/powerlink-rank', ready: false, subs: ['파워링크'] },
     {
+        key: 'video',
+        label: '영상',
+        path: '/video-rank',
+        ready: false,
+        subs: ['영상제작 롱폼', '숏폼 마케팅', '클립 업로드'],
+    },
+    {
         key: 'blog',
         label: '블로그',
         path: '/blog-rank',
