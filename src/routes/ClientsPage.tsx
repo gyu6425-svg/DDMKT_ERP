@@ -24,6 +24,7 @@ import {
     STATUS_OPTIONS,
     parsePaste,
     todayStr,
+    withVat,
 } from '../lib/erpUtils';
 
 const FAVS_KEY = 'erp_favs';
@@ -309,6 +310,31 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             return af - bf;
         });
     }, [clients, clientContracts, search, statusFilter, favOnly, favs, contractsOnly, clientTab, contractTab, monthFilter, newIds, newMap]);
+
+    // 월 매출 합계 카드 — 현재 필터(월/탭/검색)로 보이는 고객의 계약을, 선택 월에 해당하는 것만 합산.
+    //   공급가(Σ amount) · 부가세(공급가×10%) · 실매출/합계(공급가+부가세) · 외주비 · 순매출(공급가−외주).
+    const revenueSummary = useMemo(() => {
+        const shown = new Set(filtered.map((c) => c.id));
+        const cliById = new Map(clients.map((c) => [c.id, c]));
+        let supply = 0;
+        let outs = 0;
+        for (const ct of clientContracts) {
+            if (!shown.has(ct.client_id)) continue;
+            if (monthFilter) {
+                if (ct.contract_date) {
+                    if (Number(ct.contract_date.slice(5, 7)) !== monthFilter) continue;
+                } else {
+                    const cl = cliById.get(ct.client_id);
+                    const cm = cl?.created_at ? new Date(cl.created_at).getMonth() + 1 : 0;
+                    if (cm !== monthFilter) continue;
+                }
+            }
+            supply += ct.amount || 0;
+            outs += ct.outsource || 0;
+        }
+        const total = withVat(supply); // 실매출 = 공급가 + 부가세(VAT 포함)
+        return { supply, vat: total - supply, total, outs, net: supply - outs };
+    }, [filtered, clients, clientContracts, monthFilter]);
 
     // 계약 관리 KPI — 계약 중(계약완료 고객 수) + 재계약 임박(카테고리 계약 중 잔여 5건 이하).
     const doneClientIds = useMemo(
@@ -772,6 +798,40 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                     새로고침
                 </Button>
             </div>
+
+            {/* 월 매출 요약 카드 — 필터(전체/6월/7월)대로 합산. 검색줄 바로 밑. */}
+            {contractsOnly ? (
+                <div className="rounded-[10px] border border-[#e2e8f0] bg-white p-3">
+                    <div className="mb-2 flex items-baseline gap-2">
+                        <span className="rounded-md bg-[#1e40af] px-2 py-0.5 text-xs font-bold text-white">
+                            {monthFilter ? `2026년 ${monthFilter}월` : '전체'}
+                        </span>
+                        <span className="text-xs font-semibold text-[#64748b]">매출 요약</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                        {(
+                            [
+                                ['공급가액', revenueSummary.supply, '#334155'],
+                                ['부가세 (10%)', revenueSummary.vat, '#64748b'],
+                                ['실매출 (VAT 포함)', revenueSummary.total, '#1e40af'],
+                                ['외주비', revenueSummary.outs, '#dc2626'],
+                                ['순매출 (공급가−외주)', revenueSummary.net, '#059669'],
+                            ] as [string, number, string][]
+                        ).map(([label, val, color]) => (
+                            <div
+                                className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] px-3 py-2 text-center"
+                                key={label}
+                            >
+                                <div className="text-[11px] font-semibold text-[#94a3b8]">{label}</div>
+                                <div className="mt-0.5 text-base font-bold sm:text-lg" style={{ color }}>
+                                    {val.toLocaleString('ko-KR')}
+                                    <span className="text-[11px] font-semibold text-[#94a3b8]">원</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ) : null}
 
             {!contractsOnly ? (
                 <div className="flex gap-1 border-b border-[#e2e8f0]">
