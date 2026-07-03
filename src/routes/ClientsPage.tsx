@@ -1081,10 +1081,23 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                 [...m.entries()].map(([sub, v]) => {
                                                                     const done = v.goal - v.remain;
                                                                     const prog = progOf(v.goal, v.remain);
+                                                                    // 진행률별 연한 배경 + 색 테두리로 박스 구분.
+                                                                    const tint =
+                                                                        prog == null
+                                                                            ? '#f8fafc'
+                                                                            : prog >= 70
+                                                                              ? '#f0fdf4'
+                                                                              : prog >= 40
+                                                                                ? '#fefce8'
+                                                                                : '#fef2f2';
                                                                     return (
                                                                         <div
-                                                                            className="flex items-center gap-1.5 text-[11px]"
+                                                                            className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px]"
                                                                             key={cat + sub}
+                                                                            style={{
+                                                                                background: tint,
+                                                                                borderColor: progColor(prog),
+                                                                            }}
                                                                         >
                                                                             <span className="w-28 shrink-0 truncate font-semibold text-[#334155]">
                                                                                 {sub}
