@@ -1995,7 +1995,7 @@ export function ClientDetail({
                         <div className="text-base font-bold text-[#059669]">{fmtWon(receivedTotal)}원</div>
                     </div>
                     <div className="rounded-lg border border-[#fecaca] bg-[#fff7f7] px-3 py-2 text-center">
-                        <div className="text-[11px] font-semibold text-[#dc2626]">준 외주비(누적)</div>
+                        <div className="text-[11px] font-semibold text-[#dc2626]">실제 사용 외주비</div>
                         <div className="text-base font-bold text-[#dc2626]">{fmtWon(paidTotal)}원</div>
                     </div>
                     <div className="rounded-lg border-2 border-[#1e40af] bg-[#eff6ff] px-3 py-2 text-center">
