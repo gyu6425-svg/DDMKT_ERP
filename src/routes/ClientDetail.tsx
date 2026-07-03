@@ -1188,17 +1188,10 @@ function ContractEditModal({
                                         입금 미처리
                                     </button>
                                 </div>
-                                <div className="mt-2 flex gap-2">
+                                {/* 되돌리기 — +1건 완료 제거(수기 입력으로 처리). 마지막 기록 취소용만 유지 */}
+                                <div className="mt-2">
                                     <button
-                                        className="flex-1 rounded-md border border-[#059669] bg-white px-4 py-2 text-sm font-bold text-[#059669] hover:bg-[#059669] hover:text-white disabled:opacity-50"
-                                        disabled={saving || remainN <= 0}
-                                        onClick={() => void commitWeek(1, false)}
-                                        type="button"
-                                    >
-                                        + 1건 완료
-                                    </button>
-                                    <button
-                                        className="rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50"
+                                        className="w-full rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50"
                                         disabled={saving || remainN >= goalN}
                                         onClick={() =>
                                             weeklyLogs.length
@@ -1210,7 +1203,7 @@ function ContractEditModal({
                                         되돌리기
                                     </button>
                                 </div>
-                                {/* N건 일괄 완료 — 진행 이력에 기록 남김 */}
+                                {/* 처리 건수 수기 입력 — 진행 이력에 기록 남김 */}
                                 <div className="mt-2 flex items-center gap-1.5">
                                     <input
                                         className="h-9 w-full rounded-md border border-[#93c5fd] bg-white px-2 text-sm"
