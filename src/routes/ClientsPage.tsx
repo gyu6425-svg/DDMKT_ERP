@@ -815,8 +815,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             <th className="px-3 py-2 font-semibold">⭐</th>
                             <th className="px-3 py-2 font-semibold">담당자</th>
                             <th className="px-3 py-2 font-semibold">업체명</th>
-                            <th className="px-3 py-2 font-semibold">연락처</th>
-                            {contractsOnly ? <th className="px-3 py-2 font-semibold">상품</th> : null}
+                            {contractsOnly ? (
+                                <th className="min-w-[280px] px-3 py-2 font-semibold">상품</th>
+                            ) : null}
+                            {!contractsOnly ? <th className="px-3 py-2 font-semibold">연락처</th> : null}
                             <th className="px-3 py-2 font-semibold">상태</th>
                             {contractsOnly ? (
                                 <th className="px-3 py-2 font-semibold">잔여 외주비</th>
@@ -885,11 +887,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                 </span>
                                             ) : null}
                                         </td>
-                                        <td className="px-3 py-2 text-xs text-[#64748b]">
-                                            {c.contact || '--'}
-                                        </td>
                                         {contractsOnly ? (
-                                        <td className="px-3 py-2">
+                                        <td className="min-w-[280px] px-3 py-2">
                                             {(() => {
                                                 // 카테고리별 계약 건수 집계 → '플레이스 3' 처럼 표시.
                                                 const counts = new Map<string, number>();
@@ -921,6 +920,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                 return <span className="text-xs text-[#94a3b8]">--</span>;
                                             })()}
                                         </td>
+                                        ) : null}
+                                        {!contractsOnly ? (
+                                            <td className="px-3 py-2 text-xs text-[#64748b]">
+                                                {c.contact || '--'}
+                                            </td>
                                         ) : null}
                                         <td className="px-3 py-2">
                                             <span
@@ -1005,7 +1009,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             <tr>
                                 <td
                                     className="px-3 py-12 text-center text-sm text-[#64748b]"
-                                    colSpan={contractsOnly ? 10 : 8}
+                                    colSpan={contractsOnly ? 9 : 8}
                                 >
                                     {loading ? '불러오는 중...' : '등록된 문의가 없습니다'}
                                 </td>

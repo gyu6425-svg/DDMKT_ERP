@@ -128,7 +128,13 @@ function Sidebar() {
                         {navigationItems.slice(0, afterContracts).map(renderNavItem)}
                         <AdminOnly>
                             <div className="grid gap-[18px] max-[800px]:col-span-2">
-                                {SIDEBAR_CATEGORIES.map((c) => {
+                                {/* 블로그가 가장 많이 쓰는 카테고리 → 계약 관리 바로 밑(맨 위)으로. */}
+                                {[...SIDEBAR_CATEGORIES]
+                                    .sort(
+                                        (a, b) =>
+                                            (a.key === 'blog' ? 0 : 1) - (b.key === 'blog' ? 0 : 1),
+                                    )
+                                    .map((c) => {
                                     // 하위가 없으면(쇼핑·파워링크) 드롭다운 없이 상위=대시보드 바로가기.
                                     if (!c.subs.length) {
                                         return (
