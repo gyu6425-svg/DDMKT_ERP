@@ -1860,6 +1860,22 @@ export function ClientDetail({
         await onReloadContracts();
         onToast('사용 이력 삭제됨');
     };
+
+    // 외주비 정산에서 항목(행) 삭제 — 계약·진행은 유지, 외주비(받은/외주단가/업체)만 제거.
+    const clearOutsourceEntry = async (ct: ClientContract) => {
+        if (!window.confirm(`'${ct.subtype}' 외주비 항목을 삭제할까요? (계약·진행은 유지, 외주비만 제거)`)) return;
+        const { error } = await updateClientContract(ct.id, {
+            outsource: 0,
+            unit_outsource: null,
+            outsource_company: null,
+        });
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        await onReloadContracts();
+        onToast('외주비 항목 삭제됨');
+    };
     // 계약이 있는 카테고리(상품)만, 부모 순서로 — 상품별 섹션으로 나눠 표시.
     const activeCats = PRODUCT_CATEGORIES.filter((c) => contracts.some((ct) => ct.category === c.label));
 
@@ -2013,29 +2029,42 @@ export function ClientDetail({
                 {/* 품목별 한 줄 — 받은/사용을 같은 줄에 나란히(품목이 섞이지 않게). 사용액은 진행 처리 완료 시 자동 누적. */}
                 {outsourceRows.length ? (
                     <div className="overflow-hidden rounded-lg border border-[#e2e8f0]">
-                        <div className="grid grid-cols-[1fr_auto_auto] gap-2 bg-[#f8fafc] px-3 py-1.5 text-[11px] font-semibold text-[#94a3b8]">
+                        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 bg-[#f8fafc] px-3 py-1.5 text-[11px] font-semibold text-[#94a3b8]">
                             <span>품목</span>
                             <span className="w-24 text-right text-[#059669]">받은 외주비</span>
                             <span className="w-24 text-right text-[#dc2626]">실제 사용</span>
+                            <span className="w-4" />
                         </div>
                         {outsourceRows.map((r) => (
                             <div className="border-t border-[#f1f5f9]" key={r.id}>
-                                <button
-                                    className="grid w-full grid-cols-[1fr_auto_auto] items-center gap-2 px-3 py-1.5 text-left text-[11px] hover:bg-[#f8fafc] disabled:cursor-default"
-                                    disabled={!r.logs.length}
-                                    onClick={() => setExpandedOut(expandedOut === r.id ? null : r.id)}
-                                    type="button"
-                                >
-                                    <span className="min-w-0 truncate text-[#475569]">
-                                        {r.logs.length ? (
-                                            <span className="text-[#94a3b8]">{expandedOut === r.id ? '▾' : '▸'} </span>
-                                        ) : null}
-                                        {r.subtype}
-                                        {r.date ? <span className="text-[#cbd5e1]"> · {r.date}</span> : null}
-                                    </span>
+                                <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[#f8fafc]">
+                                    <button
+                                        className="flex min-w-0 items-center text-left disabled:cursor-default"
+                                        disabled={!r.logs.length}
+                                        onClick={() => setExpandedOut(expandedOut === r.id ? null : r.id)}
+                                        type="button"
+                                    >
+                                        <span className="min-w-0 truncate text-[#475569]">
+                                            {r.logs.length ? (
+                                                <span className="text-[#94a3b8]">
+                                                    {expandedOut === r.id ? '▾' : '▸'}{' '}
+                                                </span>
+                                            ) : null}
+                                            {r.subtype}
+                                            {r.date ? <span className="text-[#cbd5e1]"> · {r.date}</span> : null}
+                                        </span>
+                                    </button>
                                     <b className="w-24 text-right text-[#059669]">{fmtWon(r.received)}원</b>
                                     <b className="w-24 text-right text-[#dc2626]">{fmtWon(r.used)}원</b>
-                                </button>
+                                    <button
+                                        className="w-4 text-[#cbd5e1] hover:text-[#dc2626]"
+                                        onClick={() => void clearOutsourceEntry(r.ct)}
+                                        title="이 외주비 항목 삭제(계약은 유지)"
+                                        type="button"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
                                 {/* 사용 이력 펼침 — 각 완료 기록 삭제(잔여 복원, 진행 이력과 동기화) */}
                                 {expandedOut === r.id && r.logs.length ? (
                                     <div className="grid gap-1 bg-[#fff7f7] px-3 py-1.5">
