@@ -173,6 +173,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         0,
         ...Array.from({ length: Math.max(1, Math.min(12, currentMonth) - 5) }, (_, i) => 6 + i),
     ]; // [전체, 6 .. 현재월]
+    const [dateSort, setDateSort] = useState<null | 'asc' | 'desc'>(null); // 등록일 정렬(헤더 클릭)
     // 계약 진행 단계 변경 대상(5단계 선택 모달).
     const [stageClient, setStageClient] = useState<ErpClient | null>(null);
     // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
@@ -248,6 +249,15 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         window.setTimeout(() => setToast(''), 2500);
     };
 
+    // 등록일 정렬키 — 계약 contract_date 중 가장 이른 것(없으면 생성일). 'YYYY-MM-DD…'라 문자열 비교로 날짜순.
+    const regKey = (client: ErpClient) => {
+        const cs = clientContracts
+            .filter((ct) => ct.client_id === client.id && ct.contract_date)
+            .map((ct) => ct.contract_date as string)
+            .sort();
+        return cs.length ? cs[0] : client.created_at || '';
+    };
+
     // 업체가 특정 월(1~12)에 속하는지 — 계약 contract_date의 월(없으면 등록월). month=0이면 전체(항상 true).
     const clientInMonth = (client: ErpClient, month: number) => {
         if (!month) return true;
@@ -296,6 +306,13 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         });
 
         return list.sort((a, b) => {
+            // 등록일 정렬(헤더 클릭)이 켜져 있으면 날짜순 우선.
+            if (dateSort) {
+                const ka = regKey(a);
+                const kb = regKey(b);
+                const c = ka.localeCompare(kb);
+                return dateSort === 'asc' ? c : -c;
+            }
             // 신규건(24h)은 항상 맨 위, 최근 완료 순.
             const an = newIds.has(a.id);
             const bn = newIds.has(b.id);
@@ -309,7 +326,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
         });
-    }, [clients, clientContracts, search, statusFilter, favOnly, favs, contractsOnly, clientTab, contractTab, monthFilter, newIds, newMap]);
+    }, [clients, clientContracts, search, statusFilter, favOnly, favs, contractsOnly, clientTab, contractTab, monthFilter, dateSort, newIds, newMap]);
 
     // 월 매출 합계 카드 — 현재 필터(월/탭/검색)로 보이는 고객의 계약을, 선택 월에 해당하는 것만 합산.
     //   공급가(Σ amount) · 부가세(공급가×10%) · 실매출/합계(공급가+부가세) · 외주비 · 순매출(공급가−외주).
@@ -928,7 +945,18 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                 <th className="px-3 py-2 font-semibold">잔여 외주비</th>
                             ) : null}
                             <th className="px-3 py-2 font-semibold">최근 히스토리</th>
-                            <th className="px-3 py-2 font-semibold">등록일</th>
+                            <th className="px-3 py-2 font-semibold">
+                                <button
+                                    className="inline-flex items-center gap-0.5 font-semibold hover:text-[#1e40af]"
+                                    onClick={() =>
+                                        setDateSort((d) => (d === 'asc' ? 'desc' : d === 'desc' ? null : 'asc'))
+                                    }
+                                    title="등록일 정렬 (오름/내림)"
+                                    type="button"
+                                >
+                                    등록일 {dateSort === 'asc' ? '▲' : dateSort === 'desc' ? '▼' : '↕'}
+                                </button>
+                            </th>
                             <th className="px-3 py-2 font-semibold">액션</th>
                         </tr>
                     </thead>
@@ -944,13 +972,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     .filter((ct) => ct.client_id === c.id && ct.contract_date)
                                     .map((ct) => ct.contract_date as string)
                                     .sort();
+                                // 표기 통일 — 계약일 우선, 없으면 생성일 모두 YYYY-MM-DD.
                                 const dt = cds.length
                                     ? cds[0]
                                     : c.created_at
-                                      ? new Date(c.created_at).toLocaleDateString('ko-KR', {
-                                            day: '2-digit',
-                                            month: '2-digit',
-                                        })
+                                      ? c.created_at.slice(0, 10)
                                       : '--';
                                 const isNew = newIds.has(c.id); // 계약완료 후 24시간 신규건 하이라이트
                                 // 상품 상세 집계 — 카테고리 → 세부유형별 계약/진행/잔여(합산).
