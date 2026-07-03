@@ -101,15 +101,6 @@ const outsourceOf = (ct: ClientContract, remainOverride?: number) => {
     return { total, remain: remainAmt, used: Math.max(0, total - remainAmt), unit };
 };
 
-// 기타 항목 판별 — 카테고리(정식 세부유형)에 없는 상품(명함·스티커 등, 종합광고 2차에서 '기타'로 입력).
-//   기타는 진행 추적 없이 외주비가 '실제 사용'으로 바로 전액 잡힘.
-const KNOWN_SUBS = new Set(PRODUCT_CATEGORIES.flatMap((c) => c.subs));
-const isEtcItem = (subtype: string) => {
-    const p = CONTAINER_SUBS.find((x) => subtype.startsWith(x + ' · '));
-    const inner = p ? subtype.slice(p.length + 3) : subtype;
-    return !KNOWN_SUBS.has(inner) && !CONTAINER_SUBS.includes(inner);
-};
-
 // 기본정보(담당자·문의경로·연락처·이메일) 클릭 편집 모달.
 function ClientFieldModal({
     label,
@@ -1830,9 +1821,7 @@ export function ClientDetail({
         .map((ct) => {
             const o = outsourceOf(ct);
             const logs = ct.weekly_logs ?? [];
-            const etc = isEtcItem(ct.subtype); // 기타 = 카테고리 없는 항목 → 외주비 전액 바로 실제 사용
             // 실제 사용 = 진행 이력(완료 로그) 합 = Σ 건수 × 외주단가(로그값 우선). 로그 없으면 소진액.
-            //   단, 기타 항목은 진행 추적 없이 전액(o.total) 바로 사용으로 잡음.
             const usedFromLogs = logs.reduce(
                 (s, l) => s + (l.count || 0) * (l.outUnit ?? ct.unit_outsource ?? 0),
                 0,
@@ -1842,9 +1831,8 @@ export function ClientDetail({
                 id: ct.id,
                 subtype: ct.subtype,
                 date: ct.contract_date,
-                etc,
                 received: o.total,
-                used: etc ? o.total : logs.length ? usedFromLogs : o.used,
+                used: logs.length ? usedFromLogs : o.used,
                 logs, // 사용(완료) 이력 — 개별 삭제 대상
             };
         });
@@ -2063,11 +2051,6 @@ export function ClientDetail({
                                                 </span>
                                             ) : null}
                                             {r.subtype}
-                                            {r.etc ? (
-                                                <span className="ml-1 rounded bg-[#fef3c7] px-1 py-0.5 text-[9px] font-bold text-[#b45309]">
-                                                    기타·즉시
-                                                </span>
-                                            ) : null}
                                             {r.date ? <span className="text-[#cbd5e1]"> · {r.date}</span> : null}
                                         </span>
                                     </button>
