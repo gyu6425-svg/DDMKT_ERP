@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
     deleteClient,
     insertClient,
@@ -54,6 +54,11 @@ const TEMP_STATUS = '임시'; // 시트 임포터 테스트 등록 — 계약 �
 // 숫자 입력 포맷 — 저장은 숫자만, 표시는 천단위 콤마(2000 → 2,000).
 const onlyDigits = (s: string) => s.replace(/[^\d]/g, '');
 const withCommas = (s: string) => (onlyDigits(s) ? Number(onlyDigits(s)).toLocaleString('ko-KR') : '');
+// 상품 상세(진행률) — ClientDetail 카드와 동일 색/계산.
+const progColor = (p: number | null) =>
+    p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
+const progOf = (goal: number | null, remain: number | null): number | null =>
+    goal == null || remain == null || goal === 0 ? null : Math.round(((goal - remain) / goal) * 100);
 // 업체명 중복 비교용 정규화 — 공백 제거 + 소문자(저장값은 그대로, 비교에만 사용).
 const normCompany = (s: string) => s.trim().replace(/\s+/g, '').toLowerCase();
 // 사업자등록번호 3-2-5 하이픈 자동(입력하는 동안 000-00-00000).
@@ -165,6 +170,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
     const [showImminent, setShowImminent] = useState(false);
     const [outsourceClient, setOutsourceClient] = useState<string | null>(null); // 잔여 외주비 상세 대상 client_id
+    const [expandedProduct, setExpandedProduct] = useState<string | null>(null); // 상품 상세(계약/진행/잔여) 펼친 client_id
     // 계약완료 처리로 계약 관리에 막 넘어온 신규건 — localStorage 기록 기준 24시간 강조·상단 고정.
     const [newMap, setNewMap] = useState<Record<string, number>>(readNewContracts);
     useEffect(() => {
@@ -849,9 +855,25 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         })
                                       : '--';
                                 const isNew = newIds.has(c.id); // 계약완료 후 24시간 신규건 하이라이트
+                                // 상품 상세 집계 — 카테고리 → 세부유형별 계약/진행/잔여(합산).
+                                const myCts = clientContracts.filter((ct) => ct.client_id === c.id);
+                                const byCat = new Map<
+                                    string,
+                                    Map<string, { goal: number; remain: number; n: number }>
+                                >();
+                                for (const ct of myCts) {
+                                    const subs = byCat.get(ct.category) ?? new Map();
+                                    const cur = subs.get(ct.subtype) ?? { goal: 0, remain: 0, n: 0 };
+                                    cur.goal += ct.goal_count ?? 0;
+                                    cur.remain += ct.remain_count ?? 0;
+                                    cur.n += 1;
+                                    subs.set(ct.subtype, cur);
+                                    byCat.set(ct.category, subs);
+                                }
+                                const expanded = expandedProduct === c.id;
                                 return (
+                                    <Fragment key={c.id}>
                                     <tr
-                                        key={c.id}
                                         className={`cursor-pointer border-b border-[#e2e8f0] ${
                                             isNew
                                                 ? 'bg-[#eff6ff] ring-2 ring-inset ring-[#1e40af] hover:bg-[#dbeafe]'
@@ -919,6 +941,17 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                 }
                                                 return <span className="text-xs text-[#94a3b8]">--</span>;
                                             })()}
+                                            {myCts.length ? (
+                                                <button
+                                                    className="mt-1 block text-[11px] font-semibold text-[#4338ca] hover:underline"
+                                                    onClick={() =>
+                                                        setExpandedProduct((p) => (p === c.id ? null : c.id))
+                                                    }
+                                                    type="button"
+                                                >
+                                                    상세보기 {expanded ? '▲' : '▼'}
+                                                </button>
+                                            ) : null}
                                         </td>
                                         ) : null}
                                         {!contractsOnly ? (
@@ -1003,6 +1036,66 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                             </div>
                                         </td>
                                     </tr>
+                                    {contractsOnly && expanded && byCat.size ? (
+                                        <tr className="border-b border-[#e2e8f0] bg-[#f8fafc]">
+                                            <td className="px-6 py-3" colSpan={9}>
+                                                <div className="grid gap-2">
+                                                    {[...byCat.entries()].map(([cat, subs]) => (
+                                                        <div key={cat}>
+                                                            <div className="mb-1 text-[11px] font-bold text-[#4338ca]">
+                                                                {cat}
+                                                            </div>
+                                                            <div className="grid gap-1">
+                                                                {[...subs.entries()].map(([sub, v]) => {
+                                                                    const done = v.goal - v.remain;
+                                                                    const prog = progOf(v.goal, v.remain);
+                                                                    return (
+                                                                        <div
+                                                                            className="flex items-center gap-3 text-[11px]"
+                                                                            key={sub}
+                                                                        >
+                                                                            <span className="w-44 shrink-0 truncate font-semibold text-[#334155]">
+                                                                                {sub}
+                                                                                {v.n > 1 ? (
+                                                                                    <span className="text-[#94a3b8]">
+                                                                                        {' '}
+                                                                                        ×{v.n}
+                                                                                    </span>
+                                                                                ) : null}
+                                                                            </span>
+                                                                            <div className="h-1.5 w-32 shrink-0 overflow-hidden rounded-full bg-[#e2e8f0]">
+                                                                                {prog != null ? (
+                                                                                    <div
+                                                                                        className="h-full rounded-full"
+                                                                                        style={{
+                                                                                            background: progColor(prog),
+                                                                                            width: `${Math.min(100, Math.max(0, prog))}%`,
+                                                                                        }}
+                                                                                    />
+                                                                                ) : null}
+                                                                            </div>
+                                                                            <span
+                                                                                className="w-10 shrink-0 text-right font-bold"
+                                                                                style={{ color: progColor(prog) }}
+                                                                            >
+                                                                                {prog != null ? `${prog}%` : '-'}
+                                                                            </span>
+                                                                            <span className="text-[#64748b]">
+                                                                                계약 <b className="text-[#334155]">{v.goal || 0}</b> ·
+                                                                                진행 <b className="text-[#059669]">{done}</b> ·
+                                                                                잔여 <b className="text-[#dc2626]">{v.remain}</b>
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ) : null}
+                                    </Fragment>
                                 );
                             })
                         ) : (
