@@ -1742,6 +1742,7 @@ export function ClientDetail({
     const [endNote, setEndNote] = useState('');
     const [breakdown, setBreakdown] = useState<'net' | 'outsource' | 'sales' | null>(null); // 상품별 내역
     const [detailC, setDetailC] = useState<ClientContract | null>(null); // 내역에서 상품 클릭 시 상세
+    const [expandedOut, setExpandedOut] = useState<string | null>(null); // 외주비 정산 사용 이력 펼침 대상(계약 id)
 
     // 계약 종료 = 업체 상태를 '계약종료'로(계약 종료 탭으로 이동, 계약행은 보존) → 목록으로.
     const endClient = () => {
@@ -1816,14 +1817,49 @@ export function ClientDetail({
     // 외주비 정산 — 품목별로 받은 외주비(단가×계약수량) vs 실제 사용 외주비(완료분 소진).
     //   실제 사용 = 진행 처리(완료)로 잔여가 줄면 자동 반영. 별도 수기 입력 없음.
     const outsourceRows = contracts
-        .filter((ct) => (ct.outsource || 0) > 0 || (ct.unit_outsource || 0) > 0)
+        .filter((ct) => (ct.outsource || 0) > 0 || (ct.unit_outsource || 0) > 0 || (ct.weekly_logs?.length ?? 0) > 0)
         .map((ct) => {
             const o = outsourceOf(ct);
-            return { id: ct.id, subtype: ct.subtype, date: ct.contract_date, received: o.total, used: o.used };
+            const logs = ct.weekly_logs ?? [];
+            // 실제 사용 = 진행 이력(완료 로그) 합 = Σ 건수 × 외주단가(로그값 우선). 로그 없으면 소진액.
+            const usedFromLogs = logs.reduce(
+                (s, l) => s + (l.count || 0) * (l.outUnit ?? ct.unit_outsource ?? 0),
+                0,
+            );
+            return {
+                ct,
+                id: ct.id,
+                subtype: ct.subtype,
+                date: ct.contract_date,
+                received: o.total,
+                used: logs.length ? usedFromLogs : o.used,
+                logs, // 사용(완료) 이력 — 개별 삭제 대상
+            };
         });
     const receivedTotal = totalOutsource; // 받은 외주비 = 상단 외주비 합계
-    const usedTotal = outUsedSum; // 실제 사용 = 소진 외주비 합계
+    const usedTotal = outsourceRows.reduce((s, r) => s + r.used, 0); // 실제 사용 = 진행 이력 합
     const outMargin = receivedTotal - usedTotal; // 차액 = 받은 − 사용
+
+    // 외주비 정산에서 사용 이력 삭제 — 해당 계약의 진행 로그 제거 + 잔여 복원(진행 이력과 동일 처리).
+    const deleteUsageLog = async (ct: ClientContract, i: number) => {
+        const logs = ct.weekly_logs ?? [];
+        const removed = logs[i];
+        if (!removed) return;
+        const goalC = ct.goal_count ?? 0;
+        const remainC = ct.remain_count ?? 0;
+        const next = Math.min(goalC, remainC + (removed.count || 0));
+        const newLogs = logs.filter((_, j) => j !== i);
+        const { error } = await updateClientContract(ct.id, { remain_count: next, weekly_logs: newLogs });
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        if (isBrandBlogSub(ct.subtype.replace(/^상위노출 보장형 · /, ''))) {
+            await syncBlogAccountFromContract(ct.client_id, { remain_count: next }, ct.blog_name);
+        }
+        await onReloadContracts();
+        onToast('사용 이력 삭제됨');
+    };
     // 계약이 있는 카테고리(상품)만, 부모 순서로 — 상품별 섹션으로 나눠 표시.
     const activeCats = PRODUCT_CATEGORIES.filter((c) => contracts.some((ct) => ct.category === c.label));
 
@@ -1983,16 +2019,57 @@ export function ClientDetail({
                             <span className="w-24 text-right text-[#dc2626]">실제 사용</span>
                         </div>
                         {outsourceRows.map((r) => (
-                            <div
-                                className="grid grid-cols-[1fr_auto_auto] items-center gap-2 border-t border-[#f1f5f9] px-3 py-1.5 text-[11px]"
-                                key={r.id}
-                            >
-                                <span className="min-w-0 truncate text-[#475569]">
-                                    {r.subtype}
-                                    {r.date ? <span className="text-[#cbd5e1]"> · {r.date}</span> : null}
-                                </span>
-                                <b className="w-24 text-right text-[#059669]">{fmtWon(r.received)}원</b>
-                                <b className="w-24 text-right text-[#dc2626]">{fmtWon(r.used)}원</b>
+                            <div className="border-t border-[#f1f5f9]" key={r.id}>
+                                <button
+                                    className="grid w-full grid-cols-[1fr_auto_auto] items-center gap-2 px-3 py-1.5 text-left text-[11px] hover:bg-[#f8fafc] disabled:cursor-default"
+                                    disabled={!r.logs.length}
+                                    onClick={() => setExpandedOut(expandedOut === r.id ? null : r.id)}
+                                    type="button"
+                                >
+                                    <span className="min-w-0 truncate text-[#475569]">
+                                        {r.logs.length ? (
+                                            <span className="text-[#94a3b8]">{expandedOut === r.id ? '▾' : '▸'} </span>
+                                        ) : null}
+                                        {r.subtype}
+                                        {r.date ? <span className="text-[#cbd5e1]"> · {r.date}</span> : null}
+                                    </span>
+                                    <b className="w-24 text-right text-[#059669]">{fmtWon(r.received)}원</b>
+                                    <b className="w-24 text-right text-[#dc2626]">{fmtWon(r.used)}원</b>
+                                </button>
+                                {/* 사용 이력 펼침 — 각 완료 기록 삭제(잔여 복원, 진행 이력과 동기화) */}
+                                {expandedOut === r.id && r.logs.length ? (
+                                    <div className="grid gap-1 bg-[#fff7f7] px-3 py-1.5">
+                                        {r.logs.map((l, i) => (
+                                            <div
+                                                className="flex items-center justify-between gap-2 rounded bg-white px-2 py-1 text-[11px]"
+                                                key={i}
+                                            >
+                                                <span className="min-w-0 truncate text-[#475569]">
+                                                    {isDailySub(r.subtype) || r.subtype.includes('리워드')
+                                                        ? `${i + 1}주차`
+                                                        : `${i + 1}회`}
+                                                    {l.at ? ` · ${l.at}` : ''} · {l.count.toLocaleString('ko-KR')}
+                                                    {isDailySub(r.subtype) || r.subtype.includes('리워드') ? '타' : '건'}
+                                                    {' × '}
+                                                    {fmtWon(l.outUnit ?? r.ct.unit_outsource ?? 0)}원
+                                                </span>
+                                                <span className="flex shrink-0 items-center gap-1.5">
+                                                    <b className="text-[#dc2626]">
+                                                        {fmtWon((l.count || 0) * (l.outUnit ?? r.ct.unit_outsource ?? 0))}원
+                                                    </b>
+                                                    <button
+                                                        className="text-[#cbd5e1] hover:text-[#dc2626]"
+                                                        onClick={() => void deleteUsageLog(r.ct, i)}
+                                                        title="이 사용 기록 삭제(잔여 복원)"
+                                                        type="button"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : null}
                             </div>
                         ))}
                     </div>
