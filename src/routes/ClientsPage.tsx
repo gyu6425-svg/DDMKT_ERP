@@ -1274,8 +1274,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     {contractsOnly && expanded && byCat.size ? (
                                         <tr className="border-b border-[#e2e8f0] bg-[#f8fafc]">
                                             <td className="px-6 py-3" colSpan={8}>
-                                                {/* 인라인과 동일한 카테고리별 박스 UI(펼침은 전체폭이라 wrap으로 많이 배치) */}
-                                                <div className="flex flex-wrap gap-2">
+                                                {/* 카테고리별 박스 UI — 펼침은 세로로 한 줄에 하나씩(일자 정렬). */}
+                                                <div className="grid max-w-[560px] gap-1.5">
                                                     {[...byCat.entries()].flatMap(([cat, subs]) =>
                                                         [...subs.entries()].map(([sub, v]) => {
                                                             const done = v.goal - v.remain;
