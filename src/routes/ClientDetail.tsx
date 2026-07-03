@@ -231,7 +231,7 @@ function ContractAddModal({
         : Number(onlyDigits(count)) || 0;
     // 기타는 금액 직접 입력, 그 외는 단가 × 수량.
     const amt = isEtc ? Number(onlyDigits(amountInput)) || 0 : (Number(onlyDigits(unit)) || 0) * cnt;
-    const outAmt = isEtc ? 0 : (Number(onlyDigits(outUnit)) || 0) * cnt; // 외주비 = 외주단가 × 수량
+    const outAmt = (Number(onlyDigits(outUnit)) || 0) * cnt; // 외주비 = 외주단가 × 수량
 
     const pickCat = (key: string) => {
         setCatKey(key);
@@ -409,6 +409,27 @@ function ContractAddModal({
                                     placeholder="500,000"
                                     type="text"
                                     value={withCommas(amountInput)}
+                                />
+                            </label>
+                            <label className="block text-xs font-semibold text-[#475569]">
+                                외주단가(원)
+                                <input
+                                    className="mt-1 h-10 w-full rounded-md border border-[#fecaca] px-2 text-right text-sm"
+                                    inputMode="numeric"
+                                    onChange={(e) => setOutUnit(e.target.value)}
+                                    placeholder="150"
+                                    type="text"
+                                    value={withCommas(outUnit)}
+                                />
+                            </label>
+                            <label className="block text-xs font-semibold text-[#475569]">
+                                외주업체명
+                                <input
+                                    className="mt-1 h-10 w-full rounded-md border border-[#fecaca] px-2 text-sm"
+                                    onChange={(e) => setOutCompany(e.target.value)}
+                                    placeholder="외주업체명"
+                                    type="text"
+                                    value={outCompany}
                                 />
                             </label>
                         </div>
