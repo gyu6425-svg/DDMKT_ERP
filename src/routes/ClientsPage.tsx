@@ -165,13 +165,13 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [contractTab, setContractTab] = useState<'new' | 'active' | 'ended' | 'temp'>(() =>
         Object.keys(readNewContracts()).length ? 'new' : 'active',
     );
-    // 계약 관리 월 필터 — 6월~현재월 드롭다운, 기본 = 이번 달. (앞으로 12월까지 자동 확장)
+    // 계약 관리 월 필터 — 전체 + 6월~현재월 드롭다운, 기본 = 이번 달(고정). (앞으로 12월까지 자동 확장)
     const currentMonth = new Date().getMonth() + 1;
-    const [monthFilter, setMonthFilter] = useState(currentMonth);
-    const monthOptions = Array.from(
-        { length: Math.max(1, Math.min(12, currentMonth) - 5) },
-        (_, i) => 6 + i,
-    ); // [6 .. 현재월]
+    const [monthFilter, setMonthFilter] = useState(currentMonth); // 0 = 전체
+    const monthOptions = [
+        0,
+        ...Array.from({ length: Math.max(1, Math.min(12, currentMonth) - 5) }, (_, i) => 6 + i),
+    ]; // [전체, 6 .. 현재월]
     // 계약 진행 단계 변경 대상(5단계 선택 모달).
     const [stageClient, setStageClient] = useState<ErpClient | null>(null);
     // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
@@ -247,6 +247,15 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         window.setTimeout(() => setToast(''), 2500);
     };
 
+    // 업체가 특정 월(1~12)에 속하는지 — 계약 contract_date의 월(없으면 등록월). month=0이면 전체(항상 true).
+    const clientInMonth = (client: ErpClient, month: number) => {
+        if (!month) return true;
+        const cs = clientContracts.filter((ct) => ct.client_id === client.id && ct.contract_date);
+        if (cs.length) return cs.some((ct) => Number((ct.contract_date || '').slice(5, 7)) === month);
+        const cm = client.created_at ? new Date(client.created_at).getMonth() + 1 : 0;
+        return cm === month;
+    };
+
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
         const list = clients.filter((client) => {
@@ -277,18 +286,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                       ? client.status === ENDED_STATUS
                       : client.status !== DONE_STATUS && client.status !== ENDED_STATUS);
 
-            // 계약 관리 월 필터 — 계약 contract_date의 월(없으면 등록월)로 판정.
-            const matchesMonth =
-                !contractsOnly ||
-                (() => {
-                    const cs = clientContracts.filter(
-                        (ct) => ct.client_id === client.id && ct.contract_date,
-                    );
-                    if (cs.length)
-                        return cs.some((ct) => Number((ct.contract_date || '').slice(5, 7)) === monthFilter);
-                    const cm = client.created_at ? new Date(client.created_at).getMonth() + 1 : 0;
-                    return cm === monthFilter;
-                })();
+            // 계약 관리 월 필터.
+            const matchesMonth = !contractsOnly || clientInMonth(client, monthFilter);
 
             return (
                 matchesQuery && matchesStatus && matchesFav && matchesContract && matchesTab && matchesMonth
@@ -728,7 +727,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                     >
                         {monthOptions.map((m) => (
                             <option key={m} value={m}>
-                                {m}월
+                                {m === 0 ? '전체' : `${m}월`}
                             </option>
                         ))}
                     </select>
@@ -819,14 +818,17 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             { key: 'temp', label: '임시(테스트)' },
                         ] as { key: 'new' | 'active' | 'ended' | 'temp'; label: string }[]
                     ).map((t) => {
-                        const count = clients.filter((c) =>
-                            t.key === 'new'
-                                ? c.status === DONE_STATUS && newIds.has(c.id)
-                                : t.key === 'active'
-                                  ? c.status === DONE_STATUS && !newIds.has(c.id)
-                                  : t.key === 'ended'
-                                    ? c.status === ENDED_STATUS
-                                    : c.status === TEMP_STATUS,
+                        // 탭 카운트도 선택한 월 기준(전체=0이면 전부).
+                        const count = clients.filter(
+                            (c) =>
+                                clientInMonth(c, monthFilter) &&
+                                (t.key === 'new'
+                                    ? c.status === DONE_STATUS && newIds.has(c.id)
+                                    : t.key === 'active'
+                                      ? c.status === DONE_STATUS && !newIds.has(c.id)
+                                      : t.key === 'ended'
+                                        ? c.status === ENDED_STATUS
+                                        : c.status === TEMP_STATUS),
                         ).length;
                         const active = contractTab === t.key;
                         // 신규 등록건 탭은 파란 강조(신규건 UI와 통일).
