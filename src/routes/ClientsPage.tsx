@@ -10,6 +10,7 @@ import { ensureClientBlogAccount, getBlogAccounts, type BlogAccount } from '../a
 import {
     getClientContracts,
     insertClientContracts,
+    updateClientContract,
     type ClientContract,
 } from '../api/clientContracts';
 import { PRODUCT_CATEGORIES, isDailySub, isBrandBlogSub } from '../lib/products';
@@ -595,6 +596,24 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         showToast('저장되었습니다');
     };
 
+    // 등록일 인라인 수정 — 계약이 있으면 그 고객 계약들의 contract_date, 없으면 생성일을 그 날짜로.
+    const setRegDate = async (client: ErpClient, date: string) => {
+        if (!date) return;
+        const cts = clientContracts.filter((ct) => ct.client_id === client.id);
+        if (cts.length) {
+            for (const ct of cts) {
+                await updateClientContract(ct.id, { contract_date: date });
+            }
+            await reloadContracts();
+        } else {
+            await updateClient(client.id, {
+                created_at: date + 'T00:00:00+00:00',
+            } as Partial<ErpClient>);
+        }
+        await refresh();
+        showToast('등록일 변경됨');
+    };
+
     const addHistory = async () => {
         const text = histInput.trim();
         if (!text || !histClient) {
@@ -1161,6 +1180,52 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                         >
                                                             상세보기 {expanded ? '▲' : '▼'}
                                                         </button>
+                                                        {/* 펼침 — 상품 셀 안에 세로로(일자) 박스 나열 */}
+                                                        {expanded ? (
+                                                            <div className="mt-2 grid max-w-[560px] gap-1">
+                                                                {entries.flatMap(([cat, m]) =>
+                                                                    [...m.entries()].map(([sub, v]) => {
+                                                                        const done = v.goal - v.remain;
+                                                                        const prog = progOf(v.goal, v.remain);
+                                                                        const cs = catStyle(cat);
+                                                                        return (
+                                                                            <div
+                                                                                className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px]"
+                                                                                key={cat + sub}
+                                                                                style={{ background: cs.bg, borderColor: cs.border }}
+                                                                            >
+                                                                                <span className="w-28 shrink-0 truncate font-semibold text-[#334155]">
+                                                                                    {sub}
+                                                                                    {v.n > 1 ? (
+                                                                                        <span className="text-[#94a3b8]"> ×{v.n}</span>
+                                                                                    ) : null}
+                                                                                </span>
+                                                                                <div className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-white/70">
+                                                                                    {prog != null ? (
+                                                                                        <div
+                                                                                            className="h-full rounded-full"
+                                                                                            style={{
+                                                                                                background: progColor(prog),
+                                                                                                width: `${Math.min(100, Math.max(0, prog))}%`,
+                                                                                            }}
+                                                                                        />
+                                                                                    ) : null}
+                                                                                </div>
+                                                                                <span
+                                                                                    className="w-8 shrink-0 text-right font-bold"
+                                                                                    style={{ color: progColor(prog) }}
+                                                                                >
+                                                                                    {prog != null ? `${prog}%` : '-'}
+                                                                                </span>
+                                                                                <span className="whitespace-nowrap text-[#64748b]">
+                                                                                    {done}/{v.goal || 0}·잔여{v.remain}
+                                                                                </span>
+                                                                            </div>
+                                                                        );
+                                                                    }),
+                                                                )}
+                                                            </div>
+                                                        ) : null}
                                                     </>
                                                 );
                                             })()}
@@ -1234,7 +1299,16 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                 {lastHist}
                                             </td>
                                         ) : null}
-                                        <td className="px-3 py-2 text-xs text-[#64748b]">{dt}</td>
+                                        <td className="px-3 py-2 text-xs text-[#64748b]">
+                                            <input
+                                                className="rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-[#64748b] hover:border-[#cbd5e1] focus:border-[#1e40af]"
+                                                onChange={(e) => void setRegDate(c, e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                title="등록일(계약일) 수정"
+                                                type="date"
+                                                value={/^\d{4}-\d{2}-\d{2}$/.test(dt) ? dt : ''}
+                                            />
+                                        </td>
                                         <td className="px-3 py-2">
                                             <div className="flex gap-1 whitespace-nowrap">
                                                 {!contractsOnly && clientTab === 'pending' ? (
@@ -1271,56 +1345,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                             </div>
                                         </td>
                                     </tr>
-                                    {contractsOnly && expanded && byCat.size ? (
-                                        <tr className="border-b border-[#e2e8f0] bg-[#f8fafc]">
-                                            <td className="px-6 py-3" colSpan={8}>
-                                                {/* 카테고리별 박스 UI — 펼침은 세로로 한 줄에 하나씩(일자 정렬). */}
-                                                <div className="grid max-w-[560px] gap-1.5">
-                                                    {[...byCat.entries()].flatMap(([cat, subs]) =>
-                                                        [...subs.entries()].map(([sub, v]) => {
-                                                            const done = v.goal - v.remain;
-                                                            const prog = progOf(v.goal, v.remain);
-                                                            const cs = catStyle(cat);
-                                                            return (
-                                                                <div
-                                                                    className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px]"
-                                                                    key={cat + sub}
-                                                                    style={{ background: cs.bg, borderColor: cs.border }}
-                                                                >
-                                                                    <span className="max-w-[160px] truncate font-semibold text-[#334155]">
-                                                                        {sub}
-                                                                        {v.n > 1 ? (
-                                                                            <span className="text-[#94a3b8]"> ×{v.n}</span>
-                                                                        ) : null}
-                                                                    </span>
-                                                                    <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-white/70">
-                                                                        {prog != null ? (
-                                                                            <div
-                                                                                className="h-full rounded-full"
-                                                                                style={{
-                                                                                    background: progColor(prog),
-                                                                                    width: `${Math.min(100, Math.max(0, prog))}%`,
-                                                                                }}
-                                                                            />
-                                                                        ) : null}
-                                                                    </div>
-                                                                    <span
-                                                                        className="shrink-0 font-bold"
-                                                                        style={{ color: progColor(prog) }}
-                                                                    >
-                                                                        {prog != null ? `${prog}%` : '-'}
-                                                                    </span>
-                                                                    <span className="whitespace-nowrap text-[#64748b]">
-                                                                        계약 {v.goal || 0}·진행 {done}·잔여 {v.remain}
-                                                                    </span>
-                                                                </div>
-                                                            );
-                                                        }),
-                                                    )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ) : null}
                                     </Fragment>
                                 );
                             })
