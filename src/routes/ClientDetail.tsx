@@ -10,7 +10,7 @@ import {
 } from '../api/clientContracts';
 import { ensureClientBlogAccount, syncBlogAccountFromContract } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
-import { PRODUCT_CATEGORIES, isDailySub, isBrandBlogSub } from '../lib/products';
+import { PRODUCT_CATEGORIES, isDailySub, isBrandBlogSub, CONTAINER_SUBS } from '../lib/products';
 import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
 import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, todayStr, withVat } from '../lib/erpUtils';
 
@@ -172,6 +172,7 @@ function ContractAddModal({
     managerName,
     boostPrefix,
     lockCategoryLabel,
+    allCategorySubs,
     onClose,
     onReload,
     onToast,
@@ -181,6 +182,7 @@ function ContractAddModal({
     managerName: string;
     boostPrefix?: string;
     lockCategoryLabel?: string;
+    allCategorySubs?: boolean; // 종합광고 2차: 카테고리 칩 보이고 전 카테고리 상품 선택(계약 category는 lockCategoryLabel로 고정)
     onClose: () => void;
     onReload: () => Promise<void>;
     onToast: (m: string) => void;
@@ -188,10 +190,16 @@ function ContractAddModal({
     const lockedCat = lockCategoryLabel
         ? PRODUCT_CATEGORIES.find((c) => c.label === lockCategoryLabel)
         : undefined;
-    const [catKey, setCatKey] = useState(lockedCat?.key ?? PRODUCT_CATEGORIES[0].key);
+    // 종합광고 2차는 실제 카테고리(플레이스 등)를 골라 상품 선택 → 계약 category는 lockCategoryLabel(종합광고)로 저장.
+    const [catKey, setCatKey] = useState(
+        allCategorySubs ? PRODUCT_CATEGORIES[0].key : lockedCat?.key ?? PRODUCT_CATEGORIES[0].key,
+    );
     const cat = PRODUCT_CATEGORIES.find((c) => c.key === catKey) ?? PRODUCT_CATEGORIES[0];
-    // 2차 등록에선 상위노출 보장형 자기 자신은 하위로 못 넣게 제외.
-    const subOptions = boostPrefix ? cat.subs.filter((s) => s !== '상위노출 보장형') : cat.subs;
+    // 2차 등록에선 컨테이너형(상위노출 보장형·종합광고) 자기 자신은 하위로 못 넣게 제외.
+    const subOptions = boostPrefix ? cat.subs.filter((s) => !CONTAINER_SUBS.includes(s)) : cat.subs;
+    // 카테고리 칩 표시: 일반 등록 또는 종합광고 2차(picking)에서. 컨테이너 카테고리(종합광고)는 칩에서 제외.
+    const showCatChips = !lockCategoryLabel || allCategorySubs;
+    const chipCats = PRODUCT_CATEGORIES.filter((c) => c.label !== '종합광고');
     const [subtype, setSubtype] = useState(subOptions[0]);
     const [count, setCount] = useState('');
     const [perDay, setPerDay] = useState('');
@@ -213,7 +221,7 @@ function ContractAddModal({
     const pickCat = (key: string) => {
         setCatKey(key);
         const c = PRODUCT_CATEGORIES.find((x) => x.key === key);
-        if (c) setSubtype((boostPrefix ? c.subs.filter((s) => s !== '상위노출 보장형') : c.subs)[0]);
+        if (c) setSubtype((boostPrefix ? c.subs.filter((s) => !CONTAINER_SUBS.includes(s)) : c.subs)[0]);
     };
 
     const submit = async () => {
@@ -226,7 +234,8 @@ function ContractAddModal({
         const { error } = await insertClientContracts([
             {
                 amount: amt,
-                category: cat.label,
+                // 컨테이너 2차는 계약 category를 컨테이너(lockCategoryLabel)로 고정. 일반은 선택 카테고리.
+                category: lockCategoryLabel ?? cat.label,
                 client_id: clientId,
                 contract_date: date || null,
                 goal_count: n,
@@ -248,7 +257,8 @@ function ContractAddModal({
         // 브랜드 블로그 계약만 브랜드블로그 관리 시트(blog_accounts)에 등록.
         //   블로그 이름을 입력하면 그 이름이 관리시트 업체명(다중 블로그 A/B/C 구분). 없으면 업체명.
         //   최적화·준최적화·단순·AI 블로그 배포는 각 하위 카테고리 페이지에서 관리(브랜드블로그 시트 제외).
-        if (isBrandBlog) {
+        //   컨테이너 2차(상위노출·종합광고) 하위는 블로그 계정 자동생성 제외.
+        if (isBrandBlog && !boostPrefix) {
             await ensureClientBlogAccount(clientId, blogName.trim() || companyName || '업체', {
                 amount: amt || null,
                 contract_date: date || null,
@@ -269,14 +279,14 @@ function ContractAddModal({
         >
             <div className="w-[min(440px,94vw)] rounded-2xl bg-white p-6">
                 <h3 className="m-0 mb-4 text-lg font-bold">
-                    {boostPrefix ? '상위노출 보장형 · 상품 추가' : '+ 계약 추가'}
+                    {boostPrefix ? `${boostPrefix}상품 추가` : '+ 계약 추가'}
                 </h3>
                 <div className="grid gap-3">
-                    {lockCategoryLabel ? null : (
+                    {showCatChips ? (
                         <label className="block text-xs font-semibold text-[#475569]">
                             카테고리
                             <div className="mt-1 flex flex-wrap gap-1.5">
-                                {PRODUCT_CATEGORIES.map((c) => (
+                                {chipCats.map((c) => (
                                     <button
                                         className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
                                             catKey === c.key
@@ -292,7 +302,7 @@ function ContractAddModal({
                                 ))}
                             </div>
                         </label>
-                    )}
+                    ) : null}
                     <label className="block text-xs font-semibold text-[#475569]">
                         {boostPrefix ? '넣을 상품(리워드·영수증 등)' : '세부유형'}
                         <select
@@ -1811,8 +1821,9 @@ export function ClientDetail({
                                 // 세부유형별 그룹 → 각 유형을 별도 그리드로(다음 유형은 새 줄부터 시작).
                                 //   상위노출 보장형은 하위(· 리워드/영수증)까지 한 그룹으로 묶어 같은 줄에.
                                 const catCts = contracts.filter((ct) => ct.category === c.label);
+                                // 컨테이너형(상위노출 보장형·종합광고)은 하위(· X)까지 한 그룹으로 묶어 같은 줄에.
                                 const groupKey = (s: string) =>
-                                    s.startsWith('상위노출 보장형') ? '상위노출 보장형' : s;
+                                    CONTAINER_SUBS.find((p) => s.startsWith(p)) || s;
                                 const subs = [...new Set(catCts.map((ct) => groupKey(ct.subtype)))].sort(
                                     (a, b) => {
                                         const ai = c.subs.indexOf(a);
@@ -1833,14 +1844,18 @@ export function ClientDetail({
                                             .map((ct) => {
                                         const prog = progOf(ct);
                                         const done = (ct.goal_count || 0) - (ct.remain_count || 0);
-                                        const isBoostParent = ct.subtype === '상위노출 보장형';
-                                        const isBoostChild = ct.subtype.startsWith('상위노출 보장형 · ');
+                                        // 컨테이너 부모/자식 판별(상위노출 보장형·종합광고 공통).
+                                        const containerPrefix = CONTAINER_SUBS.find((p) =>
+                                            ct.subtype.startsWith(p + ' · '),
+                                        );
+                                        const isBoostParent = CONTAINER_SUBS.includes(ct.subtype);
+                                        const isBoostChild = !!containerPrefix;
                                         const innerLabel = isBoostChild
                                             ? ct.subtype
-                                                  .slice('상위노출 보장형 · '.length)
+                                                  .slice((containerPrefix as string).length + 3)
                                                   .replace(/^플레이스용?\s*/, '')
                                             : '';
-                                        // 상위노출 보장형 부모 = 흐린 카드 + 상품 선택(2차 등록) 입구.
+                                        // 컨테이너 부모 = 흐린 카드 + 상품 선택(2차 등록) 입구.
                                         if (isBoostParent) {
                                             return (
                                                 <button
@@ -1850,7 +1865,7 @@ export function ClientDetail({
                                                     type="button"
                                                 >
                                                     <div className="text-xs font-bold text-[#7c3aed]">
-                                                        상위노출 보장형
+                                                        {ct.subtype}
                                                     </div>
                                                     <div className="mt-1 text-[11px] text-[#94a3b8] blur-[1.5px]">
                                                         {ct.goal_count ?? '—'}건 · {fmtWon(ct.amount || 0)}원
@@ -1859,7 +1874,9 @@ export function ClientDetail({
                                                         + 상품 선택
                                                     </div>
                                                     <div className="mt-1 text-[10px] text-[#94a3b8]">
-                                                        리워드·영수증 등 추가
+                                                        {ct.subtype === '종합광고'
+                                                            ? '모든 카테고리 상품 추가'
+                                                            : '리워드·영수증 등 추가'}
                                                     </div>
                                                 </button>
                                             );
@@ -1874,7 +1891,7 @@ export function ClientDetail({
                                             >
                                                 <div className="flex items-start justify-between gap-1.5">
                                                     <div className="truncate text-xs font-bold text-[#334155]">
-                                                        {isBoostChild ? '상위노출 보장형' : ct.subtype}
+                                                        {isBoostChild ? containerPrefix : ct.subtype}
                                                         {isBoostChild ? (
                                                             <span className="ml-1 rounded-full bg-[#ede9fe] px-1.5 py-0.5 text-[11px] font-extrabold text-[#7c3aed]">
                                                                 {innerLabel}
@@ -1931,22 +1948,24 @@ export function ClientDetail({
                                                         잔여 외주 {fmtWon(outsourceOf(ct).remain)}원
                                                     </div>
                                                 ) : null}
-                                                <button
-                                                    className="mt-auto self-start pt-2 text-[10px] font-semibold text-[#94a3b8] hover:text-[#1e40af]"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        navTo(
-                                                            cardSheetHref(
-                                                                ct.category,
-                                                                ct.subtype,
-                                                                client.company || '',
-                                                            ),
-                                                        );
-                                                    }}
-                                                    type="button"
-                                                >
-                                                    관리 시트 →
-                                                </button>
+                                                {cardSheetHref(ct.category, ct.subtype, client.company || '') ? (
+                                                    <button
+                                                        className="mt-auto self-start pt-2 text-[10px] font-semibold text-[#94a3b8] hover:text-[#1e40af]"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            navTo(
+                                                                cardSheetHref(
+                                                                    ct.category,
+                                                                    ct.subtype,
+                                                                    client.company || '',
+                                                                ),
+                                                            );
+                                                        }}
+                                                        type="button"
+                                                    >
+                                                        관리 시트 →
+                                                    </button>
+                                                ) : null}
                                             </div>
                                         );
                                             })}
@@ -2010,7 +2029,8 @@ export function ClientDetail({
             ) : null}
             {boostAdd ? (
                 <ContractAddModal
-                    boostPrefix="상위노출 보장형 · "
+                    allCategorySubs={boostAdd.subtype === '종합광고'}
+                    boostPrefix={`${boostAdd.subtype} · `}
                     clientId={client.id}
                     companyName={client.company || ''}
                     lockCategoryLabel={boostAdd.category}

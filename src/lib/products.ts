@@ -27,7 +27,12 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
             'AI 블로그 배포',
         ],
     },
+    // 종합광고 — 고정 카테고리가 아니라 상황별 묶음. 컨테이너로 등록 후 상세에서 '모든 카테고리' 상품을 골라 넣음.
+    { key: 'adall', label: '종합광고', path: '/dashboard', ready: false, subs: ['종합광고'] },
 ];
+
+// 컨테이너형(부모) 세부유형 — 자기 자신을 하위로 못 넣게 제외. 상위노출 보장형=플레이스 고정, 종합광고=전 카테고리.
+export const CONTAINER_SUBS = ['상위노출 보장형', '종합광고'];
 
 export const categoryByLabel = (label: string): ProductCategory | undefined =>
     PRODUCT_CATEGORIES.find((c) => c.label === label);
