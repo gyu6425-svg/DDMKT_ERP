@@ -217,6 +217,7 @@ function ContractAddModal({
     const [perDay, setPerDay] = useState('');
     const [days, setDays] = useState('');
     const [unit, setUnit] = useState('');
+    const [amountInput, setAmountInput] = useState(''); // 기타 = 금액 직접 입력
     const [outUnit, setOutUnit] = useState('');
     const [outCompany, setOutCompany] = useState(''); // 외주업체명
     const [blogName, setBlogName] = useState(''); // 브랜드 블로그 이름(관리시트 업체명)
@@ -228,8 +229,9 @@ function ContractAddModal({
     const cnt = daily
         ? (Number(onlyDigits(perDay)) || 0) * (Number(onlyDigits(days)) || 0)
         : Number(onlyDigits(count)) || 0;
-    const amt = (Number(onlyDigits(unit)) || 0) * cnt; // 매출 = 단가 × 수량
-    const outAmt = (Number(onlyDigits(outUnit)) || 0) * cnt; // 외주비 = 외주단가 × 수량
+    // 기타는 금액 직접 입력, 그 외는 단가 × 수량.
+    const amt = isEtc ? Number(onlyDigits(amountInput)) || 0 : (Number(onlyDigits(unit)) || 0) * cnt;
+    const outAmt = isEtc ? 0 : (Number(onlyDigits(outUnit)) || 0) * cnt; // 외주비 = 외주단가 × 수량
 
     const pickCat = (key: string) => {
         setCatKey(key);
@@ -349,7 +351,7 @@ function ContractAddModal({
                             </select>
                         </label>
                     )}
-                    {isShortform ? (
+                    {isEtc ? null : isShortform ? (
                         <label className="block text-xs font-semibold text-[#475569]">
                             숏폼 종류
                             <div className="mt-1 flex gap-1.5">
@@ -385,6 +387,33 @@ function ContractAddModal({
                             />
                         </label>
                     )}
+                    {isEtc ? (
+                        <div className="grid grid-cols-2 gap-2">
+                            <label className="block text-xs font-semibold text-[#475569]">
+                                수량
+                                <input
+                                    className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-sm"
+                                    inputMode="numeric"
+                                    onChange={(e) => setCount(e.target.value)}
+                                    placeholder="1"
+                                    type="text"
+                                    value={withCommas(count)}
+                                />
+                            </label>
+                            <label className="block text-xs font-semibold text-[#475569]">
+                                금액(원)
+                                <input
+                                    className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-sm"
+                                    inputMode="numeric"
+                                    onChange={(e) => setAmountInput(e.target.value)}
+                                    placeholder="500,000"
+                                    type="text"
+                                    value={withCommas(amountInput)}
+                                />
+                            </label>
+                        </div>
+                    ) : (
+                        <>
                     <div className="grid grid-cols-3 gap-2">
                         <label className="block text-xs font-semibold text-[#475569]">
                             {daily ? '타 × 일수' : '수량'}
@@ -466,6 +495,8 @@ function ContractAddModal({
                             value={date}
                         />
                     </label>
+                        </>
+                    )}
                 </div>
                 <div className="mt-5 flex justify-end gap-2">
                     <button
