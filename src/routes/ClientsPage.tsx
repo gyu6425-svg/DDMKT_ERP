@@ -967,7 +967,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                 <th className="px-3 py-2 font-semibold">잔여 외주비</th>
                             ) : null}
                             {!contractsOnly ? <th className="px-3 py-2 font-semibold">상품</th> : null}
-                            <th className="px-3 py-2 font-semibold">최근 히스토리</th>
+                            {!contractsOnly ? (
+                                <th className="px-3 py-2 font-semibold">최근 히스토리</th>
+                            ) : null}
                             <th className="px-3 py-2 font-semibold">
                                 <button
                                     className="inline-flex items-center gap-0.5 font-semibold hover:text-[#1e40af]"
@@ -1164,9 +1166,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                 })()}
                                             </td>
                                         ) : null}
-                                        <td className="max-w-[180px] truncate px-3 py-2 text-xs text-[#64748b]">
-                                            {lastHist}
-                                        </td>
+                                        {!contractsOnly ? (
+                                            <td className="max-w-[180px] truncate px-3 py-2 text-xs text-[#64748b]">
+                                                {lastHist}
+                                            </td>
+                                        ) : null}
                                         <td className="px-3 py-2 text-xs text-[#64748b]">{dt}</td>
                                         <td className="px-3 py-2">
                                             <div className="flex gap-1 whitespace-nowrap">
@@ -1270,7 +1274,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             <tr>
                                 <td
                                     className="px-3 py-12 text-center text-sm text-[#64748b]"
-                                    colSpan={9}
+                                    colSpan={contractsOnly ? 8 : 9}
                                 >
                                     {loading ? '불러오는 중...' : '등록된 문의가 없습니다'}
                                 </td>
