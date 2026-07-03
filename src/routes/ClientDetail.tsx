@@ -193,9 +193,11 @@ function ContractAddModal({
     const cat = PRODUCT_CATEGORIES.find((c) => c.key === catKey) ?? PRODUCT_CATEGORIES[0];
     // 2차 등록에선 컨테이너형(상위노출 보장형·종합광고) 자기 자신은 하위로 못 넣게 제외.
     const subOptions = boostPrefix ? cat.subs.filter((s) => !CONTAINER_SUBS.includes(s)) : cat.subs;
-    // 카테고리 칩 표시: 일반 등록 또는 종합광고 2차(picking)에서. 컨테이너 카테고리(종합광고)는 칩에서 제외.
+    // 카테고리 칩 표시: 일반 등록 또는 종합광고 2차(picking)에서. 종합광고 2차에서만 자기(종합광고)를 칩에서 제외.
     const showCatChips = !lockCategoryLabel || allCategorySubs;
-    const chipCats = PRODUCT_CATEGORIES.filter((c) => c.label !== '종합광고');
+    const chipCats = allCategorySubs
+        ? PRODUCT_CATEGORIES.filter((c) => c.label !== '종합광고')
+        : PRODUCT_CATEGORIES;
     const [subtype, setSubtype] = useState(subOptions[0]);
     const [count, setCount] = useState('');
     const [perDay, setPerDay] = useState('');
