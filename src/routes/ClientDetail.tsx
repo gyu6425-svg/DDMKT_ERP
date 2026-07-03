@@ -167,6 +167,10 @@ function ClientFieldModal({
     );
 }
 
+// 기타 카테고리(종합광고 2차 전용) — 정해진 카테고리 없이 상품명 자유 입력, 금액만 반영.
+const ETC_KEY = '__etc__';
+const ETC_CAT = { key: ETC_KEY, label: '기타', path: '', ready: false, subs: [] as string[] };
+
 // 계약 추가 모달 — 카테고리 → 세부유형 → 건수·금액·계약일.
 //   boostPrefix 지정 시 = 상위노출 보장형 2차 등록: 카테고리 고정, subtype 앞에 접두 부착.
 function ContractAddModal({
@@ -197,13 +201,16 @@ function ContractAddModal({
     const [catKey, setCatKey] = useState(
         allCategorySubs ? PRODUCT_CATEGORIES[0].key : lockedCat?.key ?? PRODUCT_CATEGORIES[0].key,
     );
-    const cat = PRODUCT_CATEGORIES.find((c) => c.key === catKey) ?? PRODUCT_CATEGORIES[0];
+    const isEtc = catKey === ETC_KEY; // 기타 = 상품명 자유 입력(종합광고 2차)
+    const cat =
+        PRODUCT_CATEGORIES.find((c) => c.key === catKey) ?? (isEtc ? ETC_CAT : PRODUCT_CATEGORIES[0]);
     // 2차 등록에선 컨테이너형(상위노출 보장형·종합광고) 자기 자신은 하위로 못 넣게 제외.
     const subOptions = boostPrefix ? cat.subs.filter((s) => !CONTAINER_SUBS.includes(s)) : cat.subs;
     // 카테고리 칩 표시: 일반 등록 또는 종합광고 2차(picking)에서. 종합광고 2차에서만 자기(종합광고)를 칩에서 제외.
     const showCatChips = !lockCategoryLabel || allCategorySubs;
+    // 종합광고 2차엔 '기타' 칩 추가 → 정해진 카테고리 없이 상품명 입력만으로 금액 반영.
     const chipCats = allCategorySubs
-        ? PRODUCT_CATEGORIES.filter((c) => c.label !== '종합광고')
+        ? [...PRODUCT_CATEGORIES.filter((c) => c.label !== '종합광고'), ETC_CAT]
         : PRODUCT_CATEGORIES;
     const [subtype, setSubtype] = useState(subOptions[0]);
     const [count, setCount] = useState('');
@@ -226,12 +233,20 @@ function ContractAddModal({
 
     const pickCat = (key: string) => {
         setCatKey(key);
+        if (key === ETC_KEY) {
+            setSubtype(''); // 기타 = 상품명 직접 입력
+            return;
+        }
         const c = PRODUCT_CATEGORIES.find((x) => x.key === key);
         if (c) setSubtype((boostPrefix ? c.subs.filter((s) => !CONTAINER_SUBS.includes(s)) : c.subs)[0]);
     };
 
     const submit = async () => {
         const n = cnt > 0 ? cnt : null;
+        if (isEtc && !subtype.trim()) {
+            onToast('상품명을 입력하세요');
+            return;
+        }
         if (!n && !amt) {
             onToast('수량 또는 단가를 입력하세요');
             return;
@@ -309,18 +324,31 @@ function ContractAddModal({
                             </div>
                         </label>
                     ) : null}
-                    <label className="block text-xs font-semibold text-[#475569]">
-                        {boostPrefix ? '넣을 상품(리워드·영수증 등)' : '세부유형'}
-                        <select
-                            className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
-                            onChange={(e) => setSubtype(e.target.value)}
-                            value={subtype}
-                        >
-                            {subOptions.map((s) => (
-                                <option key={s}>{s}</option>
-                            ))}
-                        </select>
-                    </label>
+                    {isEtc ? (
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            상품명 (기타)
+                            <input
+                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                                onChange={(e) => setSubtype(e.target.value)}
+                                placeholder="상품명 직접 입력 · 금액에 반영"
+                                type="text"
+                                value={subtype}
+                            />
+                        </label>
+                    ) : (
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            {boostPrefix ? '넣을 상품(리워드·영수증 등)' : '세부유형'}
+                            <select
+                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                                onChange={(e) => setSubtype(e.target.value)}
+                                value={subtype}
+                            >
+                                {subOptions.map((s) => (
+                                    <option key={s}>{s}</option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
                     {isShortform ? (
                         <label className="block text-xs font-semibold text-[#475569]">
                             숏폼 종류
