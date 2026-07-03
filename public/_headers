@@ -1,12 +1,10 @@
 # Cloudflare Pages 캐시 정책
-#   HTML·버전 파일은 항상 재검증 → 새 배포가 '일반 새로고침'만으로 반영(강력새로고침 불필요).
-#   해시된 정적 에셋(파일명에 콘텐츠 해시 포함)은 장기 캐시 — 내용 바뀌면 파일명이 바뀌므로 안전.
+#   모든 라우트(HTML)·버전 파일은 항상 재검증 → 새 배포가 '일반 새로고침'만으로 반영(강력새로고침 불필요).
+#     SPA 라우트(/clients 등)는 _redirects로 index.html이 서빙되지만 요청경로 기준으로 헤더가 매칭되므로,
+#     '/*' 로 전 경로를 no-cache 처리해야 딥 라우트 새로고침에서도 최신 HTML을 받는다.
+#   해시된 정적 에셋(/assets/*)은 더 구체적 규칙이 우선 → 장기 캐시(내용 바뀌면 파일명이 바뀌므로 안전).
 
-/
-  Cache-Control: no-cache, must-revalidate
-/index.html
-  Cache-Control: no-cache, must-revalidate
-/version.json
+/*
   Cache-Control: no-cache, must-revalidate
 
 /assets/*
