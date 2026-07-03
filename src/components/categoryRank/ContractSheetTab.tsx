@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getClients, type ErpClient } from '../../api/erp';
 import { getClientContracts, type ClientContract } from '../../api/clientContracts';
-import { NEW_CONTRACT_CUTOFF_MS, NEW_CONTRACT_TTL_MS } from '../../lib/erpUtils';
+import { NEW_CONTRACT_CUTOFF_MS, NEW_CONTRACT_TTL_MS, withVat } from '../../lib/erpUtils';
 import { SIDEBAR_CATEGORIES } from './categories';
 
 // 하위 카테고리 관리 시트(1차) — 해당 category(+subtype) 계약을 업체별로 나열.
@@ -172,7 +172,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                 </select>
                 <span className="ml-auto text-xs text-[#64748b]">{rows.length}개</span>
                 <span className="text-xs text-[#64748b]">
-                    매출 <b className="text-[#1e40af]">{won(totalAmount)}</b> · 외주{' '}
+                    실매출(VAT) <b className="text-[#1e40af]">{won(withVat(totalAmount))}</b> · 외주{' '}
                     <b className="text-[#dc2626]">{won(totalOut)}</b>
                 </span>
             </div>
@@ -213,7 +213,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                             <th className="px-3 py-2 font-semibold">업체</th>
                             <th className="px-3 py-2 font-semibold">계약일</th>
                             {showSub && <th className="px-3 py-2 font-semibold">세부유형</th>}
-                            <th className="px-3 py-2 font-semibold">계약금액</th>
+                            <th className="px-3 py-2 font-semibold">실매출(VAT)</th>
                             <th className="px-3 py-2 font-semibold">담당</th>
                             <th className="px-3 py-2 font-semibold">진행률</th>
                             <th className="px-3 py-2 text-center font-semibold">잔여</th>
@@ -257,7 +257,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                                             <td className="px-3 py-2 text-[13px] text-[#475569]">{ct.subtype}</td>
                                         )}
                                         <td className="px-3 py-2 text-[13px] font-semibold text-[#1e40af]">
-                                            {won(ct.amount)}
+                                            {won(withVat(ct.amount))}
                                         </td>
                                         <td className="px-3 py-2 text-[13px] text-[#475569]">{cl.manager || '—'}</td>
                                         <td className="px-3 py-2">

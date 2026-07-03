@@ -31,6 +31,9 @@ export function formatAmount(value: number | null | undefined): string {
 export const NEW_CONTRACT_CUTOFF_MS = 1782983565623;
 export const NEW_CONTRACT_TTL_MS = 24 * 60 * 60 * 1000; // 신규 표시 유지 24시간
 
+// 실매출 = 공급가(저장된 amount) × 1.1 (부가세 10% 포함). 순매출은 부가세 전(공급가−외주) 그대로 사용.
+export const withVat = (n: number | null | undefined): number => Math.round((Number(n) || 0) * 1.1);
+
 export function todayStr(): string {
     return new Date()
         .toLocaleDateString('ko-KR', { day: '2-digit', month: '2-digit', year: 'numeric' })

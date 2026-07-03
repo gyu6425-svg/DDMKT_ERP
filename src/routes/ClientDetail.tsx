@@ -12,7 +12,7 @@ import { ensureClientBlogAccount, syncBlogAccountFromContract } from '../api/blo
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import { PRODUCT_CATEGORIES, isDailySub, isBrandBlogSub } from '../lib/products';
 import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
-import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, todayStr } from '../lib/erpUtils';
+import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, todayStr, withVat } from '../lib/erpUtils';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
 //   계약은 client_contracts 단일 출처. 등록 시(+계약 추가) 또는 여기서 '+ 계약 추가'로 생성.
@@ -387,7 +387,7 @@ function ContractAddModal({
                         />
                     </label>
                     <div className="rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
-                        매출 <span className="text-[#1e40af]">{amt.toLocaleString('ko-KR')}</span> · 외주{' '}
+                        실매출(VAT) <span className="text-[#1e40af]">{withVat(amt).toLocaleString('ko-KR')}</span> · 외주{' '}
                         <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
                         <span className="text-[#059669]">{(amt - outAmt).toLocaleString('ko-KR')}</span>원
                     </div>
@@ -1305,8 +1305,8 @@ function ContractEditModal({
                                         />
                                     </div>
                                     <div className="mt-2 rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
-                                        매출{' '}
-                                        <span className="text-[#1e40af]">{reSales.toLocaleString('ko-KR')}</span> ·
+                                        실매출(VAT){' '}
+                                        <span className="text-[#1e40af]">{withVat(reSales).toLocaleString('ko-KR')}</span> ·
                                         외주{' '}
                                         <span className="text-[#dc2626]">{reOutAmt.toLocaleString('ko-KR')}</span> ·
                                         순매출{' '}
@@ -1525,12 +1525,12 @@ function ContractEditModal({
                                         ['계약일', periodDetail.date || '-'],
                                         ['수량', `${periodDetail.goal.toLocaleString('ko-KR')}건`],
                                         ['단가', `${fmtWon(periodDetail.unitPrice)}원`],
-                                        ['매출 (실매출)', `${fmtWon(periodDetail.amount)}원`, '#1e40af'],
+                                        ['실매출 (VAT 포함)', `${fmtWon(withVat(periodDetail.amount))}원`, '#1e40af'],
                                         ['외주업체', contract.outsource_company || '-'],
                                         ['외주단가', `${fmtWon(periodDetail.unitOutsource)}원`],
                                         ['외주비', `${fmtWon(periodDetail.outsource)}원`, '#dc2626'],
                                         [
-                                            '순매출',
+                                            '순매출 (공급가 − 외주비)',
                                             `${fmtWon(periodDetail.amount - periodDetail.outsource)}원`,
                                             '#059669',
                                         ],
@@ -1751,8 +1751,10 @@ export function ClientDetail({
                     onClick={() => setBreakdown('sales')}
                     type="button"
                 >
-                    <div className="text-[11px] font-semibold text-[#94a3b8]">실매출 (누적)</div>
-                    <div className="mt-0.5 text-lg font-bold text-[#1e40af] sm:text-2xl">{fmtWon(totalAmount)}원</div>
+                    <div className="text-[11px] font-semibold text-[#94a3b8]">실매출 (VAT 포함)</div>
+                    <div className="mt-0.5 text-lg font-bold text-[#1e40af] sm:text-2xl">
+                        {fmtWon(withVat(totalAmount))}원
+                    </div>
                 </button>
                 <div className="flex items-center text-xl font-bold text-[#94a3b8]">−</div>
                 <button
@@ -2099,9 +2101,9 @@ export function ClientDetail({
                         </h3>
                         <p className="mt-1 mb-3 text-sm text-[#64748b]">
                             {breakdown === 'net'
-                                ? '상품별 순매출 (매출 − 외주비)'
+                                ? '상품별 순매출 (공급가 − 외주비)'
                                 : breakdown === 'sales'
-                                  ? '상품별 실매출(매출)'
+                                  ? '상품별 실매출 (VAT 포함)'
                                   : '상품별 외주비'}
                         </p>
                         {contracts.length ? (
@@ -2111,7 +2113,7 @@ export function ClientDetail({
                                         breakdown === 'net'
                                             ? (ct.amount || 0) - (ct.outsource || 0)
                                             : breakdown === 'sales'
-                                              ? ct.amount || 0
+                                              ? withVat(ct.amount) // 실매출 = VAT 포함
                                               : ct.outsource || 0;
                                     const color =
                                         breakdown === 'net'
@@ -2168,7 +2170,7 @@ export function ClientDetail({
                                     breakdown === 'net'
                                         ? netRevenue
                                         : breakdown === 'sales'
-                                          ? totalAmount
+                                          ? withVat(totalAmount)
                                           : totalOutsource,
                                 )}
                                 원
@@ -2207,7 +2209,7 @@ export function ClientDetail({
                                       ] as [string, string, string?][])
                                     : breakdown === 'net'
                                       ? ([
-                                            ['실매출 (매출)', `${fmtWon(detailC.amount || 0)}원`, '#1e40af'],
+                                            ['실매출 (VAT 포함)', `${fmtWon(withVat(detailC.amount))}원`, '#1e40af'],
                                             ['외주비', `${fmtWon(detailC.outsource || 0)}원`, '#dc2626'],
                                             [
                                                 '순매출 (매출 − 외주비)',
@@ -2218,7 +2220,7 @@ export function ClientDetail({
                                       : ([
                                             ['수량', `${(detailC.goal_count ?? 0).toLocaleString('ko-KR')}건`],
                                             ['단가', `${fmtWon(detailC.unit_price || 0)}원`],
-                                            ['실매출 (매출)', `${fmtWon(detailC.amount || 0)}원`, '#1e40af'],
+                                            ['실매출 (VAT 포함)', `${fmtWon(withVat(detailC.amount))}원`, '#1e40af'],
                                         ] as [string, string, string?][])
                             ).map(([k, v, color]) => (
                                 <div
@@ -2271,7 +2273,7 @@ export function ClientDetail({
                                             const uOut = (p.unit_outsource ?? detailC.unit_outsource) || 0;
                                             const dv =
                                                 breakdown === 'sales'
-                                                    ? dGoal * uPrice
+                                                    ? withVat(dGoal * uPrice) // 실매출 = VAT 포함
                                                     : breakdown === 'outsource'
                                                       ? dGoal * uOut
                                                       : dGoal * (uPrice - uOut);
