@@ -10,7 +10,14 @@ import {
 } from '../api/clientContracts';
 import { ensureClientBlogAccount, syncBlogAccountFromContract } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
-import { PRODUCT_CATEGORIES, isDailySub, isBrandBlogSub, CONTAINER_SUBS } from '../lib/products';
+import {
+    PRODUCT_CATEGORIES,
+    isDailySub,
+    isBrandBlogSub,
+    CONTAINER_SUBS,
+    SHORTFORM_SUB,
+    SHORTFORM_PLATFORMS,
+} from '../lib/products';
 import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
 import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, todayStr, withVat } from '../lib/erpUtils';
 
@@ -210,6 +217,7 @@ function ContractAddModal({
     const [saving, setSaving] = useState(false);
     const daily = isDailySub(subtype); // 리워드 등 = 일일수량 × 일수
     const isBrandBlog = cat.label === '블로그' && isBrandBlogSub(subtype); // 브랜드 블로그 = 블로그 이름 입력
+    const isShortform = subtype === SHORTFORM_SUB; // 숏폼 = 릴스/틱톡/쇼츠 선택
     const cnt = daily
         ? (Number(onlyDigits(perDay)) || 0) * (Number(onlyDigits(days)) || 0)
         : Number(onlyDigits(count)) || 0;
@@ -313,20 +321,42 @@ function ContractAddModal({
                             ))}
                         </select>
                     </label>
-                    <label className="block text-xs font-semibold text-[#475569]">
-                        {isBrandBlog ? '브랜드 블로그 이름' : '업체명'}
-                        <input
-                            className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
-                            onChange={(e) => setBlogName(e.target.value)}
-                            placeholder={
-                                isBrandBlog
-                                    ? '관리시트 업체명 (예: 크레인커뮤니케이션A) · 비우면 업체명'
-                                    : '업체명(선택) · 같은 카테고리 여러 건 구분용, 카드에 표시'
-                            }
-                            type="text"
-                            value={blogName}
-                        />
-                    </label>
+                    {isShortform ? (
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            숏폼 종류
+                            <div className="mt-1 flex gap-1.5">
+                                {SHORTFORM_PLATFORMS.map((p) => (
+                                    <button
+                                        className={`flex-1 rounded-md border px-3 py-2 text-sm font-bold ${
+                                            blogName === p
+                                                ? 'border-[#1e40af] bg-[#1e40af] text-white'
+                                                : 'border-[#cbd5e1] bg-white text-[#475569] hover:border-[#1e40af]'
+                                        }`}
+                                        key={p}
+                                        onClick={() => setBlogName(blogName === p ? '' : p)}
+                                        type="button"
+                                    >
+                                        {p}
+                                    </button>
+                                ))}
+                            </div>
+                        </label>
+                    ) : (
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            {isBrandBlog ? '브랜드 블로그 이름' : '업체명'}
+                            <input
+                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                                onChange={(e) => setBlogName(e.target.value)}
+                                placeholder={
+                                    isBrandBlog
+                                        ? '관리시트 업체명 (예: 크레인커뮤니케이션A) · 비우면 업체명'
+                                        : '업체명(선택) · 같은 카테고리 여러 건 구분용, 카드에 표시'
+                                }
+                                type="text"
+                                value={blogName}
+                            />
+                        </label>
+                    )}
                     <div className="grid grid-cols-3 gap-2">
                         <label className="block text-xs font-semibold text-[#475569]">
                             {daily ? '타 × 일수' : '수량'}

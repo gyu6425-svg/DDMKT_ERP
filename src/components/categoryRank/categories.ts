@@ -87,9 +87,12 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
         label: '영상',
         dashHref: '/video-rank',
         subs: [
-            { label: '영상제작 롱폼', href: '/video-rank?sub=' + encodeURIComponent('영상제작 롱폼') },
-            { label: '숏폼 마케팅', href: '/video-rank?sub=' + encodeURIComponent('숏폼 마케팅') },
-            { label: '클립 업로드', href: '/video-rank?sub=' + encodeURIComponent('클립 업로드') },
+            { label: '롱폼(유튜브)', href: '/video-rank?sub=' + encodeURIComponent('롱폼(유튜브)') },
+            {
+                label: '숏폼(릴스,틱톡,쇼츠)',
+                href: '/video-rank?sub=' + encodeURIComponent('숏폼(릴스,틱톡,쇼츠)'),
+            },
+            { label: '클립', href: '/video-rank?sub=' + encodeURIComponent('클립') },
         ],
     },
     {
