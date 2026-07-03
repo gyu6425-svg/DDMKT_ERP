@@ -3,6 +3,17 @@ import { supabase } from '../lib/supabase';
 // ── 타입 ────────────────────────────────────────────────
 export type ClientHistory = { date: string; text: string };
 
+// 외주업체에 '지급한' 외주비 이력 — 건수 × 단가(+기간). 업체에게 '받은' 외주비(계약 outsource)와 별개.
+//   차액(받은 − 지급) = 우리 마진. clients.outsource_paid_logs(jsonb)에 누적.
+export type OutsourcePaidLog = {
+    count: number; // 건수 (예: 100건)
+    unit: number; // 단가 (예: 10원)
+    days: number | null; // 기간(일) — 선택
+    amount: number; // 지급액 = 건수 × 단가
+    date: string; // 지급/기록일
+    note?: string;
+};
+
 export type ErpClient = {
     id: string;
     created_at: string;
@@ -27,6 +38,7 @@ export type ErpClient = {
     industry: string | null;
     url: string | null;
     client_partner: string | null; // 거래처명(총판/리셀러 등, 업체명과 별개)
+    outsource_paid_logs: OutsourcePaidLog[] | null; // 외주업체 지급 외주비 이력(받은 외주비와 별개)
 };
 
 // ERP의 '영업자 명단'은 기존 인증/역할 테이블 sales_people을 재사용한다.
