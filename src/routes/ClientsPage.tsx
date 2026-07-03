@@ -191,7 +191,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
     const [showImminent, setShowImminent] = useState(false);
     const [outsourceClient, setOutsourceClient] = useState<string | null>(null); // 잔여 외주비 상세 대상 client_id
-    const [expandedProduct, setExpandedProduct] = useState<string | null>(null); // 상품 상세(계약/진행/잔여) 펼친 client_id
     // 계약완료 처리로 계약 관리에 막 넘어온 신규건 — localStorage 기록 기준 24시간 강조·상단 고정.
     const [newMap, setNewMap] = useState<Record<string, number>>(readNewContracts);
     useEffect(() => {
@@ -1030,7 +1029,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     subs.set(ct.subtype, cur);
                                     byCat.set(ct.category, subs);
                                 }
-                                const expanded = expandedProduct === c.id;
                                 return (
                                     <Fragment key={c.id}>
                                     <tr
@@ -1070,7 +1068,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                             ) : null}
                                         </td>
                                         {contractsOnly ? (
-                                        <td className="min-w-[320px] px-3 py-2">
+                                        <td className="min-w-[480px] px-3 py-2">
                                             {(() => {
                                                 const entries = [...byCat.entries()];
                                                 const subCount = entries.reduce((s, [, m]) => s + m.size, 0);
@@ -1084,84 +1082,51 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                         <span className="text-xs text-[#94a3b8]">--</span>
                                                     );
                                                 }
-                                                // 세부유형 4개 이하 → 인라인(가로) 표시. 초과 → 카테고리 칩 + 상세보기 아코디언.
-                                                if (subCount <= 4) {
-                                                    return (
-                                                        <div className="grid gap-1">
-                                                            {entries.flatMap(([cat, m]) =>
-                                                                [...m.entries()].map(([sub, v]) => {
-                                                                    const done = v.goal - v.remain;
-                                                                    const prog = progOf(v.goal, v.remain);
-                                                                    // 카테고리별 연한 배경 + 테두리로 박스 구분.
-                                                                    const cs = catStyle(cat);
-                                                                    return (
-                                                                        <div
-                                                                            className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px]"
-                                                                            key={cat + sub}
-                                                                            style={{
-                                                                                background: cs.bg,
-                                                                                borderColor: cs.border,
-                                                                            }}
-                                                                        >
-                                                                            <span className="w-28 shrink-0 truncate font-semibold text-[#334155]">
-                                                                                {sub}
-                                                                                {v.n > 1 ? (
-                                                                                    <span className="text-[#94a3b8]"> ×{v.n}</span>
-                                                                                ) : null}
-                                                                            </span>
-                                                                            <div className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-[#e2e8f0]">
-                                                                                {prog != null ? (
-                                                                                    <div
-                                                                                        className="h-full rounded-full"
-                                                                                        style={{
-                                                                                            background: progColor(prog),
-                                                                                            width: `${Math.min(100, Math.max(0, prog))}%`,
-                                                                                        }}
-                                                                                    />
-                                                                                ) : null}
-                                                                            </div>
-                                                                            <span
-                                                                                className="w-8 shrink-0 text-right font-bold"
-                                                                                style={{ color: progColor(prog) }}
-                                                                            >
-                                                                                {prog != null ? `${prog}%` : '-'}
-                                                                            </span>
-                                                                            <span className="whitespace-nowrap text-[#64748b]">
-                                                                                {done}/{v.goal || 0}·잔여{v.remain}
-                                                                            </span>
-                                                                        </div>
-                                                                    );
-                                                                }),
-                                                            )}
-                                                        </div>
-                                                    );
-                                                }
-                                                // 5개 이상 → 카테고리 칩 + 상세보기
+                                                // 상품 전부 인라인 박스(카테고리별 색). 많으면 같은 줄에서 wrap(별도 펼침 없음).
                                                 return (
-                                                    <>
-                                                        <span className="flex flex-wrap gap-1">
-                                                            {entries.map(([cat, m]) => (
-                                                                <span
-                                                                    className="rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-semibold text-[#4338ca]"
-                                                                    key={cat}
-                                                                >
-                                                                    {cat}{' '}
-                                                                    <b className="text-[#1e40af]">
-                                                                        {[...m.values()].reduce((s, v) => s + v.n, 0)}
-                                                                    </b>
-                                                                </span>
-                                                            ))}
-                                                        </span>
-                                                        <button
-                                                            className="mt-1 block text-[11px] font-semibold text-[#4338ca] hover:underline"
-                                                            onClick={() =>
-                                                                setExpandedProduct((p) => (p === c.id ? null : c.id))
-                                                            }
-                                                            type="button"
-                                                        >
-                                                            상세보기 {expanded ? '▲' : '▼'}
-                                                        </button>
-                                                    </>
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {entries.flatMap(([cat, m]) =>
+                                                            [...m.entries()].map(([sub, v]) => {
+                                                                const done = v.goal - v.remain;
+                                                                const prog = progOf(v.goal, v.remain);
+                                                                const cs = catStyle(cat);
+                                                                return (
+                                                                    <div
+                                                                        className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px]"
+                                                                        key={cat + sub}
+                                                                        style={{ background: cs.bg, borderColor: cs.border }}
+                                                                    >
+                                                                        <span className="max-w-[140px] truncate font-semibold text-[#334155]">
+                                                                            {sub}
+                                                                            {v.n > 1 ? (
+                                                                                <span className="text-[#94a3b8]"> ×{v.n}</span>
+                                                                            ) : null}
+                                                                        </span>
+                                                                        <div className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-white/70">
+                                                                            {prog != null ? (
+                                                                                <div
+                                                                                    className="h-full rounded-full"
+                                                                                    style={{
+                                                                                        background: progColor(prog),
+                                                                                        width: `${Math.min(100, Math.max(0, prog))}%`,
+                                                                                    }}
+                                                                                />
+                                                                            ) : null}
+                                                                        </div>
+                                                                        <span
+                                                                            className="shrink-0 font-bold"
+                                                                            style={{ color: progColor(prog) }}
+                                                                        >
+                                                                            {prog != null ? `${prog}%` : '-'}
+                                                                        </span>
+                                                                        <span className="whitespace-nowrap text-[#64748b]">
+                                                                            {done}/{v.goal || 0}·잔여{v.remain}
+                                                                        </span>
+                                                                    </div>
+                                                                );
+                                                            }),
+                                                        )}
+                                                    </div>
                                                 );
                                             })()}
                                         </td>
@@ -1271,56 +1236,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                             </div>
                                         </td>
                                     </tr>
-                                    {contractsOnly && expanded && byCat.size ? (
-                                        <tr className="border-b border-[#e2e8f0] bg-[#f8fafc]">
-                                            <td className="px-6 py-3" colSpan={8}>
-                                                {/* 인라인과 동일한 카테고리별 박스 UI(펼침은 전체폭이라 wrap으로 많이 배치) */}
-                                                <div className="flex flex-wrap gap-2">
-                                                    {[...byCat.entries()].flatMap(([cat, subs]) =>
-                                                        [...subs.entries()].map(([sub, v]) => {
-                                                            const done = v.goal - v.remain;
-                                                            const prog = progOf(v.goal, v.remain);
-                                                            const cs = catStyle(cat);
-                                                            return (
-                                                                <div
-                                                                    className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px]"
-                                                                    key={cat + sub}
-                                                                    style={{ background: cs.bg, borderColor: cs.border }}
-                                                                >
-                                                                    <span className="max-w-[160px] truncate font-semibold text-[#334155]">
-                                                                        {sub}
-                                                                        {v.n > 1 ? (
-                                                                            <span className="text-[#94a3b8]"> ×{v.n}</span>
-                                                                        ) : null}
-                                                                    </span>
-                                                                    <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-white/70">
-                                                                        {prog != null ? (
-                                                                            <div
-                                                                                className="h-full rounded-full"
-                                                                                style={{
-                                                                                    background: progColor(prog),
-                                                                                    width: `${Math.min(100, Math.max(0, prog))}%`,
-                                                                                }}
-                                                                            />
-                                                                        ) : null}
-                                                                    </div>
-                                                                    <span
-                                                                        className="shrink-0 font-bold"
-                                                                        style={{ color: progColor(prog) }}
-                                                                    >
-                                                                        {prog != null ? `${prog}%` : '-'}
-                                                                    </span>
-                                                                    <span className="whitespace-nowrap text-[#64748b]">
-                                                                        계약 {v.goal || 0}·진행 {done}·잔여 {v.remain}
-                                                                    </span>
-                                                                </div>
-                                                            );
-                                                        }),
-                                                    )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ) : null}
                                     </Fragment>
                                 );
                             })
