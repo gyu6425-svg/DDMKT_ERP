@@ -20,6 +20,7 @@ import {
 } from '../lib/products';
 import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
 import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, todayStr, withVat } from '../lib/erpUtils';
+import { ContractPasteAddModal } from './ContractPasteAddModal';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
 //   계약은 client_contracts 단일 출처. 등록 시(+계약 추가) 또는 여기서 '+ 계약 추가'로 생성.
@@ -49,6 +50,47 @@ const progColor = (p: number | null) =>
 // 숫자 입력 포맷 — 저장은 숫자만, 표시는 천단위 콤마(2000 → 2,000).
 const onlyDigits = (s: string) => s.replace(/[^\d]/g, '');
 const withCommas = (s: string) => (onlyDigits(s) ? Number(onlyDigits(s)).toLocaleString('ko-KR') : '');
+// 계산식 입력 지원 — '64000/4' 처럼 사칙연산 식을 적으면 계산. 콤마·공백 무시. 숫자만이면 그대로.
+const EXPR_CHARS = /[+\-*/()]/; // 연산자 포함 여부(식인지 판별)
+const sanitizeExpr = (v: string) => v.replace(/[^\d.,+\-*/()\s]/g, ''); // 허용 문자만(숫자·연산자·콤마·공백)
+// 사칙연산(+ - * /)·괄호만 지원. eval 미사용 — 셔ANTING-yard로 직접 계산(안전).
+const evalNum = (raw: string): number => {
+    const s = (raw || '').replace(/,/g, '').replace(/\s/g, '');
+    if (!s) return 0;
+    if (/^\d*\.?\d*$/.test(s)) return Number(s) || 0; // 순수 숫자
+    if (!/^[\d.+\-*/()]+$/.test(s)) return 0; // 허용 외 문자 → 0
+    const tokens = s.match(/(\d*\.?\d+|[+\-*/()])/g);
+    if (!tokens) return 0;
+    const prec: Record<string, number> = { '+': 1, '-': 1, '*': 2, '/': 2 };
+    const output: Array<number | string> = [];
+    const ops: string[] = [];
+    for (const t of tokens) {
+        if (/[\d.]/.test(t[0])) output.push(Number(t));
+        else if (t === '(') ops.push(t);
+        else if (t === ')') {
+            while (ops.length && ops[ops.length - 1] !== '(') output.push(ops.pop()!);
+            ops.pop();
+        } else {
+            while (ops.length && ops[ops.length - 1] !== '(' && prec[ops[ops.length - 1]] >= prec[t])
+                output.push(ops.pop()!);
+            ops.push(t);
+        }
+    }
+    while (ops.length) output.push(ops.pop()!);
+    const st: number[] = [];
+    for (const t of output) {
+        if (typeof t === 'number') st.push(t);
+        else {
+            const b = st.pop() ?? 0;
+            const a = st.pop() ?? 0;
+            st.push(t === '+' ? a + b : t === '-' ? a - b : t === '*' ? a * b : b === 0 ? 0 : a / b);
+        }
+    }
+    const v = st.pop();
+    return typeof v === 'number' && isFinite(v) ? v : 0;
+};
+// 외주단가 입력 표시값 — 식이면 그대로, 순수 숫자면 콤마.
+const displayExpr = (s: string) => (EXPR_CHARS.test(s) ? s : withCommas(s));
 // 사업자등록번호 3-2-5 하이픈 자동.
 const formatBizNo = (s: string) => {
     const d = onlyDigits(s).slice(0, 10);
@@ -90,15 +132,17 @@ const isoWeek = (d: Date) => {
     return `${t.getUTCFullYear()}-W${String(wk).padStart(2, '0')}`;
 };
 
-// 외주비 실시간 분해 — 총(계약 시 확정) / 잔여(외주단가 × 남은건수) / 소진(총 − 잔여).
-//   remainOverride: 편집 모달의 낙관적 잔여(remainN)로 즉시 반영할 때 사용.
+// 외주비 실시간 분해 — 총(계약 시 확정) / 소진(진행 완료분) / 잔여(총 − 소진).
+//   소진 = 완료 건수(총건수 − 남은건수) × 외주단가. 진행을 안 하면 소진 0(반올림 잔돈이 소진으로 안 잡히게).
+//   전량 완료면 총액으로 맞춰 잔돈 없이 마감. remainOverride: 편집 모달의 낙관적 잔여 즉시 반영용.
 const outsourceOf = (ct: ClientContract, remainOverride?: number) => {
     const unit = ct.unit_outsource ?? 0;
     const goal = ct.goal_count ?? 0;
     const remain = remainOverride ?? ct.remain_count ?? 0;
     const total = ct.outsource ?? unit * goal; // 저장된 총 외주비 우선, 없으면 단가×총건수
-    const remainAmt = unit * remain;
-    return { total, remain: remainAmt, used: Math.max(0, total - remainAmt), unit };
+    const completed = Math.max(0, goal - remain); // 진행 완료 건수
+    const used = remain <= 0 ? total : Math.min(total, unit * completed); // 소진 = 완료분(전량 완료 시 총액)
+    return { total, remain: Math.max(0, total - used), used, unit };
 };
 
 // 기본정보(담당자·문의경로·연락처·이메일) 클릭 편집 모달.
@@ -226,12 +270,17 @@ function ContractAddModal({
     const [saving, setSaving] = useState(false);
     const daily = isDailySub(subtype); // 리워드 등 = 일일수량 × 일수
     const isBrandBlog = cat.label === '블로그' && isBrandBlogSub(subtype); // 브랜드 블로그 = 블로그 이름 입력
+    const isService = cat.label === '서비스'; // 서비스 = 금액만 입력 → 매출에 −(마이너스)로 저장, 외주비 0
     const isShortform = subtype === SHORTFORM_SUB; // 숏폼 = 릴스/틱톡/쇼츠 선택
     const cnt = daily
         ? (Number(onlyDigits(perDay)) || 0) * (Number(onlyDigits(days)) || 0)
         : Number(onlyDigits(count)) || 0;
-    // 기타는 금액 직접 입력, 그 외는 단가 × 수량.
-    const amt = isEtc ? Number(onlyDigits(amountInput)) || 0 : (Number(onlyDigits(unit)) || 0) * cnt;
+    // 기타는 금액 직접 입력, 서비스는 입력 금액을 매출에 −로, 그 외는 단가 × 수량.
+    const amt = isEtc
+        ? Number(onlyDigits(amountInput)) || 0
+        : isService
+          ? -(Number(onlyDigits(amountInput)) || 0)
+          : (Number(onlyDigits(unit)) || 0) * cnt;
     // 외주비: 총액을 직접 입력하면 그 값을 우선 사용(기존 등록 건). 없으면 외주단가 × 수량.
     const outDirect = Number(onlyDigits(outTotal)) || 0;
     const outAmt = outDirect > 0 ? outDirect : (Number(onlyDigits(outUnit)) || 0) * cnt;
@@ -252,7 +301,11 @@ function ContractAddModal({
             onToast('상품명을 입력하세요');
             return;
         }
-        if (!n && !amt) {
+        if (isService && amt === 0) {
+            onToast('서비스 금액을 입력하세요');
+            return;
+        }
+        if (!isService && !n && !amt) {
             onToast('수량 또는 단가를 입력하세요');
             return;
         }
@@ -330,6 +383,36 @@ function ContractAddModal({
                             </div>
                         </label>
                     ) : null}
+                    {isService ? (
+                        <>
+                            <label className="block text-xs font-semibold text-[#475569]">
+                                금액 (서비스 · 원)
+                                <input
+                                    className="mt-1 h-10 w-full rounded-md border border-[#fecaca] px-3 text-right text-sm"
+                                    inputMode="numeric"
+                                    onChange={(e) => setAmountInput(e.target.value)}
+                                    placeholder="100,000"
+                                    type="text"
+                                    value={withCommas(amountInput)}
+                                />
+                            </label>
+                            <div className="rounded-md bg-[#fff1f2] px-3 py-2 text-xs font-semibold text-[#dc2626]">
+                                서비스 — 매출에 −{(Number(onlyDigits(amountInput)) || 0).toLocaleString('ko-KR')}원
+                                (실매출 VAT −{withVat(Number(onlyDigits(amountInput)) || 0).toLocaleString('ko-KR')}원)로
+                                반영됩니다. 외주비 없음.
+                            </div>
+                            <label className="block text-xs font-semibold text-[#475569]">
+                                계약일
+                                <input
+                                    className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                    onChange={(e) => setDate(e.target.value)}
+                                    placeholder="2026-01-15"
+                                    value={date}
+                                />
+                            </label>
+                        </>
+                    ) : (
+                        <>
                     {isEtc ? (
                         <label className="block text-xs font-semibold text-[#475569]">
                             상품명 (기타)
@@ -541,6 +624,8 @@ function ContractAddModal({
                     </label>
                         </>
                     )}
+                        </>
+                    )}
                 </div>
                 <div className="mt-5 flex justify-end gap-2">
                     <button
@@ -700,7 +785,7 @@ function ContractEditModal({
     // 나중 외주 입력 — 외주단가·외주업체 저장. 외주비 = 외주단가 × 수량(상세페이지 계산과 동일).
     const saveOutsource = async () => {
         if (saving) return;
-        const unit = outUnitEdit.trim() ? Number(onlyDigits(outUnitEdit)) : null;
+        const unit = outUnitEdit.trim() ? Math.round(evalNum(outUnitEdit)) : null;
         setSaving(true);
         const { error } = await updateClientContract(contract.id, {
             outsource: (unit ?? 0) * goalN,
@@ -724,7 +809,7 @@ function ContractEditModal({
         if (applied <= 0) return;
         const next = remainN - applied;
         // 입력한 외주단가·외주업체를 사용(비면 계약의 기존값). 외주비 = 타수 × 외주단가.
-        const unit = outUnitEdit.trim() ? Number(onlyDigits(outUnitEdit)) : contract.unit_outsource ?? null;
+        const unit = outUnitEdit.trim() ? Math.round(evalNum(outUnitEdit)) : contract.unit_outsource ?? null;
         const vendor = outCompanyEdit.trim() || contract.outsource_company || null;
         const log: RewardWeeklyLog = {
             at: new Date().toISOString().slice(0, 10),
@@ -1032,11 +1117,15 @@ function ContractEditModal({
                                         외주단가(원)
                                         <input
                                             className="mt-0.5 h-9 w-full rounded-md border border-[#fecaca] px-2 text-right text-sm"
-                                            inputMode="numeric"
-                                            onChange={(e) => setOutUnitEdit(withCommas(e.target.value))}
-                                            placeholder="예: 33"
-                                            value={withCommas(outUnitEdit)}
+                                            onChange={(e) => setOutUnitEdit(sanitizeExpr(e.target.value))}
+                                            placeholder="예: 33 · 식 입력 가능(64000/4)"
+                                            value={displayExpr(outUnitEdit)}
                                         />
+                                        {EXPR_CHARS.test(outUnitEdit) && evalNum(outUnitEdit) > 0 ? (
+                                            <span className="mt-0.5 block text-right text-[10px] font-bold text-[#dc2626]">
+                                                = {Math.round(evalNum(outUnitEdit)).toLocaleString('ko-KR')}원
+                                            </span>
+                                        ) : null}
                                     </label>
                                     <label className="block text-[11px] font-semibold text-[#475569]">
                                         외주업체명
@@ -1112,13 +1201,13 @@ function ContractEditModal({
                                     </button>
                                 </div>
                                 {Number(onlyDigits(weekInput)) > 0 &&
-                                (Number(onlyDigits(outUnitEdit)) || contract.unit_outsource || 0) > 0 ? (
+                                (evalNum(outUnitEdit) || contract.unit_outsource || 0) > 0 ? (
                                     <div className="mt-1 text-right text-[11px] text-[#64748b]">
                                         이번 주 소진 외주비 ≈{' '}
                                         <b className="text-[#dc2626]">
                                             {fmtWon(
                                                 Math.min(remainN, Number(onlyDigits(weekInput))) *
-                                                    (Number(onlyDigits(outUnitEdit)) ||
+                                                    (evalNum(outUnitEdit) ||
                                                         contract.unit_outsource ||
                                                         0),
                                             )}
@@ -1147,11 +1236,15 @@ function ContractEditModal({
                                         외주단가(원)
                                         <input
                                             className="mt-0.5 h-9 w-full rounded-md border border-[#fecaca] px-2 text-right text-sm"
-                                            inputMode="numeric"
-                                            onChange={(e) => setOutUnitEdit(withCommas(e.target.value))}
-                                            placeholder="예: 8,000"
-                                            value={withCommas(outUnitEdit)}
+                                            onChange={(e) => setOutUnitEdit(sanitizeExpr(e.target.value))}
+                                            placeholder="예: 8,000 · 식 입력 가능(64000/4)"
+                                            value={displayExpr(outUnitEdit)}
                                         />
+                                        {EXPR_CHARS.test(outUnitEdit) && evalNum(outUnitEdit) > 0 ? (
+                                            <span className="mt-0.5 block text-right text-[10px] font-bold text-[#dc2626]">
+                                                = {Math.round(evalNum(outUnitEdit)).toLocaleString('ko-KR')}원
+                                            </span>
+                                        ) : null}
                                     </label>
                                     <label className="block text-[11px] font-semibold text-[#475569]">
                                         외주업체명
@@ -1231,13 +1324,13 @@ function ContractEditModal({
                                     </button>
                                 </div>
                                 {Number(onlyDigits(bulk)) > 0 &&
-                                (Number(onlyDigits(outUnitEdit)) || contract.unit_outsource || 0) > 0 ? (
+                                (evalNum(outUnitEdit) || contract.unit_outsource || 0) > 0 ? (
                                     <div className="mt-1 text-right text-[11px] text-[#64748b]">
                                         이번 처리 소진 외주비 ≈{' '}
                                         <b className="text-[#dc2626]">
                                             {fmtWon(
                                                 Math.min(remainN, Number(onlyDigits(bulk))) *
-                                                    (Number(onlyDigits(outUnitEdit)) ||
+                                                    (evalNum(outUnitEdit) ||
                                                         contract.unit_outsource ||
                                                         0),
                                             )}
@@ -1736,6 +1829,7 @@ export function ClientDetail({
         format?: (v: string) => string;
     } | null>(null);
     const [addOpen, setAddOpen] = useState(false);
+    const [pasteOpen, setPasteOpen] = useState(false); // 시트 붙여넣기로 계약 추가
     const [boostAdd, setBoostAdd] = useState<ClientContract | null>(null); // 상위노출 보장형 2차 등록 대상
     const [editContract, setEditContract] = useState<ClientContract | null>(null);
     const [endOpen, setEndOpen] = useState(false); // 상단 계약 종료 모달(히스토리 입력)
@@ -1743,6 +1837,7 @@ export function ClientDetail({
     const [breakdown, setBreakdown] = useState<'net' | 'outsource' | 'sales' | null>(null); // 상품별 내역
     const [detailC, setDetailC] = useState<ClientContract | null>(null); // 내역에서 상품 클릭 시 상세
     const [expandedOut, setExpandedOut] = useState<string | null>(null); // 외주비 정산 사용 이력 펼침 대상(계약 id)
+    const [bulkDeleting, setBulkDeleting] = useState(false); // 계약 내역 일괄삭제(임시 버튼)
 
     // 계약 종료 = 업체 상태를 '계약종료'로(계약 종료 탭으로 이동, 계약행은 보존) → 목록으로.
     const endClient = () => {
@@ -1876,6 +1971,21 @@ export function ClientDetail({
         await onReloadContracts();
         onToast('외주비 항목 삭제됨');
     };
+    // 계약 내역 일괄삭제(임시 버튼) — 이 업체의 모든 계약행 제거. 되돌릴 수 없음.
+    const deleteAllContracts = async () => {
+        if (!contracts.length || bulkDeleting) return;
+        if (!window.confirm(`이 업체의 계약 ${contracts.length}건을 모두 삭제할까요?\n(되돌릴 수 없습니다)`)) return;
+        setBulkDeleting(true);
+        let failed = 0;
+        for (const ct of contracts) {
+            const { error } = await deleteClientContract(ct.id);
+            if (error) failed += 1;
+        }
+        setBulkDeleting(false);
+        await onReloadContracts();
+        onToast(failed ? `삭제 완료 — 실패 ${failed}건` : `계약 ${contracts.length}건 전체 삭제됨`);
+    };
+
     // 계약이 있는 카테고리(상품)만, 부모 순서로 — 상품별 섹션으로 나눠 표시.
     const activeCats = PRODUCT_CATEGORIES.filter((c) => contracts.some((ct) => ct.category === c.label));
 
@@ -2051,6 +2161,12 @@ export function ClientDetail({
                                                 </span>
                                             ) : null}
                                             {r.subtype}
+                                            {/* 리워드 업체명(외주업체) — 플레이스 리워드 옆에 칩으로 함께 표시 */}
+                                            {r.ct.outsource_company ? (
+                                                <span className="ml-1 rounded-full bg-[#fee2e2] px-1.5 py-0.5 text-[10px] font-extrabold text-[#dc2626]">
+                                                    {r.ct.outsource_company}
+                                                </span>
+                                            ) : null}
                                             {r.date ? <span className="text-[#cbd5e1]"> · {r.date}</span> : null}
                                         </span>
                                     </button>
@@ -2117,6 +2233,24 @@ export function ClientDetail({
                 >
                     + 계약 추가
                 </button>
+                <button
+                    className="rounded-md border border-[#1e40af] px-3 py-1 text-xs font-semibold text-[#1e40af] hover:bg-[#eef2ff]"
+                    onClick={() => setPasteOpen(true)}
+                    type="button"
+                >
+                    시트 붙여넣기
+                </button>
+                {/* 임시 버튼 — 계약 내역 전체 일괄삭제(되돌릴 수 없음). 임시로 쓰는 버튼. */}
+                {contracts.length ? (
+                    <button
+                        className="ml-auto rounded-md border border-dashed border-[#dc2626] px-3 py-1 text-xs font-semibold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
+                        disabled={bulkDeleting}
+                        onClick={() => void deleteAllContracts()}
+                        type="button"
+                    >
+                        {bulkDeleting ? '삭제 중…' : `🗑 일괄삭제 (임시 · ${contracts.length}건)`}
+                    </button>
+                ) : null}
             </div>
 
             {activeCats.length ? (
@@ -2347,6 +2481,15 @@ export function ClientDetail({
                     companyName={client.company || ''}
                     managerName={client.manager || ''}
                     onClose={() => setAddOpen(false)}
+                    onReload={onReloadContracts}
+                    onToast={onToast}
+                />
+            ) : null}
+            {pasteOpen ? (
+                <ContractPasteAddModal
+                    clientId={client.id}
+                    companyName={client.company || ''}
+                    onClose={() => setPasteOpen(false)}
                     onReload={onReloadContracts}
                     onToast={onToast}
                 />

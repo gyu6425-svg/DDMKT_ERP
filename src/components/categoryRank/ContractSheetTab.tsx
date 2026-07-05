@@ -3,6 +3,14 @@ import { getClients, type ErpClient } from '../../api/erp';
 import { getClientContracts, type ClientContract } from '../../api/clientContracts';
 import { NEW_CONTRACT_CUTOFF_MS, NEW_CONTRACT_TTL_MS, withVat } from '../../lib/erpUtils';
 import { SIDEBAR_CATEGORIES } from './categories';
+import { CONTAINER_SUBS } from '../../lib/products';
+
+// 컨테이너 2차 하위 subtype('상위노출 보장형 · 영수증 리뷰' 등)에서 접두를 벗겨 실제 세부유형만 남김.
+//   서브시트 필터는 정확 일치라, 접두를 벗겨야 하위 계약이 해당 세부유형 시트에 노출됨. 일반 subtype은 그대로.
+const stripContainer = (s: string) => {
+    const p = CONTAINER_SUBS.find((c) => s.startsWith(c + ' · '));
+    return p ? s.slice(p.length + 3) : s; // ' · ' = 3자
+};
 
 // 하위 카테고리 관리 시트(1차) — 해당 category(+subtype) 계약을 업체별로 나열.
 //   브랜드블로그 관리시트(SheetTab)와 동일한 UI/컬럼 구성으로 통일. 계약 관리(client_contracts)가 단일 출처 →
@@ -75,9 +83,21 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
     const [clients, setClients] = useState<ErpClient[]>([]);
     const [contracts, setContracts] = useState<ClientContract[]>([]);
     const [loading, setLoading] = useState(true);
-    const [q, setQ] = useState('');
+    // 계약 카드 '관리 시트 →'가 붙인 q=업체명을 초기값으로 → 도착 즉시 해당 업체 자동 필터.
+    const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '');
     const [mgr, setMgr] = useState('');
     const [tab, setTab] = useState<'active' | 'new' | 'ended'>('active'); // 계약 중 / 신규 등록 건(24h) / 계약 종료
+
+    // 시트 간 이동(app:navigate/popstate) 시 URL의 q를 다시 읽어 동기화(같은 컴포넌트 재사용이라 초기값만으론 부족).
+    useEffect(() => {
+        const syncQ = () => setQ(new URLSearchParams(window.location.search).get('q') ?? '');
+        window.addEventListener('popstate', syncQ);
+        window.addEventListener('app:navigate', syncQ);
+        return () => {
+            window.removeEventListener('popstate', syncQ);
+            window.removeEventListener('app:navigate', syncQ);
+        };
+    }, []);
 
     useEffect(() => {
         let alive = true;
@@ -103,7 +123,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
     const allRows = useMemo(
         () =>
             contracts
-                .filter((ct) => ct.category === category && (!subtype || ct.subtype === subtype))
+                .filter((ct) => ct.category === category && (!subtype || stripContainer(ct.subtype) === subtype))
                 .map((ct) => ({ ct, cl: clientById.get(ct.client_id) }))
                 .filter((r): r is { ct: ClientContract; cl: ErpClient } => !!r.cl),
         [contracts, clientById, category, subtype],

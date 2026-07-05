@@ -1,31 +1,28 @@
 import { useMemo, useState } from 'react';
-import { insertClient, type ErpClient } from '../api/erp';
 import { insertClientContracts, type ClientContract } from '../api/clientContracts';
-import { normCompany, parseSalesRows, SALES_HEADER, type ParsedRow as Row } from '../lib/contractImport';
+import { parseSalesRows, SALES_HEADER, type ParsedRow } from '../lib/contractImport';
 
-// 시트 붙여넣기 일괄 등록 — 판매(매출) 시트만 붙여넣어 업체+계약 등록(상태 '임시').
-//   외주단가·외주업체는 나중에 상세페이지에서 계약별로 입력. 동일 업체명은 기존 '임시' 업체에 계약만 추가.
+// 상세페이지 계약 추가 — 시트 붙여넣기. 계약 관리 일괄 등록과 달리 신규 업체는 만들지 않고
+//   파싱된 계약을 '현재 업체'에만 추가한다(업체명 무관, 붙여넣은 행 전부 이 업체 계약).
 
-const TEMP_STATUS = '임시';
-
-export function ContractImportModal({
-    allClients,
+export function ContractPasteAddModal({
+    clientId,
+    companyName,
     onClose,
-    onDone,
+    onReload,
     onToast,
 }: {
-    allClients: ErpClient[];
+    clientId: string;
+    companyName: string;
     onClose: () => void;
-    onDone: () => Promise<void>;
+    onReload: () => Promise<void>;
     onToast: (m: string) => void;
 }) {
     // 머리글 미리 채움 — 사용자는 이 아래에 판매 시트 데이터만 붙여넣음(중복 머리글 자동 무시).
     const [salesText, setSalesText] = useState(SALES_HEADER + '\n');
     const [saving, setSaving] = useState(false);
 
-    // 판매(주) 시트 파싱(헤더 기반). 일자·품목명·업체명·수량·단가·공급가액·거래처명·담당자를 이름으로.
-    const rows = useMemo<Row[]>(() => parseSalesRows(salesText), [salesText]);
-
+    const rows = useMemo<ParsedRow[]>(() => parseSalesRows(salesText), [salesText]);
     const includable = rows.filter((r) => !r.dup && !('exclude' in r.map));
     const excluded = rows.filter((r) => !r.dup && 'exclude' in r.map);
     const dups = rows.filter((r) => r.dup);
@@ -33,62 +30,31 @@ export function ContractImportModal({
     const doImport = async () => {
         if (!includable.length || saving) return;
         setSaving(true);
-        let created = 0;
-        let contracts = 0;
-        let failed = 0;
-        // 동일 업체명은 기존 '임시' 업체에 계약만 추가(실제 계약완료 업체는 재사용 안 함).
-        const tempIdByCompany = new Map<string, string>();
-        for (const c of allClients) {
-            if (c.company && c.status === TEMP_STATUS) tempIdByCompany.set(normCompany(c.company), c.id);
-        }
-        const groups = new Map<string, Row[]>();
-        for (const r of includable) {
-            const k = normCompany(r.company);
-            if (!groups.has(k)) groups.set(k, []);
-            groups.get(k)!.push(r);
-        }
-        for (const [k, grp] of groups) {
-            let clientId = tempIdByCompany.get(k);
-            if (!clientId) {
-                const first = grp[0];
-                const { data, error: cErr } = await insertClient({
-                    client_partner: first.partner || null,
-                    company: first.company,
-                    manager: first.manager || null,
-                    status: TEMP_STATUS, // 임시 신규 생성 — 계약 관리 '임시(테스트)' 탭에서 확인.
-                });
-                if (cErr || !data[0]?.id) {
-                    failed += grp.length;
-                    continue;
-                }
-                clientId = data[0].id;
-                tempIdByCompany.set(k, clientId);
-                created += 1;
-            }
-            // 외주단가=외주비÷수량, 외주업체=알려진 브랜드면 자동(아니면 null → 나중 입력).
-            const payload: Array<Partial<ClientContract>> = grp.map((r) => {
-                const m = r.map as { category: string; subtype: string };
-                return {
-                    amount: r.amount,
-                    category: m.category,
-                    client_id: clientId!,
-                    contract_date: r.date,
-                    goal_count: r.qty,
-                    outsource: r.outsource,
-                    outsource_company: r.vendor,
-                    remain_count: r.qty,
-                    subtype: m.subtype,
-                    unit_outsource: r.outUnit,
-                    unit_price: r.unit || null,
-                };
-            });
-            const { error } = await insertClientContracts(payload);
-            if (error) failed += payload.length;
-            else contracts += payload.length;
-        }
+        // 외주단가=외주비÷수량, 외주업체=알려진 브랜드면 자동(아니면 null → 나중 입력). 전부 이 업체 계약.
+        const payload: Array<Partial<ClientContract>> = includable.map((r) => {
+            const m = r.map as { category: string; subtype: string };
+            return {
+                amount: r.amount,
+                category: m.category,
+                client_id: clientId,
+                contract_date: r.date,
+                goal_count: r.qty,
+                outsource: r.outsource,
+                outsource_company: r.vendor,
+                remain_count: r.qty,
+                subtype: m.subtype,
+                unit_outsource: r.outUnit,
+                unit_price: r.unit || null,
+            };
+        });
+        const { error } = await insertClientContracts(payload);
         setSaving(false);
-        onToast(`등록 완료 — 신규 업체 ${created} · 계약 ${contracts}건${failed ? ` · 실패 ${failed}` : ''}`);
-        await onDone();
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        onToast(`계약 ${payload.length}건 추가 완료`);
+        await onReload();
         onClose();
     };
 
@@ -98,12 +64,14 @@ export function ContractImportModal({
             onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
             <div className="max-h-[92vh] w-[min(720px,96vw)] overflow-y-auto rounded-2xl bg-white p-6">
-                <h3 className="m-0 text-lg font-bold">판매 시트 붙여넣기 등록</h3>
+                <h3 className="m-0 text-lg font-bold">
+                    시트 붙여넣기 — <span className="text-[#1e40af]">{companyName || '이 업체'}</span> 계약 추가
+                </h3>
                 <p className="mt-1 mb-2 text-sm text-[#64748b]">
                     <b>머리글은 미리 채워져 있습니다</b> — 그 아래 줄에 판매 시트 데이터만 붙여넣으세요(탭 구분).
                     품목명으로 카테고리 자동 분류. <b>외주단가는 외주비÷수량으로 자동 측정</b>, 외주업체는 알려진
-                    브랜드(슈퍼뭉치·고스트 등)면 자동 기입·아니면 공란(상세에서 입력). 동일 업체명은 한 임시 업체에
-                    상품만 추가됩니다.
+                    브랜드(슈퍼뭉치·고스트 등)면 자동 기입·아니면 공란(계약 카드에서 입력). 붙여넣은 행은 모두{' '}
+                    <b>이 업체 계약</b>으로 추가됩니다(업체명 열 무관).
                 </p>
                 <textarea
                     className="h-32 w-full rounded-md border border-[#cbd5e1] p-2 font-mono text-xs"
@@ -122,7 +90,6 @@ export function ContractImportModal({
                         <table className="w-full border-collapse text-left text-[11px]">
                             <thead className="sticky top-0 bg-[#f1f5f9] text-[#64748b]">
                                 <tr>
-                                    <th className="px-2 py-1">업체명</th>
                                     <th className="px-2 py-1">품목</th>
                                     <th className="px-2 py-1">분류</th>
                                     <th className="px-2 py-1">외주업체</th>
@@ -142,8 +109,7 @@ export function ContractImportModal({
                                             className={`border-t border-[#eef2f7] ${r.dup ? 'opacity-40' : ex ? 'bg-[#fff7f7]' : ''}`}
                                             key={i}
                                         >
-                                            <td className="max-w-[120px] truncate px-2 py-1 font-semibold">{r.company}</td>
-                                            <td className="max-w-[100px] truncate px-2 py-1 text-[#64748b]">{r.product}</td>
+                                            <td className="max-w-[140px] truncate px-2 py-1 font-semibold">{r.product}</td>
                                             <td className="px-2 py-1 text-[#475569]">{m ? `${m.category}·${m.subtype}` : '—'}</td>
                                             <td className="px-2 py-1 text-[#dc2626]">{r.vendor || '—'}</td>
                                             <td className="px-2 py-1 text-right">{r.qty.toLocaleString('ko-KR')}</td>
@@ -180,7 +146,7 @@ export function ContractImportModal({
                         onClick={() => void doImport()}
                         type="button"
                     >
-                        {saving ? '등록 중…' : `${includable.length}건 등록`}
+                        {saving ? '등록 중…' : `${includable.length}건 추가`}
                     </button>
                 </div>
             </div>

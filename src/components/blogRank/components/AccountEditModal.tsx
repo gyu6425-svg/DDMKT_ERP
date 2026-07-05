@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { deleteBlogAccount, extractBlogId, updateBlogAccount, type BlogAccount } from '../../../api/blogRank';
-import { syncContractProgressFromBlog } from '../../../api/clientContracts';
+import { amountTotal } from '../lib/helpers';
 
 export function AccountEditModal({
     account,
@@ -19,7 +19,12 @@ export function AccountEditModal({
     const [contact, setContact] = useState(account.contact ?? '');
     const [blogUrl, setBlogUrl] = useState(account.blog_url ?? '');
     const [contractDate, setContractDate] = useState(account.contract_date ?? '');
-    const [amount, setAmount] = useState(account.amount ?? '');
+    // 금액 = 누적 계약금액 합계(amounts) 우선 표시(레거시 amount 폴백). 편집하면 단일 금액으로 덮어씀.
+    const initAmount = (() => {
+        const t = amountTotal(account);
+        return t ? String(t) : account.amount ?? '';
+    })();
+    const [amount, setAmount] = useState(initAmount);
     const [goalCount, setGoalCount] = useState(account.goal_count?.toString() ?? '');
     const [remainCount, setRemainCount] = useState(account.remain_count?.toString() ?? '');
     const [weekly, setWeekly] = useState(account.weekly ?? '');
@@ -38,9 +43,12 @@ export function AccountEditModal({
     const save = async () => {
         setSaving(true);
         const parseNum = (v: string) => {
-            const m = v.match(/\d+/);
-            return m ? Number(m[0]) : null;
+            const d = v.replace(/[^\d]/g, ''); // 콤마·단위 무시하고 숫자만
+            return d ? Number(d) : null;
         };
+        // 금액을 바꿨을 때만 누적 금액(amounts)을 이 단일 값으로 덮어씀(표 합계에 반영). 안 바꿨으면 기존 내역 유지.
+        const amtChanged = amount.trim() !== initAmount.trim();
+        const amtNum = parseNum(amount) ?? 0;
         const { error } = await updateBlogAccount(account.id, {
             name: name.trim() || account.name,
             manager: manager.trim() || null,
@@ -49,6 +57,7 @@ export function AccountEditModal({
             blog_id: extractBlogId(blogUrl) || account.blog_id,
             contract_date: contractDate.trim() || null,
             amount: amount.trim() || null,
+            ...(amtChanged ? { amounts: amtNum ? [{ amount: amtNum }] : [] } : {}),
             goal_count: parseNum(goalCount),
             remain_count: parseNum(remainCount),
             weekly: weekly.trim() || null,
@@ -64,11 +73,7 @@ export function AccountEditModal({
             onToast(`오류: ${error.message}`);
             return;
         }
-        // 진행률(잔여건수) 변경 시 계약 관리의 브랜드 블로그 계약에도 반영(양방향 연동).
-        const nextRemain = parseNum(remainCount);
-        if (nextRemain != null && nextRemain !== account.remain_count) {
-            await syncContractProgressFromBlog(account.client_id, nextRemain, account.name);
-        }
+        // 계약 관리(client_contracts) 연동은 아직 하지 않음 — 이 편집은 블로그 관리시트에만 저장.
         await onReload();
         onToast('저장 완료');
         onClose();
@@ -100,8 +105,8 @@ export function AccountEditModal({
                 <div className="mt-4 grid gap-2 rounded-lg border border-[#e2e8f0] p-3">
                     <div className="text-xs font-bold text-[#334155]">관리 정보</div>
                     <p className="-mt-1 text-[11px] text-[#94a3b8]">
-                        계약일자·금액·계약건수는 <b>계약 관리</b>에서만 수정합니다. 여기선 진행률(잔여건수)만
-                        수정 가능(계약 관리와 자동 연동).
+                        모든 항목을 여기서 수정할 수 있습니다. 이 편집은 <b>블로그 관리시트에만</b> 저장되며 계약
+                        관리(계약 원장)와는 <b>아직 연동되지 않습니다</b>.
                     </p>
                     <div className="grid grid-cols-2 gap-2">
                         {(
@@ -109,9 +114,9 @@ export function AccountEditModal({
                                 ['업체명', name, setName, '', false],
                                 ['담당', manager, setManager, '', false],
                                 ['연락처', contact, setContact, '010-0000-0000', false],
-                                ['계약일자', contractDate, setContractDate, '2026-06-22', true],
-                                ['금액', amount, setAmount, '예: 500,000', true],
-                                ['계약건수', goalCount, setGoalCount, '20', true],
+                                ['계약일자', contractDate, setContractDate, '2026-06-22', false],
+                                ['금액', amount, setAmount, '예: 500,000', false],
+                                ['계약건수', goalCount, setGoalCount, '20', false],
                                 ['잔여건수', remainCount, setRemainCount, '6', false],
                                 ['주 발행', weekly, setWeekly, '주 5회', false],
                                 ['기자단', reporter, setReporter, 'A팀', false],
