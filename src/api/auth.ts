@@ -27,6 +27,22 @@ export async function verifyEmailOtp(email: string, token: string) {
     });
 }
 
+// 이메일 + 비밀번호 로그인.
+export async function signInWithPassword(email: string, password: string) {
+    if (!hasSupabaseConfig) {
+        return { data: null, error: missingConfigError };
+    }
+    return supabase.auth.signInWithPassword({ email: email.trim(), password });
+}
+
+// 비밀번호 변경 — 로그인 상태에서 새 비밀번호 저장(Supabase Auth에 영구 반영).
+export async function updatePassword(password: string) {
+    if (!hasSupabaseConfig) {
+        return { data: null, error: missingConfigError };
+    }
+    return supabase.auth.updateUser({ password });
+}
+
 export async function signOut() {
     if (!hasSupabaseConfig) {
         return { error: null };

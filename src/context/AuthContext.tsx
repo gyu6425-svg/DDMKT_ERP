@@ -121,6 +121,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
         void syncSession(anon.session)
         return
       }
+      // 로그인 켜짐: 남아있는 익명 세션은 폐기(권한 없는 상태로 갇히는 것 방지) → 로그인 화면.
+      if (!AUTH_DISABLED && data.session?.user?.is_anonymous) {
+        await signOutRequest()
+        void syncSession(null)
+        return
+      }
       void syncSession(data.session)
     })
 
