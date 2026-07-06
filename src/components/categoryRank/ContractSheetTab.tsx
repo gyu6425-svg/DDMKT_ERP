@@ -22,6 +22,14 @@ function navTo(path: string) {
     }
 }
 
+// 시트 행 클릭 → 같은 카테고리의 '순위 트래커' 탭으로 이동(업체명 q로 전달). ?sub 등 기존 파라미터 유지.
+function goTracker(company: string) {
+    const u = new URL(window.location.href);
+    u.searchParams.set('tab', 'tracker');
+    if (company) u.searchParams.set('q', company);
+    navTo(u.pathname + u.search);
+}
+
 // 블로그 하위(고유 pathname)·쇼핑·파워링크는 ?sub이 없으므로 경로 → (category, subtype) 매핑.
 const PATH_SCOPE: Record<string, { category: string; subtype: string }> = {
     '/blog-optimized': { category: '블로그', subtype: '최적화 블로그 배포' },
@@ -269,8 +277,8 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                                     <tr
                                         className="cursor-pointer border-b border-[#e2e8f0] hover:bg-[#f8fafc]"
                                         key={ct.id}
-                                        onClick={() => navTo(`/clients?id=${cl.id}`)}
-                                        title="클릭 → 고객사 상세에서 수정"
+                                        onClick={() => goTracker(cl.company || '')}
+                                        title="클릭 → 순위 트래커"
                                     >
                                         <td className="px-3 py-2 text-[13px] font-semibold text-[#0f172a]">
                                             {cl.company || '—'}

@@ -21,8 +21,19 @@ function isDropdownDash(href: string): boolean {
 export function CategoryShell({ label, badge, tabs }: { label: string; badge?: string; tabs: ShellTab[] }) {
     const { isAdmin, loading: authLoading } = useAuth();
     const [href, setHref] = useState(() => window.location.pathname + window.location.search);
+    const [active, setActive] = useState(() => {
+        const t = new URLSearchParams(window.location.search).get('tab');
+        const i = TAB_SLUGS.indexOf(t || '');
+        return i >= 0 ? i : 0;
+    });
     useEffect(() => {
-        const sync = () => setHref(window.location.pathname + window.location.search);
+        const sync = () => {
+            setHref(window.location.pathname + window.location.search);
+            // ?tab 딥링크(예: 시트에서 행 클릭 → ?tab=tracker) 반영해 활성 탭 전환.
+            const t = new URLSearchParams(window.location.search).get('tab');
+            const i = TAB_SLUGS.indexOf(t || '');
+            if (i >= 0) setActive(i);
+        };
         window.addEventListener('popstate', sync);
         window.addEventListener('app:navigate', sync);
         return () => {
@@ -34,13 +45,7 @@ export function CategoryShell({ label, badge, tabs }: { label: string; badge?: s
     // 상위 대시보드면 첫 탭(대시보드)만, 탭바 없이.
     const dashOnly = isDropdownDash(href);
     const shownTabs = dashOnly ? tabs.slice(0, 1) : tabs;
-
-    const [active, setActive] = useState(() => {
-        const t = new URLSearchParams(window.location.search).get('tab');
-        const i = TAB_SLUGS.indexOf(t || '');
-        return i >= 0 && i < tabs.length ? i : 0;
-    });
-    const activeIdx = dashOnly ? 0 : active;
+    const activeIdx = dashOnly ? 0 : Math.min(active, tabs.length - 1);
 
     if (!authLoading && !isAdmin) {
         return (
