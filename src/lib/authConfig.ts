@@ -4,4 +4,4 @@
 //
 // 전제: Supabase 대시보드 > Authentication > Sign In / Providers > "Anonymous sign-ins" 를 켜야
 //       익명 자동 로그인이 동작한다. (안 켜면 로그인 화면으로 폴백)
-export const AUTH_DISABLED = true;
+export const AUTH_DISABLED = false;
