@@ -2450,11 +2450,14 @@ export function ClientDetail({
                                                     >
                                                         ✕
                                                     </button>
-                                                    <div className="text-xs font-bold text-[#7c3aed]">
+                                                    <div className="text-sm font-bold text-[#7c3aed]">
                                                         {ct.subtype}
                                                         {ct.subtype === '상위노출 보장형' ? (
-                                                            <span className="ml-1 rounded-full bg-[#ede9fe] px-1.5 py-0.5 text-[10px] text-[#6d28d9]">
+                                                            <span className="ml-1.5 text-[15px] font-extrabold text-[#6d28d9]">
                                                                 {ct.boost_round || 1}회차
+                                                                {ct.contract_date || ct.boost_end
+                                                                    ? ` ${ct.contract_date || '…'} ~ ${ct.boost_end || '…'}`
+                                                                    : ''}
                                                             </span>
                                                         ) : null}
                                                     </div>
