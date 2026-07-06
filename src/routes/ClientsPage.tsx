@@ -498,12 +498,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         setStageClient(null);
         showToast(toastMsg || `상태 변경: ${status}`);
         await refresh(); // 상태 반영된 목록을 먼저 받은 뒤 이동해야 계약 관리에서 바로 보임.
-        // 고객사 관리에서 계약완료로 바꾸면 → 신규건 기록(24h) 후 계약 관리 시트로 이동.
+        // 고객사 관리에서 계약완료로 바꾸면 → 계약 관리로 이동 + 그 업체 상세페이지를 바로 연다(?id).
         if (status === DONE_STATUS && !contractsOnly) {
             markNewContract(client.id);
             setNewMap(readNewContracts());
-            setContractTab('new'); // 계약 관리 '신규 등록건' 탭으로
-            window.history.pushState(null, '', '/contracts');
+            window.history.pushState(null, '', `/contracts?id=${client.id}`);
             window.dispatchEvent(new Event('app:navigate'));
         }
     };
@@ -1103,7 +1102,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         }`}
                                         onClick={(e) => {
                                             if ((e.target as HTMLElement).closest('button, a, input, select')) return;
-                                            openDetail(c.id);
+                                            // 고객사 관리 미완료(계약완료 전)는 상세 없음 — 계약 진행→계약완료 후 생성.
+                                            if (contractsOnly || c.status === DONE_STATUS) openDetail(c.id);
                                         }}
                                     >
                                         <td className="px-3 py-2">
@@ -1117,14 +1117,23 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         </td>
                                         <td className="px-3 py-2 font-semibold">{c.manager}</td>
                                         <td className="px-3 py-2">
-                                            <button
-                                                className="font-medium text-[#1e40af] hover:underline"
-                                                onClick={() => openDetail(c.id)}
-                                                title="클릭해서 상세 보기"
-                                                type="button"
-                                            >
-                                                {c.company || '--'}
-                                            </button>
+                                            {contractsOnly || c.status === DONE_STATUS ? (
+                                                <button
+                                                    className="font-medium text-[#1e40af] hover:underline"
+                                                    onClick={() => openDetail(c.id)}
+                                                    title="클릭해서 상세 보기"
+                                                    type="button"
+                                                >
+                                                    {c.company || '--'}
+                                                </button>
+                                            ) : (
+                                                <span
+                                                    className="font-medium text-[#334155]"
+                                                    title="계약 진행 → 계약완료 후 상세가 생성됩니다"
+                                                >
+                                                    {c.company || '--'}
+                                                </span>
+                                            )}
                                             {isNew ? (
                                                 <span className="ml-1.5 rounded-full bg-[#1e40af] px-1.5 py-0.5 text-[10px] font-bold text-white">
                                                     신규

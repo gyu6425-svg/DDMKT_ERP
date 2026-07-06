@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import AccountMenu from './AccountMenu';
+import NotificationBell from './NotificationBell';
 import { SIDEBAR_CATEGORIES } from './categoryRank/categories';
 
 const pageTitles: Record<string, string> = {
@@ -92,6 +93,7 @@ function Header() {
                     {profile?.name ?? '내 업체'}
                 </span>
             ) : null}
+            <NotificationBell />
             <AccountMenu />
             </div>
         </header>
