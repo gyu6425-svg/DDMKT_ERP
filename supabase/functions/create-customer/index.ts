@@ -1,0 +1,85 @@
+// Supabase Edge Function — 고객 ERP(viewer) 계정 발급.
+//   서비스롤 키는 Supabase가 이 함수에 자동 주입(SUPABASE_SERVICE_ROLE_KEY) → 브라우저 노출 없음.
+//   호출자가 admin인지 검증한 뒤에만 계정 생성/역할 배정.
+//   배포: Supabase 대시보드 → Edge Functions → create-customer → 이 코드 붙여넣고 Deploy.
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
+Deno.serve(async (req: Request) => {
+  const json = (obj: unknown, status = 200) =>
+    new Response(JSON.stringify(obj), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
+  if (req.method !== 'POST') return json({ error: 'POST only' }, 405)
+
+  const URL = (Deno.env.get('SUPABASE_URL') || '').replace(/\/$/, '')
+  const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
+  if (!URL || !SERVICE) return json({ error: '서버 환경변수 없음' }, 500)
+  const svc = { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` }
+  const svcJson = { ...svc, 'Content-Type': 'application/json' }
+
+  // 1) 호출자(관리자) 검증.
+  const authz = req.headers.get('Authorization') || ''
+  if (!authz) return json({ error: '로그인이 필요합니다.' }, 401)
+  const meRes = await fetch(`${URL}/auth/v1/user`, { headers: { apikey: SERVICE, Authorization: authz } })
+  if (!meRes.ok) return json({ error: '세션 확인 실패(다시 로그인).' }, 401)
+  const me = await meRes.json()
+  if (!me?.id) return json({ error: '사용자 확인 실패.' }, 401)
+  const prof = await (
+    await fetch(`${URL}/rest/v1/profiles?select=role&user_id=eq.${me.id}`, { headers: svc })
+  ).json()
+  if ((prof?.[0]?.role || '') !== 'admin') return json({ error: '관리자만 고객 계정을 발급할 수 있습니다.' }, 403)
+
+  // 2) 입력.
+  const body = await req.json().catch(() => ({}))
+  const loginRaw = String(body.login || '').trim()
+  const clientId = String(body.clientId || '').trim()
+  if (!loginRaw || !clientId) return json({ error: '이메일(또는 아이디)과 업체가 필요합니다.' }, 400)
+  const email = loginRaw.includes('@') ? loginRaw.toLowerCase() : `${loginRaw.toLowerCase()}@ddmkt.com`
+  const password = email.split('@')[0]
+
+  // 3) auth 유저 생성 또는 비번 재설정.
+  let uid: string | undefined
+  const list = await (await fetch(`${URL}/auth/v1/admin/users?per_page=200`, { headers: svc })).json()
+  const found = (list.users || []).find((u: { email?: string }) => (u.email || '').toLowerCase() === email)
+  if (found) {
+    uid = found.id
+    await fetch(`${URL}/auth/v1/admin/users/${uid}`, {
+      method: 'PUT',
+      headers: svcJson,
+      body: JSON.stringify({ password, email_confirm: true }),
+    })
+  } else {
+    const cr = await fetch(`${URL}/auth/v1/admin/users`, {
+      method: 'POST',
+      headers: svcJson,
+      body: JSON.stringify({ email, password, email_confirm: true }),
+    })
+    if (!cr.ok) return json({ error: '계정 생성 실패: ' + (await cr.text()).slice(0, 200) }, 500)
+    uid = (await cr.json()).id
+  }
+
+  // 4) profiles upsert (viewer + 업체 연결 + 첫 로그인 비번변경).
+  const ex = await (await fetch(`${URL}/rest/v1/profiles?select=id&user_id=eq.${uid}`, { headers: svc })).json()
+  const pbody = {
+    user_id: uid,
+    email,
+    name: String(body.name || '').trim() || email.split('@')[0],
+    role: 'viewer',
+    is_active: true,
+    duties: [],
+    sheet_categories: [],
+    client_id: clientId,
+    must_change_password: true,
+  }
+  const pRes = await fetch(
+    ex?.length ? `${URL}/rest/v1/profiles?user_id=eq.${uid}` : `${URL}/rest/v1/profiles`,
+    { method: ex?.length ? 'PATCH' : 'POST', headers: { ...svcJson, Prefer: 'return=minimal' }, body: JSON.stringify(pbody) },
+  )
+  if (!pRes.ok) return json({ error: '권한 배정 실패: ' + (await pRes.text()).slice(0, 200) }, 500)
+
+  return json({ ok: true, email, password })
+})

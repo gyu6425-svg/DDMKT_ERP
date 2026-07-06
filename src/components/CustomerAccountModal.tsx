@@ -23,24 +23,18 @@ export default function CustomerAccountModal({
     if (!login.trim()) return setErr('이메일 또는 아이디를 입력하세요.')
     setSaving(true)
     try {
-      const { data } = await supabase.auth.getSession()
-      const token = data.session?.access_token
-      if (!token) {
-        setSaving(false)
-        return setErr('로그인 세션이 없습니다. 다시 로그인하세요.')
-      }
-      const res = await fetch('/api/create-customer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ login: login.trim(), clientId, name: name.trim() }),
+      // Supabase Edge Function 호출(세션 JWT 자동 포함) — 서버가 관리자 검증 후 계정 생성.
+      const { data, error } = await supabase.functions.invoke('create-customer', {
+        body: { login: login.trim(), clientId, name: name.trim() },
       })
-      const j = await res.json()
       setSaving(false)
-      if (!res.ok || j.error) return setErr(j.error || '발급 실패')
-      setResult({ email: j.email, password: j.password })
-    } catch (e) {
+      if (error) return setErr('발급 실패: ' + (error.message || '서버 오류'))
+      if (data?.error) return setErr(data.error)
+      if (data?.ok) return setResult({ email: data.email, password: data.password })
+      setErr('알 수 없는 응답')
+    } catch {
       setSaving(false)
-      setErr('발급 요청 실패(네트워크). 배포 환경에서 시도하세요.')
+      setErr('발급 요청 실패(네트워크).')
     }
   }
 
