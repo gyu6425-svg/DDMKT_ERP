@@ -41,7 +41,8 @@ function cardSheetHref(category: string, subtype: string, company: string): stri
         (s) => subtype === s.label || subtype.includes(s.label) || s.label.includes(subtype),
     );
     const base = sub ? sub.href : scat.dashHref;
-    return base + (base.includes('?') ? '&' : '?') + q;
+    // tab=sheet 로 '관리 시트' 탭을 바로 열고, q=업체명으로 해당 업체만 필터.
+    return base + (base.includes('?') ? '&' : '?') + 'tab=sheet&' + q;
 }
 
 const progColor = (p: number | null) =>
