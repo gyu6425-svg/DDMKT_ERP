@@ -148,6 +148,19 @@ const outsourceOf = (ct: ClientContract, remainOverride?: number) => {
     return { total, remain: Math.max(0, total - used), used, unit };
 };
 
+// 실제 사용 외주비(소진) — 진행 이력(완료 로그) 합 = Σ 건수 × 외주단가. 단가 없으면 진행 비율로 소진.
+//   받은 외주비(ct.outsource, 합계)와 별개. 상단 소진/잔여 · 외주비 정산 공용.
+const usedOutsourceOf = (ct: ClientContract): number => {
+    const o = outsourceOf(ct);
+    const logs = ct.weekly_logs ?? [];
+    const goal = ct.goal_count ?? 0;
+    const done = Math.max(0, goal - (ct.remain_count ?? goal));
+    const hasUnit = (ct.unit_outsource || 0) > 0 || logs.some((l) => (l.outUnit || 0) > 0);
+    if (hasUnit)
+        return logs.reduce((s, l) => s + (l.count || 0) * (l.outUnit || ct.unit_outsource || 0), 0);
+    return goal > 0 ? Math.round(o.total * (done / goal)) : done > 0 ? o.total : 0;
+};
+
 // 기본정보(담당자·문의경로·연락처·이메일) 클릭 편집 모달.
 function ClientFieldModal({
     label,
@@ -828,15 +841,16 @@ function ContractEditModal({
         setWeekInput('');
         setWeekPaid(false);
         setSaving(true);
-        // 1) 잔여 + 외주단가/외주업체/총외주비 저장(핵심값) — 실패 시 롤백.
-        //    외주비 총액: 단가가 있으면 단가×총건수, 없으면(직접입력 건) 기존 외주비 유지(0으로 덮어쓰지 않음).
-        const newOutsource = unit ? unit * goalN : contract.outsource ?? null;
-        const { error } = await updateClientContract(contract.id, {
-            outsource: newOutsource,
+        // 1) 잔여 + 외주단가/외주업체 저장 — 실패 시 롤백.
+        //    외주비 합계(받은 외주비)는 계약 추가 때 설정한 값으로 '고정' — 진행 처리에서 덮어쓰지 않음.
+        //    (실제 사용 외주비는 진행 이력 outUnit×건수로 별도 집계.) 최초 미설정(0)일 때만 단가×수량으로 세팅.
+        const patch: Partial<ClientContract> = {
             outsource_company: vendor,
             remain_count: next,
             unit_outsource: unit,
-        });
+        };
+        if ((contract.outsource ?? 0) === 0 && unit) patch.outsource = unit * goalN;
+        const { error } = await updateClientContract(contract.id, patch);
         if (error) {
             setSaving(false);
             onToast(`오류: ${error.message}`);
@@ -1911,9 +1925,9 @@ export function ClientDetail({
     const catAmount = (label: string) =>
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
     const totalAmount = contracts.reduce((s, ct) => s + (ct.amount || 0), 0); // 실매출
-    const totalOutsource = contracts.reduce((s, ct) => s + (ct.outsource || 0), 0); // 외주비 합계
-    const outRemainSum = contracts.reduce((s, ct) => s + outsourceOf(ct).remain, 0); // 남은 외주비 합계
-    const outUsedSum = Math.max(0, totalOutsource - outRemainSum); // 소진 외주비 합계
+    const totalOutsource = contracts.reduce((s, ct) => s + (ct.outsource || 0), 0); // 외주비 합계(받은·고정)
+    const outUsedSum = contracts.reduce((s, ct) => s + usedOutsourceOf(ct), 0); // 실제 사용(소진) — 로그 기반
+    const outRemainSum = Math.max(0, totalOutsource - outUsedSum); // 남은 외주비 = 합계 − 사용
     const netRevenue = totalAmount - totalOutsource; // 순매출 = 실매출 − 외주비
 
     // 외주비 정산 — 품목별로 받은 외주비(단가×계약수량) vs 실제 사용 외주비(완료분 소진).
@@ -1923,23 +1937,7 @@ export function ClientDetail({
         .map((ct) => {
             const o = outsourceOf(ct);
             const logs = ct.weekly_logs ?? [];
-            const goal = ct.goal_count ?? 0;
-            const done = Math.max(0, goal - (ct.remain_count ?? goal));
-            // 단가(외주단가)가 있는가 — 로그값 0은 '미설정'으로 보고 계약 단가로 폴백(|| 사용).
-            const hasUnit = (ct.unit_outsource || 0) > 0 || logs.some((l) => (l.outUnit || 0) > 0);
-            // 실제 사용 = Σ 건수 × 외주단가(로그값 우선, 0이면 계약 단가). 0 취급 위해 ?? 대신 ||.
-            const usedFromLogs = logs.reduce(
-                (s, l) => s + (l.count || 0) * (l.outUnit || ct.unit_outsource || 0),
-                0,
-            );
-            // 단가가 없는(직접입력 외주비) 건은 진행 비율(완료/계약)로 총 외주비를 소진 처리.
-            const used = hasUnit
-                ? usedFromLogs
-                : goal > 0
-                  ? Math.round(o.total * (done / goal))
-                  : done > 0
-                    ? o.total
-                    : 0;
+            const used = usedOutsourceOf(ct); // 실제 사용(소진) — 상단 KPI와 동일 공식
             return {
                 ct,
                 id: ct.id,
