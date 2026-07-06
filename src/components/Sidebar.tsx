@@ -1,7 +1,9 @@
 import AdminOnly from './AdminOnly';
-import { CUSTOMER_NAV, SIDEBAR_CATEGORIES } from './categoryRank/categories';
+import { SIDEBAR_CATEGORIES } from './categoryRank/categories';
 import { useAuth } from '../hooks/useAuth';
-import { useEffect, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { getClientContracts, type ClientContract } from '../api/clientContracts';
+import { CONTAINER_SUBS, PRODUCT_CATEGORIES } from '../lib/products';
 
 const navigationItems = [
     // 대시보드는 좌측 상단 'DDMKT ERP' 로고 클릭으로 이동(아래 참고).
@@ -43,7 +45,30 @@ function Sidebar() {
             next.has(key) ? next.delete(key) : next.add(key);
             return next;
         });
-    const { signOut } = useAuth();
+    const { signOut, role } = useAuth();
+    // 고객(viewer) — 자기 계약(RLS 스코프) 중 '시트 승인(sheet_approved)'된 것만 메뉴에 노출.
+    const [custContracts, setCustContracts] = useState<ClientContract[]>([]);
+    useEffect(() => {
+        if (role !== 'viewer') return;
+        let alive = true;
+        void getClientContracts().then(({ data }) => alive && setCustContracts(data));
+        return () => {
+            alive = false;
+        };
+    }, [role]);
+    // 계약 → (카테고리 → 하위유형 집합). 컨테이너(보장형/종합광고) 하위는 실제 카테고리로 역추적.
+    const custCatMap = useMemo(() => {
+        const m = new Map<string, Set<string>>();
+        for (const ct of custContracts) {
+            if (!ct.sheet_approved) continue; // 시트 승인된 것만
+            const p = CONTAINER_SUBS.find((x) => ct.subtype.startsWith(x + ' · '));
+            const raw = p ? ct.subtype.slice(p.length + 3) : ct.subtype;
+            const cat = PRODUCT_CATEGORIES.find((pc) => pc.subs.includes(raw))?.label ?? ct.category;
+            if (!m.has(cat)) m.set(cat, new Set());
+            m.get(cat)!.add(raw);
+        }
+        return m;
+    }, [custContracts]);
     const navigate = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
         if (
             event.defaultPrevented ||
@@ -122,7 +147,56 @@ function Sidebar() {
 
             <nav className="grid gap-[18px] max-[800px]:grid-cols-2">
                 {isCustomerView ? (
-                    CUSTOMER_NAV.map(renderNavItem)
+                    <>
+                        {/* 통합 대시보드 + 계약(승인)된 카테고리·하위유형만 */}
+                        {renderNavItem({ path: '/portal', label: '통합 대시보드' })}
+                        {[...custCatMap.entries()].map(([catLabel, subSet]) => {
+                            const scat = SIDEBAR_CATEGORIES.find((c) => c.label === catLabel);
+                            if (!scat) return null;
+                            const base = `/portal/${scat.key}`;
+                            const subs = [...subSet];
+                            return (
+                                <div key={scat.key}>
+                                    <a
+                                        aria-current={currentPath === base ? 'page' : undefined}
+                                        className={`text-[16px] no-underline ${
+                                            currentPath === base
+                                                ? 'font-semibold text-[#FF6000]'
+                                                : 'font-normal text-[#777777] hover:text-[#000000]'
+                                        }`}
+                                        href={base}
+                                        onClick={(event) => navigate(event, base)}
+                                    >
+                                        {catLabel}
+                                    </a>
+                                    {subs.length ? (
+                                        <div className="ml-2 mt-2 grid gap-2 border-l border-[#eef0f2] pl-3">
+                                            {subs.map((s) => {
+                                                const href = `${base}?sub=${encodeURIComponent(s)}`;
+                                                const active =
+                                                    currentPath === base &&
+                                                    new URLSearchParams(loc.search).get('sub') === s;
+                                                return (
+                                                    <a
+                                                        className={`text-[14px] no-underline ${
+                                                            active
+                                                                ? 'font-semibold text-[#FF6000]'
+                                                                : 'font-normal text-[#888888] hover:text-[#000000]'
+                                                        }`}
+                                                        href={href}
+                                                        key={s}
+                                                        onClick={(event) => navigate(event, href)}
+                                                    >
+                                                        {s}
+                                                    </a>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : null}
+                                </div>
+                            );
+                        })}
+                    </>
                 ) : (
                     <>
                         {navigationItems.slice(0, afterContracts).map(renderNavItem)}

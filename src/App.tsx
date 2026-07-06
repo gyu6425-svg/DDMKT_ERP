@@ -48,6 +48,7 @@ const routes = [
     { path: '/portal/cafe', element: <CustomerCategoryPage /> },
     { path: '/portal/shopping', element: <CustomerCategoryPage /> },
     { path: '/portal/powerlink', element: <CustomerCategoryPage /> },
+    { path: '/portal/video', element: <CustomerCategoryPage /> },
     { path: '/portal/blog', element: <CustomerCategoryPage /> },
     { path: '/banner-generator', element: <BannerGeneratorPage /> },
     { path: '/powerlink', element: <PowerLinkPage /> },
