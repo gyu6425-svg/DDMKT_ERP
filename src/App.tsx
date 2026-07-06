@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
+import { useAuth } from './hooks/useAuth';
 import { ErpDataProvider } from './context/ErpDataContext';
 import AdminPage from './routes/AdminPage';
 import BlogPage from './routes/BlogPage';
@@ -56,6 +57,9 @@ const routes = [
 
 function App() {
     const [currentPath, setCurrentPath] = useState(window.location.pathname);
+    const { role, loading } = useAuth();
+    // 고객(viewer) = 고객 포털(/portal)만 접근 가능. 회사 ERP 경로는 못 봄.
+    const isCustomer = role === 'viewer';
 
     useEffect(() => {
         const syncPath = () => {
@@ -71,6 +75,15 @@ function App() {
         };
     }, []);
 
+    // 고객이 내부 경로로 오면 즉시 고객 포털로 되돌림(회사 ERP 화면 차단).
+    useEffect(() => {
+        if (loading) return;
+        if (isCustomer && currentPath !== '/login' && !currentPath.startsWith('/portal')) {
+            window.history.replaceState(null, '', '/portal');
+            window.dispatchEvent(new Event('app:navigate'));
+        }
+    }, [isCustomer, currentPath, loading]);
+
     if (currentPath === '/login') {
         return (
             <>
@@ -80,8 +93,10 @@ function App() {
         );
     }
 
-    const currentRoute = routes.find((route) => route.path === currentPath) ?? routes[0];
-    const isBannerGeneratorActive = currentPath === '/banner-generator';
+    // 고객은 포털 경로만 렌더(내부 경로 요청이 남아있어도 포털로 강제).
+    const effectivePath = isCustomer && !currentPath.startsWith('/portal') ? '/portal' : currentPath;
+    const currentRoute = routes.find((route) => route.path === effectivePath) ?? routes[0];
+    const isBannerGeneratorActive = !isCustomer && currentPath === '/banner-generator';
 
     return (
         <>
@@ -89,9 +104,11 @@ function App() {
             <ProtectedRoute>
                 <ErpDataProvider>
                     <Layout>
-                        <div hidden={!isBannerGeneratorActive}>
-                            <BannerGeneratorPage />
-                        </div>
+                        {!isCustomer ? (
+                            <div hidden={!isBannerGeneratorActive}>
+                                <BannerGeneratorPage />
+                            </div>
+                        ) : null}
                         {!isBannerGeneratorActive ? currentRoute.element : null}
                     </Layout>
                 </ErpDataProvider>
