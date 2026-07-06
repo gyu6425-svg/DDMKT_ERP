@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth'
 import { getClientContracts, type ClientContract } from '../api/clientContracts'
 import { canSeeContractPending, SHEET_CATEGORIES } from '../lib/permissions'
 import { SIDEBAR_CATEGORIES } from './categoryRank/categories'
+import { resolveScope } from './categoryRank/ContractSheetTab'
 
 // 알림 벨 — ① 계약 미완료(송민경·김종인·조재현·장규진만), ② 시트 승인 대기(담당 카테고리).
 //   [읽음]으로 현재 알림을 지울 수 있음(localStorage 기록). 새 항목은 다시 뜬다.
@@ -62,8 +63,15 @@ export default function NotificationBell() {
   const sheetPending = contracts.filter(
     (ct) => !ct.sheet_approved && canManageSheet(ct.category) && !readSet.has('s:' + ct.id),
   )
-  const byCat = new Map<string, number>()
-  for (const ct of sheetPending) byCat.set(ct.category, (byCat.get(ct.category) ?? 0) + 1)
+  // 세부유형(subtype)별로 묶음 — 플레이스처럼 하위(?sub) 드롭다운이 있는 카테고리는
+  //   해당 세부유형 시트로 정확히 이동해야 '관리 시트'가 열림.
+  const bySub = new Map<string, { cat: string; subtype: string; n: number }>()
+  for (const ct of sheetPending) {
+    const key = ct.category + '|||' + ct.subtype
+    const cur = bySub.get(key) ?? { cat: ct.category, n: 0, subtype: ct.subtype }
+    cur.n += 1
+    bySub.set(key, cur)
+  }
   const count = pendingClients.length + sheetPending.length
 
   const go = (path: string) => {
@@ -73,9 +81,18 @@ export default function NotificationBell() {
     }
     setOpen(false)
   }
-  const sheetHref = (cat: string) => {
+  // 카테고리+세부유형 → 그 세부유형 시트 경로(?sub= 또는 전용 pathname) + 관리 시트/신규 탭 딥링크.
+  const sheetHref = (cat: string, subtype: string) => {
     const scat = SIDEBAR_CATEGORIES.find((c) => c.label === cat)
-    return (scat?.dashHref ?? '/dashboard') + '?tab=sheet&pending=1'
+    const sub =
+      scat?.subs.find((s) => resolveScope(s.href)?.subtype === subtype) ??
+      // 컨테이너 자식(예: '상위노출 보장형 · 영수증 리뷰')은 접두 세부유형 시트로.
+      scat?.subs.find((s) => {
+        const st = resolveScope(s.href)?.subtype
+        return !!st && subtype.startsWith(st)
+      })
+    const base = sub?.href ?? scat?.dashHref ?? '/dashboard'
+    return base + (base.includes('?') ? '&' : '?') + 'tab=sheet&pending=1'
   }
   // 현재 보이는 알림을 모두 읽음 처리(지움).
   const markAllRead = () => {
@@ -126,18 +143,20 @@ export default function NotificationBell() {
           </div>
 
           {/* ② 시트 승인 대기 */}
-          {myCats.length && byCat.size ? (
+          {myCats.length && bySub.size ? (
             <div className="border-b border-[#f1f5f9] p-1">
               <div className="px-2 py-1 text-[11px] font-bold text-[#7c3aed]">시트 승인 대기</div>
-              {[...byCat.entries()].map(([cat, n]) => (
+              {[...bySub.values()].map(({ cat, subtype, n }) => (
                 <button
                   className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-[#f8fafc]"
-                  key={cat}
-                  onClick={() => go(sheetHref(cat))}
+                  key={cat + '|||' + subtype}
+                  onClick={() => go(sheetHref(cat, subtype))}
                   type="button"
                 >
-                  <span className="font-semibold text-[#334155]">{cat} 시트</span>
-                  <span className="rounded-full bg-[#f5f3ff] px-2 py-0.5 text-[11px] font-bold text-[#7c3aed]">
+                  <span className="font-semibold text-[#334155]">
+                    {cat} · {subtype} 시트
+                  </span>
+                  <span className="ml-2 shrink-0 rounded-full bg-[#f5f3ff] px-2 py-0.5 text-[11px] font-bold text-[#7c3aed]">
                     {n}건 승인 대기
                   </span>
                 </button>
