@@ -1,4 +1,4 @@
-﻿import { Fragment, useEffect, useMemo, useState } from 'react';
+﻿import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
     deleteClient,
     insertClient,
@@ -159,11 +159,23 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [detailId, setDetailId] = useState<string | null>(
         () => new URLSearchParams(window.location.search).get('id'),
     );
+    // 목록 ↔ 상세 이동 시 목록 스크롤 위치 보존 — 스크롤 컨테이너는 Layout의 <main>(데스크톱) 또는 window(≤800px).
+    const listScrollRef = useRef(0);
+    // 실제 스크롤 요소 판별 — 데스크톱은 <main>(overflow-y-auto), ≤800px는 window(main은 overflow-visible).
+    const getScroller = (): HTMLElement | null => {
+        const el = document.querySelector('main') as HTMLElement | null;
+        return el && el.scrollHeight > el.clientHeight + 1 ? el : null;
+    };
     const openDetail = (id: string) => {
+        const el = getScroller();
+        listScrollRef.current = el ? el.scrollTop : window.scrollY; // 현재 목록 위치 저장
         setDetailId(id);
         const u = new URL(window.location.href);
         u.searchParams.set('id', id);
         window.history.pushState(null, '', u.pathname + u.search);
+        // 상세는 맨 위에서 시작
+        if (el) el.scrollTop = 0;
+        else window.scrollTo(0, 0);
     };
     const closeDetail = () => {
         setDetailId(null);
@@ -171,6 +183,15 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         u.searchParams.delete('id');
         window.history.pushState(null, '', u.pathname + u.search);
     };
+    // 상세 닫혀 목록이 다시 렌더된 직후, 저장해둔 스크롤 위치로 복원(페인트 전 → 깜빡임 없음).
+    useLayoutEffect(() => {
+        if (detailId) return; // 상세 열림 상태면 복원하지 않음
+        const y = listScrollRef.current;
+        if (!y) return;
+        const el = getScroller();
+        if (el) el.scrollTop = y;
+        else window.scrollTo(0, y);
+    }, [detailId]);
 
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
