@@ -2496,7 +2496,7 @@ export function ClientDetail({
             ) : null}
             {boostAdd ? (
                 <ContractAddModal
-                    allCategorySubs={boostAdd.subtype === '종합광고'}
+                    allCategorySubs={CONTAINER_SUBS.includes(boostAdd.subtype)}
                     boostPrefix={`${boostAdd.subtype} · `}
                     clientId={client.id}
                     companyName={client.company || ''}
