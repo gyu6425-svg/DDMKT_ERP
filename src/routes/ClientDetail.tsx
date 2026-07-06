@@ -2452,14 +2452,6 @@ export function ClientDetail({
                                                     </button>
                                                     <div className="text-sm font-bold text-[#7c3aed]">
                                                         {ct.subtype}
-                                                        {ct.subtype === '상위노출 보장형' ? (
-                                                            <span className="ml-1.5 text-[15px] font-extrabold text-[#6d28d9]">
-                                                                {ct.boost_round || 1}회차
-                                                                {ct.contract_date || ct.boost_end
-                                                                    ? ` ${ct.contract_date || '…'} ~ ${ct.boost_end || '…'}`
-                                                                    : ''}
-                                                            </span>
-                                                        ) : null}
                                                     </div>
                                                     {ct.subtype === '상위노출 보장형' ? (
                                                         <div
@@ -2609,12 +2601,27 @@ export function ClientDetail({
                                         );
                                         });
                                     // 컨테이너(상위노출 보장형·종합광고) 그룹은 보라색 박스로 감싸 하위 상품을 안에 표시.
+                                    // 상위노출 보장형 헤더 우측에 회차+시작~종료일 표시(부모 계약 값).
+                                    const boostParent =
+                                        st === '상위노출 보장형'
+                                            ? catCts.find((ct) => ct.subtype === st)
+                                            : null;
                                     return isContainerGroup ? (
                                         <div
                                             className="mb-3 rounded-xl border-2 border-[#c7b8f0] bg-[#faf8ff] p-3"
                                             key={st}
                                         >
-                                            <div className="mb-2 text-sm font-bold text-[#7c3aed]">{st}</div>
+                                            <div className="mb-2 flex items-center gap-2 text-sm font-bold text-[#7c3aed]">
+                                                <span>{st}</span>
+                                                {boostParent ? (
+                                                    <span className="text-[15px] font-extrabold text-[#6d28d9]">
+                                                        {boostParent.boost_round || 1}회차
+                                                        {boostParent.contract_date || boostParent.boost_end
+                                                            ? ` ${boostParent.contract_date || '…'} ~ ${boostParent.boost_end || '…'}`
+                                                            : ''}
+                                                    </span>
+                                                ) : null}
+                                            </div>
                                             <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                                                 {cards}
                                             </div>
