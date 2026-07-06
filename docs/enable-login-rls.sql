@@ -10,11 +10,12 @@ alter table public.profiles
   add column if not exists must_change_password boolean not null default true;
 
 -- ── 1) 권한 함수 (user_id = auth.uid() 기준) ─────────────────────────────
+-- 내부 직원 = 활성 profiles가 있고 client_id가 NULL(고객 아님). profiles 없으면 false(차단).
 create or replace function public.is_internal()
 returns boolean language sql security definer set search_path = public as $$
-  select coalesce(
-    (select client_id from public.profiles where user_id = auth.uid() and is_active = true) is null,
-    false  -- profiles에 없으면 내부 아님(차단)
+  select exists (
+    select 1 from public.profiles
+    where user_id = auth.uid() and is_active = true and client_id is null
   );
 $$;
 
