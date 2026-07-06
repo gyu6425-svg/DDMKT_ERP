@@ -20,6 +20,8 @@ import {
 } from '../lib/products';
 import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
 import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, todayStr, withVat } from '../lib/erpUtils';
+import { useAuth } from '../hooks/useAuth';
+import CustomerAccountModal from '../components/CustomerAccountModal';
 import { ContractPasteAddModal } from './ContractPasteAddModal';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
@@ -1837,6 +1839,8 @@ export function ClientDetail({
     const [editContract, setEditContract] = useState<ClientContract | null>(null);
     const [endOpen, setEndOpen] = useState(false); // 상단 계약 종료 모달(히스토리 입력)
     const [endNote, setEndNote] = useState('');
+    const [custAcctOpen, setCustAcctOpen] = useState(false); // 고객 ERP 계정 발급 모달
+    const { isAdmin } = useAuth(); // 고객 계정 발급은 관리자만
     const [breakdown, setBreakdown] = useState<'net' | 'outsource' | 'sales' | null>(null); // 상품별 내역
     const [detailC, setDetailC] = useState<ClientContract | null>(null); // 내역에서 상품 클릭 시 상세
     const [expandedOut, setExpandedOut] = useState<string | null>(null); // 외주비 정산 사용 이력 펼침 대상(계약 id)
@@ -2002,6 +2006,16 @@ export function ClientDetail({
                     </div>
                 </div>
                 <div className="flex-1" />
+                {!confirmDel && isAdmin ? (
+                    <button
+                        className="rounded-md border border-[#7c3aed] bg-white px-3 py-1.5 text-sm font-semibold text-[#7c3aed] hover:bg-[#f5f3ff]"
+                        onClick={() => setCustAcctOpen(true)}
+                        title="이 업체 전용 열람 계정(고객 ERP) 발급"
+                        type="button"
+                    >
+                        고객 ERP 발급
+                    </button>
+                ) : null}
                 {!confirmDel && client.status !== '계약종료' ? (
                     <button
                         className="rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
@@ -2514,6 +2528,13 @@ export function ClientDetail({
                     }}
                     options={editField.options}
                     value={editField.value}
+                />
+            ) : null}
+            {custAcctOpen ? (
+                <CustomerAccountModal
+                    clientId={client.id}
+                    companyName={client.company || '고객사'}
+                    onClose={() => setCustAcctOpen(false)}
                 />
             ) : null}
             {endOpen ? (
