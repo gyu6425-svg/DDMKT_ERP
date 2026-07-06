@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getClients, type ErpClient } from '../../api/erp';
 import { getClientContracts, updateClientContract, type ClientContract } from '../../api/clientContracts';
+import { useAuth } from '../../hooks/useAuth';
 import { SIDEBAR_CATEGORIES } from './categories';
 import { CONTAINER_SUBS } from '../../lib/products';
 
@@ -87,6 +88,7 @@ function StatusTag({ ct }: { ct: ClientContract }) {
 }
 
 export function ContractSheetTab({ category, subtype }: { category: string; subtype?: string }) {
+    const { canManageSheet } = useAuth(); // 담당 카테고리 시트 권한자만 승인 가능
     const [clients, setClients] = useState<ErpClient[]>([]);
     const [contracts, setContracts] = useState<ClientContract[]>([]);
     const [loading, setLoading] = useState(true);
@@ -181,7 +183,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
     // 매출은 시트에 연동하지 않음(매출은 계약 관리에서만). 외주비만 참고로 표시.
     const totalOut = rows.reduce((s, r) => s + (r.ct.outsource || 0), 0);
     const showSub = !subtype;
-    const showApprove = tab === 'new'; // 신규 등록 건 탭에서만 승인 버튼 노출
+    const showApprove = tab === 'new' && canManageSheet(category); // 담당 시트 권한자 + 신규 탭에서만 승인
     const dash = <span className="text-xs text-[#cbd5e1]">—</span>;
     const colSpan = showSub ? 12 : 11;
 

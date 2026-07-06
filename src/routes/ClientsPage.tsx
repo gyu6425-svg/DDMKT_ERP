@@ -18,6 +18,8 @@ import { ClientDetail } from './ClientDetail';
 import Button from '../components/Button';
 import { ContractImportModal } from './ContractImportModal';
 import { useErpData } from '../context/ErpDataContext';
+import { useAuth } from '../hooks/useAuth';
+import { DUTIES } from '../lib/permissions';
 import {
     INDUSTRY_OPTIONS,
     SOURCE_OPTIONS,
@@ -144,6 +146,7 @@ function loadFavs(): string[] {
 //   두 화면은 동일 UI/상세를 공유하고, 목록 필터만 다르다.
 function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}) {
     const { clients, allClients, salespeople, loading, error, refresh } = useErpData();
+    const { can, canEdit } = useAuth(); // 권한: 계약완료 승인(duty) · 수정 가능(뷰어=false)
 
     // 카테고리 = 그 고객사에 연결된 카테고리 계정에서 도출(현재 블로그). client_id 로 묶음.
     const [blogAccounts, setBlogAccounts] = useState<BlogAccount[]>([]);
@@ -780,7 +783,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    {contractsOnly ? (
+                    {contractsOnly && canEdit ? (
                         <Button
                             className="inline-flex h-10 items-center justify-center rounded-md border border-[#1e40af] px-4 text-sm font-semibold text-[#1e40af]"
                             onClick={() => setImportOpen(true)}
@@ -789,13 +792,16 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             시트 붙여넣기
                         </Button>
                     ) : null}
-                    <Button
-                        className="inline-flex h-10 items-center justify-center rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white"
-                        onClick={openAdd}
-                        type="button"
-                    >
-                        {contractsOnly ? '+ 계약 추가' : '+ 문의 추가'}
-                    </Button>
+                    {/* 등록/추가는 뷰어(고객 열람전용)에서 숨김 */}
+                    {canEdit ? (
+                        <Button
+                            className="inline-flex h-10 items-center justify-center rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white"
+                            onClick={openAdd}
+                            type="button"
+                        >
+                            {contractsOnly ? '+ 계약 추가' : '+ 문의 추가'}
+                        </Button>
+                    ) : null}
                 </div>
             </div>
 
@@ -1368,7 +1374,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         </td>
                                         <td className="px-3 py-2">
                                             <div className="flex gap-1 whitespace-nowrap">
-                                                {contractsOnly && !c.contract_approved ? (
+                                                {contractsOnly && !c.contract_approved && can(DUTIES.CONTRACT_APPROVE) ? (
                                                     <Button
                                                         className="rounded bg-[#1e40af] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#1e3a8a]"
                                                         onClick={() => void approveContract(c)}
