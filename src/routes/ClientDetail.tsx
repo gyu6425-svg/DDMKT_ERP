@@ -22,7 +22,7 @@ import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
 import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, todayStr, withVat } from '../lib/erpUtils';
 import { useAuth } from '../hooks/useAuth';
 import CustomerAccountModal from '../components/CustomerAccountModal';
-import { parseTsvGrid, findCol, num, parseDate } from '../lib/contractImport';
+import { parseTsvGrid, findCol, num, parseDate, normCompany } from '../lib/contractImport';
 import { ContractPasteAddModal } from './ContractPasteAddModal';
 
 // 외주(진행) 시트 붙여넣기 머리글 — 사용자 시트와 동일. 아래에 데이터만 붙여넣음.
@@ -676,12 +676,14 @@ function ContractAddModal({
 //   재계약 클릭 시 블로그 시트의 '계약' 창처럼 현재 계약 + 계약 추가(시작일·건수) UI.
 function ContractEditModal({
     contract,
+    companyName,
     onClose,
     onReload,
     onToast,
     onEnd,
 }: {
     contract: ClientContract;
+    companyName: string; // 현재 계약 업체명 — 외주 시트 붙여넣기 업체 대조용
     onClose: () => void;
     onReload: () => Promise<void>;
     onToast: (m: string) => void;
@@ -890,19 +892,29 @@ function ContractEditModal({
         const H = grid[0].map((s) => s.trim());
         const iQty = findCol(H, ['수량']);
         const iUnit = findCol(H, ['단가']); // 외주단가
-        const iVendor = findCol(H, ['업체명', '업체']);
+        const iVendor = findCol(H, ['품목', '품목명']); // 외주업체명 = 품목명(요약) 컬럼
+        const iCompany = findCol(H, ['업체명', '업체']); // 현재 계약 업체 대조
+        const iPartner = findCol(H, ['거래처']); // 업체 대조(대체)
         const iDate = findCol(H, ['일자', '날짜']);
         if (iQty < 0) {
             onToast('수량 컬럼을 찾지 못했습니다(머리글 확인).');
             return;
         }
+        const myCompany = normCompany(companyName); // 현재 계약 업체
         const today = new Date().toISOString().slice(0, 10);
         let curRemain = remainN;
+        let mismatch = 0; // 업체명이 현재 업체와 다른 행(등록 안 함)
         const added: RewardWeeklyLog[] = [];
         for (const c of grid.slice(1)) {
             const g = (idx: number) => (idx >= 0 ? (c[idx] || '').trim() : '');
             const qty = Number(onlyDigits(g(iQty))) || 0;
             if (qty <= 0) continue;
+            // 업체 대조 — 시트의 업체명(또는 거래처명)이 현재 계약 업체와 같아야 등록. 다르면 건너뜀.
+            const rowCompanies = [g(iCompany), g(iPartner)].map(normCompany).filter(Boolean);
+            if (myCompany && rowCompanies.length && !rowCompanies.includes(myCompany)) {
+                mismatch += 1;
+                continue;
+            }
             const applied = Math.min(curRemain, qty);
             if (applied <= 0) break; // 잔여 소진
             const unit = iUnit >= 0 && g(iUnit) ? Math.round(num(g(iUnit))) : contract.unit_outsource ?? null;
@@ -920,7 +932,11 @@ function ContractEditModal({
             curRemain -= applied;
         }
         if (!added.length) {
-            onToast('처리할 행이 없습니다(수량 없음 또는 잔여 소진).');
+            onToast(
+                mismatch
+                    ? `업체명이 '${companyName}'와 달라 전부 건너뜀(${mismatch}행).`
+                    : '처리할 행이 없습니다(수량 없음 또는 잔여 소진).',
+            );
             return;
         }
         const next = curRemain;
@@ -945,7 +961,10 @@ function ContractEditModal({
         await onReload();
         setOutSheetOpen(false);
         setOutSheetText(OUT_SHEET_HEADER + '\n');
-        onToast(`${added.length}건 진행 처리 완료 (잔여 ${next.toLocaleString('ko-KR')})`);
+        onToast(
+            `${added.length}건 진행 처리 완료 (잔여 ${next.toLocaleString('ko-KR')})` +
+                (mismatch ? ` · 업체 불일치 ${mismatch}행 건너뜀` : ''),
+        );
     };
 
     // 주간 로그 삭제(오기입 되돌리기) — 잔여 복원 + 로그 제거.
@@ -2627,6 +2646,7 @@ export function ClientDetail({
             {editContract ? (
                 <ContractEditModal
                     contract={editContract}
+                    companyName={client.company || ''}
                     onClose={() => setEditContract(null)}
                     onEnd={endClient}
                     onReload={onReloadContracts}
