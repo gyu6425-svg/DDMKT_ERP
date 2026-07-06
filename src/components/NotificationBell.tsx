@@ -5,21 +5,37 @@ import { getClientContracts, type ClientContract } from '../api/clientContracts'
 import { canSeeContractPending, SHEET_CATEGORIES } from '../lib/permissions'
 import { SIDEBAR_CATEGORIES } from './categoryRank/categories'
 
-// 알림 벨 — ① 계약 미완료(송민경·김종인·조재현·장규진만), ② 시트 승인 대기(담당 카테고리 사원/매니저/관리자).
+// 알림 벨 — ① 계약 미완료(송민경·김종인·조재현·장규진만), ② 시트 승인 대기(담당 카테고리).
+//   [읽음]으로 현재 알림을 지울 수 있음(localStorage 기록). 새 항목은 다시 뜬다.
 const TERMINAL = ['계약완료', '계약종료', '종료', '임시']
+const READ_KEY = 'erp_notif_read'
+const loadRead = (): Set<string> => {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(READ_KEY) || '[]') as string[])
+  } catch {
+    return new Set()
+  }
+}
+const saveRead = (s: Set<string>) => {
+  try {
+    localStorage.setItem(READ_KEY, JSON.stringify([...s]))
+  } catch {
+    /* ignore */
+  }
+}
 
 export default function NotificationBell() {
   const { allClients } = useErpData()
   const { profile, role, canManageSheet } = useAuth()
   const [open, setOpen] = useState(false)
   const [contracts, setContracts] = useState<ClientContract[]>([])
+  const [readSet, setReadSet] = useState<Set<string>>(loadRead)
   const boxRef = useRef<HTMLDivElement>(null)
 
   const seePending = canSeeContractPending(profile?.email)
-  const myCats = SHEET_CATEGORIES.filter((c) => canManageSheet(c)) // 승인 알림 받을 카테고리
+  const myCats = SHEET_CATEGORIES.filter((c) => canManageSheet(c))
   const eligible = role !== 'viewer' && (seePending || myCats.length > 0)
 
-  // 시트 승인 대기 계약 조회(내부는 RLS로 전체) — 마운트 + 화면 이동 시 갱신.
   useEffect(() => {
     if (!eligible || myCats.length === 0) return
     const load = () => void getClientContracts().then(({ data }) => setContracts(data))
@@ -28,7 +44,6 @@ export default function NotificationBell() {
     return () => window.removeEventListener('app:navigate', load)
   }, [eligible, myCats.length])
 
-  // 바깥 클릭 시 닫기.
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent) => {
@@ -40,12 +55,15 @@ export default function NotificationBell() {
 
   if (!eligible) return null
 
-  const pendingClients = seePending ? allClients.filter((c) => c.status && !TERMINAL.includes(c.status)) : []
-  // 카테고리별 시트 승인 대기 건수.
-  const sheetPending = contracts.filter((ct) => !ct.sheet_approved && canManageSheet(ct.category))
+  // 읽음 처리 안 된 것만.
+  const pendingClients = (
+    seePending ? allClients.filter((c) => c.status && !TERMINAL.includes(c.status)) : []
+  ).filter((c) => !readSet.has('p:' + c.id))
+  const sheetPending = contracts.filter(
+    (ct) => !ct.sheet_approved && canManageSheet(ct.category) && !readSet.has('s:' + ct.id),
+  )
   const byCat = new Map<string, number>()
   for (const ct of sheetPending) byCat.set(ct.category, (byCat.get(ct.category) ?? 0) + 1)
-
   const count = pendingClients.length + sheetPending.length
 
   const go = (path: string) => {
@@ -58,6 +76,14 @@ export default function NotificationBell() {
   const sheetHref = (cat: string) => {
     const scat = SIDEBAR_CATEGORIES.find((c) => c.label === cat)
     return (scat?.dashHref ?? '/dashboard') + '?tab=sheet'
+  }
+  // 현재 보이는 알림을 모두 읽음 처리(지움).
+  const markAllRead = () => {
+    const next = new Set(readSet)
+    pendingClients.forEach((c) => next.add('p:' + c.id))
+    sheetPending.forEach((ct) => next.add('s:' + ct.id))
+    setReadSet(next)
+    saveRead(next)
   }
 
   return (
@@ -86,66 +112,66 @@ export default function NotificationBell() {
 
       {open ? (
         <div className="absolute right-0 z-50 mt-1 w-72 rounded-lg border border-[#e2e8f0] bg-white shadow-lg">
+          <div className="flex items-center justify-between border-b border-[#f1f5f9] px-3 py-2">
+            <span className="text-sm font-bold text-[#0f172a]">알림 {count > 0 ? `(${count})` : ''}</span>
+            {count > 0 ? (
+              <button
+                className="rounded-md border border-[#cbd5e1] px-2 py-0.5 text-[11px] font-semibold text-[#64748b] hover:bg-[#f1f5f9]"
+                onClick={markAllRead}
+                type="button"
+              >
+                읽음
+              </button>
+            ) : null}
+          </div>
+
           {/* ② 시트 승인 대기 */}
-          {myCats.length ? (
+          {myCats.length && byCat.size ? (
             <div className="border-b border-[#f1f5f9] p-1">
               <div className="px-2 py-1 text-[11px] font-bold text-[#7c3aed]">시트 승인 대기</div>
-              {byCat.size ? (
-                [...byCat.entries()].map(([cat, n]) => (
-                  <button
-                    className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-[#f8fafc]"
-                    key={cat}
-                    onClick={() => go(sheetHref(cat))}
-                    type="button"
-                  >
-                    <span className="font-semibold text-[#334155]">{cat} 시트</span>
-                    <span className="rounded-full bg-[#f5f3ff] px-2 py-0.5 text-[11px] font-bold text-[#7c3aed]">
-                      {n}건 승인 대기
-                    </span>
-                  </button>
-                ))
-              ) : (
-                <div className="px-2 py-2 text-[11px] text-[#94a3b8]">승인 대기 없음</div>
-              )}
+              {[...byCat.entries()].map(([cat, n]) => (
+                <button
+                  className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-[#f8fafc]"
+                  key={cat}
+                  onClick={() => go(sheetHref(cat))}
+                  type="button"
+                >
+                  <span className="font-semibold text-[#334155]">{cat} 시트</span>
+                  <span className="rounded-full bg-[#f5f3ff] px-2 py-0.5 text-[11px] font-bold text-[#7c3aed]">
+                    {n}건 승인 대기
+                  </span>
+                </button>
+              ))}
             </div>
           ) : null}
 
           {/* ① 계약 미완료 */}
-          {seePending ? (
+          {seePending && pendingClients.length ? (
             <div className="p-1">
-              <div className="flex items-center justify-between px-2 py-1">
-                <span className="text-[11px] font-bold text-[#dc2626]">계약 미완료</span>
-                <span className="rounded-full bg-[#fee2e2] px-2 py-0.5 text-[11px] font-bold text-[#dc2626]">
-                  {pendingClients.length}
-                </span>
+              <div className="px-2 py-1 text-[11px] font-bold text-[#dc2626]">계약 미완료</div>
+              <div className="grid max-h-[40vh] gap-0.5 overflow-y-auto">
+                {pendingClients.slice(0, 30).map((c) => (
+                  <button
+                    className="rounded-md px-2 py-1.5 text-left hover:bg-[#f8fafc]"
+                    key={c.id}
+                    onClick={() => go('/clients')}
+                    type="button"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-semibold text-[#334155]">
+                        {c.company || '(업체명 없음)'}
+                      </span>
+                      <span className="shrink-0 rounded bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-bold text-[#4338ca]">
+                        {c.status}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-[#94a3b8]">
+                      {c.manager || '담당 미지정'}
+                      {c.created_at ? ` · ${c.created_at.slice(0, 10)}` : ''}
+                    </div>
+                  </button>
+                ))}
               </div>
-              {pendingClients.length ? (
-                <div className="grid max-h-[40vh] gap-0.5 overflow-y-auto">
-                  {pendingClients.slice(0, 30).map((c) => (
-                    <button
-                      className="rounded-md px-2 py-1.5 text-left hover:bg-[#f8fafc]"
-                      key={c.id}
-                      onClick={() => go('/clients')}
-                      type="button"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-semibold text-[#334155]">
-                          {c.company || '(업체명 없음)'}
-                        </span>
-                        <span className="shrink-0 rounded bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-bold text-[#4338ca]">
-                          {c.status}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-[#94a3b8]">
-                        {c.manager || '담당 미지정'}
-                        {c.created_at ? ` · ${c.created_at.slice(0, 10)}` : ''}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="px-2 py-2 text-[11px] text-[#94a3b8]">미완료 없음</div>
-              )}
             </div>
           ) : null}
 
