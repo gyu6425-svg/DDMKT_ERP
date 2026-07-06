@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth'
 // 직함 표기 — 특정 계정만 직함, 나머지는 이름만.
 const TITLE_BY_EMAIL: Record<string, string> = {
   'rlawhddls@ddmkt.com': '대표', // 김종인
-  'ddmkt1@ddmkt.com': '인사', // 조재현
+  'gyu6425@gmail.com': '테스트', // 장규진(본인)
 }
 
 // 헤더 계정 메뉴 — 이름(+직함) 표시 + 비밀번호 변경 + 로그아웃.
