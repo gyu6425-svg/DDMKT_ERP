@@ -4,9 +4,7 @@ import { insertClientContracts, type ClientContract } from '../api/clientContrac
 import { normCompany, parseSalesRows, SALES_HEADER, type ParsedRow as Row } from '../lib/contractImport';
 
 // 시트 붙여넣기 일괄 등록 — 판매(매출) 시트만 붙여넣어 업체+계약 등록(상태 '임시').
-//   외주단가·외주업체는 나중에 상세페이지에서 계약별로 입력. 동일 업체명은 기존 '임시' 업체에 계약만 추가.
-
-const TEMP_STATUS = '임시';
+//   외주단가·외주업체는 나중에 상세페이지에서 계약별로 입력. 동일 업체명은 기존 업체에 계약만 추가.
 
 export function ContractImportModal({
     allClients,
@@ -36,10 +34,10 @@ export function ContractImportModal({
         let created = 0;
         let contracts = 0;
         let failed = 0;
-        // 동일 업체명은 기존 '임시' 업체에 계약만 추가(실제 계약완료 업체는 재사용 안 함).
+        // 동일 업체명이면 기존 업체에 계약만 추가(중복 업체 생성 방지).
         const tempIdByCompany = new Map<string, string>();
         for (const c of allClients) {
-            if (c.company && c.status === TEMP_STATUS) tempIdByCompany.set(normCompany(c.company), c.id);
+            if (c.company) tempIdByCompany.set(normCompany(c.company), c.id);
         }
         const groups = new Map<string, Row[]>();
         for (const r of includable) {
@@ -55,7 +53,8 @@ export function ContractImportModal({
                     client_partner: first.partner || null,
                     company: first.company,
                     manager: first.manager || null,
-                    status: TEMP_STATUS, // 임시 신규 생성 — 계약 관리 '임시(테스트)' 탭에서 확인.
+                    status: '계약완료', // 시트 등록 = 계약완료(계약 관리), 계약일자 월 필터에 반영.
+                    contract_approved: true, // 기존 업체 이관이라 승인 상태로(신규 등록건 아님).
                 });
                 if (cErr || !data[0]?.id) {
                     failed += grp.length;
@@ -80,6 +79,7 @@ export function ContractImportModal({
                     subtype: m.subtype,
                     unit_outsource: r.outUnit,
                     unit_price: r.unit || null,
+                    sheet_approved: true, // 기존 업체 이관 — 카테고리 시트 신규 승인 대기로 안 감.
                 };
             });
             const { error } = await insertClientContracts(payload);

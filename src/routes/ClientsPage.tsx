@@ -55,7 +55,6 @@ function markNewContract(id: string) {
 }
 const DONE_STATUS = '계약완료'; // 계약 완료 판정 기준(상태). 계약 관리 진입 + 완료/미완료 탭이 공유.
 const ENDED_STATUS = '계약종료'; // 계약 종료(터미널). 종료 탭. 5단계(신규~보류)와 별개.
-const TEMP_STATUS = '임시'; // 시트 임포터 테스트 등록 — 계약 관리에서 '임시(테스트)' 탭으로 분리 표시.
 // 숫자 입력 포맷 — 저장은 숫자만, 표시는 천단위 콤마(2000 → 2,000).
 const onlyDigits = (s: string) => s.replace(/[^\d]/g, '');
 const withCommas = (s: string) => (onlyDigits(s) ? Number(onlyDigits(s)).toLocaleString('ko-KR') : '');
@@ -201,15 +200,21 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     // 고객사 관리 하단 탭 — 계약 완료(블로그 등 계정 연결) vs 미완료(보류·문의만). contractsOnly 화면에선 미사용.
     const [clientTab, setClientTab] = useState<'done' | 'pending' | 'ended'>('pending');
     // 계약 관리 탭: 신규 등록건/계약중/계약 종료/임시. 기본=계약중, 신규(미승인) 있으면 신규로 시작(아래 effect).
-    const [contractTab, setContractTab] = useState<'new' | 'active' | 'ended' | 'temp'>('active');
+    const [contractTab, setContractTab] = useState<'new' | 'active' | 'ended'>('active');
     const didInitTab = useRef(false);
     // 계약 관리 월 필터 — 전체 + 6월~현재월 드롭다운, 기본 = 이번 달(고정). (앞으로 12월까지 자동 확장)
     const currentMonth = new Date().getMonth() + 1;
     const [monthFilter, setMonthFilter] = useState(currentMonth); // 0 = 전체
-    const monthOptions = [
-        0,
-        ...Array.from({ length: Math.max(1, Math.min(12, currentMonth) - 5) }, (_, i) => 6 + i),
-    ]; // [전체, 6 .. 현재월]
+    // 월 옵션 — 전체 + (기본 6..현재월) + 계약일자에 실제 존재하는 월(예: 4월 등 자동 포함).
+    const monthOptions = useMemo(() => {
+        const set = new Set<number>();
+        for (let m = 6; m <= currentMonth; m++) set.add(m);
+        for (const ct of clientContracts) {
+            const m = Number((ct.contract_date || '').slice(5, 7));
+            if (m >= 1 && m <= 12) set.add(m);
+        }
+        return [0, ...[...set].sort((a, b) => a - b)];
+    }, [clientContracts, currentMonth]);
     const [dateSort, setDateSort] = useState<null | 'asc' | 'desc'>(null); // 등록일 정렬(헤더 클릭)
     // 계약 진행 단계 변경 대상(5단계 선택 모달).
     const [stageClient, setStageClient] = useState<ErpClient | null>(null);
@@ -357,16 +362,14 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 (client.product || '').toLowerCase().includes(q);
             const matchesStatus = !statusFilter || client.status === statusFilter;
             const matchesFav = !favOnly || favs.includes(client.id);
-            // 계약 관리(contractsOnly) 탭별 필터: 신규(DONE+24h)/계약중(DONE−신규)/종료/임시.
+            // 계약 관리(contractsOnly) 탭별 필터: 신규(미승인)/계약중(승인)/종료.
             const matchesContract =
                 !contractsOnly ||
                 (contractTab === 'new'
                     ? client.status === DONE_STATUS && !client.contract_approved
                     : contractTab === 'active'
                       ? client.status === DONE_STATUS && client.contract_approved
-                      : contractTab === 'ended'
-                        ? client.status === ENDED_STATUS
-                        : client.status === TEMP_STATUS);
+                      : client.status === ENDED_STATUS);
             // 고객사 관리 전체 화면에서만 완료/미완료/종료 탭 적용(상태 기준).
             const matchesTab =
                 contractsOnly ||
@@ -397,10 +400,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const bn = newIds.has(b.id);
             if (an !== bn) return an ? -1 : 1;
             if (an && bn) return (newMap[b.id] || 0) - (newMap[a.id] || 0);
-            // 임시(테스트) 탭은 등록한 순서(먼저 등록 → 위)로.
-            if (contractsOnly && contractTab === 'temp') {
-                return (a.created_at || '').localeCompare(b.created_at || '');
-            }
             const af = favs.includes(a.id) ? 0 : 1;
             const bf = favs.includes(b.id) ? 0 : 1;
             return af - bf;
@@ -1009,8 +1008,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                 : []),
                             { key: 'active', label: '계약중' },
                             { key: 'ended', label: '계약 종료' },
-                            { key: 'temp', label: '임시(테스트)' },
-                        ] as { key: 'new' | 'active' | 'ended' | 'temp'; label: string }[]
+                        ] as { key: 'new' | 'active' | 'ended'; label: string }[]
                     ).map((t) => {
                         // 탭 카운트도 선택한 월 기준(전체=0이면 전부).
                         const count = clients.filter(
@@ -1020,9 +1018,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     ? c.status === DONE_STATUS && !c.contract_approved
                                     : t.key === 'active'
                                       ? c.status === DONE_STATUS && c.contract_approved
-                                      : t.key === 'ended'
-                                        ? c.status === ENDED_STATUS
-                                        : c.status === TEMP_STATUS),
+                                      : c.status === ENDED_STATUS),
                         ).length;
                         const active = contractTab === t.key;
                         // 신규 등록건 탭은 파란 강조(신규건 UI와 통일).
