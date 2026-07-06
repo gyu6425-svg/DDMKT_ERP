@@ -118,6 +118,14 @@ export const ROLE_PRESETS: RolePreset[] = [
 export const presetByKey = (key: string | null): RolePreset | null =>
     ROLE_PRESETS.find((p) => p.key === key) ?? null;
 
+// 특정 계정만 허용 — 이메일 기준(직함 개념). 관리자페이지=대표·테스트, 금액표시=대표·테스트·조재현.
+const emailIn = (email: string | null | undefined, list: string[]) =>
+    list.includes((email || '').toLowerCase());
+export const canSeeAdminPage = (email?: string | null) =>
+    emailIn(email, ['rlawhddls@ddmkt.com', 'gyu6425@gmail.com']); // 김종인(대표), 장규진(테스트)
+export const canSeeAmounts = (email?: string | null) =>
+    emailIn(email, ['rlawhddls@ddmkt.com', 'gyu6425@gmail.com', 'ddmkt1@ddmkt.com']); // + 조재현
+
 const SIM_KEY = 'erp_role_sim';
 export function readRoleSim(): string | null {
     try {

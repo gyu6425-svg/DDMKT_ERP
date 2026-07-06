@@ -1,9 +1,9 @@
-import AdminOnly from './AdminOnly';
 import { SIDEBAR_CATEGORIES } from './categoryRank/categories';
 import { useAuth } from '../hooks/useAuth';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { getClientContracts, type ClientContract } from '../api/clientContracts';
 import { CONTAINER_SUBS, PRODUCT_CATEGORIES } from '../lib/products';
+import { canSeeAdminPage } from '../lib/permissions';
 
 const navigationItems = [
     // 대시보드는 좌측 상단 'DDMKT ERP' 로고 클릭으로 이동(아래 참고).
@@ -45,7 +45,7 @@ function Sidebar() {
             next.has(key) ? next.delete(key) : next.add(key);
             return next;
         });
-    const { signOut, role, isAdmin, canManageSheet } = useAuth();
+    const { signOut, role, isAdmin, canManageSheet, profile } = useAuth();
     // 고객(viewer) — 자기 계약(RLS 스코프) 중 '시트 승인(sheet_approved)'된 것만 메뉴에 노출.
     const [custContracts, setCustContracts] = useState<ClientContract[]>([]);
     useEffect(() => {
@@ -318,7 +318,7 @@ function Sidebar() {
                         {isAdmin || role === 'manager'
                             ? navigationItems.slice(afterContracts).map(renderNavItem)
                             : null}
-                        <AdminOnly>
+                        {canSeeAdminPage(profile?.email) ? (
                             <a
                                 aria-current={currentPath === '/admin' ? 'page' : undefined}
                                 className={linkClassName('/admin')}
@@ -327,7 +327,7 @@ function Sidebar() {
                             >
                                 관리자 페이지
                             </a>
-                        </AdminOnly>
+                        ) : null}
                     </>
                 )}
             </nav>

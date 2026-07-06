@@ -19,7 +19,7 @@ import Button from '../components/Button';
 import { ContractImportModal } from './ContractImportModal';
 import { useErpData } from '../context/ErpDataContext';
 import { useAuth } from '../hooks/useAuth';
-import { DUTIES } from '../lib/permissions';
+import { DUTIES, canSeeAmounts } from '../lib/permissions';
 import {
     INDUSTRY_OPTIONS,
     SOURCE_OPTIONS,
@@ -54,8 +54,6 @@ function markNewContract(id: string) {
     localStorage.setItem(NEW_KEY, JSON.stringify(m));
 }
 const DONE_STATUS = '계약완료'; // 계약 완료 판정 기준(상태). 계약 관리 진입 + 완료/미완료 탭이 공유.
-// 계약 관리 상단 월 매출 요약 카드 표시 여부 — 임시 비활성화(사용자 요청). 나중에 true 로 되살림.
-const SHOW_REVENUE_SUMMARY = false;
 const ENDED_STATUS = '계약종료'; // 계약 종료(터미널). 종료 탭. 5단계(신규~보류)와 별개.
 const TEMP_STATUS = '임시'; // 시트 임포터 테스트 등록 — 계약 관리에서 '임시(테스트)' 탭으로 분리 표시.
 // 숫자 입력 포맷 — 저장은 숫자만, 표시는 천단위 콤마(2000 → 2,000).
@@ -146,7 +144,7 @@ function loadFavs(): string[] {
 //   두 화면은 동일 UI/상세를 공유하고, 목록 필터만 다르다.
 function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}) {
     const { clients, allClients, salespeople, loading, error, refresh } = useErpData();
-    const { can, canEdit } = useAuth(); // 권한: 계약완료 승인(duty) · 수정 가능(뷰어=false)
+    const { can, canEdit, profile } = useAuth(); // 권한: 계약완료 승인(duty) · 수정 가능 · 금액 열람(이메일 기준)
 
     // 카테고리 = 그 고객사에 연결된 카테고리 계정에서 도출(현재 블로그). client_id 로 묶음.
     const [blogAccounts, setBlogAccounts] = useState<BlogAccount[]>([]);
@@ -912,9 +910,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 </Button>
             </div>
 
-            {/* 월 매출 요약 카드 — 필터(전체/6월/7월)대로 합산. 검색줄 바로 밑.
-                SHOW_REVENUE_SUMMARY=false 로 임시 비활성화(사용자 요청). 나중에 true 로 되살림. */}
-            {contractsOnly && SHOW_REVENUE_SUMMARY ? (
+            {/* 월 매출 요약 카드 — 금액 열람 권한자(대표·테스트·조재현)만. */}
+            {contractsOnly && canSeeAmounts(profile?.email) ? (
                 <div className="rounded-[10px] border border-[#e2e8f0] bg-white p-3">
                     <div className="mb-2 flex items-baseline gap-2">
                         <span className="rounded-md bg-[#1e40af] px-2 py-0.5 text-xs font-bold text-white">
