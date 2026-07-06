@@ -2026,6 +2026,16 @@ export function ClientDetail({
         ...new Set(([client.manager, ...salespeople.map((s) => s.name)].filter(Boolean) as string[])),
     ];
 
+    // 상위노출 보장형 컨테이너: 회차·시작/종료일 인라인 저장.
+    const saveBoostMeta = async (ct: ClientContract, patch: Partial<ClientContract>) => {
+        const { error } = await updateClientContract(ct.id, patch);
+        if (error) {
+            onToast('저장 실패');
+            return;
+        }
+        await onReloadContracts();
+    };
+
     const renderFieldCard = (f: FieldDef) => (
         <button
             className="rounded-lg border border-[#e2e8f0] bg-white px-3 py-2.5 text-left shadow-sm hover:border-[#1e40af]"
@@ -2442,10 +2452,60 @@ export function ClientDetail({
                                                     </button>
                                                     <div className="text-xs font-bold text-[#7c3aed]">
                                                         {ct.subtype}
+                                                        {ct.subtype === '상위노출 보장형' ? (
+                                                            <span className="ml-1 rounded-full bg-[#ede9fe] px-1.5 py-0.5 text-[10px] text-[#6d28d9]">
+                                                                {ct.boost_round || 1}회차
+                                                            </span>
+                                                        ) : null}
                                                     </div>
-                                                    <div className="mt-1 text-[11px] text-[#94a3b8] blur-[1.5px]">
-                                                        {ct.goal_count ?? '—'}건 · {fmtWon(ct.amount || 0)}원
-                                                    </div>
+                                                    {ct.subtype === '상위노출 보장형' ? (
+                                                        <div
+                                                            className="mt-1.5 flex flex-col items-center gap-1"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <label className="flex items-center gap-1 text-[10px] text-[#94a3b8]">
+                                                                회차
+                                                                <input
+                                                                    className="w-11 rounded border border-[#ddd6fe] px-1 py-0.5 text-center text-[11px] text-[#0f172a]"
+                                                                    defaultValue={ct.boost_round || 1}
+                                                                    min={1}
+                                                                    onBlur={(e) => {
+                                                                        const v = Number(e.target.value) || 1;
+                                                                        if (v !== (ct.boost_round || 1))
+                                                                            void saveBoostMeta(ct, { boost_round: v });
+                                                                    }}
+                                                                    type="number"
+                                                                />
+                                                            </label>
+                                                            <div className="flex items-center gap-1 text-[10px] text-[#94a3b8]">
+                                                                <input
+                                                                    className="rounded border border-[#ddd6fe] px-1 py-0.5 text-[10px] text-[#0f172a]"
+                                                                    defaultValue={ct.contract_date || ''}
+                                                                    onChange={(e) =>
+                                                                        void saveBoostMeta(ct, {
+                                                                            contract_date: e.target.value || null,
+                                                                        })
+                                                                    }
+                                                                    type="date"
+                                                                />
+                                                                <span>~</span>
+                                                                <input
+                                                                    className="rounded border border-[#ddd6fe] px-1 py-0.5 text-[10px] text-[#0f172a]"
+                                                                    defaultValue={ct.boost_end || ''}
+                                                                    onChange={(e) =>
+                                                                        void saveBoostMeta(ct, {
+                                                                            boost_end: e.target.value || null,
+                                                                        })
+                                                                    }
+                                                                    type="date"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="mt-1 text-[11px] text-[#94a3b8] blur-[1.5px]">
+                                                            {ct.goal_count ?? '—'}건 · {fmtWon(ct.amount || 0)}원
+                                                        </div>
+                                                    )}
                                                     <div className="mt-2 rounded-full bg-[#7c3aed] px-3 py-1 text-xs font-bold text-white">
                                                         + 상품 선택
                                                     </div>

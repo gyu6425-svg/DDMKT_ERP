@@ -74,7 +74,12 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
         key: 'shopping',
         label: '쇼핑',
         dashHref: '/shopping-rank',
-        subs: [],
+        subs: [
+            { label: '슬롯', href: '/shopping-rank?sub=' + encodeURIComponent('슬롯') },
+            { label: '가구매', href: '/shopping-rank?sub=' + encodeURIComponent('가구매') },
+            { label: '실구매', href: '/shopping-rank?sub=' + encodeURIComponent('실구매') },
+            { label: '스토어 리뷰', href: '/shopping-rank?sub=' + encodeURIComponent('스토어 리뷰') },
+        ],
     },
     {
         key: 'powerlink',

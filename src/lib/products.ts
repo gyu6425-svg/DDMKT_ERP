@@ -12,7 +12,13 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
     },
     { key: 'insta', label: '인스타', path: '/insta-rank', ready: false, subs: ['브랜드 인스타', '인스타 배포'] },
     { key: 'cafe', label: '카페', path: '/cafe-rank', ready: false, subs: ['맘카페'] },
-    { key: 'shopping', label: '쇼핑', path: '/shopping-rank', ready: false, subs: ['쇼핑'] },
+    {
+        key: 'shopping',
+        label: '쇼핑',
+        path: '/shopping-rank',
+        ready: false,
+        subs: ['슬롯', '가구매', '실구매', '스토어 리뷰'],
+    },
     { key: 'powerlink', label: '파워링크', path: '/powerlink-rank', ready: false, subs: ['파워링크'] },
     {
         key: 'video',

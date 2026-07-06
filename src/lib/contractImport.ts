@@ -114,8 +114,11 @@ export function mapProduct(nameRaw: string, unit = 0): Mapped {
     if (has('인스타그램')) return { category: '인스타', subtype: '브랜드 인스타' };
     if (has('인스타') || has('릴스')) return { category: '인스타', subtype: '인스타 배포' };
     if (has('파워링크')) return { category: '파워링크', subtype: '파워링크' };
-    if (has('스마트스토어') || has('슬롯') || has('가구매') || has('실구매') || has('체험단'))
-        return { category: '쇼핑', subtype: '쇼핑' };
+    if (has('슬롯')) return { category: '쇼핑', subtype: '슬롯' };
+    if (has('가구매')) return { category: '쇼핑', subtype: '가구매' };
+    if (has('실구매')) return { category: '쇼핑', subtype: '실구매' };
+    if (has('스토어 리뷰') || has('스토어리뷰') || has('체험단') || has('스마트스토어'))
+        return { category: '쇼핑', subtype: '스토어 리뷰' };
     return { exclude: true };
 }
 
