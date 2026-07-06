@@ -39,6 +39,7 @@ export type ErpClient = {
     url: string | null;
     client_partner: string | null; // 거래처명(총판/리셀러 등, 업체명과 별개)
     outsource_paid_logs: OutsourcePaidLog[] | null; // 외주업체 지급 외주비 이력(받은 외주비와 별개)
+    contract_approved: boolean | null; // 계약 관리 승인 여부 — false=신규 등록건(승인 대기), true=계약 중
 };
 
 // ERP의 '영업자 명단'은 기존 인증/역할 테이블 sales_people을 재사용한다.

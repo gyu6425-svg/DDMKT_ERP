@@ -340,9 +340,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const matchesContract =
                 !contractsOnly ||
                 (contractTab === 'new'
-                    ? client.status === DONE_STATUS && newIds.has(client.id)
+                    ? client.status === DONE_STATUS && !client.contract_approved
                     : contractTab === 'active'
-                      ? client.status === DONE_STATUS && !newIds.has(client.id)
+                      ? client.status === DONE_STATUS && client.contract_approved
                       : contractTab === 'ended'
                         ? client.status === ENDED_STATUS
                         : client.status === TEMP_STATUS);
@@ -473,9 +473,23 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         setModalOpen(true);
     };
 
+    // 승인 — 신규 등록건을 최종 승인해 '계약 중'으로 이동(DB 반영, 집/회사 공유).
+    const approveContract = async (client: ErpClient) => {
+        const { error } = await updateClient(client.id, { contract_approved: true });
+        if (error) {
+            showToast('승인 실패: ' + error.message + ' (clients.contract_approved 컬럼 필요)');
+            return;
+        }
+        showToast('승인됨 → 계약 중');
+        await refresh();
+    };
+
     // 상태 변경(계약 진행 단계 선택 / 계약 종료 처리 공용).
     const changeStatus = async (client: ErpClient, status: string, toastMsg?: string) => {
-        const { error: statusError } = await updateClient(client.id, { status });
+        // 고객사 관리에서 '계약완료'로 넘어오면 승인 대기(신규 등록건). 승인 버튼을 눌러야 계약 중으로.
+        const patch: Partial<ErpClient> =
+            status === DONE_STATUS && !contractsOnly ? { status, contract_approved: false } : { status };
+        const { error: statusError } = await updateClient(client.id, patch);
         if (statusError) {
             showToast(`오류: ${statusError.message}`);
             return;
@@ -977,9 +991,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             (c) =>
                                 clientInMonth(c, monthFilter) &&
                                 (t.key === 'new'
-                                    ? c.status === DONE_STATUS && newIds.has(c.id)
+                                    ? c.status === DONE_STATUS && !c.contract_approved
                                     : t.key === 'active'
-                                      ? c.status === DONE_STATUS && !newIds.has(c.id)
+                                      ? c.status === DONE_STATUS && c.contract_approved
                                       : t.key === 'ended'
                                         ? c.status === ENDED_STATUS
                                         : c.status === TEMP_STATUS),
@@ -1058,7 +1072,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     : c.created_at
                                       ? c.created_at.slice(0, 10)
                                       : '--';
-                                const isNew = newIds.has(c.id); // 계약완료 후 24시간 신규건 하이라이트
+                                // 계약 관리 신규건 = 미승인(승인 전). 고객사 관리 화면에선 최근등록(newIds) 강조 유지.
+                                const isNew = contractsOnly ? !c.contract_approved : newIds.has(c.id);
                                 // 상품 상세 집계 — 카테고리 → 세부유형별 계약/진행/잔여(합산).
                                 const myCts = clientContracts.filter((ct) => ct.client_id === c.id);
                                 const byCat = new Map<
@@ -1353,6 +1368,15 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         </td>
                                         <td className="px-3 py-2">
                                             <div className="flex gap-1 whitespace-nowrap">
+                                                {contractsOnly && !c.contract_approved ? (
+                                                    <Button
+                                                        className="rounded bg-[#1e40af] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#1e3a8a]"
+                                                        onClick={() => void approveContract(c)}
+                                                        type="button"
+                                                    >
+                                                        승인
+                                                    </Button>
+                                                ) : null}
                                                 {!contractsOnly && clientTab === 'pending' ? (
                                                     <Button
                                                         className="rounded border border-[#1e40af] px-2 py-1 text-[11px] font-semibold text-[#1e40af] hover:bg-[#eff6ff]"
