@@ -1,5 +1,10 @@
 import { useState } from 'react';
 import { extractBlogId, insertBlogAccounts, updateBlogAccount, type BlogAccount } from '../../../api/blogRank';
+import { findCol, num, parseTsvGrid } from '../../../lib/contractImport';
+
+// 미리 채워둘 머리글(탭 구분) — 실제 시트 컬럼과 동일. 사용자는 이 아래에 데이터만 붙여넣음.
+const BLOG_HEADER =
+    '업체명\t연락처\t계약일자\t금액\t계약건수\t잔여건수\t주 발행건수\t아이디\t비밀번호\t발행 관리시트\t발행 URL\t기자단\t특이사항';
 
 export function ImportModal({
     existing,
@@ -12,25 +17,9 @@ export function ImportModal({
     onReload: () => Promise<void>;
     onToast: (message: string) => void;
 }) {
-    const [text, setText] = useState('');
+    const [text, setText] = useState(BLOG_HEADER + '\n'); // 머리글 미리채움 → 아래에 데이터만 붙여넣기
     const [saving, setSaving] = useState(false);
 
-    // 한 줄을 칸으로 분리. 탭이 있으면 탭, 없으면 슬래시(/). URL·날짜 속 내부 슬래시는 보호 후 분리(깨짐 방지).
-    const splitFields = (line: string): string[] => {
-        if (line.includes('\t')) {
-            return line.split('\t').map((c) => c.trim());
-        }
-        const prot: string[] = [];
-        const mark = (m: string) => {
-            prot.push(m);
-            return `\uF8FF${prot.length - 1}\uF8FF`;
-        };
-        let s = line.replace(/(?:https?:\/\/)?[\w.-]+\.[a-z]{2,}(?:\/[^\s]*)?/gi, mark); // URL/도메인 보호
-        s = s.replace(/\d{1,4}\/\d{1,2}\/\d{1,4}/g, mark); // 2026/06/23 형식 날짜 보호
-        return s
-            .split('/')
-            .map((c) => c.replace(/\uF8FF(\d+)\uF8FF/g, (_, i) => prot[Number(i)]).trim());
-    };
     const toNum = (v: string | undefined): number | null => {
         const m = (v || '').match(/\d+/);
         return m ? Number(m[0]) : null;
@@ -60,54 +49,70 @@ export function ImportModal({
         const existingNames = new Set(existing.map((a) => a.name));
         const payloads: Array<Partial<BlogAccount>> = [];
         let skippedDup = 0; // 이미 등록됨(중복)
-        let skippedNoUrl = 0; // 발행 URL 없음
+        let skippedNoUrl = 0; // 발행 URL·업체명 없음
 
-        raw.split('\n').forEach((line) => {
-            const trimmed = line.trim();
-            if (!trimmed) {
-                return;
-            }
-            // 붙여넣기 고정 순서(탭 또는 / 구분):
-            // 업체명 / 계약일자 / 계약건수 / 잔여건수 / 총 발행건수 / 발행 URL / 기자단
-            let f = splitFields(trimmed);
-            // 맨 앞 행번호(첫 칸이 숫자만) 제거 — 업체명은 숫자만일 수 없음.
-            if (f.length > 1 && /^\d+$/.test(f[0])) {
-                f = f.slice(1);
-            }
-            const blogUrl =
-                f[5] && f[5].includes('blog.naver.com')
-                    ? f[5]
-                    : f.find((c) => c && c.includes('blog.naver.com'));
+        // 머리글 기반 파싱(따옴표 여러 줄 셀=특이사항 지원). 첫 행=머리글, 컬럼은 이름으로 매칭(순서 무관).
+        const grid = parseTsvGrid(raw);
+        if (grid.length < 2) {
+            onToast('머리글 아래에 데이터를 붙여넣어 주세요.');
+            return;
+        }
+        const H = grid[0].map((s) => s.trim());
+        const iName = findCol(H, ['업체명', '업체']);
+        const iContact = findCol(H, ['연락처']);
+        const iDate = findCol(H, ['계약일자', '계약일']);
+        const iAmount = findCol(H, ['금액']);
+        const iGoal = findCol(H, ['계약건수']);
+        const iRemain = findCol(H, ['잔여']);
+        const iWeekly = findCol(H, ['주발행', '발행건수']);
+        const iLoginId = findCol(H, ['아이디']);
+        const iLoginPw = findCol(H, ['비밀번호', '비번']);
+        const iSheet = findCol(H, ['관리시트', '발행관리']);
+        const iUrl = findCol(H, ['발행URL', 'URL', '블로그']);
+        const iReporter = findCol(H, ['기자단']);
+        const iNote = findCol(H, ['특이사항', '비고']);
+
+        for (const c of grid.slice(1)) {
+            const g = (idx: number) => (idx >= 0 ? (c[idx] || '').trim() : '');
+            const name = g(iName);
+            const urlCell = g(iUrl);
+            const blogUrl = urlCell.includes('blog.naver.com')
+                ? urlCell
+                : c.find((x) => x && x.includes('blog.naver.com')) || '';
             if (!blogUrl) {
-                skippedNoUrl += 1;
-                return;
+                // 발행 URL 없으면 등록 불가(크롤 대상 아님). 완전 빈 줄은 조용히 건너뜀.
+                if (name || c.some((x) => (x || '').trim())) skippedNoUrl += 1;
+                continue;
             }
-            const name =
-                f[0] && !f[0].includes('http') && !f[0].includes('blog.naver.com')
-                    ? f[0]
-                    : extractBlogId(blogUrl) || '블로그';
+            const finalName = name || extractBlogId(blogUrl) || '블로그';
             if (
-                existingUrls.has(blogUrl) ||
-                existingNames.has(name) ||
-                payloads.some((p) => p.blog_url === blogUrl)
+                (blogUrl && existingUrls.has(blogUrl)) ||
+                existingNames.has(finalName) ||
+                payloads.some((p) => (blogUrl && p.blog_url === blogUrl) || p.name === finalName)
             ) {
                 skippedDup += 1;
-                return;
+                continue;
             }
+            const amt = g(iAmount) ? num(g(iAmount)) : null;
             payloads.push({
-                blog_id: extractBlogId(blogUrl),
+                name: finalName,
+                contact: g(iContact) || null,
+                contract_date: parseContractDate(g(iDate)),
+                amounts: amt ? [{ amount: amt }] : null, // 금액 → 누적 계약금액 내역 1건
+                goal_count: toNum(g(iGoal)),
+                remain_count: toNum(g(iRemain)),
+                weekly: g(iWeekly) || null,
+                login_id: g(iLoginId) || null,
+                login_pw: g(iLoginPw) || null,
+                manage_sheet_url: g(iSheet) || null,
                 blog_url: blogUrl,
-                name,
-                manager: null, // 담당자는 비워두고 등록 후 프롬프트에서 입력
-                contract_date: parseContractDate(f[1]),
-                goal_count: toNum(f[2]),
-                remain_count: toNum(f[3]),
-                weekly: f[4] || null, // 총 발행건수
-                reporter: f[6] || null,
-                // 금액·아이디·비밀번호·발행관리시트·특이사항·연락처는 등록 후 편집에서 따로 입력
+                blog_id: extractBlogId(blogUrl),
+                reporter: g(iReporter) || null,
+                note: g(iNote) || null,
+                manager: null, // 담당자는 등록 후 프롬프트
                 is_active: true,
             });
-        });
+        }
 
         if (!payloads.length) {
             const reasons = [
@@ -221,23 +226,16 @@ export function ImportModal({
                     <>
                         <h3 className="m-0 text-lg font-bold">시트 붙여넣기 등록</h3>
                         <p className="mt-1 mb-3 text-sm text-[#64748b]">
-                            한 줄에 블로그 하나. <b>엑셀에서 행을 복사해 붙여넣으면</b> 됩니다(탭 구분). 칸 순서는 아래
-                            고정 순서입니다(빈 칸은 비워두면 됨):
+                            <b>맨 윗줄(머리글)은 그대로 두고</b>, 그 아래에 엑셀 행을 복사해 붙여넣으세요(탭 구분).
+                            컬럼은 <b>머리글 이름으로 자동 인식</b>(순서 무관). <b>특이사항이 여러 줄</b>이어도 그대로 붙여넣으면 됩니다.
                             <br />
-                            <span className="mt-1 inline-block rounded bg-[#f1f5f9] px-1.5 py-1 text-xs">
-                                업체명 / 계약일자 / 계약건수 / 잔여건수 / 총 발행건수 / 발행 URL / 기자단
-                            </span>
-                            <br />
-                            <b>계약일자</b>는 <b>“7월 15일”</b>처럼 월·일만 적으면 연도 자동(현재 월보다 크면 작년,
-                            작거나 같으면 올해). <b>담당자</b>는 등록 후 바로 입력하는 창이 뜹니다. (금액·아이디·비밀번호·발행관리시트·특이사항은
-                            등록 후 편집에서 입력 · 직접 칠 땐 / 구분도 가능 · 블로그 URL만 붙여도 등록)
+                            <b>계약일자</b>는 <b>“4월 28일”</b>처럼 월·일만 적으면 연도 자동. <b>담당자</b>는 등록 후 입력 창이 뜹니다.
+                            (발행 URL이 있어야 등록됨)
                         </p>
                         <textarea
-                            className="min-h-[160px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-xs"
+                            className="min-h-[200px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-xs"
                             onChange={(e) => setText(e.target.value)}
-                            placeholder={
-                                '참조와이엘\t7월 15일\t30건\t25건\t주5회\thttps://blog.naver.com/puleenbe\t장지영\nhttps://blog.naver.com/bau_j2'
-                            }
+                            spellCheck={false}
                             value={text}
                         />
                         <div className="mt-4 flex justify-end gap-2">

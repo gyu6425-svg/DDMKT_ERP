@@ -16,6 +16,42 @@ export const parseDate = (s: string) => {
     return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : null;
 };
 
+// 따옴표 인식 TSV 파서 — 엑셀에서 여러 줄 셀(예: 특이사항)을 복사하면 "..."로 감싸지고 셀 안에 줄바꿈이
+//   들어오는데, 그걸 한 셀로 올바르게 묶는다. 반환: 행 배열 × 셀 배열.
+export function parseTsvGrid(text: string): string[][] {
+    const t = (text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let field = '';
+    let inQ = false;
+    for (let i = 0; i < t.length; i++) {
+        const ch = t[i];
+        if (inQ) {
+            if (ch === '"') {
+                if (t[i + 1] === '"') {
+                    field += '"';
+                    i++;
+                } else inQ = false;
+            } else field += ch;
+        } else if (ch === '"') {
+            inQ = true;
+        } else if (ch === '\t') {
+            row.push(field);
+            field = '';
+        } else if (ch === '\n') {
+            row.push(field);
+            rows.push(row);
+            row = [];
+            field = '';
+        } else field += ch;
+    }
+    if (field !== '' || row.length) {
+        row.push(field);
+        rows.push(row);
+    }
+    return rows;
+}
+
 // 미리 채워둘 머리글(탭 구분) — 실제 시트 컬럼과 동일. 사용자는 아래에 데이터만 붙여넣음.
 // 실제 판매 시트 열 순서와 동일해야 함(데이터만 붙여넣으므로 이 순서가 파싱 기준).
 //   실제 시트는 합계 다음 '외주비'(큰 값) → '순매출'(작은 값) 순서. 외주단가=외주비÷수량.
