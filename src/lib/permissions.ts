@@ -125,6 +125,9 @@ export const canSeeAdminPage = (email?: string | null) =>
     emailIn(email, ['rlawhddls@ddmkt.com', 'gyu6425@gmail.com']); // 김종인(대표), 장규진(테스트)
 export const canSeeAmounts = (email?: string | null) =>
     emailIn(email, ['rlawhddls@ddmkt.com', 'gyu6425@gmail.com', 'ddmkt1@ddmkt.com']); // + 조재현
+// 권한(계정 역할·담당) 변경 — 김종인(대표)만.
+export const canManagePermissions = (email?: string | null) =>
+    emailIn(email, ['rlawhddls@ddmkt.com']);
 
 const SIM_KEY = 'erp_role_sim';
 export function readRoleSim(): string | null {
