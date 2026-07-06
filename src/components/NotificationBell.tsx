@@ -75,7 +75,7 @@ export default function NotificationBell() {
   }
   const sheetHref = (cat: string) => {
     const scat = SIDEBAR_CATEGORIES.find((c) => c.label === cat)
-    return (scat?.dashHref ?? '/dashboard') + '?tab=sheet'
+    return (scat?.dashHref ?? '/dashboard') + '?tab=sheet&pending=1'
   }
   // 현재 보이는 알림을 모두 읽음 처리(지움).
   const markAllRead = () => {

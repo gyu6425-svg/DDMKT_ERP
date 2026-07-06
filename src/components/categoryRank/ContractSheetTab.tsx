@@ -94,11 +94,18 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
     // 계약 카드 '관리 시트 →'가 붙인 q=업체명을 초기값으로 → 도착 즉시 해당 업체 자동 필터.
     const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '');
     const [mgr, setMgr] = useState('');
-    const [tab, setTab] = useState<'active' | 'new' | 'ended'>('active'); // 계약 중 / 신규 등록 건(24h) / 계약 종료
+    // 계약 중 / 신규 등록 건(24h) / 계약 종료. 알림에서 pending=1로 오면 신규 등록 건 탭으로 시작.
+    const [tab, setTab] = useState<'active' | 'new' | 'ended'>(() =>
+        new URLSearchParams(window.location.search).get('pending') === '1' ? 'new' : 'active',
+    );
 
     // 시트 간 이동(app:navigate/popstate) 시 URL의 q를 다시 읽어 동기화(같은 컴포넌트 재사용이라 초기값만으론 부족).
     useEffect(() => {
-        const syncQ = () => setQ(new URLSearchParams(window.location.search).get('q') ?? '');
+        const syncQ = () => {
+            setQ(new URLSearchParams(window.location.search).get('q') ?? '');
+            // 승인 대기 알림으로 재진입 시 신규 등록 건 탭으로 전환.
+            if (new URLSearchParams(window.location.search).get('pending') === '1') setTab('new');
+        };
         window.addEventListener('popstate', syncQ);
         window.addEventListener('app:navigate', syncQ);
         return () => {
