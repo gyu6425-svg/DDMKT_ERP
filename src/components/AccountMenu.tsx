@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AUTH_DISABLED } from '../lib/authConfig'
 import { updatePassword } from '../api/auth'
 import { useAuth } from '../hooks/useAuth'
@@ -19,6 +19,17 @@ export default function AccountMenu() {
   const [pw2, setPw2] = useState('')
   const [msg, setMsg] = useState('')
   const [saving, setSaving] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // 바깥(빈 칸) 클릭 시 드롭다운 닫기.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
 
   // 로그인이 꺼진 개발 상태에선 계정 메뉴 숨김(익명).
   if (AUTH_DISABLED) return null
@@ -37,7 +48,7 @@ export default function AccountMenu() {
   }
 
   return (
-    <div className="relative">
+    <div className="relative" ref={menuRef}>
       <button
         className="flex items-center gap-2 rounded-lg border border-[#e2e8f0] bg-white px-3 py-1.5 text-sm font-semibold text-[#334155] hover:bg-[#f8fafc]"
         onClick={() => setOpen((o) => !o)}
