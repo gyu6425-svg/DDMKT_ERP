@@ -2277,17 +2277,14 @@ export function ClientDetail({
                                         return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
                                     },
                                 );
-                                return subs.map((st) => (
-                                    <div
-                                        className="mb-3 grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
-                                        key={st}
-                                    >
-                                        {catCts
-                                            .filter((ct) => groupKey(ct.subtype) === st)
-                                            .sort((a, b) =>
-                                                (a.contract_date || '').localeCompare(b.contract_date || ''),
-                                            )
-                                            .map((ct) => {
+                                return subs.map((st) => {
+                                    const isContainerGroup = CONTAINER_SUBS.includes(st);
+                                    const cards = catCts
+                                        .filter((ct) => groupKey(ct.subtype) === st)
+                                        .sort((a, b) =>
+                                            (a.contract_date || '').localeCompare(b.contract_date || ''),
+                                        )
+                                        .map((ct) => {
                                         const prog = progOf(ct);
                                         const done = (ct.goal_count || 0) - (ct.remain_count || 0);
                                         // 컨테이너 부모/자식 판별(상위노출 보장형·종합광고 공통).
@@ -2296,10 +2293,13 @@ export function ClientDetail({
                                         );
                                         const isBoostParent = CONTAINER_SUBS.includes(ct.subtype);
                                         const isBoostChild = !!containerPrefix;
-                                        const innerLabel = isBoostChild
-                                            ? ct.subtype
-                                                  .slice((containerPrefix as string).length + 3)
-                                                  .replace(/^플레이스용?\s*/, '')
+                                        const rawInner = isBoostChild
+                                            ? ct.subtype.slice((containerPrefix as string).length + 3)
+                                            : '';
+                                        const innerLabel = rawInner.replace(/^플레이스용?\s*/, '');
+                                        // 컨테이너(보장형/종합광고) 하위 상품의 실제 카테고리 — subtype으로 역추적.
+                                        const childCat = isBoostChild
+                                            ? PRODUCT_CATEGORIES.find((pc) => pc.subs.includes(rawInner))?.label ?? ''
                                             : '';
                                         // 컨테이너 부모 = 흐린 카드 + 상품 선택(2차 등록) 입구.
                                         if (isBoostParent) {
@@ -2350,7 +2350,7 @@ export function ClientDetail({
                                             >
                                                 <div className="flex items-start justify-between gap-1.5">
                                                     <div className="truncate text-xs font-bold text-[#334155]">
-                                                        {isBoostChild ? containerPrefix : ct.subtype}
+                                                        {isBoostChild ? childCat || '기타' : ct.subtype}
                                                         {isBoostChild ? (
                                                             <span className="ml-1 rounded-full bg-[#ede9fe] px-1.5 py-0.5 text-[11px] font-extrabold text-[#7c3aed]">
                                                                 {innerLabel}
@@ -2427,9 +2427,27 @@ export function ClientDetail({
                                                 ) : null}
                                             </div>
                                         );
-                                            })}
-                                    </div>
-                                ));
+                                        });
+                                    // 컨테이너(상위노출 보장형·종합광고) 그룹은 보라색 박스로 감싸 하위 상품을 안에 표시.
+                                    return isContainerGroup ? (
+                                        <div
+                                            className="mb-3 rounded-xl border-2 border-[#c7b8f0] bg-[#faf8ff] p-3"
+                                            key={st}
+                                        >
+                                            <div className="mb-2 text-sm font-bold text-[#7c3aed]">{st}</div>
+                                            <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                                                {cards}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div
+                                            className="mb-3 grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
+                                            key={st}
+                                        >
+                                            {cards}
+                                        </div>
+                                    );
+                                });
                             })()}
                         </div>
                     );
