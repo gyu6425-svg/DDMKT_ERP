@@ -28,9 +28,8 @@ export default function ForcePasswordChangeGate() {
       return setMsg('변경 실패: ' + error.message)
     }
     // 변경 완료 플래그 저장 → 다음부터 이 창 안 뜸.
-    if (profile?.id) {
-      await supabase.from('profiles').update({ must_change_password: false }).eq('id', profile.id)
-    }
+    //   profiles 직접 update는 권한상승 위험이라, 보안 정의 RPC로만 must_change_password 해제.
+    await supabase.rpc('mark_password_changed')
     setSaving(false)
     setDone(true)
   }
