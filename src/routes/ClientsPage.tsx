@@ -1225,7 +1225,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                                 {prog != null ? `${prog}%` : '-'}
                                                                             </span>
                                                                             <span className="whitespace-nowrap text-[#64748b]">
-                                                                                {done}/{v.goal || 0}·잔여{v.remain}
+                                                                                {done}/{v.goal || 0}·
+                                                                                <span className="font-bold text-[#dc2626]">
+                                                                                    잔여{v.remain}
+                                                                                </span>
                                                                             </span>
                                                                         </div>
                                                                     );
@@ -1297,7 +1300,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                                     {prog != null ? `${prog}%` : '-'}
                                                                                 </span>
                                                                                 <span className="whitespace-nowrap text-[#64748b]">
-                                                                                    {done}/{v.goal || 0}·잔여{v.remain}
+                                                                                    {done}/{v.goal || 0}·
+                                                                                <span className="font-bold text-[#dc2626]">
+                                                                                    잔여{v.remain}
+                                                                                </span>
                                                                                 </span>
                                                                             </div>
                                                                         );
