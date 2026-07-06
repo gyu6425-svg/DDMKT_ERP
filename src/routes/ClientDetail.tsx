@@ -2404,10 +2404,69 @@ export function ClientDetail({
                                         return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
                                     },
                                 );
-                                return subs.map((st) => {
-                                    const isContainerGroup = CONTAINER_SUBS.includes(st);
-                                    const cards = catCts
-                                        .filter((ct) => groupKey(ct.subtype) === st)
+                                // 박스 구성: 일반 유형=유형별 1박스. 컨테이너(상위노출 보장형·종합광고)는 부모마다
+                                //   별도 박스로 분리 → 하나 더 추가하면 아래로 쌓임. 자식(· X)은 접두사가 같아
+                                //   부모 구분이 안 되므로 등록 시점(자식 created_at 이하의 가장 최근 부모)으로 귀속.
+                                type BoxGroup = {
+                                    key: string;
+                                    title: string;
+                                    isContainer: boolean;
+                                    parent: ClientContract | null;
+                                    members: ClientContract[];
+                                };
+                                const groups: BoxGroup[] = [];
+                                for (const st of subs) {
+                                    if (!CONTAINER_SUBS.includes(st)) {
+                                        groups.push({
+                                            isContainer: false,
+                                            key: st,
+                                            members: catCts.filter((ct) => groupKey(ct.subtype) === st),
+                                            parent: null,
+                                            title: st,
+                                        });
+                                        continue;
+                                    }
+                                    const parents = catCts
+                                        .filter((ct) => ct.subtype === st)
+                                        .sort((a, b) =>
+                                            (a.created_at || '').localeCompare(b.created_at || ''),
+                                        );
+                                    const children = catCts.filter((ct) =>
+                                        ct.subtype.startsWith(st + ' · '),
+                                    );
+                                    if (!parents.length) {
+                                        groups.push({
+                                            isContainer: true,
+                                            key: st,
+                                            members: children,
+                                            parent: null,
+                                            title: st,
+                                        });
+                                        continue;
+                                    }
+                                    const ownerId = (child: ClientContract) => {
+                                        let pick = parents[0];
+                                        for (const p of parents) {
+                                            if ((p.created_at || '') <= (child.created_at || '')) pick = p;
+                                        }
+                                        return pick.id;
+                                    };
+                                    parents.forEach((p) => {
+                                        const mine = children.filter((ch) => ownerId(ch) === p.id);
+                                        groups.push({
+                                            isContainer: true,
+                                            key: st + '#' + p.id,
+                                            members: [p, ...mine],
+                                            parent: p,
+                                            title: st,
+                                        });
+                                    });
+                                }
+                                return groups.map((g) => {
+                                    const st = g.title;
+                                    const isContainerGroup = g.isContainer;
+                                    const cards = g.members
+                                        .slice()
                                         .sort((a, b) =>
                                             (a.contract_date || '').localeCompare(b.contract_date || ''),
                                         )
@@ -2601,15 +2660,13 @@ export function ClientDetail({
                                         );
                                         });
                                     // 컨테이너(상위노출 보장형·종합광고) 그룹은 보라색 박스로 감싸 하위 상품을 안에 표시.
-                                    // 상위노출 보장형 헤더 우측에 회차+시작~종료일 표시(부모 계약 값).
+                                    // 상위노출 보장형 헤더 우측에 회차+시작~종료일 표시(이 박스의 부모 계약 값).
                                     const boostParent =
-                                        st === '상위노출 보장형'
-                                            ? catCts.find((ct) => ct.subtype === st)
-                                            : null;
+                                        st === '상위노출 보장형' ? g.parent : null;
                                     return isContainerGroup ? (
                                         <div
                                             className="mb-3 rounded-xl border-2 border-[#c7b8f0] bg-[#faf8ff] p-3"
-                                            key={st}
+                                            key={g.key}
                                         >
                                             <div className="mb-2 flex items-center gap-2 text-sm font-bold text-[#7c3aed]">
                                                 <span>{st}</span>
@@ -2629,7 +2686,7 @@ export function ClientDetail({
                                     ) : (
                                         <div
                                             className="mb-3 grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
-                                            key={st}
+                                            key={g.key}
                                         >
                                             {cards}
                                         </div>
