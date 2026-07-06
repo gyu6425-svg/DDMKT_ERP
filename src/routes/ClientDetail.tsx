@@ -827,8 +827,10 @@ function ContractEditModal({
         setWeekPaid(false);
         setSaving(true);
         // 1) 잔여 + 외주단가/외주업체/총외주비 저장(핵심값) — 실패 시 롤백.
+        //    외주비 총액: 단가가 있으면 단가×총건수, 없으면(직접입력 건) 기존 외주비 유지(0으로 덮어쓰지 않음).
+        const newOutsource = unit ? unit * goalN : contract.outsource ?? null;
         const { error } = await updateClientContract(contract.id, {
-            outsource: (unit ?? 0) * goalN,
+            outsource: newOutsource,
             outsource_company: vendor,
             remain_count: next,
             unit_outsource: unit,
@@ -1432,9 +1434,9 @@ function ContractEditModal({
                                                         {l.vendor}
                                                     </span>
                                                 ) : null}
-                                                {(l.outUnit ?? contract.unit_outsource ?? 0) > 0 ? (
+                                                {(l.outUnit || contract.unit_outsource || 0) > 0 ? (
                                                     <span className="text-[11px] font-semibold text-[#dc2626]">
-                                                        {fmtWon(l.count * (l.outUnit ?? contract.unit_outsource ?? 0))}원
+                                                        {fmtWon(l.count * (l.outUnit || contract.unit_outsource || 0))}원
                                                     </span>
                                                 ) : null}
                                                 <button
@@ -1917,18 +1919,30 @@ export function ClientDetail({
         .map((ct) => {
             const o = outsourceOf(ct);
             const logs = ct.weekly_logs ?? [];
-            // 실제 사용 = 진행 이력(완료 로그) 합 = Σ 건수 × 외주단가(로그값 우선). 로그 없으면 소진액.
+            const goal = ct.goal_count ?? 0;
+            const done = Math.max(0, goal - (ct.remain_count ?? goal));
+            // 단가(외주단가)가 있는가 — 로그값 0은 '미설정'으로 보고 계약 단가로 폴백(|| 사용).
+            const hasUnit = (ct.unit_outsource || 0) > 0 || logs.some((l) => (l.outUnit || 0) > 0);
+            // 실제 사용 = Σ 건수 × 외주단가(로그값 우선, 0이면 계약 단가). 0 취급 위해 ?? 대신 ||.
             const usedFromLogs = logs.reduce(
-                (s, l) => s + (l.count || 0) * (l.outUnit ?? ct.unit_outsource ?? 0),
+                (s, l) => s + (l.count || 0) * (l.outUnit || ct.unit_outsource || 0),
                 0,
             );
+            // 단가가 없는(직접입력 외주비) 건은 진행 비율(완료/계약)로 총 외주비를 소진 처리.
+            const used = hasUnit
+                ? usedFromLogs
+                : goal > 0
+                  ? Math.round(o.total * (done / goal))
+                  : done > 0
+                    ? o.total
+                    : 0;
             return {
                 ct,
                 id: ct.id,
                 subtype: ct.subtype,
                 date: ct.contract_date,
                 received: o.total,
-                used: logs.length ? usedFromLogs : o.used,
+                used,
                 logs, // 사용(완료) 이력 — 개별 삭제 대상
             };
         });
@@ -2197,11 +2211,11 @@ export function ClientDetail({
                                                     {l.at ? ` · ${l.at}` : ''} · {l.count.toLocaleString('ko-KR')}
                                                     {isDailySub(r.subtype) || r.subtype.includes('리워드') ? '타' : '건'}
                                                     {' × '}
-                                                    {fmtWon(l.outUnit ?? r.ct.unit_outsource ?? 0)}원
+                                                    {fmtWon(l.outUnit || r.ct.unit_outsource || 0)}원
                                                 </span>
                                                 <span className="flex shrink-0 items-center gap-1.5">
                                                     <b className="text-[#dc2626]">
-                                                        {fmtWon((l.count || 0) * (l.outUnit ?? r.ct.unit_outsource ?? 0))}원
+                                                        {fmtWon((l.count || 0) * (l.outUnit || r.ct.unit_outsource || 0))}원
                                                     </b>
                                                     <button
                                                         className="text-[#cbd5e1] hover:text-[#dc2626]"
