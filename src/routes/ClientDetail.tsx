@@ -1950,42 +1950,7 @@ export function ClientDetail({
     const usedTotal = outsourceRows.reduce((s, r) => s + r.used, 0); // 실제 사용 = 진행 이력 합
     const outMargin = receivedTotal - usedTotal; // 차액 = 받은 − 사용
 
-    // 외주비 정산에서 사용 이력 삭제 — 해당 계약의 진행 로그 제거 + 잔여 복원(진행 이력과 동일 처리).
-    const deleteUsageLog = async (ct: ClientContract, i: number) => {
-        const logs = ct.weekly_logs ?? [];
-        const removed = logs[i];
-        if (!removed) return;
-        const goalC = ct.goal_count ?? 0;
-        const remainC = ct.remain_count ?? 0;
-        const next = Math.min(goalC, remainC + (removed.count || 0));
-        const newLogs = logs.filter((_, j) => j !== i);
-        const { error } = await updateClientContract(ct.id, { remain_count: next, weekly_logs: newLogs });
-        if (error) {
-            onToast(`오류: ${error.message}`);
-            return;
-        }
-        if (isBrandBlogSub(ct.subtype.replace(/^상위노출 보장형 · /, ''))) {
-            await syncBlogAccountFromContract(ct.client_id, { remain_count: next }, ct.blog_name);
-        }
-        await onReloadContracts();
-        onToast('사용 이력 삭제됨');
-    };
-
-    // 외주비 정산에서 항목(행) 삭제 — 계약·진행은 유지, 외주비(받은/외주단가/업체)만 제거.
-    const clearOutsourceEntry = async (ct: ClientContract) => {
-        if (!window.confirm(`'${ct.subtype}' 외주비 항목을 삭제할까요? (계약·진행은 유지, 외주비만 제거)`)) return;
-        const { error } = await updateClientContract(ct.id, {
-            outsource: 0,
-            unit_outsource: null,
-            outsource_company: null,
-        });
-        if (error) {
-            onToast(`오류: ${error.message}`);
-            return;
-        }
-        await onReloadContracts();
-        onToast('외주비 항목 삭제됨');
-    };
+    // (외주비 정산 내역의 삭제 버튼은 제거 — 외주비/사용이력 삭제는 계약(카드/진행 이력)에서만)
     // 계약 내역 일괄삭제(임시 버튼) — 이 업체의 모든 계약행 제거. 되돌릴 수 없음.
     const deleteAllContracts = async () => {
         if (!contracts.length || bulkDeleting) return;
@@ -2154,15 +2119,14 @@ export function ClientDetail({
                 {/* 품목별 한 줄 — 받은/사용을 같은 줄에 나란히(품목이 섞이지 않게). 사용액은 진행 처리 완료 시 자동 누적. */}
                 {outsourceRows.length ? (
                     <div className="overflow-hidden rounded-lg border border-[#e2e8f0]">
-                        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 bg-[#f8fafc] px-3 py-1.5 text-[11px] font-semibold text-[#94a3b8]">
+                        <div className="grid grid-cols-[1fr_auto_auto] gap-2 bg-[#f8fafc] px-3 py-1.5 text-[11px] font-semibold text-[#94a3b8]">
                             <span>품목</span>
                             <span className="w-24 text-right text-[#059669]">받은 외주비</span>
                             <span className="w-24 text-right text-[#dc2626]">실제 사용</span>
-                            <span className="w-4" />
                         </div>
                         {outsourceRows.map((r) => (
                             <div className="border-t border-[#f1f5f9]" key={r.id}>
-                                <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[#f8fafc]">
+                                <div className="grid grid-cols-[1fr_auto_auto] items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[#f8fafc]">
                                     <button
                                         className="flex min-w-0 items-center text-left disabled:cursor-default"
                                         disabled={!r.logs.length}
@@ -2187,14 +2151,6 @@ export function ClientDetail({
                                     </button>
                                     <b className="w-24 text-right text-[#059669]">{fmtWon(r.received)}원</b>
                                     <b className="w-24 text-right text-[#dc2626]">{fmtWon(r.used)}원</b>
-                                    <button
-                                        className="w-4 text-[#cbd5e1] hover:text-[#dc2626]"
-                                        onClick={() => void clearOutsourceEntry(r.ct)}
-                                        title="이 외주비 항목 삭제(계약은 유지)"
-                                        type="button"
-                                    >
-                                        ✕
-                                    </button>
                                 </div>
                                 {/* 사용 이력 펼침 — 각 완료 기록 삭제(잔여 복원, 진행 이력과 동기화) */}
                                 {expandedOut === r.id && r.logs.length ? (
@@ -2213,19 +2169,9 @@ export function ClientDetail({
                                                     {' × '}
                                                     {fmtWon(l.outUnit || r.ct.unit_outsource || 0)}원
                                                 </span>
-                                                <span className="flex shrink-0 items-center gap-1.5">
-                                                    <b className="text-[#dc2626]">
-                                                        {fmtWon((l.count || 0) * (l.outUnit || r.ct.unit_outsource || 0))}원
-                                                    </b>
-                                                    <button
-                                                        className="text-[#cbd5e1] hover:text-[#dc2626]"
-                                                        onClick={() => void deleteUsageLog(r.ct, i)}
-                                                        title="이 사용 기록 삭제(잔여 복원)"
-                                                        type="button"
-                                                    >
-                                                        ✕
-                                                    </button>
-                                                </span>
+                                                <b className="shrink-0 text-[#dc2626]">
+                                                    {fmtWon((l.count || 0) * (l.outUnit || r.ct.unit_outsource || 0))}원
+                                                </b>
                                             </div>
                                         ))}
                                     </div>
