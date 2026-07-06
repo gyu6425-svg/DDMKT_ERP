@@ -45,6 +45,7 @@ export type ClientContract = {
     weekly_logs?: RewardWeeklyLog[] | null; // 리워드: 주차별 진행 로그
     outsource_company?: string | null; // 외주업체명(슈퍼뭉치 등) — 전 상품 공통
     blog_name?: string | null; // 브랜드 블로그 전용 — 블로그 관리시트 업체명(한 고객사 다중 블로그 A/B/C 구분)
+    sheet_approved?: boolean | null; // 카테고리 관리 시트 승인 여부 — false=신규 등록 건, true=계약 중(승인 버튼)
 };
 
 // clientId 주면 그 고객만. 테이블 미생성 등 오류 시에도 앱이 죽지 않도록 [] 반환.

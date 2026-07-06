@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getClients, type ErpClient } from '../../api/erp';
-import { getClientContracts, type ClientContract } from '../../api/clientContracts';
-import { NEW_CONTRACT_CUTOFF_MS, NEW_CONTRACT_TTL_MS, withVat } from '../../lib/erpUtils';
+import { getClientContracts, updateClientContract, type ClientContract } from '../../api/clientContracts';
 import { SIDEBAR_CATEGORIES } from './categories';
 import { CONTAINER_SUBS } from '../../lib/products';
 
@@ -134,13 +133,20 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
         [allRows],
     );
 
-    // 신규 등록 건 = 컷오프(지금부터) 이후 생성 + 24시간 이내. 기존/오늘 임포트 건은 제외. 종료=고객사 계약종료.
-    const isNewCt = (created?: string) => {
-        const t = created ? Date.parse(created) : NaN;
-        return !Number.isNaN(t) && t > NEW_CONTRACT_CUTOFF_MS && Date.now() - t < NEW_CONTRACT_TTL_MS;
-    };
+    // 신규 등록 건 = 아직 '승인' 안 된 계약(sheet_approved=false). 승인 버튼을 눌러야 '계약 중'으로 이동.
+    //   기존 계약은 마이그레이션(sheet_approved=true)으로 계약 중 유지. 종료=고객사 계약종료.
     const tabOf = (r: { ct: ClientContract; cl: ErpClient }) =>
-        isNewCt(r.ct.created_at) ? 'new' : r.cl.status === '계약종료' ? 'ended' : 'active';
+        r.cl.status === '계약종료' ? 'ended' : r.ct.sheet_approved ? 'active' : 'new';
+
+    // 승인 — 신규 등록 건을 최종 승인해 계약 중 시트로 이동(DB 반영 + 즉시 목록 갱신).
+    const approve = async (id: string) => {
+        const { error } = await updateClientContract(id, { sheet_approved: true });
+        if (error) {
+            alert('승인 실패: ' + error.message + '\n(client_contracts.sheet_approved 컬럼이 필요합니다)');
+            return;
+        }
+        setContracts((prev) => prev.map((c) => (c.id === id ? { ...c, sheet_approved: true } : c)));
+    };
 
     const counts = useMemo(() => {
         const c = { active: 0, new: 0, ended: 0 };
@@ -164,11 +170,12 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
         return <div className="py-16 text-center text-sm text-[#94a3b8]">불러오는 중...</div>;
     }
 
-    const totalAmount = rows.reduce((s, r) => s + (r.ct.amount || 0), 0);
+    // 매출은 시트에 연동하지 않음(매출은 계약 관리에서만). 외주비만 참고로 표시.
     const totalOut = rows.reduce((s, r) => s + (r.ct.outsource || 0), 0);
     const showSub = !subtype;
+    const showApprove = tab === 'new'; // 신규 등록 건 탭에서만 승인 버튼 노출
     const dash = <span className="text-xs text-[#cbd5e1]">—</span>;
-    const colSpan = showSub ? 13 : 12;
+    const colSpan = showSub ? 12 : 11;
 
     return (
         <div className="grid gap-3">
@@ -192,8 +199,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                 </select>
                 <span className="ml-auto text-xs text-[#64748b]">{rows.length}개</span>
                 <span className="text-xs text-[#64748b]">
-                    실매출(VAT) <b className="text-[#1e40af]">{won(withVat(totalAmount))}</b> · 외주{' '}
-                    <b className="text-[#dc2626]">{won(totalOut)}</b>
+                    외주 <b className="text-[#dc2626]">{won(totalOut)}</b>
                 </span>
             </div>
 
@@ -233,7 +239,6 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                             <th className="px-3 py-2 font-semibold">업체</th>
                             <th className="px-3 py-2 font-semibold">계약일</th>
                             {showSub && <th className="px-3 py-2 font-semibold">세부유형</th>}
-                            <th className="px-3 py-2 font-semibold">실매출(VAT)</th>
                             <th className="px-3 py-2 font-semibold">담당</th>
                             <th className="px-3 py-2 font-semibold">진행률</th>
                             <th className="px-3 py-2 text-center font-semibold">잔여</th>
@@ -276,9 +281,6 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                                         {showSub && (
                                             <td className="px-3 py-2 text-[13px] text-[#475569]">{ct.subtype}</td>
                                         )}
-                                        <td className="px-3 py-2 text-[13px] font-semibold text-[#1e40af]">
-                                            {won(withVat(ct.amount))}
-                                        </td>
                                         <td className="px-3 py-2 text-[13px] text-[#475569]">{cl.manager || '—'}</td>
                                         <td className="px-3 py-2">
                                             {pct == null ? (
@@ -329,17 +331,32 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                                             </div>
                                         </td>
                                         <td className="px-3 py-2 text-center">
-                                            <button
-                                                className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    navTo(`/clients?id=${cl.id}`);
-                                                }}
-                                                title="고객사 상세에서 계약 편집"
-                                                type="button"
-                                            >
-                                                관리
-                                            </button>
+                                            <div className="flex items-center justify-center gap-1">
+                                                {showApprove ? (
+                                                    <button
+                                                        className="rounded bg-[#1e40af] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#1e3a8a]"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            void approve(ct.id);
+                                                        }}
+                                                        title="승인 → 계약 중 시트로 이동"
+                                                        type="button"
+                                                    >
+                                                        승인
+                                                    </button>
+                                                ) : null}
+                                                <button
+                                                    className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navTo(`/clients?id=${cl.id}`);
+                                                    }}
+                                                    title="고객사 상세에서 계약 편집"
+                                                    type="button"
+                                                >
+                                                    관리
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 );
