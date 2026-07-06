@@ -22,7 +22,13 @@ import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
 import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, todayStr, withVat } from '../lib/erpUtils';
 import { useAuth } from '../hooks/useAuth';
 import CustomerAccountModal from '../components/CustomerAccountModal';
+import { parseTsvGrid, findCol, num, parseDate } from '../lib/contractImport';
 import { ContractPasteAddModal } from './ContractPasteAddModal';
+
+// 외주(진행) 시트 붙여넣기 머리글 — 사용자 시트와 동일. 아래에 데이터만 붙여넣음.
+//   매핑: 수량→건수 · 단가→외주단가 · 업체명→외주업체 · 일자→처리일. (공급가액=건수×단가 검증)
+const OUT_SHEET_HEADER =
+    '일자-No.\t거래처명\t업체명\t관리항목명\t품목명(요약)\t수량\t단가\t공급가액\t부가세\t합계\t사원(담당)명';
 
 // 고객사 상세 — 기본정보(클릭 편집) + 계약 내역(카테고리/세부유형별 건수 계약).
 //   계약은 client_contracts 단일 출처. 등록 시(+계약 추가) 또는 여기서 '+ 계약 추가'로 생성.
@@ -684,6 +690,8 @@ function ContractEditModal({
     const [goal] = useState(contract.goal_count?.toString() ?? '');
     const [remain, setRemain] = useState(contract.remain_count?.toString() ?? '');
     const [bulk, setBulk] = useState(''); // N건 일괄 완료 입력
+    const [outSheetOpen, setOutSheetOpen] = useState(false); // 외주 시트 붙여넣기 모달
+    const [outSheetText, setOutSheetText] = useState(OUT_SHEET_HEADER + '\n');
     const [outUnitEdit, setOutUnitEdit] = useState(contract.unit_outsource?.toString() ?? ''); // 나중 외주단가 입력
     const [outCompanyEdit, setOutCompanyEdit] = useState(contract.outsource_company ?? ''); // 나중 외주업체 입력
     const [weeklyLogs, setWeeklyLogs] = useState<RewardWeeklyLog[]>(contract.weekly_logs ?? []);
@@ -842,14 +850,12 @@ function ContractEditModal({
         setWeekPaid(false);
         setSaving(true);
         // 1) 잔여 + 외주단가/외주업체 저장 — 실패 시 롤백.
-        //    외주비 합계(받은 외주비)는 계약 추가 때 설정한 값으로 '고정' — 진행 처리에서 덮어쓰지 않음.
-        //    (실제 사용 외주비는 진행 이력 outUnit×건수로 별도 집계.) 최초 미설정(0)일 때만 단가×수량으로 세팅.
+        //    외주비 합계(받은 외주비)는 '계약 추가' 때 설정한 값으로만 고정. 진행 처리 입력은 실제 사용 외주비(이력)로만 집계.
         const patch: Partial<ClientContract> = {
             outsource_company: vendor,
             remain_count: next,
             unit_outsource: unit,
         };
-        if ((contract.outsource ?? 0) === 0 && unit) patch.outsource = unit * goalN;
         const { error } = await updateClientContract(contract.id, patch);
         if (error) {
             setSaving(false);
@@ -871,6 +877,75 @@ function ContractEditModal({
         }
         await syncBlog({ remain_count: next });
         await onReload();
+    };
+
+    // 외주 시트 붙여넣기 — 각 행 = 진행 완료 배치 1건(진행 이력에 누적). 수량→건수, 단가→외주단가, 업체명→외주업체, 일자→처리일.
+    const importOutsourceSheet = async () => {
+        if (saving) return;
+        const grid = parseTsvGrid(outSheetText.trim());
+        if (grid.length < 2) {
+            onToast('머리글 아래에 데이터를 붙여넣으세요.');
+            return;
+        }
+        const H = grid[0].map((s) => s.trim());
+        const iQty = findCol(H, ['수량']);
+        const iUnit = findCol(H, ['단가']); // 외주단가
+        const iVendor = findCol(H, ['업체명', '업체']);
+        const iDate = findCol(H, ['일자', '날짜']);
+        if (iQty < 0) {
+            onToast('수량 컬럼을 찾지 못했습니다(머리글 확인).');
+            return;
+        }
+        const today = new Date().toISOString().slice(0, 10);
+        let curRemain = remainN;
+        const added: RewardWeeklyLog[] = [];
+        for (const c of grid.slice(1)) {
+            const g = (idx: number) => (idx >= 0 ? (c[idx] || '').trim() : '');
+            const qty = Number(onlyDigits(g(iQty))) || 0;
+            if (qty <= 0) continue;
+            const applied = Math.min(curRemain, qty);
+            if (applied <= 0) break; // 잔여 소진
+            const unit = iUnit >= 0 && g(iUnit) ? Math.round(num(g(iUnit))) : contract.unit_outsource ?? null;
+            const vendor = g(iVendor) || contract.outsource_company || null;
+            const d = (iDate >= 0 && parseDate(g(iDate))) || today;
+            added.push({
+                at: d,
+                auto: false,
+                count: applied,
+                outUnit: unit,
+                paid: false,
+                vendor,
+                week: isoWeek(new Date(d)),
+            });
+            curRemain -= applied;
+        }
+        if (!added.length) {
+            onToast('처리할 행이 없습니다(수량 없음 또는 잔여 소진).');
+            return;
+        }
+        const next = curRemain;
+        const newLogs = [...weeklyLogs, ...added];
+        // 받은 외주비(합계)는 계약 추가 값으로 고정 — 시트는 실제 사용(이력)만 추가.
+        const patch: Partial<ClientContract> = {
+            remain_count: next,
+            weekly_logs: newLogs,
+            outsource_company: added.at(-1)?.vendor ?? contract.outsource_company ?? null,
+            unit_outsource: added.at(-1)?.outUnit ?? contract.unit_outsource ?? null,
+        };
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, patch);
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        setRemain(String(next));
+        setWeeklyLogs(newLogs);
+        await syncBlog({ remain_count: next });
+        await onReload();
+        setOutSheetOpen(false);
+        setOutSheetText(OUT_SHEET_HEADER + '\n');
+        onToast(`${added.length}건 진행 처리 완료 (잔여 ${next.toLocaleString('ko-KR')})`);
     };
 
     // 주간 로그 삭제(오기입 되돌리기) — 잔여 복원 + 로그 제거.
@@ -1240,14 +1315,24 @@ function ContractEditModal({
                             <div className="mt-3 rounded-lg border border-[#dbeafe] bg-[#eff6ff] px-3 py-4 text-left">
                                 <div className="flex items-center justify-between">
                                     <span className="text-sm font-bold text-[#1e40af]">진행 처리</span>
-                                    <button
-                                        className="rounded-md border border-[#93c5fd] px-2 py-1 text-[11px] font-semibold text-[#1e40af] hover:bg-[#dbeafe] disabled:opacity-50"
-                                        disabled={saving}
-                                        onClick={() => void saveOutsource()}
-                                        type="button"
-                                    >
-                                        외주 저장
-                                    </button>
+                                    <div className="flex gap-1">
+                                        <button
+                                            className="rounded-md border border-[#1e40af] bg-white px-2 py-1 text-[11px] font-semibold text-[#1e40af] hover:bg-[#eef2ff] disabled:opacity-50"
+                                            disabled={saving}
+                                            onClick={() => setOutSheetOpen(true)}
+                                            type="button"
+                                        >
+                                            시트 붙여넣기
+                                        </button>
+                                        <button
+                                            className="rounded-md border border-[#93c5fd] px-2 py-1 text-[11px] font-semibold text-[#1e40af] hover:bg-[#dbeafe] disabled:opacity-50"
+                                            disabled={saving}
+                                            onClick={() => void saveOutsource()}
+                                            type="button"
+                                        >
+                                            외주 저장
+                                        </button>
+                                    </div>
                                 </div>
                                 {/* 외주단가·외주업체 — 리워드와 동일 구조. 완료 처리 시 이 값으로 외주비 계산·로그 기록 */}
                                 <div className="mt-2 grid grid-cols-2 gap-1.5">
@@ -1748,6 +1833,47 @@ function ContractEditModal({
                                     type="button"
                                 >
                                     저장
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+
+                {/* 외주 시트 붙여넣기 — 머리글 아래 데이터 붙여넣으면 각 행 = 진행 완료 배치(실제 사용 외주비) */}
+                {outSheetOpen ? (
+                    <div
+                        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+                        onMouseDown={(e) => e.target === e.currentTarget && setOutSheetOpen(false)}
+                    >
+                        <div className="w-[min(640px,95vw)] rounded-2xl bg-white p-6">
+                            <h3 className="m-0 text-lg font-bold">외주 시트 붙여넣기</h3>
+                            <p className="mt-1 mb-3 text-sm text-[#64748b]">
+                                <b>맨 윗줄(머리글)은 그대로 두고</b> 그 아래에 시트 행을 붙여넣으세요(탭 구분).
+                                각 행 = <b>진행 완료 1건</b>으로 이력에 쌓입니다 — <b>수량→건수 · 단가→외주단가 · 업체명→외주업체 · 일자→처리일.</b>
+                                <br />
+                                실제 사용 외주비 = Σ(건수×외주단가)로 자동 반영(잔여만큼만). <b>받은 외주비 합계는 계약 추가 때 값으로 고정.</b>
+                            </p>
+                            <textarea
+                                className="min-h-[200px] w-full resize-y rounded-md border-2 border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-xs"
+                                onChange={(e) => setOutSheetText(e.target.value)}
+                                spellCheck={false}
+                                value={outSheetText}
+                            />
+                            <div className="mt-4 flex justify-end gap-2">
+                                <button
+                                    className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                                    onClick={() => setOutSheetOpen(false)}
+                                    type="button"
+                                >
+                                    닫기
+                                </button>
+                                <button
+                                    className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                                    disabled={saving}
+                                    onClick={() => void importOutsourceSheet()}
+                                    type="button"
+                                >
+                                    {saving ? '처리 중…' : '진행 처리'}
                                 </button>
                             </div>
                         </div>
