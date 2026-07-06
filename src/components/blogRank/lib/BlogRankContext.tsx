@@ -41,7 +41,8 @@ export function useBlogRank(): BlogRankCtx {
 }
 
 export function BlogRankProvider({ children, customerMode = false }: { children: ReactNode; customerMode?: boolean }) {
-    const { isAdmin, loading: authLoading, profile } = useAuth();
+    const { isAdmin, canManageSheet, loading: authLoading, profile } = useAuth();
+    const canBlog = isAdmin || canManageSheet('블로그'); // 블로그 담당 사원/매니저도 내부 접근 허용
     // 고객 모드면 본인 업체(client_id)로 데이터 스코프 → 격리 + 대역폭 절감. 내부/관리자는 전체.
     const scopedClientId = customerMode ? profile?.client_id ?? null : null;
     const [accounts, setAccounts] = useState<BlogAccount[]>([]);
@@ -131,7 +132,7 @@ export function BlogRankProvider({ children, customerMode = false }: { children:
     };
 
     // 관리자/내부는 전체, 고객은 본인 업체(client_id)가 연결됐을 때만 로드 허용.
-    const isAllowed = !authLoading && (isAdmin || (customerMode && !!scopedClientId));
+    const isAllowed = !authLoading && (canBlog || (customerMode && !!scopedClientId));
     useEffect(() => {
         if (isAllowed) {
             void reload();

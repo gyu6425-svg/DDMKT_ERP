@@ -45,7 +45,7 @@ function Sidebar() {
             next.has(key) ? next.delete(key) : next.add(key);
             return next;
         });
-    const { signOut, role } = useAuth();
+    const { signOut, role, isAdmin, canManageSheet } = useAuth();
     // 고객(viewer) — 자기 계약(RLS 스코프) 중 '시트 승인(sheet_approved)'된 것만 메뉴에 노출.
     const [custContracts, setCustContracts] = useState<ClientContract[]>([]);
     useEffect(() => {
@@ -199,8 +199,12 @@ function Sidebar() {
                     </>
                 ) : (
                     <>
-                        {navigationItems.slice(0, afterContracts).map(renderNavItem)}
-                        <AdminOnly>
+                        {/* 고객사/계약 관리 등 내부 메뉴 — 관리자·매니저만. 사원은 담당 카테고리만. */}
+                        {isAdmin || role === 'manager'
+                            ? navigationItems.slice(0, afterContracts).map(renderNavItem)
+                            : null}
+                        {/* 카테고리 대시보드 — 관리자는 전체, 사원/매니저는 담당 시트 카테고리만. */}
+                        {isAdmin || SIDEBAR_CATEGORIES.some((c) => canManageSheet(c.label)) ? (
                             <div className="grid gap-[18px] max-[800px]:col-span-2">
                                 {/* 블로그가 가장 많이 쓰는 카테고리 → 계약 관리 바로 밑(맨 위)으로. */}
                                 {[...SIDEBAR_CATEGORIES]
@@ -208,6 +212,7 @@ function Sidebar() {
                                         (a, b) =>
                                             (a.key === 'blog' ? 0 : 1) - (b.key === 'blog' ? 0 : 1),
                                     )
+                                    .filter((c) => isAdmin || canManageSheet(c.label))
                                     .map((c) => {
                                     // 하위가 없으면(쇼핑·파워링크) 드롭다운 없이 상위=대시보드 바로가기.
                                     if (!c.subs.length) {
@@ -309,8 +314,10 @@ function Sidebar() {
                                     );
                                 })}
                             </div>
-                        </AdminOnly>
-                        {navigationItems.slice(afterContracts).map(renderNavItem)}
+                        ) : null}
+                        {isAdmin || role === 'manager'
+                            ? navigationItems.slice(afterContracts).map(renderNavItem)
+                            : null}
                         <AdminOnly>
                             <a
                                 aria-current={currentPath === '/admin' ? 'page' : undefined}

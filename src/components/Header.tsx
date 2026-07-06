@@ -47,9 +47,9 @@ function Header() {
     }, []);
     const currentPath = loc.path;
     const title = resolveTitle(loc.path, loc.search);
-    const { isAdmin, profile } = useAuth();
-    // 내부(관리자·매니저)는 회사/고객 토글, 외부 고객은 토글 대신 본인 업체명 표시.
-    const isInternal = isAdmin || profile?.role === 'manager';
+    const { isAdmin, profile, role } = useAuth();
+    // 회사/고객 토글은 관리자·매니저만. 고객(viewer)은 업체명. 사원은 표기 없음(계정 메뉴에 이름만).
+    const isInternal = isAdmin || role === 'manager';
     const isCustomerView = currentPath.startsWith('/portal');
 
     const go = (path: string) => {
@@ -86,12 +86,12 @@ function Header() {
                         고객 ERP
                     </button>
                 </div>
-            ) : (
+            ) : role === 'viewer' ? (
                 <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] px-3 py-1.5 text-sm font-semibold text-[#1e40af]">
                     <span className="text-[#94a3b8]">업체</span>
                     {profile?.name ?? '내 업체'}
                 </span>
-            )}
+            ) : null}
             <AccountMenu />
             </div>
         </header>

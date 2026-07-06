@@ -19,7 +19,7 @@ function isDropdownDash(href: string): boolean {
 }
 
 export function CategoryShell({ label, badge, tabs }: { label: string; badge?: string; tabs: ShellTab[] }) {
-    const { isAdmin, loading: authLoading } = useAuth();
+    const { isAdmin, canManageSheet, loading: authLoading } = useAuth();
     const [href, setHref] = useState(() => window.location.pathname + window.location.search);
     const [active, setActive] = useState(() => {
         const t = new URLSearchParams(window.location.search).get('tab');
@@ -47,12 +47,21 @@ export function CategoryShell({ label, badge, tabs }: { label: string; badge?: s
     const shownTabs = dashOnly ? tabs.slice(0, 1) : tabs;
     const activeIdx = dashOnly ? 0 : Math.min(active, tabs.length - 1);
 
-    if (!authLoading && !isAdmin) {
+    // 접근 권한 — 관리자(전체) 또는 이 카테고리 담당(canManageSheet). 경로로 카테고리 판별.
+    const catLabel = (() => {
+        const [p] = href.split('?');
+        const c = SIDEBAR_CATEGORIES.find(
+            (x) => x.dashHref.split('?')[0] === p || x.subs.some((s) => s.href.split('?')[0] === p),
+        );
+        return c?.label ?? '';
+    })();
+    const allowed = isAdmin || (!!catLabel && canManageSheet(catLabel));
+    if (!authLoading && !allowed) {
         return (
             <section className="grid place-items-center py-24 text-center">
                 <div>
-                    <h2 className="m-0 text-lg font-bold text-[#0f172a]">관리자 전용 페이지</h2>
-                    <p className="mt-2 text-sm text-[#64748b]">{label}는 관리자 계정만 접근할 수 있습니다.</p>
+                    <h2 className="m-0 text-lg font-bold text-[#0f172a]">접근 권한 없음</h2>
+                    <p className="mt-2 text-sm text-[#64748b]">{label}는 담당자·관리자만 접근할 수 있습니다.</p>
                 </div>
             </section>
         );

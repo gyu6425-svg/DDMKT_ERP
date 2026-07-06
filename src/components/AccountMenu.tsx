@@ -3,16 +3,16 @@ import { AUTH_DISABLED } from '../lib/authConfig'
 import { updatePassword } from '../api/auth'
 import { useAuth } from '../hooks/useAuth'
 
-const ROLE_LABEL: Record<string, string> = {
-  admin: '관리자',
-  manager: '매니저',
-  sales: '사원',
-  viewer: '열람전용',
+// 직함 표기 — 특정 계정만 직함, 나머지는 이름만.
+const TITLE_BY_EMAIL: Record<string, string> = {
+  'rlawhddls@ddmkt.com': '대표', // 김종인
+  'ddmkt1@ddmkt.com': '인사', // 조재현
 }
 
-// 헤더 계정 메뉴 — 이름/역할 표시 + 비밀번호 변경 + 로그아웃.
+// 헤더 계정 메뉴 — 이름(+직함) 표시 + 비밀번호 변경 + 로그아웃.
 export default function AccountMenu() {
-  const { profile, role, signOut } = useAuth()
+  const { profile, signOut } = useAuth()
+  const title = TITLE_BY_EMAIL[(profile?.email || '').toLowerCase()] || ''
   const [open, setOpen] = useState(false)
   const [pwOpen, setPwOpen] = useState(false)
   const [pw, setPw] = useState('')
@@ -44,9 +44,11 @@ export default function AccountMenu() {
         type="button"
       >
         <span>{profile?.name ?? '계정'}</span>
-        <span className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[11px] font-bold text-[#4338ca]">
-          {ROLE_LABEL[role] ?? role}
-        </span>
+        {title ? (
+          <span className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[11px] font-bold text-[#4338ca]">
+            {title}
+          </span>
+        ) : null}
         <span className="text-[#94a3b8]">▾</span>
       </button>
       {open ? (

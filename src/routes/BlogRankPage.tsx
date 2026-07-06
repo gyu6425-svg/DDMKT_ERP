@@ -1,5 +1,6 @@
 import BlogPage from './BlogPage';
 import type { Tab } from '../components/blogRank/lib/helpers';
+import { useAuth } from '../hooks/useAuth';
 import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
 import { DashboardTab } from '../components/blogRank/pages/DashboardTab';
 import { SheetTab } from '../components/blogRank/pages/SheetTab';
@@ -10,15 +11,16 @@ import { CrawlStatusTab } from '../components/blogRank/pages/CrawlStatusTab';
 //   5개 기능은 각자 useBlogRank()로 필요한 값만 읽는 독립 페이지 컴포넌트.
 function BlogRankShell() {
     const { isAdmin, authLoading, accounts, posts, loading, error, reload, tab, goTab, toastMsg } = useBlogRank();
+    const { canManageSheet } = useAuth();
 
-    // 관리자 전용 페이지
-    if (!authLoading && !isAdmin) {
+    // 블로그 담당(관리자·블로그 사원/매니저)만 접근.
+    if (!authLoading && !isAdmin && !canManageSheet('블로그')) {
         return (
             <section className="grid place-items-center py-24 text-center">
                 <div>
-                    <h2 className="m-0 text-lg font-bold text-[#0f172a]">관리자 전용 페이지</h2>
+                    <h2 className="m-0 text-lg font-bold text-[#0f172a]">접근 권한 없음</h2>
                     <p className="mt-2 text-sm text-[#64748b]">
-                        블로그 대시보드는 관리자 계정만 접근할 수 있습니다.
+                        블로그 대시보드는 블로그 담당·관리자만 접근할 수 있습니다.
                     </p>
                 </div>
             </section>
