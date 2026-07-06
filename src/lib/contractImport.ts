@@ -141,7 +141,18 @@ export function parseSalesRows(salesText: string): ParsedRow[] {
     const lines = salesText.split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => l.trim());
     if (lines.length < 2) return out;
     const H = lines[0].split('\t').map((s) => s.trim());
-    const iDate = findCol(H, ['일자', '날짜']);
+    // 날짜 후보 열 전부(일자-No. + 회계전표일자-No. 등) — 앞 열이 오타(연도 3자리 등)면 뒤 열로 폴백.
+    const dateCols = H.map((h, i) => ({ h: h.replace(/\s/g, ''), i }))
+        .filter(({ h }) => /일자|날짜/.test(h))
+        .map(({ i }) => i);
+    const dateOf = (c: string[]) => {
+        for (const di of dateCols) {
+            const d = parseDate(c[di] || '');
+            if (d) return d;
+        }
+        return null;
+    };
+    const iDate = dateCols[0] ?? -1;
     const iProduct = findCol(H, ['품목']);
     const iCompany = findCol(H, ['업체명']);
     const iPartner = findCol(H, ['거래처']);
@@ -171,7 +182,7 @@ export function parseSalesRows(salesText: string): ParsedRow[] {
         out.push({
             amount,
             company,
-            date: iDate >= 0 ? parseDate(c[iDate]) : null,
+            date: dateOf(c),
             dup,
             manager: iManager >= 0 ? (c[iManager] || '').trim() : '',
             map: mp, // 단가 전달(블로그 배포 10,000원 임계값)
