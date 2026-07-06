@@ -72,13 +72,21 @@ export function ImportModal({
         const iReporter = findCol(H, ['기자단']);
         const iNote = findCol(H, ['특이사항', '비고']);
 
+        let mismatch = 0; // 칸 수가 헤더와 다른 줄(정렬 어긋남 의심)
         for (const c of grid.slice(1)) {
             const g = (idx: number) => (idx >= 0 ? (c[idx] || '').trim() : '');
+            const nonEmpty = c.some((x) => (x || '').trim());
+            if (nonEmpty && c.length !== H.length) mismatch += 1;
             const name = g(iName);
             const urlCell = g(iUrl);
             const blogUrl = urlCell.includes('blog.naver.com')
                 ? urlCell
                 : c.find((x) => x && x.includes('blog.naver.com')) || '';
+            // 발행 관리시트 = 헤더 위치값이 시트 URL이면 그대로, 아니면 구글시트 링크를 내용으로 탐지.
+            const sheetCell = g(iSheet);
+            const manageUrl = /docs\.google|spreadsheets/.test(sheetCell)
+                ? sheetCell
+                : c.find((x) => /docs\.google|spreadsheets/.test(x || '')) || '';
             if (!blogUrl) {
                 // 발행 URL 없으면 등록 불가(크롤 대상 아님). 완전 빈 줄은 조용히 건너뜀.
                 if (name || c.some((x) => (x || '').trim())) skippedNoUrl += 1;
@@ -104,7 +112,7 @@ export function ImportModal({
                 weekly: g(iWeekly) || null,
                 login_id: g(iLoginId) || null,
                 login_pw: g(iLoginPw) || null,
-                manage_sheet_url: g(iSheet) || null,
+                manage_sheet_url: manageUrl || null,
                 blog_url: blogUrl,
                 blog_id: extractBlogId(blogUrl),
                 reporter: g(iReporter) || null,
@@ -137,7 +145,8 @@ export function ImportModal({
             skippedDup || skippedNoUrl
                 ? ` · 건너뜀 ${skippedDup ? `이미등록 ${skippedDup}` : ''}${skippedDup && skippedNoUrl ? '/' : ''}${skippedNoUrl ? `URL없음 ${skippedNoUrl}` : ''}`
                 : '';
-        onToast(`${payloads.length}개 등록 완료${skipNote}`);
+        const mmNote = mismatch ? ` · ⚠ 칸 수 불일치 ${mismatch}줄(연락처 등 빈 칸도 유지 필요)` : '';
+        onToast(`${payloads.length}개 등록 완료${skipNote}${mmNote}`);
         // 등록 직후 담당자 입력 프롬프트(담당은 시트에 없어 비워둔 상태) — 바로 채울 수 있게.
         if (data && data.length) {
             setMgrPrompt(data);
