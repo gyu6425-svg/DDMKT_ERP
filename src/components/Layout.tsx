@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import Header from './Header'
 import Sidebar from './Sidebar'
+import DevRoleSwitcher from './DevRoleSwitcher'
 
 type LayoutProps = {
   children: ReactNode
@@ -15,6 +16,7 @@ function Layout({ children }: LayoutProps) {
         <Header />
         {children}
       </main>
+      <DevRoleSwitcher />
     </div>
   )
 }

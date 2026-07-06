@@ -3,7 +3,17 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { getSession, signOut as signOutRequest } from '../api/auth'
 import { AUTH_DISABLED } from '../lib/authConfig'
 import { supabase } from '../lib/supabase'
-import type { Profile } from '../types'
+import type { Profile, UserRole } from '../types'
+import {
+  canDo,
+  canEdit as canEditGrant,
+  canManageSheet as canManageSheetGrant,
+  presetByKey,
+  readRoleSim,
+  writeRoleSim,
+  type Duty,
+  type Grant,
+} from '../lib/permissions'
 import { AuthContext } from './authContextValue'
 
 type AuthProviderProps = {
@@ -19,6 +29,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isAdmin, setIsAdmin] = useState(false)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [session, setSession] = useState<Session | null>(null)
+  // 개발용 역할 시뮬레이터 — auth 켜기 전까지 각 역할로 UI 게이팅 테스트.
+  const [simKey, setSimKeyState] = useState<string | null>(readRoleSim)
+  const setSimKey = useCallback((key: string | null) => {
+    setSimKeyState(key)
+    writeRoleSim(key)
+  }, [])
 
   const loadProfile = useCallback(async (user: User) => {
     const userId = user.id
@@ -119,16 +135,38 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [syncSession])
 
+  // 권한 grant — 개발중(AUTH_DISABLED)엔 시뮬레이터, 실제론 profile(role/duties/sheet_categories) 기준.
+  const grant: Grant = useMemo(() => {
+    if (AUTH_DISABLED) {
+      const p = presetByKey(simKey)
+      return p
+        ? { role: p.role, duties: p.duties, sheetCategories: p.sheetCategories }
+        : { role: 'admin', duties: [], sheetCategories: [] } // 기본=슈퍼 어드민(전권)
+    }
+    return {
+      role: (isAdmin ? 'admin' : (profile?.role as UserRole)) ?? 'viewer',
+      duties: (profile?.duties as Duty[] | undefined) ?? [],
+      sheetCategories: profile?.sheet_categories ?? [],
+    }
+  }, [simKey, isAdmin, profile])
+
   const value = useMemo(
     () => ({
-      isAdmin: AUTH_DISABLED ? true : isAdmin, // 임시: 인증 끔 — 모두 관리자 권한
+      isAdmin: grant.role === 'admin',
       loading,
       profile,
       session,
       signOut,
       user: session?.user ?? null,
+      role: grant.role,
+      grant,
+      can: (duty: Duty) => canDo(grant, duty),
+      canManageSheet: (category: string) => canManageSheetGrant(grant, category),
+      canEdit: canEditGrant(grant),
+      simKey,
+      setSimKey,
     }),
-    [isAdmin, loading, profile, session, signOut],
+    [grant, loading, profile, session, signOut, simKey, setSimKey],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

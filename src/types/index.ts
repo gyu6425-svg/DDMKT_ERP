@@ -17,6 +17,8 @@ export type Profile = {
     email: string;
     role: UserRole;
     is_active: boolean;
+    duties?: string[] | null; // 업무별 액션 권한(client.register/contract.approve/sheet.manage 등)
+    sheet_categories?: string[] | null; // 담당 카테고리 시트(블로그/영상 등)
     client_id: string | null; // 고객 계정 → 본인 업체(clients.id). 내부 직원은 null.
     department: string | null;
     position: string | null;
