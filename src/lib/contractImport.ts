@@ -102,7 +102,7 @@ export function mapProduct(nameRaw: string, unit = 0): Mapped {
         return { category: '플레이스', subtype: '플레이스 리워드' }; // 일키 유입플·터틀 리워드
     if (has('막배포')) return { category: '플레이스', subtype: '플레이스용 블로그 배포' }; // 플레이스 막배포
     if (has('저인망') && has('준최')) return { category: '블로그', subtype: '준최적화 블로그 배포' }; // 저인망 ai 준최 4
-    if (has('저인망') && has('스토어')) return { category: '플레이스', subtype: '영수증 리뷰' }; // 저인망 스토어리뷰
+    if (has('저인망') && has('스토어')) return { category: '쇼핑', subtype: '스토어 리뷰' }; // 저인망 스토어리뷰
     if (has('저인망')) return { category: '블로그', subtype: '저인망 블로그 배포' }; // 저인망 ai NB 등
     if (has('ai') || has('AI')) return { category: '블로그', subtype: '저인망 블로그 배포' };
     if (has('상위노출') || has('월보장')) return { category: '플레이스', subtype: '상위노출 보장형' };
