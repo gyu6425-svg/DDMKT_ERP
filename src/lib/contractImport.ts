@@ -97,8 +97,8 @@ export function mapProduct(nameRaw: string, unit = 0): Mapped {
         return { category: '플레이스', subtype: '플레이스 리워드' };
     if (has('실계')) return { category: '플레이스', subtype: '플레이스용 블로그 배포' };
     if (has('247')) return { category: '플레이스', subtype: '플레이스용 블로그 배포' };
-    if (has('저인망')) return { category: '블로그', subtype: 'AI 블로그 배포' };
-    if (has('ai') || has('AI')) return { category: '블로그', subtype: 'AI 블로그 배포' };
+    if (has('저인망')) return { category: '블로그', subtype: '저인망 블로그 배포' };
+    if (has('ai') || has('AI')) return { category: '블로그', subtype: '저인망 블로그 배포' };
     if (has('상위노출') || has('월보장')) return { category: '플레이스', subtype: '상위노출 보장형' };
     if (has('영수증')) return { category: '플레이스', subtype: '영수증 리뷰' };
     if (has('프리미엄')) return { category: '플레이스', subtype: '플레이스용 블로그 배포' };

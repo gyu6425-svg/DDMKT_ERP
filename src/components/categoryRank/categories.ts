@@ -93,6 +93,8 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
                 href: '/video-rank?sub=' + encodeURIComponent('숏폼(릴스,틱톡,쇼츠)'),
             },
             { label: '클립', href: '/video-rank?sub=' + encodeURIComponent('클립') },
+            { label: '촬영 패키지', href: '/video-rank?sub=' + encodeURIComponent('촬영 패키지') },
+            { label: '전달 패키지', href: '/video-rank?sub=' + encodeURIComponent('전달 패키지') },
         ],
     },
     {
@@ -105,8 +107,7 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
             { label: '브랜드 블로그', href: '/blog-rank' },
             { label: '최적화 블로그 배포', href: '/blog-optimized' },
             { label: '준최적화 블로그 배포', href: '/blog-semi' },
-            { label: '단순 블로그 배포', href: '/blog-simple' },
-            { label: 'AI 블로그 배포', href: '/blog-ai' },
+            { label: '저인망 블로그 배포', href: '/blog-jeoinmang' },
         ],
     },
 ];

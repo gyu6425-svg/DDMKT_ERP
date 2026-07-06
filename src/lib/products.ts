@@ -19,7 +19,7 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
         label: '영상',
         path: '/video-rank',
         ready: false,
-        subs: ['롱폼(유튜브)', '숏폼(릴스,틱톡,쇼츠)', '클립'],
+        subs: ['롱폼(유튜브)', '숏폼(릴스,틱톡,쇼츠)', '클립', '촬영 패키지', '전달 패키지'],
     },
     {
         key: 'blog',
@@ -30,8 +30,7 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
             '브랜드 블로그',
             '최적화 블로그 배포',
             '준최적화 블로그 배포',
-            '단순 블로그 배포',
-            'AI 블로그 배포',
+            '저인망 블로그 배포',
         ],
     },
     // 종합광고 — 고정 카테고리가 아니라 상황별 묶음. 컨테이너로 등록 후 상세에서 '모든 카테고리' 상품을 골라 넣음.

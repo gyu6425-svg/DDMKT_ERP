@@ -35,8 +35,7 @@ function goTracker(company: string) {
 const PATH_SCOPE: Record<string, { category: string; subtype: string }> = {
     '/blog-optimized': { category: '블로그', subtype: '최적화 블로그 배포' },
     '/blog-semi': { category: '블로그', subtype: '준최적화 블로그 배포' },
-    '/blog-simple': { category: '블로그', subtype: '단순 블로그 배포' },
-    '/blog-ai': { category: '블로그', subtype: 'AI 블로그 배포' },
+    '/blog-jeoinmang': { category: '블로그', subtype: '저인망 블로그 배포' },
     '/shopping-rank': { category: '쇼핑', subtype: '쇼핑' },
     '/powerlink-rank': { category: '파워링크', subtype: '파워링크' },
 };
