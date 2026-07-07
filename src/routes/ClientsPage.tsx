@@ -357,6 +357,15 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         const cm = client.created_at ? new Date(client.created_at).getMonth() + 1 : 0;
         return cm === month;
     };
+    // 계약(상품)이 특정 월에 속하는지 — contract_date 월(없으면 계약 생성월). 상세·목록 상품을 월별로 스코프.
+    const contractInMonth = (ct: ClientContract, month: number) => {
+        if (!month) return true;
+        if (ct.contract_date) return Number(ct.contract_date.slice(5, 7)) === month;
+        return ct.created_at ? new Date(ct.created_at).getMonth() + 1 === month : false;
+    };
+    // 계약 관리(월 필터 화면)에서만 상품을 월별로 스코프. 고객사 관리(전체)는 그대로.
+    const scopeMonth = (cts: ClientContract[]) =>
+        contractsOnly && monthFilter ? cts.filter((ct) => contractInMonth(ct, monthFilter)) : cts;
 
     // 계약 관리 신규(미승인) 건수 — 선택 월 기준.
     const newContractCount = useMemo(
@@ -798,7 +807,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         return (
             <ClientDetail
                 client={detailClient}
-                contracts={clientContracts.filter((c) => c.client_id === detailClient.id)}
+                contracts={scopeMonth(clientContracts.filter((c) => c.client_id === detailClient.id))}
                 onClose={closeDetail}
                 onDelete={() =>
                     void deleteClient(detailClient.id).then(() => {
@@ -1124,8 +1133,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                       : '--';
                                 // 계약 관리 신규건 = 미승인(승인 전). 고객사 관리 화면에선 최근등록(newIds) 강조 유지.
                                 const isNew = contractsOnly ? !c.contract_approved : newIds.has(c.id);
-                                // 상품 상세 집계 — 카테고리 → 세부유형별 계약/진행/잔여(합산).
-                                const myCts = clientContracts.filter((ct) => ct.client_id === c.id);
+                                // 상품 상세 집계 — 카테고리 → 세부유형별 계약/진행/잔여(합산). 월 필터 시 그 달 상품만.
+                                const myCts = scopeMonth(
+                                    clientContracts.filter((ct) => ct.client_id === c.id),
+                                );
                                 const byCat = new Map<
                                     string,
                                     Map<string, { goal: number; remain: number; n: number; amt: number; doneAmt: number }>
@@ -1376,8 +1387,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         {contractsOnly ? (
                                         <td className="px-3 py-2 text-xs">
                                             {(() => {
-                                                const mine = clientContracts.filter(
-                                                    (ct) => ct.client_id === c.id,
+                                                const mine = scopeMonth(
+                                                    clientContracts.filter((ct) => ct.client_id === c.id),
                                                 );
                                                 // 잔여 외주비 = 외주단가 × 잔여수량(건별 소진 추적).
                                                 const remainOut = mine.reduce(
