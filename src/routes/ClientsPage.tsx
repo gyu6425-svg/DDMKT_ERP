@@ -205,7 +205,23 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         else window.scrollTo(0, y);
     }, [detailId]);
 
-    const [search, setSearch] = useState('');
+    // 검색어 — ?q= 로 진입(벨 알림에서 업체명 검색)하면 그 값으로 시작.
+    const [search, setSearch] = useState(
+        () => new URLSearchParams(window.location.search).get('q') ?? '',
+    );
+    // 알림 등에서 ?q= 로 재진입(같은 페이지) 시 검색어 반영.
+    useEffect(() => {
+        const sync = () => {
+            const q = new URLSearchParams(window.location.search).get('q');
+            if (q != null) setSearch(q);
+        };
+        window.addEventListener('popstate', sync);
+        window.addEventListener('app:navigate', sync);
+        return () => {
+            window.removeEventListener('popstate', sync);
+            window.removeEventListener('app:navigate', sync);
+        };
+    }, []);
     const [statusFilter, setStatusFilter] = useState('');
     const [favOnly, setFavOnly] = useState(false);
     const [favs, setFavs] = useState<string[]>(loadFavs);
@@ -1345,8 +1361,13 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         <td className="px-3 py-2">
                                             <span
                                                 className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                                    STATUS_BADGE[c.status || ''] ||
-                                                    'bg-[#e2e8f0] text-[#64748b]'
+                                                    // 방금 등록(24h)한 미완료 건 → 파란색 강조.
+                                                    newIds.has(c.id) &&
+                                                    c.status !== DONE_STATUS &&
+                                                    c.status !== ENDED_STATUS
+                                                        ? 'bg-[#1e40af] text-white'
+                                                        : STATUS_BADGE[c.status || ''] ||
+                                                          'bg-[#e2e8f0] text-[#64748b]'
                                                 }`}
                                             >
                                                 {c.status || '--'}

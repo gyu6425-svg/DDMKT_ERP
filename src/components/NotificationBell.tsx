@@ -102,6 +102,23 @@ export default function NotificationBell() {
     setReadSet(next)
     saveRead(next)
   }
+  // 특정 알림 키만 읽음 처리(클릭 시 그 알림만 사라지게).
+  const markRead = (keys: string[]) => {
+    const next = new Set(readSet)
+    keys.forEach((k) => next.add(k))
+    setReadSet(next)
+    saveRead(next)
+  }
+  // 계약 미완료 알림 클릭 — 그 업체명으로 고객사 관리 검색 이동 + 이 알림 제거.
+  const openPendingClient = (c: { id: string; company: string | null }) => {
+    markRead(['p:' + c.id])
+    go('/clients?q=' + encodeURIComponent(c.company || ''))
+  }
+  // 시트 승인 대기 알림 클릭 — 그 세부유형 시트로 이동 + 그 그룹 알림 제거.
+  const openSheetGroup = (cat: string, subtype: string) => {
+    markRead(sheetPending.filter((ct) => ct.category === cat && ct.subtype === subtype).map((ct) => 's:' + ct.id))
+    go(sheetHref(cat, subtype))
+  }
 
   return (
     <div className="relative" ref={boxRef}>
@@ -150,7 +167,7 @@ export default function NotificationBell() {
                 <button
                   className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-[#f8fafc]"
                   key={cat + '|||' + subtype}
-                  onClick={() => go(sheetHref(cat, subtype))}
+                  onClick={() => openSheetGroup(cat, subtype)}
                   type="button"
                 >
                   <span className="font-semibold text-[#334155]">
@@ -173,7 +190,7 @@ export default function NotificationBell() {
                   <button
                     className="rounded-md px-2 py-1.5 text-left hover:bg-[#f8fafc]"
                     key={c.id}
-                    onClick={() => go('/clients')}
+                    onClick={() => openPendingClient(c)}
                     type="button"
                   >
                     <div className="flex items-center justify-between gap-2">
