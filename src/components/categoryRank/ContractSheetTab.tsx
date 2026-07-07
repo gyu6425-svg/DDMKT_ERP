@@ -170,6 +170,19 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
         return c;
     }, [allRows]);
 
+    // 진입 시(최초 1회): 신규 등록 건이 있으면 신규 탭으로 시작(없으면 계약 중). pending=1이면 그대로 신규.
+    const [didInitTab, setDidInitTab] = useState(false);
+    useEffect(() => {
+        if (loading || didInitTab) return;
+        setDidInitTab(true);
+        if (new URLSearchParams(window.location.search).get('pending') !== '1')
+            setTab(counts.new > 0 ? 'new' : 'active');
+    }, [loading, didInitTab, counts.new]);
+    // 신규가 0이 됐는데 신규 탭이면(승인 완료 등) 계약 중으로 자동 전환.
+    useEffect(() => {
+        if (!loading && tab === 'new' && counts.new === 0) setTab('active');
+    }, [loading, tab, counts.new]);
+
     const rows = useMemo(() => {
         const qq = q.trim().toLowerCase();
         return allRows
@@ -227,7 +240,10 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                         { key: 'active', label: '계약 중' },
                         { key: 'ended', label: '계약 종료' },
                     ] as { key: 'new' | 'active' | 'ended'; label: string }[]
-                ).map((t) => {
+                )
+                    // 신규 등록 건 탭은 미승인 건이 있을 때만 표시(평소엔 없음, 승인 완료 시 사라짐).
+                    .filter((t) => t.key !== 'new' || counts.new > 0)
+                    .map((t) => {
                     const on = tab === t.key;
                     const hot = t.key === 'new' && counts.new > 0;
                     return (
