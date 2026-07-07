@@ -2620,7 +2620,7 @@ export function ClientDetail({
                                                                 {ct.blog_name}
                                                             </span>
                                                         ) : null}
-                                                        {ct.outsource_company && ct.outsource_company !== '실계' ? (
+                                                        {ct.outsource_company ? (
                                                             <span className="truncate rounded-full bg-[#fee2e2] px-2.5 py-0.5 text-[13px] font-extrabold text-[#dc2626]">
                                                                 {ct.outsource_company}
                                                             </span>
