@@ -83,22 +83,24 @@ export function PlaceRankPage() {
                 badge="준비 중"
                 label={displayLabel}
                 tabs={[
-                    { name: '대시보드', el: <Placeholder name={displayLabel} /> },
-                    { name: '관리 시트', el: sheet },
-                    { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" /> },
+                    { name: '대시보드', el: <Placeholder name={displayLabel} />, slug: 'dashboard' },
+                    { name: '관리 시트', el: sheet, slug: 'sheet' },
+                    { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" />, slug: 'crawl' },
                 ]}
             />
         );
     }
 
-    // 최상위 플레이스 대시보드 = 순위 트래커(크롤링) 관리 영역.
+    // 최상위 플레이스 대시보드 = 4개 하위유형 통합.
+    //   맨 좌측 '관리 시트' = 플레이스로 등록된 모든 업체(전 하위유형 통합) + 순위 트래커 + 크롤링 현황.
     return (
         <CategoryShell
             forceTabs
             label="플레이스 대시보드"
             tabs={[
-                { name: '순위 트래커', el: <PlaceRankTracker /> },
-                { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" /> },
+                { name: '관리 시트', el: <ContractSheetTab category="플레이스" />, slug: 'sheet' },
+                { name: '순위 트래커', el: <PlaceRankTracker />, slug: 'tracker' },
+                { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" />, slug: 'crawl' },
             ]}
         />
     );

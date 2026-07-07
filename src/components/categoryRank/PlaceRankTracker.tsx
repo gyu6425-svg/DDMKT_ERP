@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useErpData } from '../../context/ErpDataContext';
+import { getClientContracts } from '../../api/clientContracts';
 import {
     deletePlaceAccount,
     deletePlaceKeyword,
@@ -7,6 +9,7 @@ import {
     getPlaceKeywords,
     insertPlaceAccount,
     insertPlaceKeyword,
+    updatePlaceAccount,
     type PlaceAccount,
     type PlaceKeyword,
     type PlaceMeasurement,
@@ -17,6 +20,10 @@ import {
 
 const RECENT_DAYS = 10; // 표에 보여줄 최근 날짜 컬럼 수
 
+// 순위 셀 클릭 → 그 키워드의 네이버 플레이스 검색(순위) 화면.
+const placeSearchUrl = (kw: string) =>
+    `https://m.place.naver.com/place/list?query=${encodeURIComponent(kw)}`;
+
 function rankText(m: PlaceMeasurement | undefined): { label: string; color: string } {
     if (!m) return { color: '#cbd5e1', label: '—' };
     if (m.status === 'fail') return { color: '#94a3b8', label: '실패' };
@@ -26,6 +33,7 @@ function rankText(m: PlaceMeasurement | undefined): { label: string; color: stri
 }
 
 export function PlaceRankTracker() {
+    const { allClients } = useErpData();
     const [accounts, setAccounts] = useState<PlaceAccount[]>([]);
     const [keywords, setKeywords] = useState<PlaceKeyword[]>([]);
     const [loading, setLoading] = useState(true);
@@ -107,6 +115,34 @@ export function PlaceRankTracker() {
         await reload();
     };
 
+    // 계약관리의 '플레이스' 상품 업체를 순위 트래커로 불러오기(자동 등록). URL·키워드는 이후 직접 입력.
+    const importFromContracts = async () => {
+        setBusy(true);
+        const { data: contracts } = await getClientContracts();
+        const placeClientIds = [
+            ...new Set(
+                contracts
+                    .filter((c) => c.category === '플레이스' && c.client_id)
+                    .map((c) => c.client_id as string),
+            ),
+        ];
+        const existing = new Set(accounts.map((a) => a.client_id).filter(Boolean) as string[]);
+        const nameById = new Map(allClients.map((c) => [c.id, c.company || '(이름없음)']));
+        let created = 0;
+        for (const cid of placeClientIds) {
+            if (existing.has(cid)) continue;
+            const { error } = await insertPlaceAccount({
+                client_id: cid,
+                is_active: true,
+                name: nameById.get(cid) || '(이름없음)',
+            });
+            if (!error) created += 1;
+        }
+        setBusy(false);
+        flash(created ? `${created}개 업체 불러옴 — URL·키워드를 등록하세요` : '새로 불러올 플레이스 업체가 없습니다.');
+        await reload();
+    };
+
     const removeKeyword = async (id: string) => {
         await deletePlaceKeyword(id);
         await reload();
@@ -116,6 +152,56 @@ export function PlaceRankTracker() {
         await deletePlaceAccount(id);
         await reload();
     };
+
+    // URL 인라인 등록 — 계약에서 불러온 업체(URL 없음)에 플레이스 URL 저장 → place_id 추출.
+    const saveUrl = async (acc: PlaceAccount, val: string) => {
+        const pid = extractPlaceId(val);
+        if (!pid) {
+            flash('URL에서 place id(숫자)를 찾지 못했습니다.');
+            return;
+        }
+        await updatePlaceAccount(acc.id, { place_id: pid, place_url: val.trim() });
+        await reload();
+    };
+
+    // 업체 셀(이름/URL/삭제) — 키워드 유무 두 경우에서 공용.
+    const accountCell = (acc: PlaceAccount, rowSpan: number) => (
+        <td className="max-w-[200px] px-3 py-2 align-top" rowSpan={rowSpan}>
+            {acc.place_url ? (
+                <a
+                    className="font-bold text-[#0f172a] hover:text-[#1e40af] hover:underline"
+                    href={acc.place_url}
+                    rel="noreferrer"
+                    target="_blank"
+                >
+                    {acc.name}
+                </a>
+            ) : (
+                <div className="font-bold text-[#0f172a]">{acc.name}</div>
+            )}
+            {acc.place_id ? (
+                <div className="truncate text-[11px] text-[#94a3b8]">{acc.place_id}</div>
+            ) : (
+                <input
+                    className="mt-1 h-7 w-full rounded border border-[#fbbf24] bg-[#fffbeb] px-1.5 text-[11px]"
+                    onBlur={(e) => {
+                        if (e.target.value.trim()) void saveUrl(acc, e.target.value);
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    }}
+                    placeholder="플레이스 URL 등록"
+                />
+            )}
+            <button
+                className="mt-1 block text-[11px] text-[#dc2626] hover:underline"
+                onClick={() => void removeAccount(acc.id)}
+                type="button"
+            >
+                업체 삭제
+            </button>
+        </td>
+    );
 
     if (loading) {
         return <div className="py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
@@ -128,13 +214,24 @@ export function PlaceRankTracker() {
                     업체 <b className="text-[#0f172a]">{accounts.length}</b> · 키워드{' '}
                     <b className="text-[#0f172a]">{keywords.length}</b> · 순위는 매일 자동 측정
                 </div>
-                <button
-                    className="rounded-md bg-[#1e40af] px-3 py-1.5 text-sm font-bold text-white hover:bg-[#1e3a8a]"
-                    onClick={() => setAddOpen((o) => !o)}
-                    type="button"
-                >
-                    + 업체 추가
-                </button>
+                <div className="flex gap-1.5">
+                    <button
+                        className="rounded-md border border-[#1e40af] bg-white px-3 py-1.5 text-sm font-semibold text-[#1e40af] hover:bg-[#eef2ff] disabled:opacity-50"
+                        disabled={busy}
+                        onClick={() => void importFromContracts()}
+                        title="계약관리의 플레이스 상품 업체를 불러옵니다"
+                        type="button"
+                    >
+                        계약에서 불러오기
+                    </button>
+                    <button
+                        className="rounded-md bg-[#1e40af] px-3 py-1.5 text-sm font-bold text-white hover:bg-[#1e3a8a]"
+                        onClick={() => setAddOpen((o) => !o)}
+                        type="button"
+                    >
+                        + 업체 추가
+                    </button>
+                </div>
             </div>
 
             {addOpen ? (
@@ -188,31 +285,7 @@ export function PlaceRankTracker() {
                                 return kws
                                     .map((k, ki) => (
                                         <tr className="border-t border-[#f1f5f9]" key={k.id}>
-                                            {ki === 0 ? (
-                                                <td
-                                                    className="max-w-[180px] px-3 py-2 align-top"
-                                                    rowSpan={rowCount}
-                                                >
-                                                    <div className="font-bold text-[#0f172a]">{acc.name}</div>
-                                                    {acc.place_url ? (
-                                                        <a
-                                                            className="block truncate text-[11px] text-[#2563eb] hover:underline"
-                                                            href={acc.place_url}
-                                                            rel="noreferrer"
-                                                            target="_blank"
-                                                        >
-                                                            {acc.place_id}
-                                                        </a>
-                                                    ) : null}
-                                                    <button
-                                                        className="mt-1 text-[11px] text-[#dc2626] hover:underline"
-                                                        onClick={() => void removeAccount(acc.id)}
-                                                        type="button"
-                                                    >
-                                                        업체 삭제
-                                                    </button>
-                                                </td>
-                                            ) : null}
+                                            {ki === 0 ? accountCell(acc, rowCount) : null}
                                             <td className="px-3 py-2 font-semibold text-[#7c3aed]">
                                                 {k.keyword}
                                             </td>
@@ -220,12 +293,16 @@ export function PlaceRankTracker() {
                                                 const m = (k.measurements || []).find((x) => x.date === d);
                                                 const { label, color } = rankText(m);
                                                 return (
-                                                    <td
-                                                        className="px-2 py-2 text-center font-bold"
-                                                        key={d}
-                                                        style={{ color }}
-                                                    >
-                                                        {label}
+                                                    <td className="px-2 py-2 text-center font-bold" key={d}>
+                                                        <a
+                                                            href={placeSearchUrl(k.keyword)}
+                                                            rel="noreferrer"
+                                                            style={{ color }}
+                                                            target="_blank"
+                                                            title="네이버 플레이스 검색 화면"
+                                                        >
+                                                            {label}
+                                                        </a>
                                                     </td>
                                                 );
                                             })}
@@ -242,31 +319,7 @@ export function PlaceRankTracker() {
                                     ))
                                     .concat(
                                         <tr className="border-t border-[#f1f5f9] bg-[#fafbff]" key={acc.id + ':add'}>
-                                            {kws.length === 0 ? (
-                                                <td
-                                                    className="max-w-[180px] px-3 py-2 align-top"
-                                                    rowSpan={1}
-                                                >
-                                                    <div className="font-bold text-[#0f172a]">{acc.name}</div>
-                                                    {acc.place_url ? (
-                                                        <a
-                                                            className="block truncate text-[11px] text-[#2563eb] hover:underline"
-                                                            href={acc.place_url}
-                                                            rel="noreferrer"
-                                                            target="_blank"
-                                                        >
-                                                            {acc.place_id}
-                                                        </a>
-                                                    ) : null}
-                                                    <button
-                                                        className="mt-1 text-[11px] text-[#dc2626] hover:underline"
-                                                        onClick={() => void removeAccount(acc.id)}
-                                                        type="button"
-                                                    >
-                                                        업체 삭제
-                                                    </button>
-                                                </td>
-                                            ) : null}
+                                            {kws.length === 0 ? accountCell(acc, 1) : null}
                                             <td className="px-3 py-2" colSpan={dates.length + 2}>
                                                 <div className="flex gap-1">
                                                     <input

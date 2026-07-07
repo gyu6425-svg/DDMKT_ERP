@@ -4,10 +4,12 @@ import { SIDEBAR_CATEGORIES } from './categories';
 
 // 카테고리 대시보드 공유 셸 — 관리자 게이트 + 헤더 + 탭바 + 활성 탭.
 //   각 카테고리(영상/인스타/카페/트래픽) 페이지가 자기 탭 컴포넌트를 넘겨 재사용. 블로그 대시보드와 동일 UX.
-export type ShellTab = { name: string; el: ReactNode };
+export type ShellTab = { name: string; el: ReactNode; slug?: string };
 
-// 탭 순서 고정: 대시보드·관리 시트·순위 트래커·크롤링 현황 → ?tab=sheet 등으로 딥링크(계약 카드에서 이동).
+// 탭 슬러그 기본 순서(대시보드·관리 시트·순위 트래커·크롤링 현황). ShellTab.slug로 개별 지정 가능
+//   → 탭을 재배치(예: 대시보드에서 관리 시트를 맨 앞)해도 ?tab=sheet 등 딥링크가 올바른 탭을 가리킴.
 const TAB_SLUGS = ['dashboard', 'sheet', 'tracker', 'crawl'];
+const slugsOf = (tabs: ShellTab[]) => tabs.map((t, i) => t.slug ?? TAB_SLUGS[i] ?? `t${i}`);
 
 // 드롭다운(하위 카테고리)이 있는 상위(플레이스·인스타·블로그)의 '대시보드'(=?sub 없음)만
 //   탭 없는 순수 대시보드. 하위(?sub=)와 드롭다운 없는 카페·쇼핑·파워링크는 기존 4탭 유지.
@@ -33,7 +35,7 @@ export function CategoryShell({
     const [href, setHref] = useState(() => window.location.pathname + window.location.search);
     const [active, setActive] = useState(() => {
         const t = new URLSearchParams(window.location.search).get('tab');
-        const i = TAB_SLUGS.indexOf(t || '');
+        const i = slugsOf(tabs).indexOf(t || '');
         return i >= 0 ? i : 0;
     });
     useEffect(() => {
@@ -41,7 +43,7 @@ export function CategoryShell({
             setHref(window.location.pathname + window.location.search);
             // ?tab 딥링크(예: 시트에서 행 클릭 → ?tab=tracker) 반영해 활성 탭 전환.
             const t = new URLSearchParams(window.location.search).get('tab');
-            const i = TAB_SLUGS.indexOf(t || '');
+            const i = slugsOf(tabs).indexOf(t || '');
             if (i >= 0) setActive(i);
         };
         window.addEventListener('popstate', sync);
