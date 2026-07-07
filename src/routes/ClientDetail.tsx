@@ -2022,6 +2022,9 @@ export function ClientDetail({
     const [addOpen, setAddOpen] = useState(false);
     const [pasteOpen, setPasteOpen] = useState(false); // 시트 붙여넣기로 계약 추가
     const [boostAdd, setBoostAdd] = useState<ClientContract | null>(null); // 상위노출 보장형 2차 등록 대상
+    const [boostSheet, setBoostSheet] = useState<ClientContract | null>(null); // 상위노출 보장형 회차 시트 붙여넣기 대상
+    const [boostSheetText, setBoostSheetText] = useState(OUT_SHEET_HEADER + '\n');
+    const [boostSaving, setBoostSaving] = useState(false);
     const [editContract, setEditContract] = useState<ClientContract | null>(null);
     const [endOpen, setEndOpen] = useState(false); // 상단 계약 종료 모달(히스토리 입력)
     const [endNote, setEndNote] = useState('');
@@ -2060,6 +2063,83 @@ export function ClientDetail({
             onToast('저장 실패');
             return;
         }
+        await onReloadContracts();
+    };
+
+    // 상위노출 보장형 회차 시트 붙여넣기 — 각 행 = 그 회차에 진행한 외주 배치 1건.
+    //   타수/일수·판매현황이 없는 상품이라, 여기 붙여넣은 값은 '실제 사용 외주비'(진행 이력)로만 기록.
+    //   컬럼: 거래처명=외주업체(리브리 등), 업체명=고객사(대조용), 품목명=참고, 수량×단가=외주비. 잔여/매출은 건드리지 않음.
+    const importBoostSheet = async (container: ClientContract) => {
+        if (boostSaving) return;
+        const grid = parseTsvGrid(boostSheetText.trim());
+        if (grid.length < 2) {
+            onToast('머리글 아래에 데이터를 붙여넣으세요.');
+            return;
+        }
+        const H = grid[0].map((s) => s.trim());
+        const iQty = findCol(H, ['수량']);
+        const iUnit = findCol(H, ['단가']); // 외주단가
+        const iVendor = findCol(H, ['거래처']); // 외주업체 = 거래처명(리브리/라인업애드)
+        const iProduct = findCol(H, ['품목']); // 품목명(참고 — 회사 매핑 폴백)
+        const iClient = findCol(H, ['업체명', '업체']); // 고객사 대조
+        const iDate = findCol(H, ['일자', '날짜']);
+        if (iQty < 0 || iUnit < 0) {
+            onToast('수량·단가 컬럼을 찾지 못했습니다(머리글 확인).');
+            return;
+        }
+        const myCompany = normCompany(client.company || '');
+        const cleanVendor = (s: string) => s.replace(/주식회사|㈜|\(주\)/g, '').trim();
+        const today = todayStr();
+        let mismatch = 0;
+        const added: RewardWeeklyLog[] = [];
+        for (const c of grid.slice(1)) {
+            const g = (idx: number) => (idx >= 0 ? (c[idx] || '').trim() : '');
+            const qty = Number(onlyDigits(g(iQty))) || 0;
+            const unit = Math.round(num(g(iUnit)));
+            if (qty <= 0 || unit <= 0) continue;
+            // 고객사 대조 — 업체명이 이 계약 고객사와 같아야 등록.
+            if (myCompany && g(iClient) && normCompany(g(iClient)) !== myCompany) {
+                mismatch += 1;
+                continue;
+            }
+            // 외주업체 = 거래처명(회사). 비면 품목명→회사 매핑 폴백.
+            const vendor =
+                cleanVendor(g(iVendor)) ||
+                (g(iProduct) ? vendorFromProduct(productBase(g(iProduct))) : null) ||
+                container.outsource_company ||
+                null;
+            const d = (iDate >= 0 && parseDate(g(iDate))) || today;
+            added.push({
+                at: d,
+                auto: false,
+                count: qty,
+                outUnit: unit,
+                paid: false,
+                vendor,
+                week: isoWeek(new Date(d)),
+            });
+        }
+        if (!added.length) {
+            onToast(
+                mismatch
+                    ? `업체명이 '${client.company}'와 달라 전부 건너뜀(${mismatch}행).`
+                    : '처리할 행이 없습니다(수량·단가 확인).',
+            );
+            return;
+        }
+        const newLogs = [...(container.weekly_logs ?? []), ...added];
+        setBoostSaving(true);
+        // 잔여/매출/받은 외주비는 그대로 — 실제 사용 외주비(진행 이력)만 추가.
+        const { error } = await updateClientContract(container.id, { weekly_logs: newLogs });
+        setBoostSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        const sum = added.reduce((s, l) => s + (l.count || 0) * (l.outUnit || 0), 0);
+        onToast(`${added.length}건 기록 · 실제 사용 외주비 +${fmtWon(sum)}원`);
+        setBoostSheet(null);
+        setBoostSheetText(OUT_SHEET_HEADER + '\n');
         await onReloadContracts();
     };
 
@@ -2590,13 +2670,26 @@ export function ClientDetail({
                                                             {ct.goal_count ?? '—'}건 · {fmtWon(ct.amount || 0)}원
                                                         </div>
                                                     )}
-                                                    <div className="mt-2 rounded-full bg-[#7c3aed] px-3 py-1 text-xs font-bold text-white">
-                                                        + 상품 선택
+                                                    <div className="mt-2 flex items-center gap-1">
+                                                        <div className="rounded-full bg-[#7c3aed] px-3 py-1 text-xs font-bold text-white">
+                                                            + 상품 선택
+                                                        </div>
+                                                        <button
+                                                            className="rounded-full border border-[#7c3aed] bg-white px-2.5 py-1 text-[11px] font-bold text-[#7c3aed] hover:bg-[#f3ecff]"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setBoostSheet(ct);
+                                                            }}
+                                                            title="회차별 진행(외주) 시트 붙여넣기"
+                                                            type="button"
+                                                        >
+                                                            시트 붙여넣기
+                                                        </button>
                                                     </div>
                                                     <div className="mt-1 text-[10px] text-[#94a3b8]">
                                                         {ct.subtype === '종합광고'
                                                             ? '모든 카테고리 상품 추가'
-                                                            : '리워드·영수증 등 추가'}
+                                                            : '상품 추가 · 시트로 회차 진행 기록'}
                                                     </div>
                                                 </div>
                                             );
@@ -2799,6 +2892,46 @@ export function ClientDetail({
                     onReload={onReloadContracts}
                     onToast={onToast}
                 />
+            ) : null}
+            {boostSheet ? (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                    onMouseDown={(e) => e.target === e.currentTarget && setBoostSheet(null)}
+                >
+                    <div className="max-h-[92vh] w-[min(720px,96vw)] overflow-y-auto rounded-2xl bg-white p-5">
+                        <h3 className="m-0 text-base font-bold text-[#0f172a]">
+                            {boostSheet.subtype} · 회차 진행 시트 붙여넣기
+                        </h3>
+                        <p className="mt-1 text-[12px] text-[#64748b]">
+                            각 행 = 그 회차에 진행한 <b>외주 배치 1건</b>. <b>거래처명=외주업체</b>(리브리 등) ·
+                            업체명=고객사(대조) · <b>수량×단가=외주비</b>. 실제 사용 외주비(진행 이력)로만 기록되고
+                            잔여·매출·받은 외주비는 그대로입니다.
+                        </p>
+                        <textarea
+                            className="mt-2 h-56 w-full rounded-lg border border-[#cbd5e1] p-2 font-mono text-[12px]"
+                            onChange={(e) => setBoostSheetText(e.target.value)}
+                            spellCheck={false}
+                            value={boostSheetText}
+                        />
+                        <div className="mt-3 flex justify-end gap-2">
+                            <button
+                                className="rounded-md border border-[#cbd5e1] px-3 py-1.5 text-sm font-semibold text-[#64748b] hover:bg-[#f1f5f9]"
+                                onClick={() => setBoostSheet(null)}
+                                type="button"
+                            >
+                                취소
+                            </button>
+                            <button
+                                className="rounded-md bg-[#7c3aed] px-4 py-1.5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50"
+                                disabled={boostSaving}
+                                onClick={() => void importBoostSheet(boostSheet)}
+                                type="button"
+                            >
+                                진행 기록
+                            </button>
+                        </div>
+                    </div>
+                </div>
             ) : null}
             {editContract ? (
                 <ContractEditModal
