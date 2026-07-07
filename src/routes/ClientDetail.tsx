@@ -310,6 +310,7 @@ function ContractAddModal({
     const [outCompany, setOutCompany] = useState(''); // 외주업체명
     const [blogName, setBlogName] = useState(''); // 브랜드 블로그 이름(관리시트 업체명)
     const [serviceNote, setServiceNote] = useState(''); // 서비스 내용 메모(무슨 서비스인지)
+    const [noVat, setNoVat] = useState(false); // 부가세 없음(현금) — 실매출 VAT 미포함
     const [date, setDate] = useState('');
     const [saving, setSaving] = useState(false);
     const daily = isDailySub(subtype); // 리워드 등 = 일일수량 × 일수
@@ -374,6 +375,7 @@ function ContractAddModal({
                 unit_price: unit.trim() ? Number(onlyDigits(unit)) : null,
                 blog_name: blogName.trim() || null, // 업체명/이름 라벨(전 카테고리 공통, 카드 칩 표시)
                 note: isService && serviceNote.trim() ? serviceNote.trim() : null, // 서비스 내용 메모
+                no_vat: noVat, // 부가세 없음(현금)
             },
         ]);
         setSaving(false);
@@ -665,10 +667,16 @@ function ContractAddModal({
                         </div>
                     ) : null}
                     <div className="rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
-                        실매출(VAT) <span className="text-[#1e40af]">{withVat(amt).toLocaleString('ko-KR')}</span> · 외주{' '}
+                        실매출(VAT){' '}
+                        <span className="text-[#1e40af]">{saleVat(amt, noVat).toLocaleString('ko-KR')}</span> · 외주{' '}
                         <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
                         <span className="text-[#059669]">{(amt - outAmt).toLocaleString('ko-KR')}</span>원
                     </div>
+                    {/* 부가세 없음(현금) — 체크 시 실매출에 VAT 10% 미포함 */}
+                    <label className="flex items-center gap-1.5 text-xs font-semibold text-[#059669]">
+                        <input checked={noVat} onChange={(e) => setNoVat(e.target.checked)} type="checkbox" />
+                        부가세 없음 (현금 — 실매출에 VAT 10% 미포함)
+                    </label>
                     <label className="block text-xs font-semibold text-[#475569]">
                         계약일
                         <input
