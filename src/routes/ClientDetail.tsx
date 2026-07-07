@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ErpClient } from '../api/erp';
 import {
     deleteClientContract,
@@ -23,6 +23,7 @@ import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, todayStr, withVat } from
 import { useAuth } from '../hooks/useAuth';
 import CustomerAccountModal from '../components/CustomerAccountModal';
 import { PlaceUrlField } from '../components/PlaceUrlField';
+import { getCustomerAccount } from '../api/profiles';
 import {
     parseTsvGrid,
     findCol,
@@ -2154,7 +2155,17 @@ export function ClientDetail({
     const [endOpen, setEndOpen] = useState(false); // 상단 계약 종료 모달(히스토리 입력)
     const [endNote, setEndNote] = useState('');
     const [custAcctOpen, setCustAcctOpen] = useState(false); // 고객 ERP 계정 발급 모달
+    const [custAcct, setCustAcct] = useState<{ email: string | null; name: string | null } | null>(null); // 발급된 고객 계정
     const { isAdmin } = useAuth(); // 고객 계정 발급은 관리자만
+    // 이 업체의 고객 ERP 계정 조회 — 있으면 발급 버튼 대신 아이디 표시.
+    const loadCustAcct = async () => {
+        const { data } = await getCustomerAccount(client.id);
+        setCustAcct(data);
+    };
+    useEffect(() => {
+        if (isAdmin) void loadCustAcct();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [client.id, isAdmin]);
     const [breakdown, setBreakdown] = useState<'net' | 'outsource' | 'sales' | null>(null); // 상품별 내역
     const [detailC, setDetailC] = useState<ClientContract | null>(null); // 내역에서 상품 클릭 시 상세
     const [expandedOut, setExpandedOut] = useState<string | null>(null); // 외주비 정산 사용 이력 펼침 대상(계약 id)
@@ -2422,14 +2433,27 @@ export function ClientDetail({
                 </div>
                 <div className="flex-1" />
                 {!confirmDel && isAdmin ? (
-                    <button
-                        className="rounded-md border border-[#7c3aed] bg-white px-3 py-1.5 text-sm font-semibold text-[#7c3aed] hover:bg-[#f5f3ff]"
-                        onClick={() => setCustAcctOpen(true)}
-                        title="이 업체 전용 열람 계정(고객 ERP) 발급"
-                        type="button"
-                    >
-                        고객 ERP 발급
-                    </button>
+                    custAcct ? (
+                        // 이미 발급된 고객 계정 — 발급 버튼 대신 고객 아이디 표시(클릭 시 재발급/비번재설정 모달).
+                        <button
+                            className="rounded-md border border-[#c7d2fe] bg-[#eef2ff] px-3 py-1.5 text-left text-xs font-semibold text-[#4338ca] hover:bg-[#e0e7ff]"
+                            onClick={() => setCustAcctOpen(true)}
+                            title="고객 ERP 계정 — 클릭하면 재발급/비밀번호 재설정"
+                            type="button"
+                        >
+                            <span className="block text-[10px] font-normal text-[#818cf8]">고객 ERP 아이디</span>
+                            {custAcct.email}
+                        </button>
+                    ) : (
+                        <button
+                            className="rounded-md border border-[#7c3aed] bg-white px-3 py-1.5 text-sm font-semibold text-[#7c3aed] hover:bg-[#f5f3ff]"
+                            onClick={() => setCustAcctOpen(true)}
+                            title="이 업체 전용 열람 계정(고객 ERP) 발급"
+                            type="button"
+                        >
+                            고객 ERP 발급
+                        </button>
+                    )
                 ) : null}
                 {!confirmDel && client.status !== '계약종료' ? (
                     <button
@@ -3129,7 +3153,10 @@ export function ClientDetail({
                 <CustomerAccountModal
                     clientId={client.id}
                     companyName={client.company || '고객사'}
-                    onClose={() => setCustAcctOpen(false)}
+                    onClose={() => {
+                        setCustAcctOpen(false);
+                        void loadCustAcct(); // 발급 후 아이디 표시로 전환
+                    }}
                 />
             ) : null}
             {endOpen ? (
