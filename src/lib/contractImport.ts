@@ -64,9 +64,10 @@ const COMPANY_OF: Array<{ keys: string[]; company: string }> = [
     { company: '에이치에스', keys: ['슈퍼뭉치'] },
     { company: '리브리', keys: ['일키', '유입플', '터틀', '막배포', '저인망'] },
     { company: '올스컴퍼니', keys: ['실계'] },
+    { company: '라인업애드', keys: ['라인'] },
 ];
 // 회사 미지정 브랜드(품목명이 이 브랜드면 브랜드명 그대로 → 나중 회사 지정).
-const VENDORS = ['247', '고스트', '저스트', '라인'];
+const VENDORS = ['247', '고스트', '저스트'];
 // 흔한 단어라 부분일치하면 다른 품목(예: '숏폼 마케팅')까지 오탐 → 정확히 일치할 때만 리워드 업체명으로.
 const VENDORS_EXACT = ['마케팅'];
 export const vendorFromProduct = (base: string): string | null => {
