@@ -67,6 +67,7 @@ export function SameDayModal({
     mode = 'publish',
     allPosts = [],
     accounts = [],
+    customerMode = false,
     onClose,
     onToast,
 }: {
@@ -75,6 +76,7 @@ export function SameDayModal({
     mode?: 'publish' | 'rank';
     allPosts?: BlogPost[]; // 전체 글(누적 발송 리스트용 — 모든 날짜 발송분)
     accounts?: BlogAccount[]; // 업체(누적 발송 리스트 업체명 표시용)
+    customerMode?: boolean; // 고객 뷰 — 발송/누적 발송 리스트 탭 숨김(측정 글만)
     onClose: () => void;
     onToast: (m: string) => void;
 }) {
@@ -183,7 +185,10 @@ export function SameDayModal({
                               ['sent', '발송 리스트', rankSentList.length],
                               ['history', '누적 발송 리스트', historyAll.length],
                           ] as const)
-                    ).map(([key, label, n]) => (
+                    )
+                        // 고객 뷰 — 발송/누적 발송 리스트 탭 제거(측정 글만).
+                        .filter(([key]) => !customerMode || key === 'measured')
+                        .map(([key, label, n]) => (
                             <button
                                 key={key}
                                 className={`-mb-px rounded-t-md border-b-2 px-4 py-2 text-sm font-bold ${

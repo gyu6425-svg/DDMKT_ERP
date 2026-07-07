@@ -331,6 +331,7 @@ export function DashboardTab() {
                     mode="publish"
                     allPosts={posts}
                     accounts={accounts}
+                    customerMode={customerMode}
                     onClose={() => setShowSameDay(false)}
                     onToast={onToast}
                 />
@@ -340,6 +341,7 @@ export function DashboardTab() {
                     rows={prevDayRows}
                     dayLabel={mmdd(yesterday)}
                     mode="rank"
+                    customerMode={customerMode}
                     onClose={() => setShowPrevDay(false)}
                     onToast={onToast}
                 />
