@@ -63,24 +63,40 @@ export function SkeletonRankPage({ label }: { label: string }) {
     );
 }
 
-// 플레이스 대시보드 — '순위 트래커' 탭이 실제 PlaceRankTracker(애드로그류). 상위 페이지에서도 탭 표시.
+// 플레이스 대시보드.
+//   · 최상위(?sub 없음) = '순위 트래커'(애드로그류 크롤링 관리) 전용 화면.
+//   · 하위 카테고리(?sub=영수증 리뷰 등) = 대시보드/관리 시트만 — 순위 트래커 없음.
 export function PlaceRankPage() {
     const href = useLocHref();
     const displayLabel = subLabelOf(href, '플레이스 대시보드');
-    const scope = resolveScope(href);
-    const sheet = scope ? (
-        <ContractSheetTab category={scope.category} subtype={scope.subtype} />
-    ) : (
-        <Placeholder name={displayLabel} />
-    );
+    const hasSub = new URLSearchParams(href.split('?')[1] || '').has('sub');
+
+    if (hasSub) {
+        const scope = resolveScope(href);
+        const sheet = scope ? (
+            <ContractSheetTab category={scope.category} subtype={scope.subtype} />
+        ) : (
+            <Placeholder name={displayLabel} />
+        );
+        return (
+            <CategoryShell
+                badge="준비 중"
+                label={displayLabel}
+                tabs={[
+                    { name: '대시보드', el: <Placeholder name={displayLabel} /> },
+                    { name: '관리 시트', el: sheet },
+                    { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" /> },
+                ]}
+            />
+        );
+    }
+
+    // 최상위 플레이스 대시보드 = 순위 트래커(크롤링) 관리 영역.
     return (
         <CategoryShell
-            badge="준비 중"
             forceTabs
-            label={displayLabel}
+            label="플레이스 대시보드"
             tabs={[
-                { name: '대시보드', el: <Placeholder name={displayLabel} /> },
-                { name: '관리 시트', el: sheet },
                 { name: '순위 트래커', el: <PlaceRankTracker /> },
                 { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" /> },
             ]}
