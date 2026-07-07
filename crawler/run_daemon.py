@@ -14,7 +14,7 @@ PY = sys.executable
 CHECK_MIN = 10
 WEEKDAY_INTERVAL_MIN = 30
 WEEKEND_INTERVAL_MIN = 90
-FULL_START, FULL_END = 4, 9      # 전체크롤 시간대(평일만) [04,09)
+FULL_START, FULL_END = 3, 9      # 전체크롤 시간대(평일만) [03,09) — 추적글 전부 측정하려 03시로 앞당김(넉넉하게)
 TODAY_START, TODAY_END = 9, 24   # 당일 글 시간대 [09,24)
 
 
@@ -130,7 +130,9 @@ def _selftest():
     MIN = 60
     cases = [
         # (설명, hour, weekday, full_done, secs_since_today, 기대값)
+        ("평일 03시·전체미완 → full(03시 앞당김)", 3, 0, False, 9999, "full"),
         ("평일 04시·전체미완 → full", 4, 0, False, 9999, "full"),
+        ("새벽 02시대 → idle(03시 전)", 2, 0, False, 9999, "idle"),
         ("평일 08시·전체미완 → full", 8, 2, False, 9999, "full"),
         ("평일 04시·전체완료 → idle", 4, 0, True, 9999, "idle"),
         ("주말(토) 04시 → idle(전체크롤 안함)", 4, 5, False, 9999, "idle"),
