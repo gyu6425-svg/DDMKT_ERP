@@ -61,8 +61,20 @@ const withCommas = (s: string) => (onlyDigits(s) ? Number(onlyDigits(s)).toLocal
 // 상품 상세(진행률) — ClientDetail 카드와 동일 색/계산.
 const progColor = (p: number | null) =>
     p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
-const progOf = (goal: number | null, remain: number | null): number | null =>
-    goal == null || remain == null || goal === 0 ? null : Math.round(((goal - remain) / goal) * 100);
+// 금액 기반 진행률 — 완료 금액(완료건수×단가) ÷ 총금액. 단가·금액 없으면 건수 %로 폴백. 전량 완료=100%.
+const progMoney = (
+    goal: number | null,
+    remain: number | null,
+    amt: number,
+    doneAmt: number,
+): number | null => {
+    if (goal == null || remain == null || goal === 0) return null;
+    if (remain <= 0) return 100;
+    const done = goal - remain;
+    if (done <= 0) return 0;
+    if (amt > 0 && doneAmt > 0) return Math.min(100, Math.round((doneAmt / amt) * 100));
+    return Math.round((done / goal) * 100);
+};
 // 카테고리별 박스 색(연한 배경 + 테두리) — 상품 셀 구분용.
 const CAT_STYLE: Record<string, { bg: string; border: string }> = {
     플레이스: { bg: '#eff6ff', border: '#93c5fd' }, // 파란색
@@ -1100,13 +1112,22 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                 const myCts = clientContracts.filter((ct) => ct.client_id === c.id);
                                 const byCat = new Map<
                                     string,
-                                    Map<string, { goal: number; remain: number; n: number }>
+                                    Map<string, { goal: number; remain: number; n: number; amt: number; doneAmt: number }>
                                 >();
                                 for (const ct of myCts) {
                                     const subs = byCat.get(ct.category) ?? new Map();
-                                    const cur = subs.get(ct.subtype) ?? { goal: 0, remain: 0, n: 0 };
+                                    const cur = subs.get(ct.subtype) ?? {
+                                        amt: 0,
+                                        doneAmt: 0,
+                                        goal: 0,
+                                        n: 0,
+                                        remain: 0,
+                                    };
                                     cur.goal += ct.goal_count ?? 0;
                                     cur.remain += ct.remain_count ?? 0;
+                                    cur.amt += ct.amount ?? 0;
+                                    cur.doneAmt +=
+                                        ((ct.goal_count ?? 0) - (ct.remain_count ?? 0)) * (ct.unit_price ?? 0);
                                     cur.n += 1;
                                     subs.set(ct.subtype, cur);
                                     byCat.set(ct.category, subs);
@@ -1189,7 +1210,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                             {entries.flatMap(([cat, m]) =>
                                                                 [...m.entries()].map(([sub, v]) => {
                                                                     const done = v.goal - v.remain;
-                                                                    const prog = progOf(v.goal, v.remain);
+                                                                    const prog = progMoney(v.goal, v.remain, v.amt, v.doneAmt);
                                                                     // 카테고리별 연한 배경 + 테두리로 박스 구분.
                                                                     const cs = catStyle(cat);
                                                                     return (
@@ -1268,7 +1289,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                                 {entries.flatMap(([cat, m]) =>
                                                                     [...m.entries()].map(([sub, v]) => {
                                                                         const done = v.goal - v.remain;
-                                                                        const prog = progOf(v.goal, v.remain);
+                                                                        const prog = progMoney(v.goal, v.remain, v.amt, v.doneAmt);
                                                                         const cs = catStyle(cat);
                                                                         return (
                                                                             <div

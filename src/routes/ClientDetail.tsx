@@ -136,9 +136,16 @@ type FieldDef = {
     format?: (v: string) => string;
 };
 
+// 금액 기반 진행률 — 완료 금액(완료건수×단가) ÷ 총금액(amount). 단가·금액 없으면 건수 %로 폴백. 전량 완료=100%.
 const progOf = (ct: ClientContract): number | null => {
     if (ct.goal_count == null || ct.remain_count == null || ct.goal_count === 0) return null;
-    return Math.round(((ct.goal_count - ct.remain_count) / ct.goal_count) * 100);
+    if (ct.remain_count <= 0) return 100;
+    const done = ct.goal_count - ct.remain_count;
+    if (done <= 0) return 0;
+    const amt = ct.amount ?? 0;
+    const doneAmt = done * (ct.unit_price ?? 0);
+    if (amt > 0 && doneAmt > 0) return Math.min(100, Math.round((doneAmt / amt) * 100));
+    return Math.round((done / ct.goal_count) * 100);
 };
 
 // ISO 주 키(예: 2026-W27) — 주간 로그 정렬·중복 방지용.
@@ -749,7 +756,16 @@ function ContractEditModal({
     const remainN = Number(remain) || 0;
     const hasGoal = goal.trim() !== '';
     const done = Math.max(0, goalN - remainN);
-    const pct = goalN ? Math.round((done / goalN) * 100) : 0;
+    // 금액 기반 진행률 — 완료금액(완료건수×단가) ÷ 총금액. 단가·금액 없으면 건수 %. 전량 완료=100%.
+    const pct = !goalN
+        ? 0
+        : remainN <= 0
+          ? 100
+          : done <= 0
+            ? 0
+            : (contract.amount ?? 0) > 0 && done * (contract.unit_price ?? 0) > 0
+              ? Math.min(100, Math.round(((done * (contract.unit_price ?? 0)) / (contract.amount ?? 1)) * 100))
+              : Math.round((done / goalN) * 100);
     const imminent = hasGoal && (remainN <= 5 || pct >= 80); // 잔여 5건 이하 또는 진행률 80%↑ → 재계약/종료
     // 리워드(일 단위) — 주간 처리: 추천치 = 일일타수 × 7(잔여로 캡), Σ주간로그가 소진과 일치해야 함.
     const isReward = isDailySub(contract.subtype) || contract.subtype.includes('리워드');
