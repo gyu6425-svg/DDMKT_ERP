@@ -48,6 +48,7 @@ export type ClientContract = {
     sheet_approved?: boolean | null; // 카테고리 관리 시트 승인 여부 — false=신규 등록 건, true=계약 중(승인 버튼)
     boost_round?: number | null; // 상위노출 보장형 회차(1,2,...) — 컨테이너 라벨 옆 표시
     boost_end?: string | null; // 상위노출 보장형 회차 종료일(시작일 = contract_date)
+    parent_id?: string | null; // 컨테이너(상위노출 보장형·종합광고) 하위면 그 컨테이너 계약 id — 회차별 귀속
 };
 
 // clientId 주면 그 고객만. 테이블 미생성 등 오류 시에도 앱이 죽지 않도록 [] 반환.

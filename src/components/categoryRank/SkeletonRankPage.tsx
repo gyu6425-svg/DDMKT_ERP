@@ -83,7 +83,6 @@ export function PlaceRankPage() {
                 badge="준비 중"
                 label={displayLabel}
                 tabs={[
-                    { name: '대시보드', el: <Placeholder name={displayLabel} />, slug: 'dashboard' },
                     { name: '관리 시트', el: sheet, slug: 'sheet' },
                     { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" />, slug: 'crawl' },
                 ]}

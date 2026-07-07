@@ -254,7 +254,7 @@ function ContractAddModal({
     companyName,
     managerName,
     boostPrefix,
-    boostCreatedAt,
+    boostParentId,
     lockCategoryLabel,
     allCategorySubs,
     onClose,
@@ -265,7 +265,7 @@ function ContractAddModal({
     companyName: string;
     managerName: string;
     boostPrefix?: string;
-    boostCreatedAt?: string; // 컨테이너(회차) created_at — 하위를 그 회차 박스로 귀속
+    boostParentId?: string; // 컨테이너(회차) 계약 id — 하위를 그 회차로 귀속(parent_id)
     lockCategoryLabel?: string;
     allCategorySubs?: boolean; // 종합광고 2차: 카테고리 칩 보이고 전 카테고리 상품 선택(계약 category는 lockCategoryLabel로 고정)
     onClose: () => void;
@@ -351,9 +351,9 @@ function ContractAddModal({
                 category: lockCategoryLabel ?? cat.label,
                 client_id: clientId,
                 contract_date: date || null,
-                // 보장형/종합광고 2차: 컨테이너와 created_at 맞춰 그 회차 박스로 귀속.
-                ...(boostPrefix && boostCreatedAt ? { created_at: boostCreatedAt } : {}),
                 goal_count: n,
+                // 보장형/종합광고 2차: 컨테이너 계약으로 명시적 귀속(그 회차 박스).
+                ...(boostParentId ? { parent_id: boostParentId } : {}),
                 outsource: outAmt,
                 outsource_company: outCompany.trim() || null,
                 per_day: daily ? Number(onlyDigits(perDay)) || null : null,
@@ -2144,9 +2144,9 @@ export function ClientDetail({
                 category: container.category, // 컨테이너 카테고리로 고정
                 client_id: container.client_id,
                 contract_date: d,
-                // 이 컨테이너(회차)로 귀속 — created_at을 컨테이너와 맞춰 그 회차 박스에 들어가게.
-                created_at: container.created_at,
                 goal_count: qty,
+                // 이 컨테이너(회차)로 명시적 귀속 — 그 회차 박스에만 들어감.
+                parent_id: container.id,
                 // 받은 외주비 = 0(빈값) — 나중에 카드에서 직접 입력. 시트 값은 '쓴(사용) 외주비'.
                 outsource: 0,
                 outsource_company: vendor,
@@ -2213,10 +2213,23 @@ export function ClientDetail({
 
     // 컨테이너(종합광고·상위노출 보장형) + 그 하위 상품 통째 삭제.
     const deleteContainer = async (parent: ClientContract) => {
+        // 이 컨테이너(회차)와 그 하위만 삭제 — 같은 subtype의 다른 회차 자식은 건드리지 않음.
+        const siblings = contracts
+            .filter((c) => c.category === parent.category && c.subtype === parent.subtype)
+            .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+        const legacyOwner = (child: ClientContract) => {
+            let pick = siblings[0];
+            for (const p of siblings) if ((p.created_at || '') <= (child.created_at || '')) pick = p;
+            return pick?.id;
+        };
         const targets = contracts.filter(
             (c) =>
-                c.category === parent.category &&
-                (c.subtype === parent.subtype || c.subtype.startsWith(parent.subtype + ' · ')),
+                c.id === parent.id ||
+                c.parent_id === parent.id ||
+                (c.category === parent.category &&
+                    c.subtype.startsWith(parent.subtype + ' · ') &&
+                    !c.parent_id &&
+                    legacyOwner(c) === parent.id),
         );
         if (
             !window.confirm(
@@ -2602,7 +2615,11 @@ export function ClientDetail({
                                         });
                                         continue;
                                     }
+                                    // 자식→부모 귀속: parent_id(명시적 링크) 우선. 없으면 레거시 created_at 휴리스틱.
+                                    const parentIds = new Set(parents.map((p) => p.id));
                                     const ownerId = (child: ClientContract) => {
+                                        if (child.parent_id && parentIds.has(child.parent_id))
+                                            return child.parent_id;
                                         let pick = parents[0];
                                         for (const p of parents) {
                                             if ((p.created_at || '') <= (child.created_at || '')) pick = p;
@@ -2931,7 +2948,7 @@ export function ClientDetail({
             {boostAdd ? (
                 <ContractAddModal
                     allCategorySubs={CONTAINER_SUBS.includes(boostAdd.subtype)}
-                    boostCreatedAt={boostAdd.created_at}
+                    boostParentId={boostAdd.id}
                     boostPrefix={`${boostAdd.subtype} · `}
                     clientId={client.id}
                     companyName={client.company || ''}
