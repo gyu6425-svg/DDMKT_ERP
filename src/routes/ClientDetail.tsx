@@ -254,6 +254,7 @@ function ContractAddModal({
     companyName,
     managerName,
     boostPrefix,
+    boostCreatedAt,
     lockCategoryLabel,
     allCategorySubs,
     onClose,
@@ -264,6 +265,7 @@ function ContractAddModal({
     companyName: string;
     managerName: string;
     boostPrefix?: string;
+    boostCreatedAt?: string; // 컨테이너(회차) created_at — 하위를 그 회차 박스로 귀속
     lockCategoryLabel?: string;
     allCategorySubs?: boolean; // 종합광고 2차: 카테고리 칩 보이고 전 카테고리 상품 선택(계약 category는 lockCategoryLabel로 고정)
     onClose: () => void;
@@ -349,6 +351,8 @@ function ContractAddModal({
                 category: lockCategoryLabel ?? cat.label,
                 client_id: clientId,
                 contract_date: date || null,
+                // 보장형/종합광고 2차: 컨테이너와 created_at 맞춰 그 회차 박스로 귀속.
+                ...(boostPrefix && boostCreatedAt ? { created_at: boostCreatedAt } : {}),
                 goal_count: n,
                 outsource: outAmt,
                 outsource_company: outCompany.trim() || null,
@@ -706,6 +710,10 @@ function ContractEditModal({
     const [outSheetText, setOutSheetText] = useState(OUT_SHEET_HEADER + '\n');
     const [outUnitEdit, setOutUnitEdit] = useState(contract.unit_outsource?.toString() ?? ''); // 나중 외주단가 입력
     const [outCompanyEdit, setOutCompanyEdit] = useState(contract.outsource_company ?? ''); // 나중 외주업체 입력
+    // 받은 외주비(직접) — 비면 미설정(외주단가×수량 자동표시). 0이면 '받은 것 없음'.
+    const [outReceivedEdit, setOutReceivedEdit] = useState(
+        contract.outsource != null ? String(contract.outsource) : '',
+    );
     const [weeklyLogs, setWeeklyLogs] = useState<RewardWeeklyLog[]>(contract.weekly_logs ?? []);
     const [weekInput, setWeekInput] = useState(''); // 리워드 주간 처리 타수
     const [weekPaid, setWeekPaid] = useState(false); // 이번 주 입금 처리 여부
@@ -818,13 +826,15 @@ function ContractEditModal({
         await onReload();
     };
 
-    // 나중 외주 입력 — 외주단가·외주업체 저장. 외주비 = 외주단가 × 수량(상세페이지 계산과 동일).
+    // 나중 외주 입력 — 외주단가·외주업체·받은 외주비 저장.
+    //   받은 외주비: 입력하면 그 값, 비우면 미설정(외주단가×수량 자동표시). '쓴 외주비'(진행 이력)와 별개.
     const saveOutsource = async () => {
         if (saving) return;
         const unit = outUnitEdit.trim() ? Math.round(evalNum(outUnitEdit)) : null;
+        const received = outReceivedEdit.trim() ? Math.round(evalNum(outReceivedEdit)) : null;
         setSaving(true);
         const { error } = await updateClientContract(contract.id, {
-            outsource: (unit ?? 0) * goalN,
+            outsource: received, // 받은 외주비(직접) — 비우면 null(단가×수량 자동)
             outsource_company: outCompanyEdit.trim() || null,
             unit_outsource: unit,
         });
@@ -1278,6 +1288,16 @@ function ContractEditModal({
                                         />
                                     </label>
                                 </div>
+                                {/* 받은 외주비(직접) — 업체한테 받은 금액. 안 받았으면 비워두거나 0. '쓴 외주비'와 별개 */}
+                                <label className="mt-1.5 block text-[11px] font-semibold text-[#059669]">
+                                    받은 외주비(원) — 안 받았으면 비워두세요
+                                    <input
+                                        className="mt-0.5 h-9 w-full rounded-md border border-[#bbf7d0] px-2 text-right text-sm"
+                                        onChange={(e) => setOutReceivedEdit(sanitizeExpr(e.target.value))}
+                                        placeholder="받은 외주비(직접 입력)"
+                                        value={displayExpr(outReceivedEdit)}
+                                    />
+                                </label>
                                 {/* 입금 처리/미처리 토글 — 로그에 함께 기록 */}
                                 <div className="mt-2 flex gap-2">
                                     <button
@@ -1407,6 +1427,16 @@ function ContractEditModal({
                                         />
                                     </label>
                                 </div>
+                                {/* 받은 외주비(직접) — 업체한테 받은 금액. 안 받았으면 비워두거나 0. '쓴 외주비'와 별개 */}
+                                <label className="mt-1.5 block text-[11px] font-semibold text-[#059669]">
+                                    받은 외주비(원) — 안 받았으면 비워두세요
+                                    <input
+                                        className="mt-0.5 h-9 w-full rounded-md border border-[#bbf7d0] px-2 text-right text-sm"
+                                        onChange={(e) => setOutReceivedEdit(sanitizeExpr(e.target.value))}
+                                        placeholder="받은 외주비(직접 입력)"
+                                        value={displayExpr(outReceivedEdit)}
+                                    />
+                                </label>
                                 {/* 입금 처리/미처리 토글 */}
                                 <div className="mt-2 flex gap-2">
                                     <button
@@ -2108,17 +2138,36 @@ export function ClientDetail({
             const sub = 'exclude' in mp ? base || '기타' : mp.subtype;
             const vendor = cleanVendor(g(iVendor)) || (base ? vendorFromProduct(base) : null) || null;
             const d = (iDate >= 0 && parseDate(g(iDate))) || today;
+            const d2 = new Date(d);
             rows.push({
                 amount: 0,
                 category: container.category, // 컨테이너 카테고리로 고정
                 client_id: container.client_id,
                 contract_date: d,
+                // 이 컨테이너(회차)로 귀속 — created_at을 컨테이너와 맞춰 그 회차 박스에 들어가게.
+                created_at: container.created_at,
                 goal_count: qty,
+                // 받은 외주비 = 0(빈값) — 나중에 카드에서 직접 입력. 시트 값은 '쓴(사용) 외주비'.
+                outsource: 0,
                 outsource_company: vendor,
                 remain_count: qty,
                 sheet_approved: true,
                 subtype: `${container.subtype} · ${sub}`, // 컨테이너 하위(카드로 표시)
-                unit_outsource: unit || null, // 받은 외주비 = 외주단가×수량 자동
+                unit_outsource: unit || null,
+                // 쓴(사용) 외주비 = 수량×외주단가 → 진행 이력 1건으로 기록.
+                weekly_logs: unit
+                    ? [
+                          {
+                              at: d,
+                              auto: false,
+                              count: qty,
+                              outUnit: unit,
+                              paid: false,
+                              vendor,
+                              week: isoWeek(d2),
+                          },
+                      ]
+                    : [],
             });
         }
         if (!rows.length) {
@@ -2882,6 +2931,7 @@ export function ClientDetail({
             {boostAdd ? (
                 <ContractAddModal
                     allCategorySubs={CONTAINER_SUBS.includes(boostAdd.subtype)}
+                    boostCreatedAt={boostAdd.created_at}
                     boostPrefix={`${boostAdd.subtype} · `}
                     clientId={client.id}
                     companyName={client.company || ''}
@@ -2903,8 +2953,8 @@ export function ClientDetail({
                         </h3>
                         <p className="mt-1 text-[12px] text-[#64748b]">
                             각 행 = 컨테이너 옆 <b>카드 1개</b>로 추가됩니다. <b>거래처명=외주업체</b>(리브리 등) ·
-                            업체명=고객사(대조) · 품목명=상품 · <b>수량=건수 · 단가=외주단가</b>. 받은 외주비는
-                            외주단가×수량으로 자동 표시되며, 세부 값은 각 카드에서 수정하세요.
+                            업체명=고객사(대조) · 품목명=상품 · <b>수량=건수 · 단가=외주단가</b>. 수량×외주단가는{' '}
+                            <b>쓴(사용) 외주비</b>로 기록되고, <b>받은 외주비는 빈값</b>(나중에 각 카드에서 입력).
                         </p>
                         <textarea
                             className="mt-2 h-56 w-full rounded-lg border border-[#cbd5e1] p-2 font-mono text-[12px]"
