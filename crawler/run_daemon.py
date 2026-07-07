@@ -78,9 +78,15 @@ def run_today():
     subprocess.run([PY, "-u", os.path.join(HERE, "crawl_bydate.py"), "1"], cwd=HERE)
 
 
+def run_place():
+    # 플레이스 순위 크롤 — 하루 1회(place_accounts x place_keywords).
+    subprocess.run([PY, "-u", os.path.join(HERE, "place_rank_crawler.py")], cwd=HERE)
+
+
 def main():
     print(f"[{now():%m-%d %H:%M}] 통합 데몬 시작 — 평일 04~09 전체 / 매일 09~24 당일(평일30·주말90분) / 차단확인 10분", flush=True)
     full_done_date = None
+    place_done_date = None
     last_today = 0.0
     while True:
         n = now()
@@ -89,6 +95,15 @@ def main():
             print(f"[{n:%H:%M}] ⚠ 차단 감지 → 대기", flush=True)
             time.sleep(CHECK_MIN * 60)
             continue
+        # 플레이스 순위 크롤 — 매일 1회(09시 이후, 주말 포함). 블로그 전체크롤 창(04~09)과 분리.
+        if n.hour >= 9 and place_done_date != n.date().isoformat():
+            wait_other_crawl()
+            print(f"[{n:%H:%M}] === 플레이스 순위 크롤 ===", flush=True)
+            try:
+                run_place()
+            except Exception as exc:
+                print(f"[{n:%H:%M}] 플레이스크롤 오류: {exc}", flush=True)
+            place_done_date = n.date().isoformat()
         full_done = (full_done_date == n.date().isoformat())
         action = decide(n.hour, n.weekday(), full_done, time.time() - last_today)
         if action == "full":
