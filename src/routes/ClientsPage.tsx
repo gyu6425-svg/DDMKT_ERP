@@ -567,8 +567,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
 
 
     const saveClient = async (force = false) => {
-        if (!form.manager.trim()) {
-            showToast('담당자를 입력해주세요');
+        // 담당자는 선택 — 업체명만 있으면 등록 가능.
+        if (!form.company.trim()) {
+            showToast('업체명을 입력해주세요');
             return;
         }
         // 신규 등록 시 업체명 중복 차단 — 전체(allClients) 기준. 매칭되면 안내 모달 → 기존 상세로 유도.

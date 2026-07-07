@@ -194,10 +194,16 @@ export type ParsedClient = {
 
 const FIELD_MAP: Record<string, keyof ParsedClient> = {
     업체명: 'company',
+    업체: 'company',
     상호명: 'company',
+    상호: 'company',
     회사명: 'company',
+    회사: 'company',
+    거래처명: 'company',
+    거래처: 'company',
     담당자: 'manager',
     담당자명: 'manager',
+    담당: 'manager',
     이름: 'manager',
     성함: 'manager',
     연락처: 'contact',
@@ -205,9 +211,14 @@ const FIELD_MAP: Record<string, keyof ParsedClient> = {
     핸드폰: 'contact',
     휴대폰: 'contact',
     전화: 'contact',
+    폰: 'contact',
+    번호: 'contact',
+    연락: 'contact',
     이메일: 'email',
     email: 'email',
     'e-mail': 'email',
+    'e-메일': 'email',
+    이메일주소: 'email',
     메일: 'email',
     마케팅상품: 'product',
     '마케팅 상품': 'product',
@@ -229,6 +240,24 @@ const FIELD_MAP: Record<string, keyof ParsedClient> = {
 };
 
 const MULTILINE: Record<string, boolean> = { inquiry: true };
+
+// 라벨 텍스트 → 필드. 콤마/슬래시로 여러 표기를 적어도(예: "이메일,e-mail") 인식, 대소문자 무시.
+function fieldForLabel(labelText: string): keyof ParsedClient | null {
+    for (const token of (labelText || '').toLowerCase().split(/[,/·|、]/)) {
+        const t = token.trim();
+        if (!t) continue;
+        for (const k in FIELD_MAP) {
+            if (t === k.toLowerCase()) return FIELD_MAP[k];
+        }
+    }
+    return null;
+}
+// 다음 줄이 '새 라벨'인지(값 수집 종료 판정) — 라벨 단독 또는 '라벨: 값' 형태.
+function looksLikeLabel(line: string): boolean {
+    if (fieldForLabel(line)) return true;
+    const c = line.indexOf(':');
+    return c > 0 && fieldForLabel(line.slice(0, c)) != null;
+}
 
 // 카카오·메일 등 붙여넣은 텍스트를 필드로 자동 분리
 export function parsePaste(text: string): ParsedClient {
@@ -294,52 +323,35 @@ export function parsePaste(text: string): ParsedClient {
         const colon = line.indexOf(':');
 
         if (colon > 0) {
-            const key = line.slice(0, colon).trim().toLowerCase();
-            for (const k in FIELD_MAP) {
-                if (key === k.toLowerCase()) {
-                    matched = FIELD_MAP[k];
-                    value = line.slice(colon + 1).trim();
-                    isML = MULTILINE[matched] || false;
-                    break;
-                }
+            const field = fieldForLabel(line.slice(0, colon));
+            if (field) {
+                matched = field;
+                value = line.slice(colon + 1).trim();
+                isML = MULTILINE[matched] || false;
             }
         }
 
         if (!matched) {
-            const lower = line.toLowerCase();
-            for (const k in FIELD_MAP) {
-                if (lower === k.toLowerCase()) {
-                    matched = FIELD_MAP[k];
-                    isML = MULTILINE[matched] || false;
-                    const vals: string[] = [];
-                    let j = i + 1;
-                    while (j < lines.length) {
-                        const next = lines[j];
-                        if (!next) {
-                            j += 1;
-                            if (!isML) break;
-                            continue;
-                        }
-                        let isLabel = false;
-                        const nextLow = next.toLowerCase();
-                        for (const k2 in FIELD_MAP) {
-                            if (
-                                nextLow === k2.toLowerCase() ||
-                                nextLow.indexOf(`${k2.toLowerCase()}:`) === 0
-                            ) {
-                                isLabel = true;
-                                break;
-                            }
-                        }
-                        if (isLabel) break;
-                        vals.push(next);
+            const field = fieldForLabel(line); // 라벨 단독(콤마 표기 포함) → 다음 줄이 값
+            if (field) {
+                matched = field;
+                isML = MULTILINE[matched] || false;
+                const vals: string[] = [];
+                let j = i + 1;
+                while (j < lines.length) {
+                    const next = lines[j];
+                    if (!next) {
                         j += 1;
                         if (!isML) break;
+                        continue;
                     }
-                    value = vals.join('\n').trim();
-                    i = j - 1;
-                    break;
+                    if (looksLikeLabel(next)) break; // 다음 라벨 만나면 값 수집 종료
+                    vals.push(next);
+                    j += 1;
+                    if (!isML) break;
                 }
+                value = vals.join('\n').trim();
+                i = j - 1;
             }
         }
 
