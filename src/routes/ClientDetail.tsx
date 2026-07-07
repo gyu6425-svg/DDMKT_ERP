@@ -719,7 +719,7 @@ function ContractEditModal({
     const [weekPaid, setWeekPaid] = useState(false); // 이번 주 입금 처리 여부
     const [editLog, setEditLog] = useState<{ idx: number; value: string } | null>(null); // 진행 이력 타수 수정
     const [amount] = useState(contract.amount?.toString() ?? '');
-    const [date] = useState(contract.contract_date ?? '');
+    const [date, setDate] = useState(contract.contract_date ?? '');
     const [note, setNote] = useState(contract.note ?? '');
     const [saving, setSaving] = useState(false);
     const [confirmDel, setConfirmDel] = useState(false);
@@ -844,6 +844,19 @@ function ContractEditModal({
             return;
         }
         onToast('외주 정보 저장됨');
+        await onReload();
+    };
+
+    // 계약일자 수정 — 상세페이지에서 바로 변경.
+    const saveDate = async (v: string) => {
+        if (saving || v === (contract.contract_date ?? '')) return;
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, { contract_date: v || null });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
         await onReload();
     };
 
@@ -1176,6 +1189,18 @@ function ContractEditModal({
                 <h3 className="m-0 text-lg font-bold">
                     {contract.category} · {contract.subtype}
                 </h3>
+
+                {/* 계약일자 — 상세페이지에서 바로 수정 */}
+                <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-[#475569]">
+                    계약일자
+                    <input
+                        className="h-8 rounded-md border border-[#cbd5e1] px-2 text-sm"
+                        onChange={(e) => setDate(e.target.value)}
+                        onBlur={(e) => void saveDate(e.target.value)}
+                        type="date"
+                        value={date}
+                    />
+                </label>
 
                 {/* 진행률 — 1건 완료로 잔여 감소(자동 반영) */}
                 {hasGoal ? (
