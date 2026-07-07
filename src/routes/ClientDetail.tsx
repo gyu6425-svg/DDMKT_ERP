@@ -31,6 +31,7 @@ import {
     normCompany,
     vendorFromProduct,
     productBase,
+    mapProduct,
 } from '../lib/contractImport';
 import { ContractPasteAddModal } from './ContractPasteAddModal';
 
@@ -2066,9 +2067,9 @@ export function ClientDetail({
         await onReloadContracts();
     };
 
-    // 상위노출 보장형 회차 시트 붙여넣기 — 각 행 = 그 회차에 진행한 외주 배치 1건.
-    //   타수/일수·판매현황이 없는 상품이라, 여기 붙여넣은 값은 '실제 사용 외주비'(진행 이력)로만 기록.
-    //   컬럼: 거래처명=외주업체(리브리 등), 업체명=고객사(대조용), 품목명=참고, 수량×단가=외주비. 잔여/매출은 건드리지 않음.
+    // 상위노출 보장형 회차 시트 붙여넣기 — 각 행 = 컨테이너 옆 자식 카드 1개(구매 배치).
+    //   컬럼: 거래처명=외주업체(리브리 등), 업체명=고객사(대조), 품목명=상품(→세부유형), 수량=건수, 단가=외주단가.
+    //   외주비 합계(받은)는 외주단가×수량으로 자동 표시 — 세부 값은 각 카드에서 직접 수정.
     const importBoostSheet = async (container: ClientContract) => {
         if (boostSaving) return;
         const grid = parseTsvGrid(boostSheetText.trim());
@@ -2080,7 +2081,7 @@ export function ClientDetail({
         const iQty = findCol(H, ['수량']);
         const iUnit = findCol(H, ['단가']); // 외주단가
         const iVendor = findCol(H, ['거래처']); // 외주업체 = 거래처명(리브리/라인업애드)
-        const iProduct = findCol(H, ['품목']); // 품목명(참고 — 회사 매핑 폴백)
+        const iProduct = findCol(H, ['품목']); // 품목명 → 세부유형
         const iClient = findCol(H, ['업체명', '업체']); // 고객사 대조
         const iDate = findCol(H, ['일자', '날짜']);
         if (iQty < 0 || iUnit < 0) {
@@ -2091,53 +2092,51 @@ export function ClientDetail({
         const cleanVendor = (s: string) => s.replace(/주식회사|㈜|\(주\)/g, '').trim();
         const today = todayStr();
         let mismatch = 0;
-        const added: RewardWeeklyLog[] = [];
+        const rows: Array<Partial<ClientContract>> = [];
         for (const c of grid.slice(1)) {
             const g = (idx: number) => (idx >= 0 ? (c[idx] || '').trim() : '');
             const qty = Number(onlyDigits(g(iQty))) || 0;
             const unit = Math.round(num(g(iUnit)));
-            if (qty <= 0 || unit <= 0) continue;
+            if (qty <= 0) continue;
             // 고객사 대조 — 업체명이 이 계약 고객사와 같아야 등록.
             if (myCompany && g(iClient) && normCompany(g(iClient)) !== myCompany) {
                 mismatch += 1;
                 continue;
             }
-            // 외주업체 = 거래처명(회사). 비면 품목명→회사 매핑 폴백.
-            const vendor =
-                cleanVendor(g(iVendor)) ||
-                (g(iProduct) ? vendorFromProduct(productBase(g(iProduct))) : null) ||
-                container.outsource_company ||
-                null;
+            const base = productBase(g(iProduct));
+            const mp = mapProduct(base, unit);
+            const sub = 'exclude' in mp ? base || '기타' : mp.subtype;
+            const vendor = cleanVendor(g(iVendor)) || (base ? vendorFromProduct(base) : null) || null;
             const d = (iDate >= 0 && parseDate(g(iDate))) || today;
-            added.push({
-                at: d,
-                auto: false,
-                count: qty,
-                outUnit: unit,
-                paid: false,
-                vendor,
-                week: isoWeek(new Date(d)),
+            rows.push({
+                amount: 0,
+                category: container.category, // 컨테이너 카테고리로 고정
+                client_id: container.client_id,
+                contract_date: d,
+                goal_count: qty,
+                outsource_company: vendor,
+                remain_count: qty,
+                sheet_approved: true,
+                subtype: `${container.subtype} · ${sub}`, // 컨테이너 하위(카드로 표시)
+                unit_outsource: unit || null, // 받은 외주비 = 외주단가×수량 자동
             });
         }
-        if (!added.length) {
+        if (!rows.length) {
             onToast(
                 mismatch
                     ? `업체명이 '${client.company}'와 달라 전부 건너뜀(${mismatch}행).`
-                    : '처리할 행이 없습니다(수량·단가 확인).',
+                    : '처리할 행이 없습니다(수량 확인).',
             );
             return;
         }
-        const newLogs = [...(container.weekly_logs ?? []), ...added];
         setBoostSaving(true);
-        // 잔여/매출/받은 외주비는 그대로 — 실제 사용 외주비(진행 이력)만 추가.
-        const { error } = await updateClientContract(container.id, { weekly_logs: newLogs });
+        const { error } = await insertClientContracts(rows);
         setBoostSaving(false);
         if (error) {
             onToast(`오류: ${error.message}`);
             return;
         }
-        const sum = added.reduce((s, l) => s + (l.count || 0) * (l.outUnit || 0), 0);
-        onToast(`${added.length}건 기록 · 실제 사용 외주비 +${fmtWon(sum)}원`);
+        onToast(`${rows.length}개 카드 추가됨`);
         setBoostSheet(null);
         setBoostSheetText(OUT_SHEET_HEADER + '\n');
         await onReloadContracts();
@@ -2903,9 +2902,9 @@ export function ClientDetail({
                             {boostSheet.subtype} · 회차 진행 시트 붙여넣기
                         </h3>
                         <p className="mt-1 text-[12px] text-[#64748b]">
-                            각 행 = 그 회차에 진행한 <b>외주 배치 1건</b>. <b>거래처명=외주업체</b>(리브리 등) ·
-                            업체명=고객사(대조) · <b>수량×단가=외주비</b>. 실제 사용 외주비(진행 이력)로만 기록되고
-                            잔여·매출·받은 외주비는 그대로입니다.
+                            각 행 = 컨테이너 옆 <b>카드 1개</b>로 추가됩니다. <b>거래처명=외주업체</b>(리브리 등) ·
+                            업체명=고객사(대조) · 품목명=상품 · <b>수량=건수 · 단가=외주단가</b>. 받은 외주비는
+                            외주단가×수량으로 자동 표시되며, 세부 값은 각 카드에서 수정하세요.
                         </p>
                         <textarea
                             className="mt-2 h-56 w-full rounded-lg border border-[#cbd5e1] p-2 font-mono text-[12px]"
@@ -2927,7 +2926,7 @@ export function ClientDetail({
                                 onClick={() => void importBoostSheet(boostSheet)}
                                 type="button"
                             >
-                                진행 기록
+                                카드 추가
                             </button>
                         </div>
                     </div>
