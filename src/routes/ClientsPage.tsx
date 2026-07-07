@@ -2341,6 +2341,19 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     ) : null}
                                 </button>
                             ))}
+                            {/* 계약 종료 — 종료 탭으로 이동(계약행은 보존). */}
+                            <button
+                                className={`mt-1 flex items-center justify-between rounded-md border px-4 py-2.5 text-left text-sm font-semibold ${
+                                    stageClient.status === ENDED_STATUS
+                                        ? 'border-[#dc2626] bg-[#fef2f2] text-[#dc2626]'
+                                        : 'border-[#fecaca] text-[#dc2626] hover:bg-[#fef2f2]'
+                                }`}
+                                onClick={() => void changeStatus(stageClient, ENDED_STATUS)}
+                                type="button"
+                            >
+                                계약 종료
+                                <span className="text-[11px] font-normal text-[#94a3b8]">→ 종료 탭으로</span>
+                            </button>
                         </div>
                         <div className="mt-4 flex justify-end">
                             <Button
