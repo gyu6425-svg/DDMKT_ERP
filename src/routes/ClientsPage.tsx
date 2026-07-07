@@ -340,10 +340,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         window.setTimeout(() => setToast(''), 2500);
     };
 
-    // 등록일 정렬키 — 계약 contract_date 중 가장 이른 것(없으면 생성일). 'YYYY-MM-DD…'라 문자열 비교로 날짜순.
+    // 등록일 정렬키 — (월 필터 시 그 달) 계약 contract_date 중 가장 이른 것. 없으면 생성일.
     const regKey = (client: ErpClient) => {
-        const cs = clientContracts
-            .filter((ct) => ct.client_id === client.id && ct.contract_date)
+        const cs = scopeMonth(
+            clientContracts.filter((ct) => ct.client_id === client.id && ct.contract_date),
+        )
             .map((ct) => ct.contract_date as string)
             .sort();
         return cs.length ? cs[0] : client.created_at || '';
@@ -1121,8 +1122,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         ? c.history[0].text
                                         : '--';
                                 // 등록일 = 시트 일자(계약 중 가장 이른 contract_date) 우선, 없으면 생성일.
-                                const cds = clientContracts
-                                    .filter((ct) => ct.client_id === c.id && ct.contract_date)
+                                //   월 필터 시 그 달 계약 기준(6월이면 6월 첫 계약일).
+                                const cds = scopeMonth(
+                                    clientContracts.filter((ct) => ct.client_id === c.id && ct.contract_date),
+                                )
                                     .map((ct) => ct.contract_date as string)
                                     .sort();
                                 // 표기 통일 — 계약일 우선, 없으면 생성일 모두 YYYY-MM-DD.
