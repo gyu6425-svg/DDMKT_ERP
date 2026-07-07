@@ -58,13 +58,22 @@ export function parseTsvGrid(text: string): string[][] {
 export const SALES_HEADER =
     '일자-No.\t회계전표일자-No.\t거래처명\t품목명(규격)\t업체명\t수량\t단가\t공급가액\t부가세\t합계\t외주비\t순매출\t사원(담당)명';
 
-// 알려진 외주업체·리워드 업체명(품목명이 이 브랜드면 외주업체명 자동 기입 → 카드 우측 배지).
-//   그 외 품목은 외주업체 공란(나중 입력).
-const VENDORS = ['슈퍼뭉치', '저인망', '247', '고스트', '저스트', '라인', '실계'];
+// 외주업체(회사)명 — 품목(상품 브랜드)이 속한 회사. 카드 우측 배지에 '회사명'으로 표시.
+//   세부유형(리워드/브랜드배포 등)이 별도로 표시되므로 회사명만 있으면 충분(예: 리브리 안에 여러 상품).
+const COMPANY_OF: Array<{ keys: string[]; company: string }> = [
+    { company: '에이치에스', keys: ['슈퍼뭉치'] },
+    { company: '리브리', keys: ['일키', '유입플', '터틀', '막배포', '저인망'] },
+    { company: '올스컴퍼니', keys: ['실계'] },
+];
+// 회사 미지정 브랜드(품목명이 이 브랜드면 브랜드명 그대로 → 나중 회사 지정).
+const VENDORS = ['247', '고스트', '저스트', '라인'];
 // 흔한 단어라 부분일치하면 다른 품목(예: '숏폼 마케팅')까지 오탐 → 정확히 일치할 때만 리워드 업체명으로.
 const VENDORS_EXACT = ['마케팅'];
 export const vendorFromProduct = (base: string): string | null => {
     const b = (base || '').trim();
+    for (const { keys, company } of COMPANY_OF) {
+        if (keys.some((k) => b.includes(k))) return company;
+    }
     if (VENDORS_EXACT.includes(b)) return b;
     for (const v of VENDORS) {
         if (b === v || b.includes(v)) return v;
