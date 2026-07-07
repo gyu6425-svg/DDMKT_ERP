@@ -724,6 +724,7 @@ function ContractEditModal({
     const [weeklyLogs, setWeeklyLogs] = useState<RewardWeeklyLog[]>(contract.weekly_logs ?? []);
     const [weekInput, setWeekInput] = useState(''); // 리워드 주간 처리 타수
     const [weekPaid, setWeekPaid] = useState(false); // 이번 주 입금 처리 여부
+    const [weekNoTax, setWeekNoTax] = useState(false); // 세금계산서 미발행 체크(기본=발행)
     const [editLog, setEditLog] = useState<{ idx: number; value: string } | null>(null); // 진행 이력 타수 수정
     const [amount] = useState(contract.amount?.toString() ?? '');
     const [date, setDate] = useState(contract.contract_date ?? '');
@@ -894,6 +895,7 @@ function ContractEditModal({
             count: applied,
             outUnit: unit,
             paid: weekPaid,
+            tax: !weekNoTax, // 기본 발행, 미발행 체크 시 false
             vendor,
             week: isoWeek(new Date()),
         };
@@ -901,6 +903,7 @@ function ContractEditModal({
         setRemain(String(next));
         setWeekInput('');
         setWeekPaid(false);
+        setWeekNoTax(false);
         setSaving(true);
         // 1) 잔여 + 외주단가/외주업체 저장 — 실패 시 롤백.
         //    외주비 합계(받은 외주비)는 '계약 추가' 때 설정한 값으로만 고정. 진행 처리 입력은 실제 사용 외주비(이력)로만 집계.
@@ -1051,6 +1054,22 @@ function ContractEditModal({
     const toggleLogPaid = async (i: number) => {
         if (saving) return;
         const newLogs = weeklyLogs.map((l, j) => (j === i ? { ...l, paid: !l.paid } : l));
+        setWeeklyLogs(newLogs);
+        setSaving(true);
+        const { error } = await updateClientContract(contract.id, { weekly_logs: newLogs });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            setWeeklyLogs(weeklyLogs);
+        } else {
+            await onReload();
+        }
+    };
+
+    // 진행 이력의 세금계산서 발행/미발행 토글(기본 발행). tax !== false = 발행.
+    const toggleLogTax = async (i: number) => {
+        if (saving) return;
+        const newLogs = weeklyLogs.map((l, j) => (j === i ? { ...l, tax: l.tax === false } : l));
         setWeeklyLogs(newLogs);
         setSaving(true);
         const { error } = await updateClientContract(contract.id, { weekly_logs: newLogs });
@@ -1366,6 +1385,15 @@ function ContractEditModal({
                                         입금 미처리
                                     </button>
                                 </div>
+                                {/* 세금계산서 — 기본 발행. 체크하면 이번 배치는 미발행으로 기록 */}
+                                <label className="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-[#b45309]">
+                                    <input
+                                        checked={weekNoTax}
+                                        onChange={(e) => setWeekNoTax(e.target.checked)}
+                                        type="checkbox"
+                                    />
+                                    세금계산서 미발행 (체크 안 하면 발행으로 기록)
+                                </label>
                                 <div className="mt-2 text-[11px] font-bold text-[#1e40af]">이번 주 처리 타수</div>
                                 <div className="mt-1 flex items-center gap-1.5">
                                     <input
@@ -1505,6 +1533,15 @@ function ContractEditModal({
                                         입금 미처리
                                     </button>
                                 </div>
+                                {/* 세금계산서 — 기본 발행. 체크하면 이번 배치는 미발행으로 기록 */}
+                                <label className="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-[#b45309]">
+                                    <input
+                                        checked={weekNoTax}
+                                        onChange={(e) => setWeekNoTax(e.target.checked)}
+                                        type="checkbox"
+                                    />
+                                    세금계산서 미발행 (체크 안 하면 발행으로 기록)
+                                </label>
                                 {/* 되돌리기 — +1건 완료 제거(수기 입력으로 처리). 마지막 기록 취소용만 유지 */}
                                 <div className="mt-2">
                                     <button
@@ -1602,6 +1639,19 @@ function ContractEditModal({
                                                     type="button"
                                                 >
                                                     {l.paid ? '처리' : '미처리'}
+                                                </button>
+                                                <button
+                                                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                                        l.tax === false
+                                                            ? 'bg-[#fef3c7] text-[#b45309]'
+                                                            : 'bg-[#e0e7ff] text-[#4338ca]'
+                                                    }`}
+                                                    disabled={saving}
+                                                    onClick={() => void toggleLogTax(i)}
+                                                    title="클릭해서 세금계산서 발행/미발행 전환"
+                                                    type="button"
+                                                >
+                                                    {l.tax === false ? '계산서 미발행' : '계산서 발행'}
                                                 </button>
                                                 <span className="rounded bg-[#dbeafe] px-1.5 py-0.5 text-[11px] font-bold text-[#1e40af]">
                                                     {isReward ? `${i + 1}주차` : `${i + 1}회`}

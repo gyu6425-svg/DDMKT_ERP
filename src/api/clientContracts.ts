@@ -23,6 +23,7 @@ export type RewardWeeklyLog = {
     outUnit?: number | null; // 그 주 외주단가(입력값) → 외주비 = count × outUnit
     vendor?: string | null; // 그 주 외주업체명
     paid?: boolean; // 입금 처리 여부(true=처리, false=미처리)
+    tax?: boolean; // 세금계산서 발행 여부(true=발행, false=미발행)
 };
 
 // 고객사 계약 내역(카테고리/세부유형별 건수 계약). client_contracts 테이블(docs/client-contracts.sql).
