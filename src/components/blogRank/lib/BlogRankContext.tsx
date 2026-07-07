@@ -139,6 +139,26 @@ export function BlogRankProvider({ children, customerMode = false }: { children:
         }
     }, [isAllowed]);
 
+    // 크롤 결과 자동 반영 — 탭을 다시 보거나(가시성 복귀) 창 포커스 시 재조회(수동 새로고침 없이 우측 순위 최신화).
+    //   너무 잦은 재조회 방지: 마지막 로드 후 60초 지났을 때만.
+    useEffect(() => {
+        if (!isAllowed) return;
+        let last = Date.now();
+        const maybeReload = () => {
+            if (document.visibilityState !== 'visible') return;
+            if (Date.now() - last < 60_000) return;
+            last = Date.now();
+            void reload();
+        };
+        window.addEventListener('focus', maybeReload);
+        document.addEventListener('visibilitychange', maybeReload);
+        return () => {
+            window.removeEventListener('focus', maybeReload);
+            document.removeEventListener('visibilitychange', maybeReload);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isAllowed]);
+
     const value: BlogRankCtx = {
         isAdmin,
         authLoading,
