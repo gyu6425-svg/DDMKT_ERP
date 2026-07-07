@@ -246,6 +246,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [dateSort, setDateSort] = useState<null | 'asc' | 'desc'>(null); // 등록일 정렬(헤더 클릭)
     // 계약 진행 단계 변경 대상(5단계 선택 모달).
     const [stageClient, setStageClient] = useState<ErpClient | null>(null);
+    // 계약 종료(사유 입력) 대상 — 신규 등록 건에서 종료 시.
+    const [endTarget, setEndTarget] = useState<ErpClient | null>(null);
+    const [endReason, setEndReason] = useState('');
     // 재계약 임박 KPI 상세 펼침(기본 접힘 — 건수만).
     const [showImminent, setShowImminent] = useState(false);
     const [outsourceClient, setOutsourceClient] = useState<string | null>(null); // 잔여 외주비 상세 대상 client_id
@@ -541,6 +544,29 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         showToast('승인됨 → 계약 중');
         await refresh();
         openDetail(client.id); // 승인하면 그 업체 상세페이지로 이동
+    };
+
+    // 계약 종료(사유 필수) — 상태를 '계약종료'로 + 히스토리에 사유 기록(고객사 관리 계약 종료로 남음).
+    const confirmEndContract = async () => {
+        if (!endTarget) return;
+        const reason = endReason.trim();
+        if (!reason) {
+            showToast('종료 사유를 입력해주세요');
+            return;
+        }
+        const prev = Array.isArray(endTarget.history) ? endTarget.history : [];
+        const { error } = await updateClient(endTarget.id, {
+            status: ENDED_STATUS,
+            history: [{ date: todayStr(), text: `계약 종료 사유: ${reason}` }, ...prev],
+        });
+        if (error) {
+            showToast(`오류: ${error.message}`);
+            return;
+        }
+        setEndTarget(null);
+        setEndReason('');
+        showToast('계약 종료 처리됨 (고객사 관리 · 계약 종료)');
+        await refresh();
     };
 
     // 상태 변경(계약 진행 단계 선택 / 계약 종료 처리 공용).
@@ -1477,13 +1503,25 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         <td className="px-3 py-2">
                                             <div className="flex gap-1 whitespace-nowrap">
                                                 {contractsOnly && !c.contract_approved && can(DUTIES.CONTRACT_APPROVE) ? (
-                                                    <Button
-                                                        className="rounded bg-[#1e40af] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#1e3a8a]"
-                                                        onClick={() => void approveContract(c)}
-                                                        type="button"
-                                                    >
-                                                        승인
-                                                    </Button>
+                                                    <>
+                                                        <Button
+                                                            className="rounded bg-[#1e40af] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#1e3a8a]"
+                                                            onClick={() => void approveContract(c)}
+                                                            type="button"
+                                                        >
+                                                            승인
+                                                        </Button>
+                                                        <Button
+                                                            className="rounded border border-[#dc2626] px-2 py-1 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
+                                                            onClick={() => {
+                                                                setEndTarget(c);
+                                                                setEndReason('');
+                                                            }}
+                                                            type="button"
+                                                        >
+                                                            계약 종료
+                                                        </Button>
+                                                    </>
                                                 ) : null}
                                                 {!contractsOnly && clientTab === 'pending' ? (
                                                     <Button
@@ -2324,6 +2362,46 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                 type="button"
                             >
                                 그래도 등록
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
+            {endTarget ? (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                    onClick={(e) => e.target === e.currentTarget && setEndTarget(null)}
+                >
+                    <div className="w-[min(420px,94vw)] rounded-[8px] bg-white p-6">
+                        <h3 className="m-0 text-lg font-bold text-[#0f172a]">
+                            {endTarget.company || '고객사'} · 계약 종료
+                        </h3>
+                        <p className="mt-1 text-sm text-[#64748b]">
+                            종료 사유를 입력하세요. 이 기록은 <b>고객사 관리 · 계약 종료</b>에 남습니다.
+                        </p>
+                        <textarea
+                            autoFocus
+                            className="mt-3 h-24 w-full rounded-md border border-[#cbd5e1] p-2 text-sm"
+                            onChange={(e) => setEndReason(e.target.value)}
+                            placeholder="예: 고객 예산 축소로 진행 보류"
+                            value={endReason}
+                        />
+                        <div className="mt-4 flex justify-end gap-2">
+                            <Button
+                                className="rounded-md border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold text-[#64748b] hover:bg-[#f1f5f9]"
+                                onClick={() => setEndTarget(null)}
+                                type="button"
+                            >
+                                취소
+                            </Button>
+                            <Button
+                                className="rounded-md bg-[#dc2626] px-4 py-2 text-sm font-bold text-white hover:bg-[#b91c1c] disabled:opacity-50"
+                                disabled={!endReason.trim()}
+                                onClick={() => void confirmEndContract()}
+                                type="button"
+                            >
+                                계약 종료
                             </Button>
                         </div>
                     </div>
