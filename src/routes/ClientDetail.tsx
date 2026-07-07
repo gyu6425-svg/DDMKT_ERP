@@ -22,6 +22,7 @@ import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
 import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, todayStr, withVat } from '../lib/erpUtils';
 import { useAuth } from '../hooks/useAuth';
 import CustomerAccountModal from '../components/CustomerAccountModal';
+import { PlaceUrlField } from '../components/PlaceUrlField';
 import {
     parseTsvGrid,
     findCol,
@@ -2376,6 +2377,9 @@ export function ClientDetail({
                     <div className="text-[11px] text-[#94a3b8]">외주비 내역 없음</div>
                 )}
             </div>
+
+            {/* 플레이스 순위 URL — 계약 관리 홈페이지 URL과 별개. 순위 트래커에 연결 */}
+            <PlaceUrlField clientId={client.id} clientName={client.company || ''} />
 
             {/* 계약 내역 — 카테고리별 세부유형(건수·진행률·금액) */}
             <div className="flex items-center gap-2">
