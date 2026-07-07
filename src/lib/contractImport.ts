@@ -65,17 +65,18 @@ const COMPANY_OF: Array<{ keys: string[]; company: string }> = [
     { company: '리브리', keys: ['일키', '유입플', '터틀', '막배포', '저인망'] },
     { company: '올스컴퍼니', keys: ['실계'] },
     { company: '라인업애드', keys: ['라인'] },
+    { company: '마녀마케팅', keys: ['츄잉'] },
 ];
+// 정확히 일치할 때만 회사로(부분일치하면 '숏폼 마케팅' 등 오탐 → exact only).
+const COMPANY_EXACT: Record<string, string> = { 마케팅: '마녀마케팅' };
 // 회사 미지정 브랜드(품목명이 이 브랜드면 브랜드명 그대로 → 나중 회사 지정).
 const VENDORS = ['247', '고스트', '저스트'];
-// 흔한 단어라 부분일치하면 다른 품목(예: '숏폼 마케팅')까지 오탐 → 정확히 일치할 때만 리워드 업체명으로.
-const VENDORS_EXACT = ['마케팅'];
 export const vendorFromProduct = (base: string): string | null => {
     const b = (base || '').trim();
     for (const { keys, company } of COMPANY_OF) {
         if (keys.some((k) => b.includes(k))) return company;
     }
-    if (VENDORS_EXACT.includes(b)) return b;
+    if (COMPANY_EXACT[b]) return COMPANY_EXACT[b];
     for (const v of VENDORS) {
         if (b === v || b.includes(v)) return v;
     }
@@ -108,8 +109,8 @@ export function mapProduct(nameRaw: string, unit = 0): Mapped {
     if (has('실계')) return { category: '플레이스', subtype: '플레이스용 블로그 배포' };
     if (has('247')) return { category: '플레이스', subtype: '플레이스용 블로그 배포' };
     // 업체별 상품명 별칭 — 조합 규칙을 일반 키워드(저인망/ai/스토어)보다 먼저 판정.
-    if (has('일키') || has('유입플') || has('터틀') || has('리워드'))
-        return { category: '플레이스', subtype: '플레이스 리워드' }; // 일키 유입플·터틀 리워드
+    if (has('일키') || has('유입플') || has('터틀') || has('츄잉') || has('리워드'))
+        return { category: '플레이스', subtype: '플레이스 리워드' }; // 일키 유입플·터틀 리워드·츄잉
     if (has('막배포')) return { category: '플레이스', subtype: '플레이스용 블로그 배포' }; // 플레이스 막배포
     if (has('저인망') && has('준최')) return { category: '블로그', subtype: '준최적화 블로그 배포' }; // 저인망 ai 준최 4
     if (has('저인망') && has('스토어')) return { category: '쇼핑', subtype: '스토어 리뷰' }; // 저인망 스토어리뷰
