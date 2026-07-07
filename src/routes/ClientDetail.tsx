@@ -51,7 +51,7 @@ function navTo(path: string) {
 
 // 계약 카드 → 해당 세부유형의 관리 시트(하위 카테고리 페이지)로 이동할 경로.
 //   subtype을 사이드바 하위와 매칭(부분 일치) → 매칭 없으면 카테고리 대시보드로. 업체명(q)로 필터.
-function cardSheetHref(category: string, subtype: string, company: string): string {
+function cardSheetHref(category: string, subtype: string, company: string, approved?: boolean): string {
     const scat = SIDEBAR_CATEGORIES.find((s) => s.label === category);
     const q = 'q=' + encodeURIComponent(company || '');
     if (!scat) return '';
@@ -59,8 +59,9 @@ function cardSheetHref(category: string, subtype: string, company: string): stri
         (s) => subtype === s.label || subtype.includes(s.label) || s.label.includes(subtype),
     );
     const base = sub ? sub.href : scat.dashHref;
-    // tab=sheet 로 '관리 시트' 탭을 바로 열고, q=업체명으로 해당 업체만 필터.
-    return base + (base.includes('?') ? '&' : '?') + 'tab=sheet&' + q;
+    // tab=sheet 로 '관리 시트' 탭을 열고, q=업체명 필터, stab=시트 하위탭(미승인→신규, 승인→계약 중).
+    const stab = approved ? '&stab=active' : '&stab=new';
+    return base + (base.includes('?') ? '&' : '?') + 'tab=sheet&' + q + stab;
 }
 
 const progColor = (p: number | null) =>
@@ -2929,6 +2930,7 @@ export function ClientDetail({
                                                                     ct.category,
                                                                     ct.subtype,
                                                                     client.company || '',
+                                                                    !!ct.sheet_approved,
                                                                 ),
                                                             );
                                                         }}

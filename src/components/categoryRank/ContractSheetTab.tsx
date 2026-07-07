@@ -94,17 +94,23 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
     // 계약 카드 '관리 시트 →'가 붙인 q=업체명을 초기값으로 → 도착 즉시 해당 업체 자동 필터.
     const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '');
     const [mgr, setMgr] = useState('');
-    // 계약 중 / 신규 등록 건(24h) / 계약 종료. 알림에서 pending=1로 오면 신규 등록 건 탭으로 시작.
-    const [tab, setTab] = useState<'active' | 'new' | 'ended'>(() =>
-        new URLSearchParams(window.location.search).get('pending') === '1' ? 'new' : 'active',
-    );
+    // 계약 중 / 신규 등록 건(24h) / 계약 종료.
+    //   stab=new|active(계약 카드 '관리 시트 →'의 승인 여부) 또는 pending=1(알림)로 시작 탭 지정.
+    const urlTab = (): 'active' | 'new' | 'ended' | null => {
+        const p = new URLSearchParams(window.location.search);
+        const s = p.get('stab');
+        if (s === 'new' || s === 'active' || s === 'ended') return s;
+        if (p.get('pending') === '1') return 'new';
+        return null;
+    };
+    const [tab, setTab] = useState<'active' | 'new' | 'ended'>(() => urlTab() ?? 'active');
 
-    // 시트 간 이동(app:navigate/popstate) 시 URL의 q를 다시 읽어 동기화(같은 컴포넌트 재사용이라 초기값만으론 부족).
+    // 시트 간 이동(app:navigate/popstate) 시 URL의 q·시작탭을 다시 읽어 동기화(같은 컴포넌트 재사용이라 초기값만으론 부족).
     useEffect(() => {
         const syncQ = () => {
             setQ(new URLSearchParams(window.location.search).get('q') ?? '');
-            // 승인 대기 알림으로 재진입 시 신규 등록 건 탭으로 전환.
-            if (new URLSearchParams(window.location.search).get('pending') === '1') setTab('new');
+            const t = urlTab();
+            if (t) setTab(t);
         };
         window.addEventListener('popstate', syncQ);
         window.addEventListener('app:navigate', syncQ);
@@ -175,8 +181,9 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
     useEffect(() => {
         if (loading || didInitTab) return;
         setDidInitTab(true);
-        if (new URLSearchParams(window.location.search).get('pending') !== '1')
-            setTab(counts.new > 0 ? 'new' : 'active');
+        // URL에 시작 탭(stab/pending)이 지정돼 있으면 그걸 우선(카드 '관리 시트 →'가 승인 여부로 지정).
+        if (urlTab()) return;
+        setTab(counts.new > 0 ? 'new' : 'active');
     }, [loading, didInitTab, counts.new]);
     // 신규가 0이 됐는데 신규 탭이면(승인 완료 등) 계약 중으로 자동 전환.
     useEffect(() => {
