@@ -32,8 +32,9 @@ export function SheetTab() {
     }, [initialQ]);
     const [mgr, setMgr] = useState('');
     const [lowOnly, setLowOnly] = useState(false);
-    const [sortKey, setSortKey] = useState<'remain' | 'prog'>('remain');
+    const [sortKey, setSortKey] = useState<'remain' | 'prog' | 'date'>('date'); // 기본=계약일 최신순
     const [sortDir, setSortDir] = useState(1);
+    const [monthFilter, setMonthFilter] = useState(0); // 0=전체, 1~12=해당 월(계약일 기준)
     const [tab, setTab] = useState<'active' | 'new' | 'ended'>('active'); // 계약 중 / 신규 등록 건 / 계약 종료
     const [page, setPage] = useState(1);
     const [importOpen, setImportOpen] = useState(false);
@@ -112,12 +113,23 @@ export function SheetTab() {
         );
     };
 
+    // 계약일 월 옵션 — 전체 + 계약일에 존재하는 월(내림차순).
+    const monthOptions = useMemo(() => {
+        const s = new Set<number>();
+        for (const a of accounts) {
+            const m = Number((a.contract_date || '').slice(5, 7));
+            if (m) s.add(m);
+        }
+        return [...s].sort((a, b) => b - a);
+    }, [accounts]);
+
     const filtered = useMemo(() => {
         let list = accounts.filter(
             (a) =>
                 (!q || a.name.includes(q)) &&
                 (!mgr || a.manager === mgr) &&
                 (!lowOnly || (a.remain_count != null && a.remain_count <= 5)) &&
+                (!monthFilter || Number((a.contract_date || '').slice(5, 7)) === monthFilter) &&
                 (tab === 'ended'
                     ? !!a.contract_ended_at
                     : tab === 'new'
@@ -128,10 +140,14 @@ export function SheetTab() {
             if (sortKey === 'prog') {
                 return ((progOf(x) ?? -1) - (progOf(y) ?? -1)) * sortDir;
             }
-            return ((x.remain_count ?? 999) - (y.remain_count ?? 999)) * sortDir;
+            if (sortKey === 'remain') {
+                return ((x.remain_count ?? 999) - (y.remain_count ?? 999)) * sortDir;
+            }
+            // 계약일 최신순(기본).
+            return String(y.contract_date || '').localeCompare(String(x.contract_date || ''));
         });
         return list;
-    }, [accounts, q, mgr, lowOnly, sortKey, sortDir, tab]);
+    }, [accounts, q, mgr, lowOnly, monthFilter, sortKey, sortDir, tab]);
 
     // 계약 중 / 신규 등록 건 / 계약 종료 개수(현재 업체명·담당 검색 범위 기준).
     const tabCounts = useMemo(() => {
@@ -175,6 +191,22 @@ export function SheetTab() {
                     placeholder="업체명 검색..."
                     value={q}
                 />
+                <select
+                    className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs"
+                    onChange={(e) => {
+                        setMonthFilter(Number(e.target.value));
+                        setPage(1);
+                    }}
+                    title="계약일 월별 필터"
+                    value={monthFilter}
+                >
+                    <option value={0}>전체 기간</option>
+                    {monthOptions.map((m) => (
+                        <option key={m} value={m}>
+                            {m}월
+                        </option>
+                    ))}
+                </select>
                 <select
                     className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs"
                     onChange={(e) => {
