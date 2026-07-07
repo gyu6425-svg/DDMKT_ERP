@@ -16,6 +16,7 @@ export function DashboardTab() {
         goTracker10: onGoTracker10,
         goSheetBlog: onGoSheetBlog,
         showToast: onToast,
+        customerMode,
     } = useBlogRank();
     const [showLow, setShowLow] = useState(false);
     const [showMoves, setShowMoves] = useState(false);
@@ -143,7 +144,7 @@ export function DashboardTab() {
 
     return (
         <div className="grid gap-4">
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className={`grid grid-cols-2 gap-3 ${customerMode ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
                 <Kpi
                     label="관리 블로그"
                     value={`${accounts.length}`}
@@ -163,17 +164,20 @@ export function DashboardTab() {
                     sub={measured.length ? `측정 ${measured.length}건 중 · 눌러서 보기` : '크롤링 후 계산'}
                     onClick={measured.length ? onGoTracker10 : undefined}
                 />
-                <Kpi
-                    label="잔여 5건 이하"
-                    value={`${lowCnt}`}
-                    accent={lowCnt ? '#d97706' : undefined}
-                    sub="재계약 영업 타이밍 · 눌러서 보기"
-                    onClick={() => setShowLow(true)}
-                />
+                {/* 잔여 5건 이하 = 영업(재계약) 지표 → 고객 뷰에선 숨김 */}
+                {!customerMode ? (
+                    <Kpi
+                        label="잔여 5건 이하"
+                        value={`${lowCnt}`}
+                        accent={lowCnt ? '#d97706' : undefined}
+                        sub="재계약 영업 타이밍 · 눌러서 보기"
+                        onClick={() => setShowLow(true)}
+                    />
+                ) : null}
             </div>
 
-            {/* 당일/전날 측정 글 + 누락 건 — 보고 직결 KPI. 당일=노랑, 전날=보라, 누락=빨강. */}
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+            {/* 당일/전날 측정 글 + 누락 건 — 보고 직결 KPI. 당일=노랑, 전날=보라, 누락=빨강. 고객 뷰=누락 숨김 */}
+            <div className={`grid grid-cols-2 gap-3 ${customerMode ? 'lg:grid-cols-2' : 'lg:grid-cols-3'}`}>
                 <KpiCard
                     label={`당일 측정 글 (${mmdd(today)})`}
                     value={sameDayRows.length}
@@ -192,14 +196,17 @@ export function DashboardTab() {
                     sentN={prevSent}
                     onClick={() => setShowPrevDay(true)}
                 />
-                <KpiCard
-                    label="누락 건"
-                    value={missedRows.length}
-                    color="#dc2626"
-                    sub="자동발송 실패 · 눌러서 목록"
-                    tone="red"
-                    onClick={() => setShowMissed(true)}
-                />
+                {/* 누락 건(자동발송 실패) = 내부 지표 → 고객 뷰에선 숨김 */}
+                {!customerMode ? (
+                    <KpiCard
+                        label="누락 건"
+                        value={missedRows.length}
+                        color="#dc2626"
+                        sub="자동발송 실패 · 눌러서 목록"
+                        tone="red"
+                        onClick={() => setShowMissed(true)}
+                    />
+                ) : null}
             </div>
 
 
@@ -233,7 +240,8 @@ export function DashboardTab() {
                 )}
             </Panel> */}
 
-            <div className="grid gap-4 lg:grid-cols-2">
+            {/* 재계약 임박 · 최근 순위 변동 = 내부(영업) 지표 → 고객 뷰에선 숨김 */}
+            <div className="grid gap-4 lg:grid-cols-2" hidden={customerMode}>
                 <Panel title="재계약 임박 블로그" sub="잔여 1건↓ 빨강 · 2~5건 노랑 · 진행 중단">
                     {attn.length ? (
                         <div className="grid gap-1">
