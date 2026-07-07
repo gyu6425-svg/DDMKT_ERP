@@ -67,16 +67,15 @@ const COMPANY_OF: Array<{ keys: string[]; company: string }> = [
     { company: '라인업애드', keys: ['라인'] },
     { company: '마녀마케팅', keys: ['츄잉'] },
 ];
-// 정확히 일치할 때만 회사로(부분일치하면 '숏폼 마케팅' 등 오탐 → exact only).
-const COMPANY_EXACT: Record<string, string> = { 마케팅: '마녀마케팅' };
-// 회사 미지정 브랜드(품목명이 이 브랜드면 브랜드명 그대로 → 나중 회사 지정).
+// 회사 미지정 브랜드 — 정확일치만(부분일치하면 '숏폼 마케팅' 등 오탐). 회사 모르면 브랜드명 그대로.
+const VENDORS_EXACT = ['마케팅'];
 const VENDORS = ['247', '고스트', '저스트'];
 export const vendorFromProduct = (base: string): string | null => {
     const b = (base || '').trim();
     for (const { keys, company } of COMPANY_OF) {
         if (keys.some((k) => b.includes(k))) return company;
     }
-    if (COMPANY_EXACT[b]) return COMPANY_EXACT[b];
+    if (VENDORS_EXACT.includes(b)) return b;
     for (const v of VENDORS) {
         if (b === v || b.includes(v)) return v;
     }
