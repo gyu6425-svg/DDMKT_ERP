@@ -1473,12 +1473,38 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
         set_crawl_status(running=True, phase="rss", done=idx + 1, total=len(accounts), current_blog=acc.get("name", ""))
         _pause(REQUEST_DELAY)
 
-    # ── 2) 라운드로빈 측정(라운드 i = 각 블로그 i번째 최신글) ──
+    # ── 1b) DB 추적글 전체(창 이내) 병합 — RSS 최신 N글에 없는 옛 추적글도 매일 재측정(우측 최신화). ──
+    #   블로그당 최신글만이 아니라, 추적 중인 모든 글(발행일 최근 RECENT_DAYS일 이내, 최신순)을 측정 대상에 포함.
+    cutoff = recent_cutoff()
+    try:
+        all_posts = sb_get("blog_posts", {
+            "select": "id,blog_account_id,post_url,title,keyword,keyword_manual,published_date,measurements",
+            "or": f"(published_date.gte.{cutoff},published_date.is.null)",
+        })
+    except Exception as exc:
+        print(f"  DB 추적글 조회 실패(RSS만 측정): {exc}", flush=True)
+        all_posts = []
+    posts_by_acc = {}
+    for p in all_posts:
+        posts_by_acc.setdefault(p.get("blog_account_id"), []).append(p)
+    for b in blogs:
+        have = {it["url"] for it in b["posts"]}
+        for p in posts_by_acc.get(b["acc"]["id"], []):
+            u = p.get("post_url")
+            if u and u not in have:
+                b["posts"].append({"row": p, "rss_tags": [], "url": u, "title": p.get("title") or ""})
+                have.add(u)
+        # 최신순(발행일 내림차순) — 최신 글부터 측정.
+        b["posts"].sort(key=lambda it: (it["row"].get("published_date") or ""), reverse=True)
+
+    # ── 2) 라운드로빈 측정(라운드 i = 각 블로그 i번째 최신글) — 창 이내 추적글 전부. ──
     total = sum(len(b["posts"]) for b in blogs)
     print(f"=== 측정 시작(라운드로빈, 총 {total}글 / {len(blogs)}블로그) ===", flush=True)
     set_crawl_status(running=True, phase="crawl", done=0, total=total, ok=0, fail=0, current_blog="")
     done = ok = fail = 0
-    for i in range(MAX_POSTS_PER_BLOG):
+    # 블로그당 5글 제한 없이, 가장 많은 글 수만큼 라운드 진행(라운드 i = 각 블로그의 i번째 최신글).
+    max_rounds = max((len(b["posts"]) for b in blogs), default=0)
+    for i in range(max_rounds):
         for b in blogs:
             if i >= len(b["posts"]):
                 continue
