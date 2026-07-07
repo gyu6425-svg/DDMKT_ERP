@@ -24,7 +24,8 @@ export default function CustomerAccountModal({
     setSaving(true)
     try {
       // Supabase Edge Function 호출(세션 JWT 자동 포함) — 서버가 관리자 검증 후 계정 생성.
-      const { data, error } = await supabase.functions.invoke('create-customer', {
+      //   함수 배포 이름이 'clever-processor'(대시보드 자동 생성명)이라 그 이름으로 호출.
+      const { data, error } = await supabase.functions.invoke('clever-processor', {
         body: { login: login.trim(), clientId, name: name.trim() },
       })
       setSaving(false)
