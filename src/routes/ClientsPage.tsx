@@ -27,8 +27,8 @@ import {
     STATUS_OPTIONS,
     formatPhone,
     parsePaste,
+    saleVat,
     todayStr,
-    withVat,
 } from '../lib/erpUtils';
 
 const FAVS_KEY = 'erp_favs';
@@ -454,6 +454,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         const cliById = new Map(clients.map((c) => [c.id, c]));
         let supply = 0;
         let outs = 0;
+        let total = 0; // 실매출 — 계약별 부가세(현금이면 VAT 미포함) 합산
         for (const ct of clientContracts) {
             if (!shown.has(ct.client_id)) continue;
             if (monthFilter) {
@@ -467,8 +468,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             }
             supply += ct.amount || 0;
             outs += ct.outsource || 0;
+            total += saleVat(ct.amount, ct.no_vat); // 계약별 VAT
         }
-        const total = withVat(supply); // 실매출 = 공급가 + 부가세(VAT 포함)
         return { supply, vat: total - supply, total, outs, net: supply - outs };
     }, [filtered, clients, clientContracts, monthFilter]);
 

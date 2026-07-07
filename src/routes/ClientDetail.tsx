@@ -19,7 +19,7 @@ import {
     SHORTFORM_PLATFORMS,
 } from '../lib/products';
 import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
-import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, todayStr, withVat } from '../lib/erpUtils';
+import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, saleVat, todayStr, withVat } from '../lib/erpUtils';
 import { useAuth } from '../hooks/useAuth';
 import CustomerAccountModal from '../components/CustomerAccountModal';
 import { PlaceUrlField } from '../components/PlaceUrlField';
@@ -738,6 +738,7 @@ function ContractEditModal({
     const [weekInput, setWeekInput] = useState(''); // 리워드 주간 처리 타수
     const [weekPaid, setWeekPaid] = useState(false); // 이번 주 입금 처리 여부
     const [weekNoTax, setWeekNoTax] = useState(false); // 세금계산서 미발행 체크(기본=발행)
+    const [noVat, setNoVat] = useState(!!contract.no_vat); // 부가세 없음(현금) — 실매출 VAT 미포함
     const [editLog, setEditLog] = useState<{ idx: number; value: string } | null>(null); // 진행 이력 타수 수정
     const [amount] = useState(contract.amount?.toString() ?? '');
     const [date, setDate] = useState(contract.contract_date ?? '');
@@ -876,6 +877,18 @@ function ContractEditModal({
             return;
         }
         onToast('외주 정보 저장됨');
+        await onReload();
+    };
+
+    // 부가세 없음(현금) 토글 — 즉시 저장. 실매출에 VAT 10% 미포함으로 반영.
+    const toggleNoVat = async (v: boolean) => {
+        setNoVat(v);
+        const { error } = await updateClientContract(contract.id, { no_vat: v });
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            setNoVat(!v);
+            return;
+        }
         await onReload();
     };
 
@@ -1407,6 +1420,15 @@ function ContractEditModal({
                                     />
                                     세금계산서 미발행 (체크 안 하면 발행으로 기록)
                                 </label>
+                                {/* 부가세 없음(현금) — 체크 시 실매출에 VAT 10% 미포함 */}
+                                <label className="mt-1 flex items-center gap-1.5 text-[12px] font-semibold text-[#059669]">
+                                    <input
+                                        checked={noVat}
+                                        onChange={(e) => void toggleNoVat(e.target.checked)}
+                                        type="checkbox"
+                                    />
+                                    부가세 없음 (현금 — 실매출에 VAT 10% 미포함)
+                                </label>
                                 <div className="mt-2 text-[11px] font-bold text-[#1e40af]">이번 주 처리 타수</div>
                                 <div className="mt-1 flex items-center gap-1.5">
                                     <input
@@ -1554,6 +1576,15 @@ function ContractEditModal({
                                         type="checkbox"
                                     />
                                     세금계산서 미발행 (체크 안 하면 발행으로 기록)
+                                </label>
+                                {/* 부가세 없음(현금) — 체크 시 실매출에 VAT 10% 미포함 */}
+                                <label className="mt-1 flex items-center gap-1.5 text-[12px] font-semibold text-[#059669]">
+                                    <input
+                                        checked={noVat}
+                                        onChange={(e) => void toggleNoVat(e.target.checked)}
+                                        type="checkbox"
+                                    />
+                                    부가세 없음 (현금 — 실매출에 VAT 10% 미포함)
                                 </label>
                                 {/* 되돌리기 — +1건 완료 제거(수기 입력으로 처리). 마지막 기록 취소용만 유지 */}
                                 <div className="mt-2">
@@ -2363,7 +2394,9 @@ export function ClientDetail({
     // 카테고리별 합계 + 총액.
     const catAmount = (label: string) =>
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
-    const totalAmount = contracts.reduce((s, ct) => s + (ct.amount || 0), 0); // 실매출
+    const totalAmount = contracts.reduce((s, ct) => s + (ct.amount || 0), 0); // 공급가 합계
+    // 실매출(VAT 포함) — 계약별로 부가세 없음(현금)이면 VAT 미포함. 합산은 계약별로.
+    const totalReal = contracts.reduce((s, ct) => s + saleVat(ct.amount, ct.no_vat), 0);
     const totalOutsource = contracts.reduce((s, ct) => s + (ct.outsource || 0), 0); // 외주비 합계(받은·고정)
     const outUsedSum = contracts.reduce((s, ct) => s + usedOutsourceOf(ct), 0); // 실제 사용(소진) — 로그 기반
     const outRemainSum = Math.max(0, totalOutsource - outUsedSum); // 남은 외주비 = 합계 − 사용
@@ -2525,7 +2558,7 @@ export function ClientDetail({
                 >
                     <div className="text-[11px] font-semibold text-[#94a3b8]">실매출 (VAT 포함)</div>
                     <div className="mt-0.5 text-lg font-bold text-[#1e40af] sm:text-2xl">
-                        {fmtWon(withVat(totalAmount))}원
+                        {fmtWon(totalReal)}원
                     </div>
                 </button>
                 <div className="flex items-center text-xl font-bold text-[#94a3b8]">−</div>
@@ -3238,7 +3271,7 @@ export function ClientDetail({
                                         breakdown === 'net'
                                             ? (ct.amount || 0) - (ct.outsource || 0)
                                             : breakdown === 'sales'
-                                              ? withVat(ct.amount) // 실매출 = VAT 포함
+                                              ? saleVat(ct.amount, ct.no_vat) // 실매출 = VAT 포함(현금이면 미포함)
                                               : ct.outsource || 0;
                                     const color =
                                         breakdown === 'net'
@@ -3295,7 +3328,7 @@ export function ClientDetail({
                                     breakdown === 'net'
                                         ? netRevenue
                                         : breakdown === 'sales'
-                                          ? withVat(totalAmount)
+                                          ? totalReal
                                           : totalOutsource,
                                 )}
                                 원
@@ -3334,7 +3367,7 @@ export function ClientDetail({
                                       ] as [string, string, string?][])
                                     : breakdown === 'net'
                                       ? ([
-                                            ['실매출 (VAT 포함)', `${fmtWon(withVat(detailC.amount))}원`, '#1e40af'],
+                                            ['실매출 (VAT 포함)', `${fmtWon(saleVat(detailC.amount, detailC.no_vat))}원`, '#1e40af'],
                                             ['외주비', `${fmtWon(detailC.outsource || 0)}원`, '#dc2626'],
                                             [
                                                 '순매출 (매출 − 외주비)',
@@ -3345,7 +3378,7 @@ export function ClientDetail({
                                       : ([
                                             ['수량', `${(detailC.goal_count ?? 0).toLocaleString('ko-KR')}건`],
                                             ['단가', `${fmtWon(detailC.unit_price || 0)}원`],
-                                            ['실매출 (VAT 포함)', `${fmtWon(withVat(detailC.amount))}원`, '#1e40af'],
+                                            ['실매출 (VAT 포함)', `${fmtWon(saleVat(detailC.amount, detailC.no_vat))}원`, '#1e40af'],
                                         ] as [string, string, string?][])
                             ).map(([k, v, color]) => (
                                 <div
