@@ -272,7 +272,18 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                                 const goal = ct.goal_count ?? 0;
                                 const remain = ct.remain_count ?? goal;
                                 const done = Math.max(0, goal - remain);
-                                const pct = goal ? Math.round((done / goal) * 100) : null;
+                                // 금액 기반 진행률 — 완료금액(완료건수×단가)÷총금액. 단가/금액 없으면 건수 %, 전량 완료=100%.
+                                const amt = ct.amount ?? 0;
+                                const doneAmt = done * (ct.unit_price ?? 0);
+                                const pct = !goal
+                                    ? null
+                                    : remain <= 0
+                                      ? 100
+                                      : done <= 0
+                                        ? 0
+                                        : amt > 0 && doneAmt > 0
+                                          ? Math.min(100, Math.round((doneAmt / amt) * 100))
+                                          : Math.round((done / goal) * 100);
                                 const remainColor =
                                     ct.remain_count == null
                                         ? '#94a3b8'
