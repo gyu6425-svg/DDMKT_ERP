@@ -2402,13 +2402,10 @@ export function ClientDetail({
     // 카테고리별 합계 + 총액.
     const catAmount = (label: string) =>
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
-    const totalAmount = contracts.reduce((s, ct) => s + (ct.amount || 0), 0); // 공급가 합계
     // 실매출(VAT 포함) — 계약별로 부가세 없음(현금)이면 VAT 미포함. 합산은 계약별로.
     const totalReal = contracts.reduce((s, ct) => s + saleVat(ct.amount, ct.no_vat), 0);
     const totalOutsource = contracts.reduce((s, ct) => s + (ct.outsource || 0), 0); // 외주비 합계(받은·고정)
-    const outUsedSum = contracts.reduce((s, ct) => s + usedOutsourceOf(ct), 0); // 실제 사용(소진) — 로그 기반
-    const outRemainSum = Math.max(0, totalOutsource - outUsedSum); // 남은 외주비 = 합계 − 사용
-    const netRevenue = totalAmount - totalOutsource; // 순매출 = 실매출 − 외주비
+    // 순매출 = 실매출(VAT 포함) − 외주비 정산 차액(예상 외주비 − 실제 사용). (차액 = outMargin, 아래에서 계산)
 
     // 외주비 정산 — 품목별로 받은 외주비(단가×계약수량) vs 실제 사용 외주비(완료분 소진).
     //   실제 사용 = 진행 처리(완료)로 잔여가 줄면 자동 반영. 별도 수기 입력 없음.
@@ -2428,9 +2425,11 @@ export function ClientDetail({
                 logs, // 사용(완료) 이력 — 개별 삭제 대상
             };
         });
-    const receivedTotal = totalOutsource; // 받은 외주비 = 상단 외주비 합계
+    const receivedTotal = totalOutsource; // 예상(받은) 외주비 = 상단 외주비 합계
     const usedTotal = outsourceRows.reduce((s, r) => s + r.used, 0); // 실제 사용 = 진행 이력 합
-    const outMargin = receivedTotal - usedTotal; // 차액 = 받은 − 사용
+    const outMargin = receivedTotal - usedTotal; // 차액 = 예상 − 사용
+    // 순매출 = 실매출(VAT 포함) − 외주비 정산 차액.
+    const netRevenue = totalReal - outMargin;
 
     // (외주비 정산 내역의 삭제 버튼은 제거 — 외주비/사용이력 삭제는 계약(카드/진행 이력)에서만)
     // 계약 내역 일괄삭제(임시 버튼) — 이 업체의 모든 계약행 제거. 되돌릴 수 없음.
@@ -2548,7 +2547,7 @@ export function ClientDetail({
                 )}
             </div>
 
-            {/* 누적 금액 — 순매출 = 실매출 − 외주비 (카드별 + 연산자). 순매출·외주비 누르면 상품별 내역 */}
+            {/* 누적 금액 — 순매출 = 실매출 − 외주비 정산 차액. 순매출·실매출·차액 누르면 상품별 내역 */}
             <div className="flex items-stretch gap-2">
                 <button
                     className="flex-1 rounded-xl border-2 border-[#059669] bg-[#f0fdf4] px-3 py-3 text-center shadow-sm transition hover:shadow-md"
@@ -2575,16 +2574,13 @@ export function ClientDetail({
                     onClick={() => setBreakdown('outsource')}
                     type="button"
                 >
-                    <div className="text-[11px] font-semibold text-[#94a3b8]">외주비 합계</div>
+                    <div className="text-[11px] font-semibold text-[#94a3b8]">외주비 차액</div>
                     <div className="mt-0.5 text-lg font-bold text-[#dc2626] sm:text-2xl">
-                        {fmtWon(totalOutsource)}원
+                        {fmtWon(outMargin)}원
                     </div>
-                    {outRemainSum > 0 || outUsedSum > 0 ? (
-                        <div className="mt-0.5 text-[10px] text-[#94a3b8]">
-                            소진 {fmtWon(outUsedSum)} · 잔여{' '}
-                            <b className="text-[#dc2626]">{fmtWon(outRemainSum)}</b>원
-                        </div>
-                    ) : null}
+                    <div className="mt-0.5 text-[10px] text-[#94a3b8]">
+                        예상 {fmtWon(receivedTotal)} · 사용 {fmtWon(usedTotal)}
+                    </div>
                 </button>
             </div>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
@@ -2604,12 +2600,12 @@ export function ClientDetail({
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                     <h3 className="m-0 text-sm font-bold text-[#0f172a]">외주비 정산</h3>
                     <span className="text-[11px] text-[#94a3b8]">
-                        업체한테 받은 외주비 − 실제 사용 외주비(진행 완료분) = 우리 차액
+                        업체한테 받을 예상 외주비 − 실제 사용 외주비(진행 완료분) = 우리 차액
                     </span>
                 </div>
                 <div className="mb-2 grid grid-cols-3 gap-2">
                     <div className="rounded-lg border border-[#bbf7d0] bg-[#f0fdf4] px-3 py-2 text-center">
-                        <div className="text-[11px] font-semibold text-[#059669]">받은 외주비</div>
+                        <div className="text-[11px] font-semibold text-[#059669]">예상 외주비</div>
                         <div className="text-base font-bold text-[#059669]">{fmtWon(receivedTotal)}원</div>
                     </div>
                     <div className="rounded-lg border border-[#fecaca] bg-[#fff7f7] px-3 py-2 text-center">
@@ -2626,7 +2622,7 @@ export function ClientDetail({
                     <div className="overflow-hidden rounded-lg border border-[#e2e8f0]">
                         <div className="grid grid-cols-[1fr_auto_auto] gap-2 bg-[#f8fafc] px-3 py-1.5 text-[11px] font-semibold text-[#94a3b8]">
                             <span>품목</span>
-                            <span className="w-24 text-right text-[#059669]">받은 외주비</span>
+                            <span className="w-24 text-right text-[#059669]">예상 외주비</span>
                             <span className="w-24 text-right text-[#dc2626]">실제 사용</span>
                         </div>
                         {outsourceRows.map((r) => (
