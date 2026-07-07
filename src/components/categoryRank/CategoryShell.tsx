@@ -18,7 +18,17 @@ function isDropdownDash(href: string): boolean {
     return !!scat && scat.subs.length > 0;
 }
 
-export function CategoryShell({ label, badge, tabs }: { label: string; badge?: string; tabs: ShellTab[] }) {
+export function CategoryShell({
+    label,
+    badge,
+    tabs,
+    forceTabs,
+}: {
+    label: string;
+    badge?: string;
+    tabs: ShellTab[];
+    forceTabs?: boolean; // true면 상위(?sub 없음) 대시보드에서도 탭 전부 표시(플레이스 순위 트래커용)
+}) {
     const { isAdmin, canManageSheet, loading: authLoading } = useAuth();
     const [href, setHref] = useState(() => window.location.pathname + window.location.search);
     const [active, setActive] = useState(() => {
@@ -42,8 +52,8 @@ export function CategoryShell({ label, badge, tabs }: { label: string; badge?: s
         };
     }, []);
 
-    // 상위 대시보드면 첫 탭(대시보드)만, 탭바 없이.
-    const dashOnly = isDropdownDash(href);
+    // 상위 대시보드면 첫 탭(대시보드)만, 탭바 없이. forceTabs면 항상 전체 탭.
+    const dashOnly = !forceTabs && isDropdownDash(href);
     const shownTabs = dashOnly ? tabs.slice(0, 1) : tabs;
     const activeIdx = dashOnly ? 0 : Math.min(active, tabs.length - 1);
 

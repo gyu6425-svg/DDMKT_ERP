@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CategoryShell } from './CategoryShell';
 import { SIDEBAR_CATEGORIES } from './categories';
 import { ContractSheetTab, resolveScope } from './ContractSheetTab';
+import { PlaceRankTracker } from './PlaceRankTracker';
 
 // 현재 URL(경로+쿼리)을 반응형으로 추적 — 네비게이션(app:navigate/popstate) 시 갱신.
 function useLocHref() {
@@ -56,6 +57,31 @@ export function SkeletonRankPage({ label }: { label: string }) {
                 { name: '대시보드', el: <Placeholder name={displayLabel} /> },
                 { name: '관리 시트', el: sheet },
                 { name: '순위 트래커', el: <Placeholder name="순위 트래커" /> },
+                { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" /> },
+            ]}
+        />
+    );
+}
+
+// 플레이스 대시보드 — '순위 트래커' 탭이 실제 PlaceRankTracker(애드로그류). 상위 페이지에서도 탭 표시.
+export function PlaceRankPage() {
+    const href = useLocHref();
+    const displayLabel = subLabelOf(href, '플레이스 대시보드');
+    const scope = resolveScope(href);
+    const sheet = scope ? (
+        <ContractSheetTab category={scope.category} subtype={scope.subtype} />
+    ) : (
+        <Placeholder name={displayLabel} />
+    );
+    return (
+        <CategoryShell
+            badge="준비 중"
+            forceTabs
+            label={displayLabel}
+            tabs={[
+                { name: '대시보드', el: <Placeholder name={displayLabel} /> },
+                { name: '관리 시트', el: sheet },
+                { name: '순위 트래커', el: <PlaceRankTracker /> },
                 { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" /> },
             ]}
         />

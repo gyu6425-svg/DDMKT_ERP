@@ -17,7 +17,7 @@ import PowerLinkPage from './routes/PowerLinkPage';
 import ReportsPage from './routes/ReportsPage';
 import CustomerOverviewPage from './routes/CustomerOverviewPage';
 import CustomerCategoryPage from './routes/CustomerCategoryPage';
-import { SkeletonRankPage } from './components/categoryRank/SkeletonRankPage';
+import { SkeletonRankPage, PlaceRankPage } from './components/categoryRank/SkeletonRankPage';
 import InstaRankPage from './routes/InstaRankPage';
 import CafeRankPage from './routes/CafeRankPage';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -30,7 +30,7 @@ const routes = [
     { path: '/reports', element: <ReportsPage /> },
     { path: '/memos', element: <MemosPage /> },
     { path: '/blog', element: <BlogPage /> },
-    { path: '/place-rank', element: <SkeletonRankPage label="플레이스 대시보드" /> },
+    { path: '/place-rank', element: <PlaceRankPage /> },
     { path: '/insta-rank', element: <InstaRankPage /> },
     { path: '/cafe-rank', element: <CafeRankPage /> },
     { path: '/shopping-rank', element: <SkeletonRankPage label="쇼핑 대시보드" /> },
