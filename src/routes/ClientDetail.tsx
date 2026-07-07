@@ -22,7 +22,15 @@ import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
 import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, todayStr, withVat } from '../lib/erpUtils';
 import { useAuth } from '../hooks/useAuth';
 import CustomerAccountModal from '../components/CustomerAccountModal';
-import { parseTsvGrid, findCol, num, parseDate, normCompany } from '../lib/contractImport';
+import {
+    parseTsvGrid,
+    findCol,
+    num,
+    parseDate,
+    normCompany,
+    vendorFromProduct,
+    productBase,
+} from '../lib/contractImport';
 import { ContractPasteAddModal } from './ContractPasteAddModal';
 
 // 외주(진행) 시트 붙여넣기 머리글 — 사용자 시트와 동일. 아래에 데이터만 붙여넣음.
@@ -918,7 +926,12 @@ function ContractEditModal({
             const applied = Math.min(curRemain, qty);
             if (applied <= 0) break; // 잔여 소진
             const unit = iUnit >= 0 && g(iUnit) ? Math.round(num(g(iUnit))) : contract.unit_outsource ?? null;
-            const vendor = g(iVendor) || contract.outsource_company || null;
+            // 품목명 → 회사명 매핑(슈퍼뭉치→에이치에스 등). 매핑 없으면 적힌 값 그대로.
+            const rawVendor = g(iVendor);
+            const vendor =
+                (rawVendor ? vendorFromProduct(productBase(rawVendor)) || rawVendor : '') ||
+                contract.outsource_company ||
+                null;
             const d = (iDate >= 0 && parseDate(g(iDate))) || today;
             added.push({
                 at: d,
@@ -1151,11 +1164,6 @@ function ContractEditModal({
                 <h3 className="m-0 text-lg font-bold">
                     {contract.category} · {contract.subtype}
                 </h3>
-                {contract.outsource_company ? (
-                    <div className="mt-1 inline-flex items-center gap-1 rounded-md bg-[#fef2f2] px-2 py-0.5 text-xs font-semibold text-[#dc2626]">
-                        외주업체 · {contract.outsource_company}
-                    </div>
-                ) : null}
 
                 {/* 진행률 — 1건 완료로 잔여 감소(자동 반영) */}
                 {hasGoal ? (
