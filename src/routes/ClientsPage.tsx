@@ -226,7 +226,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [favOnly, setFavOnly] = useState(false);
     const [favs, setFavs] = useState<string[]>(loadFavs);
     // 고객사 관리 하단 탭 — 계약 완료(블로그 등 계정 연결) vs 미완료(보류·문의만). contractsOnly 화면에선 미사용.
-    const [clientTab, setClientTab] = useState<'done' | 'pending' | 'ended'>('pending');
+    const [clientTab, setClientTab] = useState<
+        'consult' | 'prospect' | 'hold' | 'done' | 'ended'
+    >('consult');
     // 계약 관리 탭: 신규 등록건/계약중/계약 종료/임시. 기본=계약중, 신규(미승인) 있으면 신규로 시작(아래 effect).
     const [contractTab, setContractTab] = useState<'new' | 'active' | 'ended'>('active');
     const didInitTab = useRef(false);
@@ -241,8 +243,13 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             const m = Number((ct.contract_date || '').slice(5, 7));
             if (m >= 1 && m <= 12) set.add(m);
         }
+        // 상담건 등 계약 없는 고객은 등록월 기준 — 그 월들도 옵션에 포함.
+        for (const c of clients) {
+            const m = c.created_at ? new Date(c.created_at).getMonth() + 1 : 0;
+            if (m >= 1 && m <= 12) set.add(m);
+        }
         return [0, ...[...set].sort((a, b) => a - b)];
-    }, [clientContracts, currentMonth]);
+    }, [clientContracts, clients, currentMonth]);
     const [dateSort, setDateSort] = useState<null | 'asc' | 'desc'>(null); // 등록일 정렬(헤더 클릭)
     // 계약 진행 단계 변경 대상(5단계 선택 모달).
     const [stageClient, setStageClient] = useState<ErpClient | null>(null);
@@ -411,17 +418,25 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                     : contractTab === 'active'
                       ? client.status === DONE_STATUS && client.contract_approved
                       : client.status === ENDED_STATUS);
-            // 고객사 관리 전체 화면에서만 완료/미완료/종료 탭 적용(상태 기준).
+            // 고객사 관리 탭(상태 기준): 상담건 / 가망 건 / 보류 / 계약 완료 / 계약 종료.
             const matchesTab =
                 contractsOnly ||
                 (clientTab === 'done'
                     ? client.status === DONE_STATUS
                     : clientTab === 'ended'
                       ? client.status === ENDED_STATUS
-                      : client.status !== DONE_STATUS && client.status !== ENDED_STATUS);
+                      : clientTab === 'prospect'
+                        ? client.status === '가망'
+                        : clientTab === 'hold'
+                          ? client.status === '보류'
+                          : // consult(상담건) = 완료·종료·보류·가망 아닌 나머지(신규문의·상담중·제안완료).
+                            client.status !== DONE_STATUS &&
+                            client.status !== ENDED_STATUS &&
+                            client.status !== '보류' &&
+                            client.status !== '가망');
 
-            // 계약 관리 월 필터.
-            const matchesMonth = !contractsOnly || clientInMonth(client, monthFilter);
+            // 월 필터 — 계약 관리 + 고객사 관리(상담건 등) 공통. contract_date 없으면 등록월 기준.
+            const matchesMonth = clientInMonth(client, monthFilter);
 
             return (
                 matchesQuery && matchesStatus && matchesFav && matchesContract && matchesTab && matchesMonth
@@ -946,20 +961,19 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             ) : null}
 
             <div className="flex flex-wrap items-center gap-2 rounded-[8px] border border-[#e2e8f0] bg-[#f1f5f9] p-3">
-                {contractsOnly ? (
-                    <select
-                        className="h-9 rounded-md border border-[#1e40af] bg-white px-2 text-sm font-bold text-[#1e40af]"
-                        onChange={(e) => setMonthFilter(Number(e.target.value))}
-                        title="월별 보기"
-                        value={monthFilter}
-                    >
-                        {monthOptions.map((m) => (
-                            <option key={m} value={m}>
-                                {m === 0 ? '전체' : `${m}월`}
-                            </option>
-                        ))}
-                    </select>
-                ) : null}
+                {/* 월별 보기 — 계약 관리 + 고객사 관리(상담건 등) 공통. */}
+                <select
+                    className="h-9 rounded-md border border-[#1e40af] bg-white px-2 text-sm font-bold text-[#1e40af]"
+                    onChange={(e) => setMonthFilter(Number(e.target.value))}
+                    title="월별 보기"
+                    value={monthFilter}
+                >
+                    {monthOptions.map((m) => (
+                        <option key={m} value={m}>
+                            {m === 0 ? '전체' : `${m}월`}
+                        </option>
+                    ))}
+                </select>
                 <input
                     className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
                     onChange={(event) => setSearch(event.target.value)}
@@ -1039,19 +1053,31 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 <div className="flex gap-1 border-b border-[#e2e8f0]">
                     {(
                         [
-                            { key: 'pending', label: '계약 미완료' },
+                            { key: 'consult', label: '상담건' },
+                            { key: 'prospect', label: '가망 건' },
+                            { key: 'hold', label: '보류' },
                             { key: 'done', label: '계약 완료' },
                             { key: 'ended', label: '계약 종료' },
-                        ] as { key: 'done' | 'pending' | 'ended'; label: string }[]
+                        ] as {
+                            key: 'consult' | 'prospect' | 'hold' | 'done' | 'ended';
+                            label: string;
+                        }[]
                     ).map((t) => {
-                        const count =
+                        const inMonth = (c: ErpClient) => clientInMonth(c, monthFilter);
+                        const statusFor = (c: ErpClient) =>
                             t.key === 'done'
-                                ? clients.filter((c) => c.status === DONE_STATUS).length
+                                ? c.status === DONE_STATUS
                                 : t.key === 'ended'
-                                  ? clients.filter((c) => c.status === ENDED_STATUS).length
-                                  : clients.filter(
-                                        (c) => c.status !== DONE_STATUS && c.status !== ENDED_STATUS,
-                                    ).length;
+                                  ? c.status === ENDED_STATUS
+                                  : t.key === 'prospect'
+                                    ? c.status === '가망'
+                                    : t.key === 'hold'
+                                      ? c.status === '보류'
+                                      : c.status !== DONE_STATUS &&
+                                        c.status !== ENDED_STATUS &&
+                                        c.status !== '보류' &&
+                                        c.status !== '가망';
+                        const count = clients.filter((c) => statusFor(c) && inMonth(c)).length;
                         return (
                             <button
                                 className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
@@ -1524,7 +1550,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                         </Button>
                                                     </>
                                                 ) : null}
-                                                {!contractsOnly && clientTab === 'pending' ? (
+                                                {!contractsOnly &&
+                                                (clientTab === 'consult' ||
+                                                    clientTab === 'prospect' ||
+                                                    clientTab === 'hold') ? (
                                                     <Button
                                                         className="rounded border border-[#1e40af] px-2 py-1 text-[11px] font-semibold text-[#1e40af] hover:bg-[#eff6ff]"
                                                         onClick={() => setStageClient(c)}
@@ -2441,18 +2470,27 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     ) : null}
                                 </button>
                             ))}
-                            {/* 계약 종료 — 종료 탭으로 이동(계약행은 보존). */}
+                            {/* 삭제 — 이 고객사(상담건 등)를 완전 삭제. 되돌릴 수 없음. */}
                             <button
-                                className={`mt-1 flex items-center justify-between rounded-md border px-4 py-2.5 text-left text-sm font-semibold ${
-                                    stageClient.status === ENDED_STATUS
-                                        ? 'border-[#dc2626] bg-[#fef2f2] text-[#dc2626]'
-                                        : 'border-[#fecaca] text-[#dc2626] hover:bg-[#fef2f2]'
-                                }`}
-                                onClick={() => void changeStatus(stageClient, ENDED_STATUS)}
+                                className="mt-1 flex items-center justify-between rounded-md border border-[#fecaca] px-4 py-2.5 text-left text-sm font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
+                                onClick={() => {
+                                    if (
+                                        !window.confirm(
+                                            `'${stageClient.company || '고객사'}'을(를) 삭제할까요? 되돌릴 수 없습니다.`,
+                                        )
+                                    )
+                                        return;
+                                    const id = stageClient.id;
+                                    setStageClient(null);
+                                    void deleteClient(id).then(() => {
+                                        void refresh();
+                                        showToast('삭제됨');
+                                    });
+                                }}
                                 type="button"
                             >
-                                계약 종료
-                                <span className="text-[11px] font-normal text-[#94a3b8]">→ 종료 탭으로</span>
+                                삭제
+                                <span className="text-[11px] font-normal text-[#94a3b8]">되돌릴 수 없음</span>
                             </button>
                         </div>
                         <div className="mt-4 flex justify-end">

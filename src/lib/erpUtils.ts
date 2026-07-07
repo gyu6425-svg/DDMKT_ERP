@@ -65,7 +65,7 @@ export function ym(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
-export const STATUS_OPTIONS = ['신규문의', '상담중', '제안완료', '계약완료', '보류'];
+export const STATUS_OPTIONS = ['신규문의', '상담중', '제안완료', '계약완료', '보류', '가망'];
 // 업태 / 업종 (세금계산서용) — 실제 고객사 유형(인테리어·청소·병의원·뷰티·자동차 등) 반영. 필요 시 추가.
 export const INDUSTRY_OPTIONS = [
     '서비스업 / 세무사업',
@@ -120,6 +120,7 @@ export const STATUS_BADGE: Record<string, string> = {
     계약종료: 'bg-[#e5e7eb] text-[#475569]',
     임시: 'bg-[#fef9c3] text-[#a16207]',
     보류: 'bg-[#e2e8f0] text-[#64748b]',
+    가망: 'bg-[#fce7f3] text-[#be185d]',
     상담중: 'bg-[#fed7aa] text-[#d97706]',
     신규문의: 'bg-[#dbeafe] text-[#1e40af]',
     제안완료: 'bg-[#ede9fe] text-[#7c3aed]',
