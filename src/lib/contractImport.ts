@@ -67,17 +67,12 @@ const COMPANY_OF: Array<{ keys: string[]; company: string }> = [
     { company: '라인업애드', keys: ['라인'] },
     { company: '마녀마케팅', keys: ['츄잉'] },
 ];
-// 회사 미지정 브랜드 — 정확일치만(부분일치하면 '숏폼 마케팅' 등 오탐). 회사 모르면 브랜드명 그대로.
-const VENDORS_EXACT = ['마케팅'];
-const VENDORS = ['247', '고스트', '저스트'];
+// 외주업체명 = 회사명만. COMPANY_OF에 매핑된 회사만 자동 기입하고,
+//   회사 미지정 브랜드(저스트·고스트·247·마케팅 등)는 공란(회사명 알게 되면 COMPANY_OF에 추가).
 export const vendorFromProduct = (base: string): string | null => {
     const b = (base || '').trim();
     for (const { keys, company } of COMPANY_OF) {
         if (keys.some((k) => b.includes(k))) return company;
-    }
-    if (VENDORS_EXACT.includes(b)) return b;
-    for (const v of VENDORS) {
-        if (b === v || b.includes(v)) return v;
     }
     return null;
 };
@@ -212,7 +207,8 @@ export function parseSalesRows(salesText: string): ParsedRow[] {
             product,
             qty,
             unit,
-            vendor: vendorFromProduct(base),
+            // 계약/매출 시트(1번) = 분류만. 외주업체명(회사)은 진행 처리 시트(3번)에서만 채움.
+            vendor: null,
         });
     }
     return out;
