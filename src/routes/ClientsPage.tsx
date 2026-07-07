@@ -688,6 +688,12 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             return;
         }
 
+        // 신규 등록(문의 추가 등) → 목록에서 파란색 강조(24h). newIds 기록.
+        if (!editId && createdId) {
+            markNewContract(createdId);
+            setNewMap(readNewContracts());
+        }
+
         setModalOpen(false);
         await refresh();
         showToast('저장되었습니다');

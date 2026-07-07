@@ -131,6 +131,9 @@ export const canManagePermissions = (email?: string | null) =>
 // 계약 미완료 알림 대상 — 송민경·김종인·조재현·장규진.
 export const canSeeContractPending = (email?: string | null) =>
     emailIn(email, ['ming99@ddmkt.com', 'rlawhddls@ddmkt.com', 'ddmkt1@ddmkt.com', 'gyu6425@gmail.com']);
+// 신규 계약(계약완료→계약 관리 신규 등록 건) 알림 대상 — 송민경·김종인.
+export const canSeeNewContract = (email?: string | null) =>
+    emailIn(email, ['ming99@ddmkt.com', 'rlawhddls@ddmkt.com']);
 // 시트 카테고리 목록(권한 판정·알림 그룹핑용).
 export const SHEET_CATEGORIES = ['플레이스', '인스타', '카페', '쇼핑', '파워링크', '영상', '블로그'];
 

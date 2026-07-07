@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useErpData } from '../context/ErpDataContext'
 import { useAuth } from '../hooks/useAuth'
 import { getClientContracts, type ClientContract } from '../api/clientContracts'
-import { canSeeContractPending, SHEET_CATEGORIES } from '../lib/permissions'
+import { canSeeContractPending, canSeeNewContract, SHEET_CATEGORIES } from '../lib/permissions'
 import { SIDEBAR_CATEGORIES } from './categoryRank/categories'
 import { resolveScope } from './categoryRank/ContractSheetTab'
 
@@ -34,8 +34,9 @@ export default function NotificationBell() {
   const boxRef = useRef<HTMLDivElement>(null)
 
   const seePending = canSeeContractPending(profile?.email)
+  const seeNewContract = canSeeNewContract(profile?.email)
   const myCats = SHEET_CATEGORIES.filter((c) => canManageSheet(c))
-  const eligible = role !== 'viewer' && (seePending || myCats.length > 0)
+  const eligible = role !== 'viewer' && (seePending || seeNewContract || myCats.length > 0)
 
   useEffect(() => {
     if (!eligible || myCats.length === 0) return
@@ -63,6 +64,12 @@ export default function NotificationBell() {
   const sheetPending = contracts.filter(
     (ct) => !ct.sheet_approved && canManageSheet(ct.category) && !readSet.has('s:' + ct.id),
   )
+  // 신규 계약 = 고객사 관리에서 계약완료 처리돼 계약 관리 '신규 등록 건'으로 간 건(승인 전).
+  const newContracts = (
+    seeNewContract
+      ? allClients.filter((c) => c.status === '계약완료' && c.contract_approved === false)
+      : []
+  ).filter((c) => !readSet.has('n:' + c.id))
   // 세부유형(subtype)별로 묶음 — 플레이스처럼 하위(?sub) 드롭다운이 있는 카테고리는
   //   해당 세부유형 시트로 정확히 이동해야 '관리 시트'가 열림.
   const bySub = new Map<string, { cat: string; subtype: string; n: number }>()
@@ -72,7 +79,7 @@ export default function NotificationBell() {
     cur.n += 1
     bySub.set(key, cur)
   }
-  const count = pendingClients.length + sheetPending.length
+  const count = pendingClients.length + sheetPending.length + newContracts.length
 
   const go = (path: string) => {
     if (window.location.pathname + window.location.search !== path) {
@@ -98,6 +105,7 @@ export default function NotificationBell() {
   const markAllRead = () => {
     const next = new Set(readSet)
     pendingClients.forEach((c) => next.add('p:' + c.id))
+    newContracts.forEach((c) => next.add('n:' + c.id))
     sheetPending.forEach((ct) => next.add('s:' + ct.id))
     setReadSet(next)
     saveRead(next)
@@ -113,6 +121,11 @@ export default function NotificationBell() {
   const openPendingClient = (c: { id: string; company: string | null }) => {
     markRead(['p:' + c.id])
     go('/clients?q=' + encodeURIComponent(c.company || ''))
+  }
+  // 신규 계약 알림 클릭 — 계약 관리(신규 등록 건)에서 그 업체 검색 + 이 알림 제거.
+  const openNewContract = (c: { id: string; company: string | null }) => {
+    markRead(['n:' + c.id])
+    go('/contracts?q=' + encodeURIComponent(c.company || ''))
   }
   // 시트 승인 대기 알림 클릭 — 그 세부유형 시트로 이동 + 그 그룹 알림 제거.
   const openSheetGroup = (cat: string, subtype: string) => {
@@ -178,6 +191,36 @@ export default function NotificationBell() {
                   </span>
                 </button>
               ))}
+            </div>
+          ) : null}
+
+          {/* ⓪ 신규 계약(계약완료 → 계약 관리 신규 등록 건) — 송민경·김종인 */}
+          {seeNewContract && newContracts.length ? (
+            <div className="border-b border-[#f1f5f9] p-1">
+              <div className="px-2 py-1 text-[11px] font-bold text-[#1e40af]">신규 계약 (승인 필요)</div>
+              <div className="grid max-h-[40vh] gap-0.5 overflow-y-auto">
+                {newContracts.slice(0, 30).map((c) => (
+                  <button
+                    className="rounded-md px-2 py-1.5 text-left hover:bg-[#f8fafc]"
+                    key={c.id}
+                    onClick={() => openNewContract(c)}
+                    type="button"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-semibold text-[#334155]">
+                        {c.company || '(업체명 없음)'}
+                      </span>
+                      <span className="shrink-0 rounded bg-[#dbeafe] px-1.5 py-0.5 text-[10px] font-bold text-[#1e40af]">
+                        신규 등록 건
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-[#94a3b8]">
+                      {c.manager || '담당 미지정'}
+                      {c.created_at ? ` · ${c.created_at.slice(0, 10)}` : ''}
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
           ) : null}
 
