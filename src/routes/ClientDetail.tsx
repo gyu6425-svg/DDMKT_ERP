@@ -766,7 +766,9 @@ function ContractEditModal({
             : (contract.amount ?? 0) > 0 && done * (contract.unit_price ?? 0) > 0
               ? Math.min(100, Math.round(((done * (contract.unit_price ?? 0)) / (contract.amount ?? 1)) * 100))
               : Math.round((done / goalN) * 100);
-    const imminent = hasGoal && (remainN <= 5 || pct >= 80); // 잔여 5건 이하 또는 진행률 80%↑ → 재계약/종료
+    // 재계약/계약 종료 버튼 노출 조건 — 우선 비활성화(사용자 요청). 필요 시 아래 조건 복원.
+    //   원래: hasGoal && (remainN <= 5 || pct >= 80)  (잔여 5건 이하 또는 진행률 80%↑)
+    const imminent = false;
     // 리워드(일 단위) — 주간 처리: 추천치 = 일일타수 × 7(잔여로 캡), Σ주간로그가 소진과 일치해야 함.
     const isReward = isDailySub(contract.subtype) || contract.subtype.includes('리워드');
     const perDay = contract.per_day ?? 0;
