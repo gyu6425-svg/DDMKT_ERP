@@ -309,6 +309,7 @@ function ContractAddModal({
     const [outTotal, setOutTotal] = useState(''); // 외주비 직접입력(총액) — 입력 시 외주단가×수량 대신 사용
     const [outCompany, setOutCompany] = useState(''); // 외주업체명
     const [blogName, setBlogName] = useState(''); // 브랜드 블로그 이름(관리시트 업체명)
+    const [serviceNote, setServiceNote] = useState(''); // 서비스 내용 메모(무슨 서비스인지)
     const [date, setDate] = useState('');
     const [saving, setSaving] = useState(false);
     const daily = isDailySub(subtype); // 리워드 등 = 일일수량 × 일수
@@ -372,6 +373,7 @@ function ContractAddModal({
                 unit_outsource: outDirect > 0 ? null : outUnit.trim() ? Number(onlyDigits(outUnit)) : null,
                 unit_price: unit.trim() ? Number(onlyDigits(unit)) : null,
                 blog_name: blogName.trim() || null, // 업체명/이름 라벨(전 카테고리 공통, 카드 칩 표시)
+                note: isService && serviceNote.trim() ? serviceNote.trim() : null, // 서비스 내용 메모
             },
         ]);
         setSaving(false);
@@ -446,6 +448,15 @@ function ContractAddModal({
                                 (실매출 VAT −{withVat(Number(onlyDigits(amountInput)) || 0).toLocaleString('ko-KR')}원)로
                                 반영됩니다. 외주비 없음.
                             </div>
+                            <label className="block text-xs font-semibold text-[#475569]">
+                                서비스 내용 (메모)
+                                <textarea
+                                    className="mt-1 h-16 w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
+                                    onChange={(e) => setServiceNote(e.target.value)}
+                                    placeholder="예: 상세페이지 디자인 무상 제공"
+                                    value={serviceNote}
+                                />
+                            </label>
                             <label className="block text-xs font-semibold text-[#475569]">
                                 계약일
                                 <input
@@ -2939,6 +2950,11 @@ export function ClientDetail({
                                                         : '건수 미입력'}
                                                     {ct.amount ? ` · ${fmtWon(ct.amount)}원` : ''}
                                                 </div>
+                                                {ct.subtype === '서비스' && ct.note ? (
+                                                    <div className="mt-0.5 line-clamp-2 text-[11px] text-[#7c3aed]">
+                                                        📝 {ct.note}
+                                                    </div>
+                                                ) : null}
                                                 {(ct.unit_outsource ?? 0) > 0 ? (
                                                     <div className="mt-0.5 text-[11px] font-semibold text-[#dc2626]">
                                                         잔여 외주 {fmtWon(outsourceOf(ct).remain)}원
