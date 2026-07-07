@@ -1218,11 +1218,29 @@ function ContractEditModal({
                             <div className="mt-3 rounded-lg border border-[#dbeafe] bg-[#eff6ff] px-3 py-4 text-left">
                                 <div className="flex items-center justify-between">
                                     <span className="text-sm font-bold text-[#1e40af]">주간 진행</span>
-                                    <span className="text-[10px] text-[#64748b]">
-                                        {perDay > 0
-                                            ? `일일 ${perDay.toLocaleString('ko-KR')}타 · 주 추천 ${weekRec.toLocaleString('ko-KR')}타`
-                                            : '일일 타수 미저장 — 직접 입력'}
-                                    </span>
+                                    <div className="flex gap-1">
+                                        <button
+                                            className="rounded-md border border-[#1e40af] bg-white px-2 py-1 text-[11px] font-semibold text-[#1e40af] hover:bg-[#eef2ff] disabled:opacity-50"
+                                            disabled={saving}
+                                            onClick={() => setOutSheetOpen(true)}
+                                            type="button"
+                                        >
+                                            시트 붙여넣기
+                                        </button>
+                                        <button
+                                            className="rounded-md border border-[#93c5fd] px-2 py-1 text-[11px] font-semibold text-[#1e40af] hover:bg-[#dbeafe] disabled:opacity-50"
+                                            disabled={saving}
+                                            onClick={() => void saveOutsource()}
+                                            type="button"
+                                        >
+                                            외주 저장
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="mt-0.5 text-right text-[10px] text-[#64748b]">
+                                    {perDay > 0
+                                        ? `일일 ${perDay.toLocaleString('ko-KR')}타 · 주 추천 ${weekRec.toLocaleString('ko-KR')}타`
+                                        : '일일 타수 미저장 — 직접 입력'}
                                 </div>
                                 {/* 외주단가·외주업체 — 입력값으로 외주비 계산(로그에도 반영) */}
                                 <div className="mt-2 grid grid-cols-2 gap-1.5">
