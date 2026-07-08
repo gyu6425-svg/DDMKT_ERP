@@ -34,6 +34,7 @@ export function SheetTab() {
         goTrackerBlog: onGoTrackerBlog,
         sheetQ: initialQ,
         customerMode,
+        reporterMode,
     } = useBlogRank();
     const { isAdmin } = useAuth(); // 기자단 계정 삭제(관리)는 관리자만
     const [q, setQ] = useState(initialQ);
@@ -392,9 +393,10 @@ export function SheetTab() {
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">업체</th>
-                            <th className="px-3 py-2 font-semibold">계약일</th>
+                            {/* 기자단 뷰: 계약일·담당·주 발행 컬럼 숨김 */}
+                            {!reporterMode && <th className="px-3 py-2 font-semibold">계약일</th>}
                             {!customerMode && <th className="px-3 py-2 font-semibold">계약금액</th>}
-                            <th className="px-3 py-2 font-semibold">담당</th>
+                            {!reporterMode && <th className="px-3 py-2 font-semibold">담당</th>}
                             {!customerMode && <th className="px-3 py-2 font-semibold">기자단</th>}
                             <th
                                 className="cursor-pointer px-3 py-2 font-semibold"
@@ -408,7 +410,7 @@ export function SheetTab() {
                             >
                                 잔여 {sortKey === 'remain' ? (sortDir > 0 ? '▲' : '▼') : ''}
                             </th>
-                            <th className="px-3 py-2 text-center font-semibold">주 발행</th>
+                            {!reporterMode && <th className="px-3 py-2 text-center font-semibold">주 발행</th>}
                             <th className="px-3 py-2 text-center font-semibold">추적 글</th>
                             <th className="px-3 py-2 text-center font-semibold">통합 10위↓</th>
                             {!customerMode && (
@@ -459,19 +461,21 @@ export function SheetTab() {
                                                 {a.name}
                                             </a>
                                         </td>
-                                        <td className="px-2 py-2">
-                                            <span
-                                                className={`inline-block min-w-[82px] px-1.5 py-1 text-left text-xs ${latestContractDate(a) ? 'text-[#475569]' : 'text-[#cbd5e1]'}`}
-                                                title="계약 수정은 계약 관리에서"
-                                            >
-                                                {latestContractDate(a) || '-'}
-                                                {a.contracts && a.contracts.length > 1 ? (
-                                                    <span className="ml-1 rounded bg-[#ede9fe] px-1 text-[9px] font-semibold text-[#6d28d9]">
-                                                        갱신{a.contracts.length - 1}
-                                                    </span>
-                                                ) : null}
-                                            </span>
-                                        </td>
+                                        {!reporterMode && (
+                                            <td className="px-2 py-2">
+                                                <span
+                                                    className={`inline-block min-w-[82px] px-1.5 py-1 text-left text-xs ${latestContractDate(a) ? 'text-[#475569]' : 'text-[#cbd5e1]'}`}
+                                                    title="계약 수정은 계약 관리에서"
+                                                >
+                                                    {latestContractDate(a) || '-'}
+                                                    {a.contracts && a.contracts.length > 1 ? (
+                                                        <span className="ml-1 rounded bg-[#ede9fe] px-1 text-[9px] font-semibold text-[#6d28d9]">
+                                                            갱신{a.contracts.length - 1}
+                                                        </span>
+                                                    ) : null}
+                                                </span>
+                                            </td>
+                                        )}
                                         {!customerMode && (
                                             <td className="px-2 py-2">
                                                 <span
@@ -482,15 +486,17 @@ export function SheetTab() {
                                                 </span>
                                             </td>
                                         )}
-                                        <td className="px-3 py-2">
-                                            {a.manager ? (
-                                                <span className="rounded bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#475569]">
-                                                    {a.manager}
-                                                </span>
-                                            ) : (
-                                                <span className="text-xs text-[#94a3b8]">미지정</span>
-                                            )}
-                                        </td>
+                                        {!reporterMode && (
+                                            <td className="px-3 py-2">
+                                                {a.manager ? (
+                                                    <span className="rounded bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#475569]">
+                                                        {a.manager}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs text-[#94a3b8]">미지정</span>
+                                                )}
+                                            </td>
+                                        )}
                                         {!customerMode && (
                                             <td className="px-2 py-2">
                                                 {(() => {
@@ -616,16 +622,18 @@ export function SheetTab() {
                                                 </span>
                                             )}
                                         </td>
-                                        <td className="px-2 py-2 text-center">
-                                            <button
-                                                className={`rounded px-1.5 py-1 text-xs hover:bg-[#f1f5f9] ${currentField(a.weekly_history, a.weekly) ? 'text-[#64748b]' : 'text-[#cbd5e1]'}`}
-                                                onClick={() => setWeeklyAcc(a)}
-                                                title="클릭해서 주 발행 변경·이력 관리"
-                                                type="button"
-                                            >
-                                                {currentField(a.weekly_history, a.weekly) || '+ 주 발행'}
-                                            </button>
-                                        </td>
+                                        {!reporterMode && (
+                                            <td className="px-2 py-2 text-center">
+                                                <button
+                                                    className={`rounded px-1.5 py-1 text-xs hover:bg-[#f1f5f9] ${currentField(a.weekly_history, a.weekly) ? 'text-[#64748b]' : 'text-[#cbd5e1]'}`}
+                                                    onClick={() => setWeeklyAcc(a)}
+                                                    title="클릭해서 주 발행 변경·이력 관리"
+                                                    type="button"
+                                                >
+                                                    {currentField(a.weekly_history, a.weekly) || '+ 주 발행'}
+                                                </button>
+                                            </td>
+                                        )}
                                         <td className="px-3 py-2 text-center text-sm font-semibold">
                                             {myPosts.length}
                                         </td>
