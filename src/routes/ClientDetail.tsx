@@ -738,7 +738,6 @@ function ContractEditModal({
     const [weekInput, setWeekInput] = useState(''); // 리워드 주간 처리 타수
     const [weekPaid, setWeekPaid] = useState(false); // 이번 주 입금 처리 여부
     const [weekNoTax, setWeekNoTax] = useState(false); // 세금계산서 미발행 체크(기본=발행)
-    const [noVat, setNoVat] = useState(!!contract.no_vat); // 부가세 없음(현금) — 실매출 VAT 미포함
     const [editLog, setEditLog] = useState<{ idx: number; value: string } | null>(null); // 진행 이력 타수 수정
     const [amount] = useState(contract.amount?.toString() ?? '');
     const [date, setDate] = useState(contract.contract_date ?? '');
@@ -871,18 +870,6 @@ function ContractEditModal({
             return;
         }
         onToast('외주 정보 저장됨');
-        await onReload();
-    };
-
-    // 부가세 없음(현금) 토글 — 즉시 저장. 실매출에 VAT 10% 미포함으로 반영.
-    const toggleNoVat = async (v: boolean) => {
-        setNoVat(v);
-        const { error } = await updateClientContract(contract.id, { no_vat: v });
-        if (error) {
-            onToast(`오류: ${error.message}`);
-            setNoVat(!v);
-            return;
-        }
         await onReload();
     };
 
@@ -1284,6 +1271,12 @@ function ContractEditModal({
                                               <div className="text-xs font-bold text-[#475569]">
                                                   {fmtWon(o.total)}원
                                               </div>
+                                              {/* 기자단 3.3% 원천징수 — 참고 표시(계산 미반영) */}
+                                              {contract.category === '블로그' ? (
+                                                  <div className="text-[9px] text-[#94a3b8]">
+                                                      3.3% 공제 {fmtWon(Math.round(o.total * 0.967))}원
+                                                  </div>
+                                              ) : null}
                                           </div>
                                           <div>
                                               <div className="text-[10px] text-[#94a3b8]">소진</div>
@@ -1413,15 +1406,6 @@ function ContractEditModal({
                                         type="checkbox"
                                     />
                                     세금계산서 미발행 (체크 안 하면 발행으로 기록)
-                                </label>
-                                {/* 부가세 없음(현금) — 체크 시 실매출에 VAT 10% 미포함 */}
-                                <label className="mt-1 flex items-center gap-1.5 text-[12px] font-semibold text-[#059669]">
-                                    <input
-                                        checked={noVat}
-                                        onChange={(e) => void toggleNoVat(e.target.checked)}
-                                        type="checkbox"
-                                    />
-                                    부가세 없음 (현금 — 실매출에 VAT 10% 미포함)
                                 </label>
                                 <div className="mt-2 text-[11px] font-bold text-[#1e40af]">이번 주 처리 타수</div>
                                 <div className="mt-1 flex items-center gap-1.5">
@@ -1570,15 +1554,6 @@ function ContractEditModal({
                                         type="checkbox"
                                     />
                                     세금계산서 미발행 (체크 안 하면 발행으로 기록)
-                                </label>
-                                {/* 부가세 없음(현금) — 체크 시 실매출에 VAT 10% 미포함 */}
-                                <label className="mt-1 flex items-center gap-1.5 text-[12px] font-semibold text-[#059669]">
-                                    <input
-                                        checked={noVat}
-                                        onChange={(e) => void toggleNoVat(e.target.checked)}
-                                        type="checkbox"
-                                    />
-                                    부가세 없음 (현금 — 실매출에 VAT 10% 미포함)
                                 </label>
                                 {/* 되돌리기 — +1건 완료 제거(수기 입력으로 처리). 마지막 기록 취소용만 유지 */}
                                 <div className="mt-2">
