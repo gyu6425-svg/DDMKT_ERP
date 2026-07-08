@@ -94,6 +94,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
     // 계약 카드 '관리 시트 →'가 붙인 q=업체명을 초기값으로 → 도착 즉시 해당 업체 자동 필터.
     const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '');
     const [mgr, setMgr] = useState('');
+    const [dateSort, setDateSort] = useState<'asc' | 'desc' | null>('desc'); // 계약일 정렬(기본 최신순)
     // 계약 중 / 신규 등록 건(24h) / 계약 종료.
     //   stab=new|active(계약 카드 '관리 시트 →'의 승인 여부) 또는 pending=1(알림)로 시작 탭 지정.
     const urlTab = (): 'active' | 'new' | 'ended' | null => {
@@ -199,8 +200,15 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                     (!qq || (r.cl.company || '').toLowerCase().includes(qq)) &&
                     (!mgr || r.cl.manager === mgr),
             )
-            .sort((a, b) => (a.cl.company || '').localeCompare(b.cl.company || '', 'ko'));
-    }, [allRows, q, mgr, tab]);
+            .sort((a, b) => {
+                // 계약일 정렬(오름/내림) 우선. 없으면 업체명순.
+                if (dateSort) {
+                    const c = (a.ct.contract_date || '').localeCompare(b.ct.contract_date || '');
+                    return dateSort === 'asc' ? c : -c;
+                }
+                return (a.cl.company || '').localeCompare(b.cl.company || '', 'ko');
+            });
+    }, [allRows, q, mgr, tab, dateSort]);
 
     if (loading) {
         return <div className="py-16 text-center text-sm text-[#94a3b8]">불러오는 중...</div>;
@@ -276,7 +284,18 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">업체</th>
-                            <th className="px-3 py-2 font-semibold">계약일</th>
+                            <th className="px-3 py-2 font-semibold">
+                                <button
+                                    className="flex items-center gap-1 font-semibold text-[#475569] hover:text-[#1e40af]"
+                                    onClick={() =>
+                                        setDateSort((d) => (d === 'desc' ? 'asc' : d === 'asc' ? null : 'desc'))
+                                    }
+                                    title="계약일 정렬(최신순/오래된순/해제)"
+                                    type="button"
+                                >
+                                    계약일 {dateSort === 'desc' ? '▼' : dateSort === 'asc' ? '▲' : '↕'}
+                                </button>
+                            </th>
                             {showSub && <th className="px-3 py-2 font-semibold">세부유형</th>}
                             <th className="px-3 py-2 font-semibold">담당</th>
                             <th className="px-3 py-2 font-semibold">진행률</th>
