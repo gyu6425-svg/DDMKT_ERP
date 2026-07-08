@@ -40,7 +40,18 @@ export default function CustomerAccountModal({
         : { login: login.trim(), clientId, name: name.trim() }
       const { data, error } = await supabase.functions.invoke('clever-processor', { body })
       setSaving(false)
-      if (error) return setErr('발급 실패: ' + (error.message || '서버 오류'))
+      if (error) {
+        // non-2xx 시 supabase-js는 generic 메시지만 준다 → 응답 본문의 실제 에러를 꺼내 표시.
+        let detail = error.message || '서버 오류'
+        try {
+          const ctx = (error as { context?: Response }).context
+          const parsed = ctx && typeof ctx.json === 'function' ? await ctx.json() : null
+          if (parsed?.error) detail = parsed.error
+        } catch {
+          /* 본문 파싱 실패 무시 */
+        }
+        return setErr('발급 실패: ' + detail)
+      }
       if (data?.error) return setErr(data.error)
       if (data?.ok) {
         onIssued?.({ profileId: data.profileId ?? null, email: data.email, name: name.trim() })
