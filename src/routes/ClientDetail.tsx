@@ -2434,9 +2434,9 @@ export function ClientDetail({
         });
     const receivedTotal = totalOutsource; // 예상(받은) 외주비 = 상단 외주비 합계
     const usedTotal = outsourceRows.reduce((s, r) => s + r.used, 0); // 실제 사용 = 진행 이력 합
-    const outMargin = receivedTotal - usedTotal; // 차액 = 예상 − 사용
-    // 순매출 = 공급가(VAT 제외) − 외주비 정산 차액.
-    const netRevenue = totalSupply - outMargin;
+    const outMargin = receivedTotal - usedTotal; // 차액 = 예상 − 사용(외주비 정산 섹션용)
+    // 순매출 = 공급가(VAT 제외) − 실제 사용 외주비(우리가 실제 지출한 원가). 실질 마진.
+    const netRevenue = totalSupply - usedTotal;
 
     // (외주비 정산 내역의 삭제 버튼은 제거 — 외주비/사용이력 삭제는 계약(카드/진행 이력)에서만)
     // 계약 내역 일괄삭제(임시 버튼) — 이 업체의 모든 계약행 제거. 되돌릴 수 없음.
@@ -2554,7 +2554,7 @@ export function ClientDetail({
                 )}
             </div>
 
-            {/* 누적 금액 — 순매출 = 실매출 − 외주비 정산 차액. 순매출·실매출·차액 누르면 상품별 내역 */}
+            {/* 누적 금액 — 순매출 = 공급가(VAT 제외) − 실제 사용 외주비. 각 박스 누르면 상품별 내역 */}
             <div className="flex items-stretch gap-2">
                 <button
                     className="flex-1 rounded-xl border-2 border-[#059669] bg-[#f0fdf4] px-3 py-3 text-center shadow-sm transition hover:shadow-md"
@@ -2584,12 +2584,12 @@ export function ClientDetail({
                     onClick={() => setBreakdown('outsource')}
                     type="button"
                 >
-                    <div className="text-[11px] font-semibold text-[#94a3b8]">외주비 차액</div>
+                    <div className="text-[11px] font-semibold text-[#94a3b8]">실제 사용 외주비</div>
                     <div className="mt-0.5 text-lg font-bold text-[#dc2626] sm:text-2xl">
-                        {fmtWon(outMargin)}원
+                        {fmtWon(usedTotal)}원
                     </div>
                     <div className="mt-0.5 text-[10px] text-[#94a3b8]">
-                        예상 {fmtWon(receivedTotal)} · 사용 {fmtWon(usedTotal)}
+                        예상(받은) {fmtWon(receivedTotal)} · 차액 {fmtWon(outMargin)}
                     </div>
                 </button>
             </div>
@@ -3278,7 +3278,7 @@ export function ClientDetail({
                         </h3>
                         <p className="mt-1 mb-3 text-sm text-[#64748b]">
                             {breakdown === 'net'
-                                ? '상품별 순매출 (공급가 − 외주비)'
+                                ? '상품별 순매출 (공급가 − 실제 사용 외주비)'
                                 : breakdown === 'sales'
                                   ? '상품별 실매출 (VAT 포함)'
                                   : '상품별 외주비'}
@@ -3288,7 +3288,7 @@ export function ClientDetail({
                                 {contracts.map((ct) => {
                                     const val =
                                         breakdown === 'net'
-                                            ? (ct.amount || 0) - (ct.outsource || 0)
+                                            ? (ct.amount || 0) - usedOutsourceOf(ct)
                                             : breakdown === 'sales'
                                               ? saleVat(ct.amount, ct.no_vat) // 실매출 = VAT 포함(현금이면 미포함)
                                               : ct.outsource || 0;
@@ -3316,7 +3316,7 @@ export function ClientDetail({
                                                             ? ` · 외주업체 ${ct.outsource_company}`
                                                             : ''}
                                                         {breakdown === 'net'
-                                                            ? ` · 매출 ${fmtWon(ct.amount || 0)} − 외주 ${fmtWon(ct.outsource || 0)}`
+                                                            ? ` · 공급가 ${fmtWon(ct.amount || 0)} − 사용외주 ${fmtWon(usedOutsourceOf(ct))}`
                                                             : ''}
                                                     </span>
                                                 </span>
@@ -3386,11 +3386,11 @@ export function ClientDetail({
                                       ] as [string, string, string?][])
                                     : breakdown === 'net'
                                       ? ([
-                                            ['실매출 (VAT 포함)', `${fmtWon(saleVat(detailC.amount, detailC.no_vat))}원`, '#1e40af'],
-                                            ['외주비', `${fmtWon(detailC.outsource || 0)}원`, '#dc2626'],
+                                            ['공급가 (VAT 제외)', `${fmtWon(detailC.amount || 0)}원`, '#1e40af'],
+                                            ['실제 사용 외주비', `${fmtWon(usedOutsourceOf(detailC))}원`, '#dc2626'],
                                             [
-                                                '순매출 (매출 − 외주비)',
-                                                `${fmtWon((detailC.amount || 0) - (detailC.outsource || 0))}원`,
+                                                '순매출 (공급가 − 실제 사용 외주비)',
+                                                `${fmtWon((detailC.amount || 0) - usedOutsourceOf(detailC))}원`,
                                                 '#059669',
                                             ],
                                         ] as [string, string, string?][])
