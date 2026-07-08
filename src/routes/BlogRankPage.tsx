@@ -6,6 +6,7 @@ import { DashboardTab } from '../components/blogRank/pages/DashboardTab';
 import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { CrawlStatusTab } from '../components/blogRank/pages/CrawlStatusTab';
+import { ContractSheetTab } from '../components/categoryRank/ContractSheetTab';
 
 // 블로그 대시보드 = 얇은 셸: Provider(공유 상태) + 헤더 + 탭바 + 활성 페이지.
 //   5개 기능은 각자 useBlogRank()로 필요한 값만 읽는 독립 페이지 컴포넌트.
@@ -83,7 +84,8 @@ function BlogRankShell({ sheetOnly = false }: { sheetOnly?: boolean }) {
                     </div>
 
                     {tab === 'dashboard' ? <DashboardTab /> : null}
-                    {tab === 'sheet' ? <SheetTab /> : null}
+                    {/* 대시보드 관리 시트 = 블로그 전체(브랜드/최적화/준최적화/저인망) 통합 — 플레이스와 동일한 업체 그룹 드롭다운 */}
+                    {tab === 'sheet' ? <ContractSheetTab category="블로그" /> : null}
                     {tab === 'tracker' ? <TrackerTab /> : null}
                     {tab === 'crawl' ? <CrawlStatusTab /> : null}
                     {tab === 'writer' ? <BlogPage /> : null}
