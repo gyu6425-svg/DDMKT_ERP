@@ -64,8 +64,6 @@ export function DashboardTab() {
     const sameDayRows = rowsForPub(today);
     const prevDayRows = rowsForPub(yesterday);
     const sameDayBlogs = new Set(sameDayRows.map((r) => r.post.blog_account_id)).size;
-    const sentToday = sameDayRows.filter((r) => !!r.post.report_sent_at).length; // 당일 측정 글 중 발송 완료 수
-    const prevSent = prevDayRows.filter((r) => !!r.post.rank_sent_at).length; // 전날 순위 발송 완료 수
     const prevTop10 = prevDayRows.filter(
         (r) => (r.m.ti_status ?? 'ok') === 'ok' && r.m.ti != null && r.m.ti <= 10,
     ).length;
@@ -202,9 +200,8 @@ export function DashboardTab() {
                     label={`당일 측정 글 (${mmdd(today)})`}
                     value={sameDayRows.length}
                     color="#ca8a04"
-                    sub={`블로그 ${sameDayBlogs}곳 · 눌러서 목록·발송`}
+                    sub={`블로그 ${sameDayBlogs}곳 · 눌러서 목록`}
                     tone="yellow"
-                    sentN={sentToday}
                     onClick={() => setShowSameDay(true)}
                 />
                 <KpiCard
@@ -213,7 +210,6 @@ export function DashboardTab() {
                     color="#7c3aed"
                     sub={`통합 10위내 ${prevTop10} · 눌러서 순위목록`}
                     tone="purple"
-                    sentN={prevSent}
                     onClick={() => setShowPrevDay(true)}
                 />
                 {/* 누락 건(자동발송 실패) = 내부 지표 → 고객 뷰에선 숨김 */}
