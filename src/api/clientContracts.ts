@@ -53,14 +53,17 @@ export type ClientContract = {
     no_vat?: boolean | null; // 부가세 없음(현금 거래) — true면 실매출에 VAT 10% 미포함
 };
 
-// 누적 완료 외주금액 = Σ(진행 배치 건수 × 그 배치 외주단가). 로그 없으면 완료건수 × 외주단가.
+// 누적 완료 외주금액 = Σ(진행 배치 건수 × 그 배치 외주단가) + 로그에 없는 완료분(잔여로만 갱신된 건) × 기본 외주단가.
+//   브랜드 블로그처럼 블로그 대시보드에서 잔여만 갱신되면(진행 이력 로그 없음) done > 로그합이 됨 → 초과분 보정.
 export const completedOutsource = (ct: ClientContract): number => {
     const logs = ct.weekly_logs ?? [];
     const unit = ct.unit_outsource ?? 0;
     const goal = ct.goal_count ?? 0;
     const done = Math.max(0, goal - (ct.remain_count ?? goal));
-    if (logs.length) return logs.reduce((s, l) => s + (l.count || 0) * (l.outUnit || unit), 0);
-    return done * unit;
+    const loggedCount = logs.reduce((s, l) => s + (l.count || 0), 0);
+    const loggedAmt = logs.reduce((s, l) => s + (l.count || 0) * (l.outUnit || unit), 0);
+    const extra = Math.max(0, done - loggedCount) * unit; // 로그 미기록 완료분 보정
+    return loggedAmt + extra;
 };
 
 // 금액 기반 진행률(%) — 완료 외주금액 ÷ 계약금액. 외주 데이터 없으면 건수%로 폴백.
