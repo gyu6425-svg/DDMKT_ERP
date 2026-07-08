@@ -1053,7 +1053,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                 <div className="flex gap-1 border-b border-[#e2e8f0]">
                     {(
                         [
-                            { key: 'consult', label: '상담건' },
+                            { key: 'consult', label: '상담 건' },
                             { key: 'prospect', label: '가망 건' },
                             { key: 'hold', label: '보류' },
                             { key: 'done', label: '계약 완료' },
@@ -1550,27 +1550,14 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                         </Button>
                                                     </>
                                                 ) : null}
-                                                {!contractsOnly &&
-                                                (clientTab === 'consult' ||
-                                                    clientTab === 'prospect' ||
-                                                    clientTab === 'hold') ? (
+                                                {/* 모든 탭에서 계약 진행(상태 변경) 가능 — 스테이지 모달로 탭 간 상호 이동 */}
+                                                {!contractsOnly ? (
                                                     <Button
                                                         className="rounded border border-[#1e40af] px-2 py-1 text-[11px] font-semibold text-[#1e40af] hover:bg-[#eff6ff]"
                                                         onClick={() => setStageClient(c)}
                                                         type="button"
                                                     >
                                                         계약 진행
-                                                    </Button>
-                                                ) : null}
-                                                {!contractsOnly && clientTab === 'done' ? (
-                                                    <Button
-                                                        className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#64748b] hover:bg-[#f1f5f9]"
-                                                        onClick={() =>
-                                                            void changeStatus(c, ENDED_STATUS, '계약 종료 처리')
-                                                        }
-                                                        type="button"
-                                                    >
-                                                        계약 종료
                                                     </Button>
                                                 ) : null}
                                                 <Button
@@ -2470,7 +2457,20 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     ) : null}
                                 </button>
                             ))}
-                            {/* 삭제 — 이 고객사(상담건 등)를 완전 삭제. 되돌릴 수 없음. */}
+                            {/* 계약 종료로 이동 — 어느 탭에서든 계약 종료 탭으로 보냄(터미널 상태). */}
+                            <button
+                                className={`flex items-center justify-between rounded-md border px-4 py-2.5 text-left text-sm font-semibold ${
+                                    stageClient.status === ENDED_STATUS
+                                        ? 'border-[#1e40af] bg-[#eff6ff] text-[#1e40af]'
+                                        : 'border-[#e2e8f0] text-[#334155] hover:bg-[#f8fafc]'
+                                }`}
+                                onClick={() => void changeStatus(stageClient, ENDED_STATUS, '계약 종료 처리')}
+                                type="button"
+                            >
+                                계약 종료
+                                <span className="text-[11px] font-normal text-[#94a3b8]">→ 계약 종료 탭</span>
+                            </button>
+                            {/* 삭제 — 이 고객사(상담 건 등)를 완전 삭제. 되돌릴 수 없음. */}
                             <button
                                 className="mt-1 flex items-center justify-between rounded-md border border-[#fecaca] px-4 py-2.5 text-left text-sm font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
                                 onClick={() => {
