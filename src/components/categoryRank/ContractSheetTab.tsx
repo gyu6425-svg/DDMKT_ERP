@@ -74,6 +74,23 @@ const won = (n: number | null | undefined) => (n ? Number(n).toLocaleString('ko-
 const progColor = (p: number | null) =>
     p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
 
+// 세부유형(상품)별 칩 색 — 상품명 해시로 고정 색 배정(같은 상품은 항상 같은 색).
+const CHIP_PALETTE = [
+    { bg: '#dbeafe', text: '#1e40af' }, // 파랑
+    { bg: '#dcfce7', text: '#15803d' }, // 초록
+    { bg: '#fef3c7', text: '#b45309' }, // 앰버
+    { bg: '#fce7f3', text: '#be185d' }, // 분홍
+    { bg: '#ede9fe', text: '#6d28d9' }, // 보라
+    { bg: '#cffafe', text: '#0e7490' }, // 시안
+    { bg: '#ffe4e6', text: '#be123c' }, // 로즈
+    { bg: '#ecfccb', text: '#4d7c0f' }, // 라임
+];
+const chipColor = (s: string) => {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return CHIP_PALETTE[h % CHIP_PALETTE.length];
+};
+
 // 상태 뱃지 — 브랜드블로그 시트의 Tag와 동일 톤(진행 중=초록/재계약 임박=빨강·노랑/미입력=회색).
 function StatusTag({ ct }: { ct: ClientContract }) {
     const base = 'inline-block rounded-full px-2 py-0.5 text-[11px] font-bold';
@@ -322,7 +339,16 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                     {detail ? '└' : cl.company || '—'}
                 </td>
                 <td className="px-3 py-2 text-[13px] font-semibold text-[#475569]">{ct.contract_date || '—'}</td>
-                {showSub && <td className="px-3 py-2 text-[13px] text-[#475569]">{ct.subtype}</td>}
+                {showSub && (
+                    <td className="px-3 py-2">
+                        <span
+                            className="rounded px-1.5 py-0.5 text-[12px] font-semibold"
+                            style={{ background: chipColor(ct.subtype).bg, color: chipColor(ct.subtype).text }}
+                        >
+                            {ct.subtype}
+                        </span>
+                    </td>
+                )}
                 <td className="px-3 py-2 text-[13px] text-[#475569]">{cl.manager || '—'}</td>
                 <td className="px-3 py-2">
                     {pct == null ? (
@@ -514,14 +540,18 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                                             {showSub && (
                                                 <td className="px-3 py-2">
                                                     <div className="flex flex-wrap gap-1">
-                                                        {[...new Set(g.rows.map((r) => r.ct.subtype))].map((s) => (
-                                                            <span
-                                                                className="rounded bg-[#eef2f7] px-1.5 py-0.5 text-[11px] font-medium text-[#475569]"
-                                                                key={s}
-                                                            >
-                                                                {s}
-                                                            </span>
-                                                        ))}
+                                                        {[...new Set(g.rows.map((r) => r.ct.subtype))].map((s) => {
+                                                            const cc = chipColor(s);
+                                                            return (
+                                                                <span
+                                                                    className="rounded px-1.5 py-0.5 text-[11px] font-semibold"
+                                                                    key={s}
+                                                                    style={{ background: cc.bg, color: cc.text }}
+                                                                >
+                                                                    {s}
+                                                                </span>
+                                                            );
+                                                        })}
                                                     </div>
                                                 </td>
                                             )}
