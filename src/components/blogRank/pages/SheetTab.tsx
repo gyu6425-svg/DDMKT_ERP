@@ -8,6 +8,7 @@ import {
     type ReporterProfile,
 } from '../../../api/blogRank';
 import CustomerAccountModal from '../../CustomerAccountModal';
+import { ReporterManageModal } from '../components/ReporterManageModal';
 import { crawlBlog } from '../../../api/crawlBlog';
 import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDate, lastM, progOf, PER_SHEET, renewLevel } from '../lib/helpers';
 import { NEW_CONTRACT_CUTOFF_MS, NEW_CONTRACT_TTL_MS } from '../../../lib/erpUtils';
@@ -21,6 +22,7 @@ import { NoteModal } from '../components/NoteModal';
 import { ProgressModal } from '../components/ProgressModal';
 import { openBlogReport } from '../lib/report';
 import { ReportSelectModal } from '../components/ReportSelectModal';
+import { useAuth } from '../../../hooks/useAuth';
 
 export function SheetTab() {
     const {
@@ -33,6 +35,7 @@ export function SheetTab() {
         sheetQ: initialQ,
         customerMode,
     } = useBlogRank();
+    const { isAdmin } = useAuth(); // 기자단 계정 삭제(관리)는 관리자만
     const [q, setQ] = useState(initialQ);
     // 대시보드 '재계약 임박' 블로그 클릭으로 진입하면 그 업체명으로 검색 채움(마운트 타이밍 무관).
     useEffect(() => {
@@ -57,6 +60,7 @@ export function SheetTab() {
     //   발급은 '이 블로그(업체) 담당' 맥락에서 → 발급 성공 시 그 블로그에 자동 배정.
     const [reporters, setReporters] = useState<ReporterProfile[]>([]);
     const [issueForBlog, setIssueForBlog] = useState<BlogAccount | null>(null);
+    const [reporterManageOpen, setReporterManageOpen] = useState(false);
     // 동명이인 구분용 라벨 — 이름 + 이메일 앞부분(이메일은 고유).
     const reporterLabel = (r: ReporterProfile) =>
         `${r.name || '이름없음'} (${(r.email || '').split('@')[0]})`;
@@ -258,6 +262,16 @@ export function SheetTab() {
                 {/* 내부 액션(등록/전체측정/일괄삭제) — 고객 ERP에선 숨김(조회 전용) */}
                 {!customerMode && (
                     <>
+                        {isAdmin ? (
+                            <button
+                                className="inline-flex h-9 items-center rounded-md border border-[#6d28d9] px-3 text-xs font-semibold text-[#6d28d9] hover:bg-[#f5f3ff]"
+                                onClick={() => setReporterManageOpen(true)}
+                                title="발급된 기자단 계정 관리·삭제(관리자)"
+                                type="button"
+                            >
+                                기자단 계정 관리
+                            </button>
+                        ) : null}
                         <button
                             className="inline-flex h-9 items-center rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white"
                             onClick={() => setImportOpen(true)}
@@ -798,6 +812,18 @@ export function SheetTab() {
                             if (!ok) onToast('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.');
                         });
                     }}
+                />
+            ) : null}
+            {reporterManageOpen ? (
+                <ReporterManageModal
+                    accounts={accounts}
+                    onChanged={() => {
+                        void getReporters().then(({ data }) => setReporters(data));
+                        void onReload(); // 담당 해제된 블로그 반영
+                    }}
+                    onClose={() => setReporterManageOpen(false)}
+                    onToast={onToast}
+                    reporters={reporters}
                 />
             ) : null}
             {issueForBlog ? (

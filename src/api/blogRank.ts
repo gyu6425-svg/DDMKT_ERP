@@ -137,6 +137,26 @@ export async function getReporters() {
     return { data: data ?? [], error };
 }
 
+// 기자단 계정 삭제(admin) — Edge Function이 auth 유저+profiles 삭제 → 로그인 불가 + 담당 블로그 자동 해제.
+export async function deleteReporter(profileId: string): Promise<{ error: { message: string } | null }> {
+    const { data, error } = await supabase.functions.invoke('clever-processor', {
+        body: { action: 'delete_reporter', profileId },
+    });
+    if (error) {
+        let msg = error.message || '삭제 실패';
+        try {
+            const ctx = (error as { context?: Response }).context;
+            const parsed = ctx && typeof ctx.json === 'function' ? await ctx.json() : null;
+            if (parsed?.error) msg = parsed.error;
+        } catch {
+            /* 무시 */
+        }
+        return { error: { message: msg } };
+    }
+    if (data?.error) return { error: { message: data.error } };
+    return { error: null };
+}
+
 export async function insertBlogAccounts(payloads: Array<Partial<BlogAccount>>) {
     const { data, error } = await supabase
         .from('blog_accounts')

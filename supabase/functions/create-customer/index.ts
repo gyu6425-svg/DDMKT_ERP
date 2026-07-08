@@ -35,6 +35,26 @@ Deno.serve(async (req: Request) => {
 
   // 2) 입력.
   const body = await req.json().catch(() => ({}))
+
+  // 2-a) 기자단 계정 삭제(admin만) — auth 유저 + profiles 삭제 → 로그인 불가 + RLS로 즉시 데이터 차단.
+  if (String(body.action || '') === 'delete_reporter') {
+    const profileId = String(body.profileId || '').trim()
+    if (!profileId) return json({ error: 'profileId가 필요합니다.' }, 400)
+    const prow = await (
+      await fetch(`${URL}/rest/v1/profiles?select=id,user_id,role&id=eq.${profileId}`, { headers: svc })
+    ).json()
+    const p = prow?.[0]
+    if (!p) return json({ error: '계정을 찾을 수 없습니다.' }, 404)
+    if ((p.role || '') !== 'reporter') return json({ error: '기자단 계정만 삭제할 수 있습니다.' }, 400)
+    // profiles 먼저 삭제(FK on delete set null → 담당 블로그·보고 자동 해제).
+    await fetch(`${URL}/rest/v1/profiles?id=eq.${profileId}`, { method: 'DELETE', headers: svcJson })
+    // auth 유저 삭제 → 재로그인 불가.
+    if (p.user_id) {
+      await fetch(`${URL}/auth/v1/admin/users/${p.user_id}`, { method: 'DELETE', headers: svc })
+    }
+    return json({ ok: true, deleted: profileId })
+  }
+
   const loginRaw = String(body.login || '').trim()
   const clientId = String(body.clientId || '').trim()
   // role: 'viewer'(고객, 업체 연결 필요) | 'reporter'(기자단, 업체 연결 없음). 기본 viewer.
