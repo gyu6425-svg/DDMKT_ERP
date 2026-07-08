@@ -74,20 +74,6 @@ const won = (n: number | null | undefined) => (n ? Number(n).toLocaleString('ko-
 const progColor = (p: number | null) =>
     p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
 
-// 카테고리별 색(계약 관리 상품 셀과 동일) — 펼친 상세 행 좌측 테두리·배경 액센트로 가독성.
-const CAT_STYLE: Record<string, { bg: string; border: string }> = {
-    플레이스: { bg: '#eff6ff', border: '#93c5fd' },
-    블로그: { bg: '#f0fdf4', border: '#86efac' },
-    쇼핑: { bg: '#fef2f2', border: '#fca5a5' },
-    카페: { bg: '#fdf2f8', border: '#f9a8d4' },
-    인스타: { bg: '#fdf4ff', border: '#e9d5ff' },
-    파워링크: { bg: '#ecfeff', border: '#67e8f9' },
-    영상: { bg: '#fff7ed', border: '#fdba74' },
-    종합광고: { bg: '#f1f5f9', border: '#cbd5e1' },
-};
-// 세부유형 → 카테고리 색(통합 시트는 여러 카테고리가 섞이므로 계약 자체의 category 기준).
-const catStyle = (c: string) => CAT_STYLE[c] || { bg: '#f8fafc', border: '#e2e8f0' };
-
 // 상태 뱃지 — 브랜드블로그 시트의 Tag와 동일 톤(진행 중=초록/재계약 임박=빨강·노랑/미입력=회색).
 function StatusTag({ ct }: { ct: ClientContract }) {
     const base = 'inline-block rounded-full px-2 py-0.5 text-[11px] font-bold';
@@ -318,13 +304,11 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                   : Math.round((done / goal) * 100);
         const remainColor =
             ct.remain_count == null ? '#94a3b8' : remain <= 1 ? '#dc2626' : remain <= 5 ? '#d97706' : '#0f172a';
-        const cs = catStyle(ct.category); // 카테고리별 색(펼친 상세행 액센트)
         return (
             <tr
-                className="cursor-pointer border-b border-[#e2e8f0] hover:brightness-95"
+                className={`cursor-pointer border-b border-[#e2e8f0] hover:bg-[#f8fafc] ${detail ? 'bg-[#fafbfc]' : ''}`}
                 key={ct.id}
                 onClick={() => goTracker(cl.company || '')}
-                style={detail ? { background: cs.bg } : undefined}
                 title="클릭 → 순위 트래커"
             >
                 <td
@@ -333,7 +317,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                             ? 'px-3 py-2 pl-9 text-[12px] text-[#94a3b8]'
                             : 'px-3 py-2 text-[13px] font-semibold text-[#0f172a]'
                     }
-                    style={detail ? { borderLeft: `4px solid ${cs.border}` } : undefined}
+                    style={detail ? { borderLeft: '3px solid #e2e8f0' } : undefined}
                 >
                     {detail ? '└' : cl.company || '—'}
                 </td>
@@ -528,7 +512,18 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                                                 {g.latest || '—'}
                                             </td>
                                             {showSub && (
-                                                <td className="px-3 py-2 text-[12px] text-[#94a3b8]">여러 상품</td>
+                                                <td className="px-3 py-2">
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {[...new Set(g.rows.map((r) => r.ct.subtype))].map((s) => (
+                                                            <span
+                                                                className="rounded bg-[#eef2f7] px-1.5 py-0.5 text-[11px] font-medium text-[#475569]"
+                                                                key={s}
+                                                            >
+                                                                {s}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </td>
                                             )}
                                             <td className="px-3 py-2 text-[13px] text-[#475569]">{g.manager}</td>
                                             <td className="px-3 py-2">
