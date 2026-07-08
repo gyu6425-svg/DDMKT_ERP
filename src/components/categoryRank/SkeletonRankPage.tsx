@@ -101,6 +101,7 @@ export function PlaceRankPage() {
             forceTabs
             label="플레이스 대시보드"
             tabs={[
+                { name: '대시보드', el: <Placeholder name="플레이스 대시보드" />, slug: 'dashboard' },
                 { name: '관리 시트', el: <ContractSheetTab category="플레이스" />, slug: 'sheet' },
                 { name: '순위 트래커', el: <PlaceRankTracker />, slug: 'tracker' },
                 { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" />, slug: 'crawl' },
