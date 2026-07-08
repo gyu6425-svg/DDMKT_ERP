@@ -5,7 +5,7 @@ import { getReporters, type ReporterProfile } from '../api/blogRank';
 
 // 회사 / 고객 / 기자단 ERP 토글 — 김종인·송민경(전부), 김다영(회사·기자단).
 //   회사 = 로그인한 본인 뷰. 고객/기자단 = 검색으로 대상 선택(내부 관리자 미리보기, RLS로 이미 접근 가능한 데이터).
-const OWNERS = ['rlawhddls@ddmkt.com', 'ming99@ddmkt.com', 'gyu6425@gmail.com']; // 김종인, 송민경, 장규진(테스트)
+const OWNERS = ['rlawhddls@ddmkt.com', 'ming99@ddmkt.com', 'gyu6425@gmail.com', 'ddmkt1@ddmkt.com']; // 김종인, 송민경, 장규진(테스트), 조재현
 const REPORTER_EXTRA = ['cleokim77@ddmkt.com']; // + 김다영
 
 function navigate(path: string) {
