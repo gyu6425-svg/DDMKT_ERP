@@ -9,7 +9,7 @@ import {
     type ContractHistoryItem,
     type RewardWeeklyLog,
 } from '../api/clientContracts';
-import { ensureClientBlogAccount, syncBlogAccountFromContract } from '../api/blogRank';
+import { ensureClientBlogAccount, getBlogAccounts, syncBlogAccountFromContract } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import {
     PRODUCT_CATEGORIES,
@@ -740,6 +740,22 @@ function ContractEditModal({
 }) {
     const [goal] = useState(contract.goal_count?.toString() ?? '');
     const [remain, setRemain] = useState(contract.remain_count?.toString() ?? '');
+    // 브랜드 블로그면 그 블로그 계정의 발행 URL을 찾아 제목 옆에 표시(클릭 시 실제 블로그로 이동).
+    const isBrandContract = isBrandBlogSub(contract.subtype.replace(/^상위노출 보장형 · /, ''));
+    const [blogUrl, setBlogUrl] = useState<string | null>(null);
+    useEffect(() => {
+        if (!isBrandContract) return;
+        void getBlogAccounts(contract.client_id).then(({ data }) => {
+            // 이름(blog_name/업체명) 일치 우선, 없으면 이 업체의 블로그 계정이 하나뿐이면 그걸로(단일 블로그).
+            const acc =
+                data.find((a) => a.name === (contract.blog_name || companyName)) ||
+                data.find((a) => a.name === contract.blog_name) ||
+                (data.length === 1 ? data[0] : undefined);
+            const url = (acc?.blog_url || '').trim();
+            setBlogUrl(/^https?:\/\//.test(url) ? url : null);
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isBrandContract, contract.client_id, contract.blog_name]);
     const [bulk, setBulk] = useState(''); // N건 일괄 완료 입력
     const [outSheetOpen, setOutSheetOpen] = useState(false); // 외주 시트 붙여넣기 모달
     const [outSheetText, setOutSheetText] = useState(OUT_SHEET_HEADER + '\n');
@@ -1245,8 +1261,22 @@ function ContractEditModal({
             onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
             <div className="max-h-[92vh] w-[min(760px,96vw)] overflow-y-auto rounded-2xl bg-white p-6">
-                <h3 className="m-0 text-lg font-bold">
-                    {contract.category} · {contract.subtype}
+                <h3 className="m-0 flex flex-wrap items-center gap-2 text-lg font-bold">
+                    <span>
+                        {contract.category} · {contract.subtype}
+                    </span>
+                    {blogUrl ? (
+                        <a
+                            className="rounded-full bg-[#ede9fe] px-2.5 py-0.5 text-[12px] font-semibold text-[#7c3aed] hover:bg-[#ddd6fe] hover:underline"
+                            href={blogUrl}
+                            onClick={(e) => e.stopPropagation()}
+                            rel="noopener noreferrer"
+                            target="_blank"
+                            title="실제 블로그로 이동"
+                        >
+                            🔗 {blogUrl.replace(/^https?:\/\//, '')}
+                        </a>
+                    ) : null}
                 </h3>
 
                 {/* 계약일자 — 상세페이지에서 바로 수정 */}
