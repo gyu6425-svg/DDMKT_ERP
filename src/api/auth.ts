@@ -27,12 +27,14 @@ export async function verifyEmailOtp(email: string, token: string) {
     });
 }
 
-// 이메일 + 비밀번호 로그인.
+// 이메일 + 비밀번호 로그인. 아이디만 입력하면 @ddmkt.com 자동 부착(고객·기자단 계정은 아이디만 배포).
 export async function signInWithPassword(email: string, password: string) {
     if (!hasSupabaseConfig) {
         return { data: null, error: missingConfigError };
     }
-    return supabase.auth.signInWithPassword({ email: email.trim(), password });
+    const id = email.trim();
+    const em = id.includes('@') ? id : `${id.toLowerCase()}@ddmkt.com`;
+    return supabase.auth.signInWithPassword({ email: em, password });
 }
 
 // 비밀번호 변경 — 로그인 상태에서 새 비밀번호 저장(Supabase Auth에 영구 반영).

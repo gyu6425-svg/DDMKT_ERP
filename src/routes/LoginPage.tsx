@@ -34,14 +34,14 @@ function LoginPage() {
             <section className="grid min-h-[228px] w-full max-w-[560px] items-center rounded-[8px] bg-white px-20 py-[46px] max-[800px]:px-5 max-[800px]:py-9">
                 <form className="grid gap-3.5" onSubmit={handleLogin}>
                     <input
-                        aria-label="이메일"
-                        autoComplete="email"
+                        aria-label="아이디 또는 이메일"
+                        autoComplete="username"
                         className={inputClass}
                         id="email"
                         onChange={(event) => setEmail(event.target.value)}
-                        placeholder="이메일"
+                        placeholder="아이디 또는 이메일"
                         required
-                        type="email"
+                        type="text"
                         value={email}
                     />
                     <input
