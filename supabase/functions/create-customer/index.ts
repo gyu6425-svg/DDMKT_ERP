@@ -37,7 +37,10 @@ Deno.serve(async (req: Request) => {
   const body = await req.json().catch(() => ({}))
   const loginRaw = String(body.login || '').trim()
   const clientId = String(body.clientId || '').trim()
-  if (!loginRaw || !clientId) return json({ error: '이메일(또는 아이디)과 업체가 필요합니다.' }, 400)
+  // role: 'viewer'(고객, 업체 연결 필요) | 'reporter'(기자단, 업체 연결 없음). 기본 viewer.
+  const wantRole = String(body.role || 'viewer').trim() === 'reporter' ? 'reporter' : 'viewer'
+  if (!loginRaw) return json({ error: '이메일(또는 아이디)이 필요합니다.' }, 400)
+  if (wantRole === 'viewer' && !clientId) return json({ error: '고객 계정은 업체가 필요합니다.' }, 400)
   const email = loginRaw.includes('@') ? loginRaw.toLowerCase() : `${loginRaw.toLowerCase()}@ddmkt.com`
   const password = email.split('@')[0]
 
@@ -62,24 +65,27 @@ Deno.serve(async (req: Request) => {
     uid = (await cr.json()).id
   }
 
-  // 4) profiles upsert (viewer + 업체 연결 + 첫 로그인 비번변경).
+  // 4) profiles upsert — viewer(업체 연결) 또는 reporter(연결 없음, 담당 블로그로 스코프) + 첫 로그인 비번변경.
   const ex = await (await fetch(`${URL}/rest/v1/profiles?select=id&user_id=eq.${uid}`, { headers: svc })).json()
   const pbody = {
     user_id: uid,
     email,
     name: String(body.name || '').trim() || email.split('@')[0],
-    role: 'viewer',
+    role: wantRole,
     is_active: true,
     duties: [],
     sheet_categories: [],
-    client_id: clientId,
+    client_id: wantRole === 'viewer' ? clientId : null,
     must_change_password: true,
   }
   const pRes = await fetch(
     ex?.length ? `${URL}/rest/v1/profiles?user_id=eq.${uid}` : `${URL}/rest/v1/profiles`,
-    { method: ex?.length ? 'PATCH' : 'POST', headers: { ...svcJson, Prefer: 'return=minimal' }, body: JSON.stringify(pbody) },
+    { method: ex?.length ? 'PATCH' : 'POST', headers: { ...svcJson, Prefer: 'return=representation' }, body: JSON.stringify(pbody) },
   )
   if (!pRes.ok) return json({ error: '권한 배정 실패: ' + (await pRes.text()).slice(0, 200) }, 500)
+  // 생성/갱신된 profiles.id 반환 → 기자단이면 프론트가 이 id로 blog_accounts.reporter_id 배정.
+  const prow = await pRes.json().catch(() => null)
+  const profileId = Array.isArray(prow) ? prow[0]?.id : prow?.id
 
-  return json({ ok: true, email, password })
+  return json({ ok: true, email, password, profileId, role: wantRole })
 })

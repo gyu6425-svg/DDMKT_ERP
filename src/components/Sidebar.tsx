@@ -125,8 +125,9 @@ function Sidebar() {
         );
     // 카테고리 대시보드(관리자 전용)를 '계약 관리' 바로 밑에 배치.
     const afterContracts = navigationItems.findIndex((i) => i.path === '/contracts') + 1;
-    // 고객 ERP(/portal*)에서는 내부 메뉴를 숨기고 고객 메뉴(통합 대시보드 + 카테고리)만 보여준다.
+    // 고객 ERP(/portal*)·기자단 ERP(/reporter)에서는 내부 메뉴를 숨기고 각 전용 메뉴만 보여준다.
     const isCustomerView = currentPath.startsWith('/portal');
+    const isReporterView = currentPath.startsWith('/reporter');
 
     return (
         <aside
@@ -146,7 +147,9 @@ function Sidebar() {
             </div>
 
             <nav className="grid gap-[18px] max-[800px]:grid-cols-2">
-                {isCustomerView ? (
+                {isReporterView ? (
+                    <>{renderNavItem({ path: '/reporter', label: '기자단 대시보드' })}</>
+                ) : isCustomerView ? (
                     <>
                         {/* 통합 대시보드 + 계약(승인)된 카테고리·하위유형만 */}
                         {renderNavItem({ path: '/portal', label: '통합 대시보드' })}

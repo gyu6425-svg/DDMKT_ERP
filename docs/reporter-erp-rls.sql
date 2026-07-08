@@ -90,6 +90,15 @@ create policy "blog_keywords read 기자단" on public.blog_keywords
     );
 
 
+-- ========== Section D: 내부 직원이 '기자단 프로필'을 조회 ===============
+-- 블로그 시트의 '담당 기자단 지정' 드롭다운·발급 목록에 필요.
+--   내부(is_internal)만, role='reporter' 행만 읽기(권한 상승 없음).
+drop policy if exists "profiles 내부 기자단 조회" on public.profiles;
+create policy "profiles 내부 기자단 조회" on public.profiles
+    for select to authenticated
+    using (public.is_internal() and lower(coalesce(role,'')) = 'reporter');
+
+
 -- ========== 배정(관리자 1회, 예시) ======================================
 --   실제 배정은 앱의 '블로그 통합 관리 시트'에서 드롭다운으로 처리(Phase 2).
 --   수동 예시:

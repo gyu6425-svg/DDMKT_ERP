@@ -8,7 +8,8 @@ export type ClientStatus =
     | '종료'
     | '부재중';
 
-export type UserRole = 'admin' | 'manager' | 'sales' | 'viewer';
+// viewer = 고객 ERP(업체 전용 열람), reporter = 기자단 ERP(본인 담당 블로그 열람)
+export type UserRole = 'admin' | 'manager' | 'sales' | 'viewer' | 'reporter';
 
 export type Profile = {
     id: string;

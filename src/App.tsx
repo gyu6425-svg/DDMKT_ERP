@@ -17,6 +17,7 @@ import PowerLinkPage from './routes/PowerLinkPage';
 import ReportsPage from './routes/ReportsPage';
 import CustomerOverviewPage from './routes/CustomerOverviewPage';
 import CustomerCategoryPage from './routes/CustomerCategoryPage';
+import ReporterPortalPage from './routes/ReporterPortalPage';
 import { SkeletonRankPage, PlaceRankPage, CategoryDashPage } from './components/categoryRank/SkeletonRankPage';
 import InstaRankPage from './routes/InstaRankPage';
 import CafeRankPage from './routes/CafeRankPage';
@@ -49,6 +50,7 @@ const routes = [
     { path: '/portal/powerlink', element: <CustomerCategoryPage /> },
     { path: '/portal/video', element: <CustomerCategoryPage /> },
     { path: '/portal/blog', element: <CustomerCategoryPage /> },
+    { path: '/reporter', element: <ReporterPortalPage /> },
     { path: '/banner-generator', element: <BannerGeneratorPage /> },
     { path: '/powerlink', element: <PowerLinkPage /> },
     { path: '/mypage', element: <MyPage /> },
@@ -58,8 +60,11 @@ const routes = [
 function App() {
     const [currentPath, setCurrentPath] = useState(window.location.pathname);
     const { role, loading } = useAuth();
-    // 고객(viewer) = 고객 포털(/portal)만 접근 가능. 회사 ERP 경로는 못 봄.
+    // 고객(viewer) = 고객 포털(/portal)만. 기자단(reporter) = 기자단 포털(/reporter)만. 회사 ERP 경로 차단.
     const isCustomer = role === 'viewer';
+    const isReporter = role === 'reporter';
+    const externalHome = isReporter ? '/reporter' : '/portal'; // 외부 사용자 홈 경로
+    const isExternal = isCustomer || isReporter;
 
     useEffect(() => {
         const syncPath = () => {
@@ -75,14 +80,14 @@ function App() {
         };
     }, []);
 
-    // 고객이 내부 경로로 오면 즉시 고객 포털로 되돌림(회사 ERP 화면 차단).
+    // 외부 사용자(고객/기자단)가 자기 포털 밖 경로로 오면 즉시 자기 홈으로 되돌림(회사 ERP 차단).
     useEffect(() => {
         if (loading) return;
-        if (isCustomer && currentPath !== '/login' && !currentPath.startsWith('/portal')) {
-            window.history.replaceState(null, '', '/portal');
+        if (isExternal && currentPath !== '/login' && !currentPath.startsWith(externalHome)) {
+            window.history.replaceState(null, '', externalHome);
             window.dispatchEvent(new Event('app:navigate'));
         }
-    }, [isCustomer, currentPath, loading]);
+    }, [isExternal, externalHome, currentPath, loading]);
 
     if (currentPath === '/login') {
         return (
@@ -93,10 +98,11 @@ function App() {
         );
     }
 
-    // 고객은 포털 경로만 렌더(내부 경로 요청이 남아있어도 포털로 강제).
-    const effectivePath = isCustomer && !currentPath.startsWith('/portal') ? '/portal' : currentPath;
+    // 외부 사용자는 자기 포털 경로만 렌더(내부 경로 요청이 남아있어도 포털로 강제).
+    const effectivePath =
+        isExternal && !currentPath.startsWith(externalHome) ? externalHome : currentPath;
     const currentRoute = routes.find((route) => route.path === effectivePath) ?? routes[0];
-    const isBannerGeneratorActive = !isCustomer && currentPath === '/banner-generator';
+    const isBannerGeneratorActive = !isExternal && currentPath === '/banner-generator';
 
     return (
         <>
@@ -104,7 +110,7 @@ function App() {
             <ProtectedRoute>
                 <ErpDataProvider>
                     <Layout>
-                        {!isCustomer ? (
+                        {!isExternal ? (
                             <div hidden={!isBannerGeneratorActive}>
                                 <BannerGeneratorPage />
                             </div>

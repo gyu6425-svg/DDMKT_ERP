@@ -40,10 +40,20 @@ export function useBlogRank(): BlogRankCtx {
     return v;
 }
 
-export function BlogRankProvider({ children, customerMode = false }: { children: ReactNode; customerMode?: boolean }) {
+export function BlogRankProvider({
+    children,
+    customerMode = false,
+    reporterMode = false,
+}: {
+    children: ReactNode;
+    customerMode?: boolean;
+    reporterMode?: boolean;
+}) {
     const { isAdmin, canManageSheet, loading: authLoading, profile } = useAuth();
     const canBlog = isAdmin || canManageSheet('블로그'); // 블로그 담당 사원/매니저도 내부 접근 허용
-    // 고객 모드면 본인 업체(client_id)로 데이터 스코프 → 격리 + 대역폭 절감. 내부/관리자는 전체.
+    // 외부(고객/기자단) = 읽기전용 UI(customerMode 로직 재사용).
+    const external = customerMode || reporterMode;
+    // 고객 모드면 본인 업체(client_id)로 데이터 스코프. 기자단은 RLS(reporter_id)로 스코프 → 전체 로드해도 본인 블로그만 옴.
     const scopedClientId = customerMode ? profile?.client_id ?? null : null;
     const [accounts, setAccounts] = useState<BlogAccount[]>([]);
     const [posts, setPosts] = useState<BlogPost[]>([]);
@@ -131,8 +141,8 @@ export function BlogRankProvider({ children, customerMode = false }: { children:
         setLoading(false);
     };
 
-    // 관리자/내부는 전체, 고객은 본인 업체(client_id)가 연결됐을 때만 로드 허용.
-    const isAllowed = !authLoading && (canBlog || (customerMode && !!scopedClientId));
+    // 관리자/내부는 전체, 고객은 본인 업체 연결 시, 기자단은 reporter 역할이면 로드 허용(데이터는 RLS로 격리).
+    const isAllowed = !authLoading && (canBlog || (customerMode && !!scopedClientId) || reporterMode);
     useEffect(() => {
         if (isAllowed) {
             void reload();
@@ -188,7 +198,7 @@ export function BlogRankProvider({ children, customerMode = false }: { children:
             setTrackerInOnly(false);
             setTab('tracker');
         },
-        customerMode,
+        customerMode: external, // 고객·기자단 모두 읽기전용 UI(관리 컬럼/버튼 숨김)
     };
 
     return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

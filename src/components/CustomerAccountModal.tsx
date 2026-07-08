@@ -1,17 +1,23 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-// 고객 ERP(viewer) 계정 발급 모달 — 관리자만. 서버(Cloudflare Function)가 실제 생성.
+// 계정 발급 모달 — 관리자만. 서버(Edge Function)가 실제 생성.
+//   mode='customer'(고객 ERP·업체 연결) | 'reporter'(기자단 ERP·업체 연결 없음).
 //   아이디(이메일 앞부분) 또는 이메일 입력 → 초기 비번=아이디, 첫 로그인 시 변경.
 export default function CustomerAccountModal({
   clientId,
   companyName,
+  mode = 'customer',
   onClose,
+  onIssued,
 }: {
-  clientId: string
+  clientId?: string
   companyName: string
+  mode?: 'customer' | 'reporter'
   onClose: () => void
+  onIssued?: (info: { profileId: string | null; email: string; name: string }) => void
 }) {
+  const isReporter = mode === 'reporter'
   const [login, setLogin] = useState('')
   const [name, setName] = useState(companyName || '')
   const [saving, setSaving] = useState(false)
@@ -21,17 +27,22 @@ export default function CustomerAccountModal({
   const submit = async () => {
     setErr('')
     if (!login.trim()) return setErr('이메일 또는 아이디를 입력하세요.')
+    if (isReporter && !name.trim()) return setErr('기자단 이름을 입력하세요.')
     setSaving(true)
     try {
       // Supabase Edge Function 호출(세션 JWT 자동 포함) — 서버가 관리자 검증 후 계정 생성.
       //   함수 배포 이름이 'clever-processor'(대시보드 자동 생성명)이라 그 이름으로 호출.
-      const { data, error } = await supabase.functions.invoke('clever-processor', {
-        body: { login: login.trim(), clientId, name: name.trim() },
-      })
+      const body = isReporter
+        ? { login: login.trim(), name: name.trim(), role: 'reporter' }
+        : { login: login.trim(), clientId, name: name.trim() }
+      const { data, error } = await supabase.functions.invoke('clever-processor', { body })
       setSaving(false)
       if (error) return setErr('발급 실패: ' + (error.message || '서버 오류'))
       if (data?.error) return setErr(data.error)
-      if (data?.ok) return setResult({ email: data.email, password: data.password })
+      if (data?.ok) {
+        onIssued?.({ profileId: data.profileId ?? null, email: data.email, name: name.trim() })
+        return setResult({ email: data.email, password: data.password })
+      }
       setErr('알 수 없는 응답')
     } catch {
       setSaving(false)
@@ -45,9 +56,17 @@ export default function CustomerAccountModal({
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="w-[min(420px,94vw)] rounded-2xl bg-white p-6">
-        <h3 className="m-0 text-lg font-bold text-[#0f172a]">고객 ERP 계정 발급</h3>
+        <h3 className="m-0 text-lg font-bold text-[#0f172a]">
+          {isReporter ? '기자단 ERP 계정 발급' : '고객 ERP 계정 발급'}
+        </h3>
         <p className="mt-1 text-sm text-[#64748b]">
-          <b>{companyName}</b> 업체 전용 열람 계정(고객 ERP)을 만듭니다.
+          {isReporter ? (
+            <>기자단 전용 열람 계정(기자단 ERP)을 만듭니다. 발급 후 담당 블로그를 지정하세요.</>
+          ) : (
+            <>
+              <b>{companyName}</b> 업체 전용 열람 계정(고객 ERP)을 만듭니다.
+            </>
+          )}
         </p>
 
         {result ? (
@@ -84,16 +103,17 @@ export default function CustomerAccountModal({
                 />
               </label>
               <label className="text-xs font-semibold text-[#475569]">
-                표시 이름(선택)
+                {isReporter ? '기자단 이름' : '표시 이름(선택)'}
                 <input
                   className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="고객 담당자명 등"
+                  placeholder={isReporter ? '예: 홍길동' : '고객 담당자명 등'}
                   value={name}
                 />
               </label>
               <p className="m-0 text-[11px] text-[#94a3b8]">
-                초기 비밀번호 = 아이디(이메일 앞부분). 이 업체 데이터만 열람 가능(수정 불가).
+                초기 비밀번호 = 아이디(이메일 앞부분).{' '}
+                {isReporter ? '본인 담당 블로그만 열람 가능(수정 불가).' : '이 업체 데이터만 열람 가능(수정 불가).'}
               </p>
               {err ? <p className="m-0 text-xs text-[#dc2626]">{err}</p> : null}
             </div>

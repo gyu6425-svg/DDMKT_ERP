@@ -69,8 +69,10 @@ export type BlogAccount = {
     note: string | null; // 특이사항
     contract_date: string | null; // 최초 계약 시작일(레거시 — contracts 없을 때 시드)
     contracts: ContractPeriod[] | null; // 계약 기간 이력 [{start,end}] · 마지막=현재 계약
-    reporter: string | null; // 기자단(현재값 = reporter_history 마지막)
+    reporter: string | null; // 기자단(현재값 = reporter_history 마지막) — 표시용 텍스트
     reporter_history: HistoryEntry[] | null; // 기자단 변경 이력(값+날짜)
+    reporter_id: string | null; // 담당 기자단(개인) profiles.id — 기자단 ERP 스코프 기준
+    reporter_name?: string | null; // 조인 편의(표시용, 저장 안 함)
     amount: string | null; // 금액(레거시 단일값 — amounts 없을 때만 폴백 표시)
     amounts: AmountEntry[] | null; // 누적 계약금액 내역(합산 표시). 추가 계약마다 한 건씩 쌓임.
     login_id: string | null; // 아이디
@@ -119,6 +121,19 @@ export async function getBlogAccounts(clientId?: string) {
     }
     const { data, error } = await query.returns<BlogAccount[]>();
 
+    return { data: data ?? [], error };
+}
+
+// 기자단(개인) 계정 목록 — 블로그 시트 '담당 기자단 지정' 드롭다운용. RLS: 내부만 reporter 행 조회.
+export type ReporterProfile = { id: string; name: string | null; email: string };
+export async function getReporters() {
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('id,name,email')
+        .eq('role', 'reporter')
+        .eq('is_active', true)
+        .order('name', { ascending: true })
+        .returns<ReporterProfile[]>();
     return { data: data ?? [], error };
 }
 

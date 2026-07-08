@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { deleteBlogAccount, todayKST, type BlogAccount } from '../../../api/blogRank';
+import {
+    deleteBlogAccount,
+    getReporters,
+    todayKST,
+    updateBlogAccount,
+    type BlogAccount,
+    type ReporterProfile,
+} from '../../../api/blogRank';
+import CustomerAccountModal from '../../CustomerAccountModal';
 import { crawlBlog } from '../../../api/crawlBlog';
 import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDate, lastM, progOf, PER_SHEET, renewLevel } from '../lib/helpers';
 import { NEW_CONTRACT_CUTOFF_MS, NEW_CONTRACT_TTL_MS } from '../../../lib/erpUtils';
@@ -45,6 +53,24 @@ export function SheetTab() {
     const [reportAcc, setReportAcc] = useState<BlogAccount | null>(null); // 성과 보고서 글 선택 모달
     const [progressAcc, setProgressAcc] = useState<BlogAccount | null>(null);
     const [crawlingId, setCrawlingId] = useState<string | null>(null);
+    // 기자단(개인) 계정 목록 + 발급 모달 — 담당 기자단 지정 드롭다운/발급용(내부 전용).
+    const [reporters, setReporters] = useState<ReporterProfile[]>([]);
+    const [reporterIssueOpen, setReporterIssueOpen] = useState(false);
+    useEffect(() => {
+        if (customerMode) return; // 외부(고객/기자단)는 발급/지정 없음
+        void getReporters().then(({ data }) => setReporters(data));
+    }, [customerMode]);
+    // 담당 기자단(계정) 지정 → blog_accounts.reporter_id. 이 블로그가 그 기자단 ERP에 보이게 됨.
+    const assignReporter = async (a: BlogAccount, reporterId: string) => {
+        const rid = reporterId || null;
+        const { error } = await updateBlogAccount(a.id, { reporter_id: rid });
+        if (error) {
+            onToast('담당 기자단 지정 실패: ' + error.message);
+            return;
+        }
+        await onReload();
+        onToast(rid ? '담당 기자단 지정됨' : '담당 기자단 해제됨');
+    };
 
     // 서버리스 즉시 크롤 — 터미널 없이 이 블로그의 RSS+순위 측정·기록.
     const doCrawl = async (a: BlogAccount) => {
@@ -242,6 +268,14 @@ export function SheetTab() {
                             type="button"
                         >
                             전체 측정
+                        </button>
+                        <button
+                            className="inline-flex h-9 items-center rounded-md bg-[#6d28d9] px-3 text-xs font-semibold text-white hover:bg-[#5b21b6]"
+                            onClick={() => setReporterIssueOpen(true)}
+                            title="기자단 ERP 계정 발급 → 담당 블로그 지정"
+                            type="button"
+                        >
+                            기자단 계정 발급
                         </button>
                         <button
                             className="inline-flex h-9 items-center rounded-md border border-[#fca5a5] bg-white px-3 text-xs font-semibold text-[#dc2626] disabled:opacity-50"
@@ -449,20 +483,38 @@ export function SheetTab() {
                                         </td>
                                         {!customerMode && (
                                             <td className="px-2 py-2">
-                                                <button
-                                                    className="rounded px-1.5 py-1 text-xs hover:bg-[#f1f5f9]"
-                                                    onClick={() => setReporterAcc(a)}
-                                                    title="클릭해서 기자단 변경·이력 관리"
-                                                    type="button"
-                                                >
-                                                    {currentField(a.reporter_history, a.reporter) ? (
-                                                        <span className="rounded bg-[#ede9fe] px-2 py-0.5 text-[11px] font-semibold text-[#6d28d9]">
-                                                            {currentField(a.reporter_history, a.reporter)}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[#cbd5e1]">+ 기자단</span>
-                                                    )}
-                                                </button>
+                                                <div className="grid gap-1">
+                                                    {/* 담당 기자단(계정) — 지정하면 그 기자단 ERP에 이 블로그가 보임 */}
+                                                    <select
+                                                        className="h-7 rounded border border-[#cbd5e1] bg-white px-1 text-[11px] text-[#6d28d9]"
+                                                        onChange={(e) => void assignReporter(a, e.target.value)}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        title="담당 기자단(계정) 지정 — 기자단 ERP 노출 기준"
+                                                        value={a.reporter_id || ''}
+                                                    >
+                                                        <option value="">계정 미지정</option>
+                                                        {reporters.map((r) => (
+                                                            <option key={r.id} value={r.id}>
+                                                                {r.name || r.email}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    {/* 기존 기자단 텍스트/이력(표시용) */}
+                                                    <button
+                                                        className="rounded px-1.5 py-0.5 text-xs hover:bg-[#f1f5f9]"
+                                                        onClick={() => setReporterAcc(a)}
+                                                        title="클릭해서 기자단 텍스트·이력 관리"
+                                                        type="button"
+                                                    >
+                                                        {currentField(a.reporter_history, a.reporter) ? (
+                                                            <span className="rounded bg-[#ede9fe] px-2 py-0.5 text-[11px] font-semibold text-[#6d28d9]">
+                                                                {currentField(a.reporter_history, a.reporter)}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[#cbd5e1]">+ 기자단 텍스트</span>
+                                                        )}
+                                                    </button>
+                                                </div>
                                             </td>
                                         )}
                                         <td className="px-3 py-2">
@@ -706,6 +758,18 @@ export function SheetTab() {
                         void openBlogReport(reportAcc, selected).then((ok) => {
                             if (!ok) onToast('팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.');
                         });
+                    }}
+                />
+            ) : null}
+            {reporterIssueOpen ? (
+                <CustomerAccountModal
+                    companyName=""
+                    mode="reporter"
+                    onClose={() => setReporterIssueOpen(false)}
+                    onIssued={() => {
+                        // 발급 후 목록 갱신 → 드롭다운에 즉시 나타남.
+                        void getReporters().then(({ data }) => setReporters(data));
+                        onToast('기자단 계정 발급 완료 · 담당 블로그를 지정하세요');
                     }}
                 />
             ) : null}
