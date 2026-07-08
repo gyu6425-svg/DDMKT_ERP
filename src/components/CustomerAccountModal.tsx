@@ -61,7 +61,15 @@ export default function CustomerAccountModal({
         </h3>
         <p className="mt-1 text-sm text-[#64748b]">
           {isReporter ? (
-            <>기자단 전용 열람 계정(기자단 ERP)을 만듭니다. 발급 후 담당 블로그를 지정하세요.</>
+            <>
+              {companyName ? (
+                <>
+                  <b>{companyName}</b> 블로그 담당 기자단 계정을 만듭니다. 발급하면 이 블로그에 자동 배정됩니다.
+                </>
+              ) : (
+                <>기자단 전용 열람 계정(기자단 ERP)을 만듭니다. 발급 후 담당 블로그를 지정하세요.</>
+              )}
+            </>
           ) : (
             <>
               <b>{companyName}</b> 업체 전용 열람 계정(고객 ERP)을 만듭니다.

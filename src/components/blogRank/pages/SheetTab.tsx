@@ -53,9 +53,13 @@ export function SheetTab() {
     const [reportAcc, setReportAcc] = useState<BlogAccount | null>(null); // 성과 보고서 글 선택 모달
     const [progressAcc, setProgressAcc] = useState<BlogAccount | null>(null);
     const [crawlingId, setCrawlingId] = useState<string | null>(null);
-    // 기자단(개인) 계정 목록 + 발급 모달 — 담당 기자단 지정 드롭다운/발급용(내부 전용).
+    // 기자단(개인) 계정 목록 + 발급 대상 블로그 — 담당 기자단 지정 드롭다운/발급용(내부 전용).
+    //   발급은 '이 블로그(업체) 담당' 맥락에서 → 발급 성공 시 그 블로그에 자동 배정.
     const [reporters, setReporters] = useState<ReporterProfile[]>([]);
-    const [reporterIssueOpen, setReporterIssueOpen] = useState(false);
+    const [issueForBlog, setIssueForBlog] = useState<BlogAccount | null>(null);
+    // 동명이인 구분용 라벨 — 이름 + 이메일 앞부분(이메일은 고유).
+    const reporterLabel = (r: ReporterProfile) =>
+        `${r.name || '이름없음'} (${(r.email || '').split('@')[0]})`;
     useEffect(() => {
         if (customerMode) return; // 외부(고객/기자단)는 발급/지정 없음
         void getReporters().then(({ data }) => setReporters(data));
@@ -270,14 +274,6 @@ export function SheetTab() {
                             전체 측정
                         </button>
                         <button
-                            className="inline-flex h-9 items-center rounded-md bg-[#6d28d9] px-3 text-xs font-semibold text-white hover:bg-[#5b21b6]"
-                            onClick={() => setReporterIssueOpen(true)}
-                            title="기자단 ERP 계정 발급 → 담당 블로그 지정"
-                            type="button"
-                        >
-                            기자단 계정 발급
-                        </button>
-                        <button
                             className="inline-flex h-9 items-center rounded-md border border-[#fca5a5] bg-white px-3 text-xs font-semibold text-[#dc2626] disabled:opacity-50"
                             disabled={bulkBusy || filtered.length === 0}
                             onClick={() => void bulkDelete()}
@@ -487,7 +483,13 @@ export function SheetTab() {
                                                     {/* 담당 기자단(계정) — 지정하면 그 기자단 ERP에 이 블로그가 보임 */}
                                                     <select
                                                         className="h-7 rounded border border-[#cbd5e1] bg-white px-1 text-[11px] text-[#6d28d9]"
-                                                        onChange={(e) => void assignReporter(a, e.target.value)}
+                                                        onChange={(e) => {
+                                                            if (e.target.value === '__new__') {
+                                                                setIssueForBlog(a); // 이 블로그 맥락에서 새 기자단 발급
+                                                            } else {
+                                                                void assignReporter(a, e.target.value);
+                                                            }
+                                                        }}
                                                         onClick={(e) => e.stopPropagation()}
                                                         title="담당 기자단(계정) 지정 — 기자단 ERP 노출 기준"
                                                         value={a.reporter_id || ''}
@@ -495,9 +497,10 @@ export function SheetTab() {
                                                         <option value="">계정 미지정</option>
                                                         {reporters.map((r) => (
                                                             <option key={r.id} value={r.id}>
-                                                                {r.name || r.email}
+                                                                {reporterLabel(r)}
                                                             </option>
                                                         ))}
+                                                        <option value="__new__">+ 새 기자단 발급…</option>
                                                     </select>
                                                     {/* 기존 기자단 텍스트/이력(표시용) */}
                                                     <button
@@ -761,15 +764,16 @@ export function SheetTab() {
                     }}
                 />
             ) : null}
-            {reporterIssueOpen ? (
+            {issueForBlog ? (
                 <CustomerAccountModal
-                    companyName=""
+                    companyName={issueForBlog.name}
                     mode="reporter"
-                    onClose={() => setReporterIssueOpen(false)}
-                    onIssued={() => {
-                        // 발급 후 목록 갱신 → 드롭다운에 즉시 나타남.
+                    onClose={() => setIssueForBlog(null)}
+                    onIssued={({ profileId }) => {
+                        // 발급 성공 → 이 블로그에 자동 배정 + 목록 갱신.
                         void getReporters().then(({ data }) => setReporters(data));
-                        onToast('기자단 계정 발급 완료 · 담당 블로그를 지정하세요');
+                        if (profileId) void assignReporter(issueForBlog, profileId);
+                        onToast(`'${issueForBlog.name}' 담당 기자단 발급·배정 완료`);
                     }}
                 />
             ) : null}
