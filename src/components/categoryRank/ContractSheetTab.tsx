@@ -318,7 +318,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                             : 'px-3 py-2 text-[13px] font-semibold text-[#0f172a]'
                     }
                 >
-                    {detail ? `└ ${ct.subtype || '상품'}` : cl.company || '—'}
+                    {detail ? '└' : cl.company || '—'}
                 </td>
                 <td className="px-3 py-2 text-[13px] font-semibold text-[#475569]">{ct.contract_date || '—'}</td>
                 {showSub && <td className="px-3 py-2 text-[13px] text-[#475569]">{ct.subtype}</td>}
