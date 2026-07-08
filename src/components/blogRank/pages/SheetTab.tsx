@@ -102,15 +102,15 @@ export function SheetTab() {
 
     const postCountOf = (id: string) => posts.filter((p) => p.blog_account_id === id);
 
-    // 신규 등록 건 = 컷오프(지금부터) 이후 생성 + 24시간 이내(계약 종료 아닌) 블로그 계정. 기존 건 제외.
+    // 실제 네이버 블로그 URL(http로 시작)이 아직 없는 계정 = 등록 전(발행 URL 미입력·placeholder).
+    //   계약 관리에서 등록 → 발행 URL 입력 전까지 '신규 등록 건'에 유지 → URL 넣으면 계약 중으로 이동.
+    const isUrlPending = (a: BlogAccount) => !/^https?:\/\//.test((a.blog_url || '').trim());
+    // 신규 등록 건 = (컷오프 이후 생성 + 24h 이내) 또는 (발행 URL 미등록). 계약 종료 아닌 것만.
     const isNewAcc = (a: BlogAccount) => {
+        if (a.contract_ended_at) return false;
+        if (isUrlPending(a)) return true; // 아직 등록(URL 입력) 전 → 계속 신규 등록 건
         const t = a.created_at ? Date.parse(a.created_at) : NaN;
-        return (
-            !Number.isNaN(t) &&
-            t > NEW_CONTRACT_CUTOFF_MS &&
-            Date.now() - t < NEW_CONTRACT_TTL_MS &&
-            !a.contract_ended_at
-        );
+        return !Number.isNaN(t) && t > NEW_CONTRACT_CUTOFF_MS && Date.now() - t < NEW_CONTRACT_TTL_MS;
     };
 
     // 계약일 월 옵션 — 전체 + 계약일에 존재하는 월(내림차순).
