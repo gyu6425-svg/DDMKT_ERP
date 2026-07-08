@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { useErpData } from '../context/ErpDataContext';
+import { getClients, type ErpClient } from '../api/erp';
 import { getReporters, type ReporterProfile } from '../api/blogRank';
 
 // 회사 / 고객 / 기자단 ERP 토글 — 김종인·송민경(전부), 김다영(회사·기자단).
@@ -86,7 +86,6 @@ function SearchPicker({
 
 export default function ErpViewSwitcher() {
     const { profile, role } = useAuth();
-    const { allClients } = useErpData();
     const email = (profile?.email || '').toLowerCase();
     const showCustomer = OWNERS.includes(email);
     const showReporter = OWNERS.includes(email) || REPORTER_EXTRA.includes(email);
@@ -117,6 +116,12 @@ export default function ErpViewSwitcher() {
         if (showReporter) void getReporters().then(({ data }) => setReporters(data));
     }, [showReporter]);
 
+    // 고객(업체) 목록(검색용) — 고객 토글 권한자만 직접 로드(ErpDataContext에 의존 X, /portal에서도 확실히 채움).
+    const [clients, setClients] = useState<ErpClient[]>([]);
+    useEffect(() => {
+        if (showCustomer) void getClients().then(({ data }) => setClients(data ?? []));
+    }, [showCustomer]);
+
     // 외부 실계정은 기존 표기(토글 없음).
     if (role === 'viewer') {
         return (
@@ -139,7 +144,7 @@ export default function ErpViewSwitcher() {
         </button>
     );
 
-    const clientItems = allClients
+    const clientItems = clients
         .filter((c) => c.company)
         .map((c) => ({ id: c.id, label: c.company as string, sub: c.manager || undefined }));
     const reporterItems = reporters.map((r) => ({ id: r.id, label: r.name || r.email, sub: r.email.split('@')[0] }));
