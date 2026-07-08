@@ -53,9 +53,33 @@ function BlogRankShell({ sheetOnly = false }: { sheetOnly?: boolean }) {
                 <p className="m-0 rounded-md bg-[#fee2e2] px-4 py-3 text-sm text-[#dc2626]">{error}</p>
             ) : null}
 
-            {/* 브랜드 블로그 하위 = 관리 시트 전용(탭바 없음). 대시보드는 5탭 전체. */}
+            {/* 브랜드 블로그 하위 = 관리 시트 + 순위 트래커(임시). 대시보드는 5탭 전체. */}
             {sheetOnly ? (
-                <SheetTab />
+                <>
+                    <div className="flex gap-1 border-b border-[#e2e8f0]">
+                        {(
+                            [
+                                ['sheet', '관리 시트'],
+                                ['tracker', '순위 트래커'],
+                            ] as const
+                        ).map(([key, label]) => {
+                            const on = key === 'tracker' ? tab === 'tracker' : tab !== 'tracker';
+                            return (
+                                <button
+                                    className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
+                                        on ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
+                                    }`}
+                                    key={key}
+                                    onClick={() => goTab(key as Tab)}
+                                    type="button"
+                                >
+                                    {label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {tab === 'tracker' ? <TrackerTab /> : <SheetTab />}
+                </>
             ) : (
                 <>
                     <div className="flex gap-1 border-b border-[#e2e8f0]">
