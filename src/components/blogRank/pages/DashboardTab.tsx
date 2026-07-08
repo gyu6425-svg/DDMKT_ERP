@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { todayKST } from '../../../api/blogRank';
+import { getReports } from '../../../api/blogPostReports';
+import { useAuth } from '../../../hooks/useAuth';
 import { lastM, prevM, renewLevel } from '../lib/helpers';
 import { Empty, Kpi, Panel, Tag } from '../lib/ui';
 import { useBlogRank } from '../lib/BlogRankContext';
@@ -7,6 +9,7 @@ import { LowRemainModal } from '../components/LowRemainModal';
 import { RankMovesModal } from '../components/RankMovesModal';
 import { SameDayModal, type SameDayRow } from '../components/SameDayModal';
 import { CrawlListModal, type CrawlRow } from '../components/CrawlListModal';
+import { ReportReviewModal } from '../components/ReportReviewModal';
 
 export function DashboardTab() {
     const {
@@ -18,11 +21,27 @@ export function DashboardTab() {
         showToast: onToast,
         customerMode,
     } = useBlogRank();
+    const { profile } = useAuth();
     const [showLow, setShowLow] = useState(false);
     const [showMoves, setShowMoves] = useState(false);
     const [showSameDay, setShowSameDay] = useState(false);
     const [showPrevDay, setShowPrevDay] = useState(false);
     const [showMissed, setShowMissed] = useState(false);
+    // 기자단 발행 보고(승인 대기) — 내부 전용. KPI 카드 + 승인 모달.
+    const [showReports, setShowReports] = useState(false);
+    const [reportPending, setReportPending] = useState(0);
+    const loadReportCount = () => {
+        if (customerMode) return; // 외부(고객/기자단) 뷰에선 미표시
+        void getReports('pending').then(({ data }) => setReportPending(data.length));
+    };
+    useEffect(() => {
+        loadReportCount();
+        // 알림 클릭으로 ?reports=1 진입 시 승인 모달 자동 오픈.
+        if (!customerMode && new URLSearchParams(window.location.search).get('reports') === '1') {
+            setShowReports(true);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [customerMode]);
 
     // 당일(오늘 발행)·전날(어제 발행) 측정 글 — 크롤링 현황과 동일 기준(오늘 측정 완료분).
     const today = todayKST();
@@ -60,6 +79,7 @@ export function DashboardTab() {
         yellow: { box: 'border-2 border-[#eab308] bg-[#fefce8] ring-1 ring-[#fde68a]', label: 'font-bold text-[#a16207]' },
         purple: { box: 'border-2 border-[#7c3aed] bg-[#f5f3ff] ring-1 ring-[#ddd6fe]', label: 'font-bold text-[#6d28d9]' },
         red: { box: 'border-2 border-[#dc2626] bg-[#fef2f2] ring-1 ring-[#fecaca]', label: 'font-bold text-[#b91c1c]' },
+        green: { box: 'border-2 border-[#16a34a] bg-[#f0fdf4] ring-1 ring-[#bbf7d0]', label: 'font-bold text-[#15803d]' },
     };
     const KpiCard = ({
         label,
@@ -74,7 +94,7 @@ export function DashboardTab() {
         value: number;
         color: string;
         sub: string;
-        tone: 'yellow' | 'purple' | 'red';
+        tone: 'yellow' | 'purple' | 'red' | 'green';
         sentN?: number; // 있으면 '발송 N' 배지를 크게 표시
         onClick: () => void;
     }) => (
@@ -176,8 +196,8 @@ export function DashboardTab() {
                 ) : null}
             </div>
 
-            {/* 당일/전날 측정 글 + 누락 건 — 보고 직결 KPI. 당일=노랑, 전날=보라, 누락=빨강. 고객 뷰=누락 숨김 */}
-            <div className={`grid grid-cols-2 gap-3 ${customerMode ? 'lg:grid-cols-2' : 'lg:grid-cols-3'}`}>
+            {/* 당일/전날 측정 글 + 누락 건 + 기자단 보고 — 당일=노랑, 전날=보라, 누락=빨강, 기자단=초록. 고객 뷰=내부지표 숨김 */}
+            <div className={`grid grid-cols-2 gap-3 ${customerMode ? 'lg:grid-cols-2' : 'lg:grid-cols-4'}`}>
                 <KpiCard
                     label={`당일 측정 글 (${mmdd(today)})`}
                     value={sameDayRows.length}
@@ -205,6 +225,17 @@ export function DashboardTab() {
                         sub="자동발송 실패 · 눌러서 목록"
                         tone="red"
                         onClick={() => setShowMissed(true)}
+                    />
+                ) : null}
+                {/* 기자단 당일 업로드건(승인 대기) = 내부 지표 → 고객/기자단 뷰에선 숨김 */}
+                {!customerMode ? (
+                    <KpiCard
+                        label="기자단 당일 업로드건"
+                        value={reportPending}
+                        color="#16a34a"
+                        sub="승인 대기 · 눌러서 승인"
+                        tone="green"
+                        onClick={() => setShowReports(true)}
                     />
                 ) : null}
             </div>
@@ -353,6 +384,14 @@ export function DashboardTab() {
                     rows={missedRows}
                     dateMode
                     onClose={() => setShowMissed(false)}
+                />
+            ) : null}
+            {showReports ? (
+                <ReportReviewModal
+                    blogNameOf={nameOf}
+                    onChanged={loadReportCount}
+                    onClose={() => setShowReports(false)}
+                    reviewerProfileId={profile?.id ?? null}
                 />
             ) : null}
         </div>

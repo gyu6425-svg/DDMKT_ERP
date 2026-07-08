@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useErpData } from '../context/ErpDataContext'
 import { useAuth } from '../hooks/useAuth'
 import { getClientContracts, type ClientContract } from '../api/clientContracts'
+import { getReports } from '../api/blogPostReports'
 import { canSeeContractPending, canSeeNewContract, SHEET_CATEGORIES } from '../lib/permissions'
 import { SIDEBAR_CATEGORIES } from './categoryRank/categories'
 import { resolveScope } from './categoryRank/ContractSheetTab'
@@ -30,21 +31,28 @@ export default function NotificationBell() {
   const { profile, role, canManageSheet } = useAuth()
   const [open, setOpen] = useState(false)
   const [contracts, setContracts] = useState<ClientContract[]>([])
+  const [reportPending, setReportPending] = useState(0) // 기자단 발행 보고 승인 대기 수
   const [readSet, setReadSet] = useState<Set<string>>(loadRead)
   const boxRef = useRef<HTMLDivElement>(null)
 
   const seePending = canSeeContractPending(profile?.email)
   const seeNewContract = canSeeNewContract(profile?.email)
   const myCats = SHEET_CATEGORIES.filter((c) => canManageSheet(c))
-  const eligible = role !== 'viewer' && (seePending || seeNewContract || myCats.length > 0)
+  const seeReports = canManageSheet('블로그') // 블로그 시트 담당(김다영 등)만 기자단 보고 알림
+  // 외부(고객·기자단)는 내부 알림 벨 미노출.
+  const eligible =
+    role !== 'viewer' && role !== 'reporter' && (seePending || seeNewContract || myCats.length > 0 || seeReports)
 
   useEffect(() => {
-    if (!eligible || myCats.length === 0) return
-    const load = () => void getClientContracts().then(({ data }) => setContracts(data))
+    if (!eligible) return
+    const load = () => {
+      if (myCats.length > 0) void getClientContracts().then(({ data }) => setContracts(data))
+      if (seeReports) void getReports('pending').then(({ data }) => setReportPending(data.length))
+    }
     load()
     window.addEventListener('app:navigate', load)
     return () => window.removeEventListener('app:navigate', load)
-  }, [eligible, myCats.length])
+  }, [eligible, myCats.length, seeReports])
 
   useEffect(() => {
     if (!open) return
@@ -79,7 +87,7 @@ export default function NotificationBell() {
     cur.n += 1
     bySub.set(key, cur)
   }
-  const count = pendingClients.length + sheetPending.length + newContracts.length
+  const count = pendingClients.length + sheetPending.length + newContracts.length + (seeReports ? reportPending : 0)
 
   const go = (path: string) => {
     if (window.location.pathname + window.location.search !== path) {
@@ -132,6 +140,8 @@ export default function NotificationBell() {
     markRead(sheetPending.filter((ct) => ct.category === cat && ct.subtype === subtype).map((ct) => 's:' + ct.id))
     go(sheetHref(cat, subtype))
   }
+  // 기자단 발행 보고 알림 클릭 — 블로그 대시보드 '기자단 당일 업로드건' KPI(승인 모달)로 이동.
+  const openReports = () => go('/blog-dash?reports=1')
 
   return (
     <div className="relative" ref={boxRef}>
@@ -171,6 +181,23 @@ export default function NotificationBell() {
               </button>
             ) : null}
           </div>
+
+          {/* ③ 기자단 발행 보고(승인 대기) — 블로그 담당(김다영 등)만 */}
+          {seeReports && reportPending > 0 ? (
+            <div className="border-b border-[#f1f5f9] p-1">
+              <div className="px-2 py-1 text-[11px] font-bold text-[#16a34a]">기자단 발행 보고</div>
+              <button
+                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-[#f8fafc]"
+                onClick={openReports}
+                type="button"
+              >
+                <span className="font-semibold text-[#334155]">기자단 당일 업로드건</span>
+                <span className="ml-2 shrink-0 rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#16a34a]">
+                  {reportPending}건 승인 대기
+                </span>
+              </button>
+            </div>
+          ) : null}
 
           {/* ② 시트 승인 대기 */}
           {myCats.length && bySub.size ? (
