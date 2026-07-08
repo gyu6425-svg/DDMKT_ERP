@@ -38,10 +38,12 @@ export function PostSearchCell({
     account,
     post,
     onSaved,
+    hideEdit = false,
 }: {
     account: BlogAccount | null;
     post: BlogPost;
     onSaved: () => Promise<void>;
+    hideEdit?: boolean; // 기자단/고객 뷰(읽기 전용) — '수정' 버튼 숨김
 }) {
     const [kw, setKw] = useState('');
     const [busy, setBusy] = useState(false);
@@ -204,17 +206,19 @@ export function PostSearchCell({
                     >
                         {busy ? '…' : cooling ? `${coolLeft}s` : '검색'}
                     </button>
-                    <button
-                        className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#7c3aed] px-4 text-sm font-semibold text-white"
-                        onClick={() => {
-                            setEditVal(effectiveKw);
-                            setEditing(true);
-                        }}
-                        title="이 글의 자동키워드를 직접 수정(다음 자동 측정도 이 값으로 유지) — 우측 순위 즉시 반영"
-                        type="button"
-                    >
-                        수정
-                    </button>
+                    {!hideEdit ? (
+                        <button
+                            className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#7c3aed] px-4 text-sm font-semibold text-white"
+                            onClick={() => {
+                                setEditVal(effectiveKw);
+                                setEditing(true);
+                            }}
+                            title="이 글의 자동키워드를 직접 수정(다음 자동 측정도 이 값으로 유지) — 우측 순위 즉시 반영"
+                            type="button"
+                        >
+                            수정
+                        </button>
+                    ) : null}
                     <button
                         className="flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[#0f766e] px-4 text-sm font-semibold text-white disabled:opacity-50"
                         disabled={busy || cooling || !effectiveKw}

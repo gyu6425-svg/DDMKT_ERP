@@ -13,6 +13,7 @@ export function TrackerTab() {
         reload: onReload,
         trackerInOnly: initialInOnly,
         trackerCo: initialCo,
+        customerMode,
     } = useBlogRank();
     const [co, setCo] = useState(initialCo);
     const [nameQ, setNameQ] = useState('');
@@ -230,7 +231,7 @@ export function TrackerTab() {
                                         })()}
                                     </td>
                                     <td className="px-3 py-2">
-                                        <PostSearchCell account={acc} post={p} onSaved={onReload} />
+                                        <PostSearchCell account={acc} hideEdit={customerMode} post={p} onSaved={onReload} />
                                     </td>
                                     <td className="px-3 py-2 text-center">
                                         <RankCell post={p} keyName="ti" />
