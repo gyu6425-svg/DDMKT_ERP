@@ -119,6 +119,9 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
     const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '');
     const [mgr, setMgr] = useState('');
     const [dateSort, setDateSort] = useState<'asc' | 'desc' | null>('desc'); // 계약일 정렬(기본 최신순)
+    // 년/월 필터 — 계약일(contract_date) 기준. 기본 전체(0). 계약 관리와 동일한 UX.
+    const [yearFilter, setYearFilter] = useState(0);
+    const [monthFilter, setMonthFilter] = useState(0);
     // 계약 중 / 신규 등록 건(24h) / 계약 종료.
     //   stab=new|active(계약 카드 '관리 시트 →'의 승인 여부) 또는 pending=1(알림)로 시작 탭 지정.
     const urlTab = (): 'active' | 'new' | 'ended' | null => {
@@ -175,9 +178,42 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
         [contracts, clientById, category, subtype],
     );
 
+    // 년/월 옵션 — 이 범위 계약의 contract_date에 실제 존재하는 연·월.
+    const yearOptions = useMemo(() => {
+        const set = new Set<number>();
+        for (const r of allRows) {
+            const y = Number((r.ct.contract_date || '').slice(0, 4));
+            if (y >= 2020 && y <= 2100) set.add(y);
+        }
+        return [0, ...[...set].sort((a, b) => b - a)];
+    }, [allRows]);
+    const monthOptions = useMemo(() => {
+        const set = new Set<number>();
+        for (const r of allRows) {
+            if (yearFilter && Number((r.ct.contract_date || '').slice(0, 4)) !== yearFilter) continue;
+            const m = Number((r.ct.contract_date || '').slice(5, 7));
+            if (m >= 1 && m <= 12) set.add(m);
+        }
+        return [0, ...[...set].sort((a, b) => a - b)];
+    }, [allRows, yearFilter]);
+
+    // 년/월 필터 적용 — 필터가 켜지면 계약일 없는 계약은 제외.
+    const inPeriod = (ct: ClientContract) => {
+        if (!yearFilter && !monthFilter) return true;
+        const d = ct.contract_date || '';
+        if (!d) return false;
+        if (yearFilter && Number(d.slice(0, 4)) !== yearFilter) return false;
+        if (monthFilter && Number(d.slice(5, 7)) !== monthFilter) return false;
+        return true;
+    };
+    const periodRows = useMemo(
+        () => allRows.filter((r) => inPeriod(r.ct)),
+        [allRows, yearFilter, monthFilter],
+    );
+
     const managers = useMemo(
-        () => [...new Set(allRows.map((r) => r.cl.manager).filter(Boolean) as string[])].sort(),
-        [allRows],
+        () => [...new Set(periodRows.map((r) => r.cl.manager).filter(Boolean) as string[])].sort(),
+        [periodRows],
     );
 
     // 신규 등록 건 = 아직 '승인' 안 된 계약(sheet_approved=false). 승인 버튼을 눌러야 '계약 중'으로 이동.
@@ -197,9 +233,9 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
 
     const counts = useMemo(() => {
         const c = { active: 0, new: 0, ended: 0 };
-        for (const r of allRows) c[tabOf(r)] += 1;
+        for (const r of periodRows) c[tabOf(r)] += 1;
         return c;
-    }, [allRows]);
+    }, [periodRows]);
 
     // 진입 시(최초 1회): 신규 등록 건이 있으면 신규 탭으로 시작(없으면 계약 중). pending=1이면 그대로 신규.
     const [didInitTab, setDidInitTab] = useState(false);
@@ -217,7 +253,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
 
     const rows = useMemo(() => {
         const qq = q.trim().toLowerCase();
-        return allRows
+        return periodRows
             .filter(
                 (r) =>
                     tabOf(r) === tab &&
@@ -232,7 +268,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                 }
                 return (a.cl.company || '').localeCompare(b.cl.company || '', 'ko');
             });
-    }, [allRows, q, mgr, tab, dateSort]);
+    }, [periodRows, q, mgr, tab, dateSort]);
 
     // 업체 단위 그룹핑 — 같은 업체 여러 상품이면 1줄로 접어 목록 압축. rows 정렬(계약일/업체명)을 그대로 계승.
     //   상품 1개면 그룹 헤더 없이 바로 상품 행으로. 2개↑면 요약 헤더 + 펼침(클릭).
@@ -426,8 +462,32 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
 
     return (
         <div className="grid gap-3">
-            {/* 툴바 — 브랜드블로그 시트와 동일: 검색 + 담당 필터 + 개수/합계 */}
+            {/* 툴바 — 브랜드블로그 시트와 동일: 년/월 + 검색 + 담당 필터 + 개수/합계 */}
             <div className="flex flex-wrap items-center gap-2">
+                <select
+                    className="h-9 rounded-md border border-[#1e40af] bg-white px-2 text-sm font-bold text-[#1e40af]"
+                    onChange={(e) => setYearFilter(Number(e.target.value))}
+                    title="년도별 보기"
+                    value={yearFilter}
+                >
+                    {yearOptions.map((y) => (
+                        <option key={y} value={y}>
+                            {y === 0 ? '전체 년도' : `${String(y).slice(2)}년`}
+                        </option>
+                    ))}
+                </select>
+                <select
+                    className="h-9 rounded-md border border-[#1e40af] bg-white px-2 text-sm font-bold text-[#1e40af]"
+                    onChange={(e) => setMonthFilter(Number(e.target.value))}
+                    title="월별 보기"
+                    value={monthFilter}
+                >
+                    {monthOptions.map((m) => (
+                        <option key={m} value={m}>
+                            {m === 0 ? '전체 월' : `${m}월`}
+                        </option>
+                    ))}
+                </select>
                 <input
                     className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
                     onChange={(e) => setQ(e.target.value)}
