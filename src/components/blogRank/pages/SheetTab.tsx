@@ -499,11 +499,26 @@ export function SheetTab() {
                                                     <select
                                                         className="h-7 rounded border border-[#cbd5e1] bg-white px-1 text-[11px] text-[#6d28d9]"
                                                         onChange={(e) => {
-                                                            if (e.target.value === '__new__') {
+                                                            const val = e.target.value;
+                                                            if (val === '__new__') {
                                                                 setIssueForBlog(a); // 이 블로그 맥락에서 새 기자단 발급
-                                                            } else {
-                                                                void assignReporter(a, e.target.value);
+                                                                return;
                                                             }
+                                                            // 기존 계정 선택 시: 계정 이름 ≠ 기자단 텍스트면 배정 차단(오배정 방지).
+                                                            if (val) {
+                                                                const rep = reporters.find((r) => r.id === val);
+                                                                const text = (
+                                                                    currentField(a.reporter_history, a.reporter) || ''
+                                                                ).replace(/\s+/g, '');
+                                                                const repName = (rep?.name || '').replace(/\s+/g, '');
+                                                                if (rep && text && repName !== text) {
+                                                                    onToast(
+                                                                        `'${rep.name}' 계정은 현재 블로그의 기자단 이름('${currentField(a.reporter_history, a.reporter)}')과 일치하지 않습니다.`,
+                                                                    );
+                                                                    return; // 배정 안 함(드롭다운은 원래 값으로 되돌아감)
+                                                                }
+                                                            }
+                                                            void assignReporter(a, val);
                                                         }}
                                                         onClick={(e) => e.stopPropagation()}
                                                         title="담당 기자단(계정) 지정 — 기자단 ERP 노출 기준"
