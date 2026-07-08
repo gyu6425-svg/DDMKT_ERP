@@ -45,17 +45,22 @@ export function BlogRankProvider({
     children,
     customerMode = false,
     reporterMode = false,
+    previewClientId = null,
+    previewReporterId = null,
 }: {
     children: ReactNode;
     customerMode?: boolean;
     reporterMode?: boolean;
+    previewClientId?: string | null; // 내부(관리자) 미리보기 — 이 업체 시점으로 스코프
+    previewReporterId?: string | null; // 내부(관리자) 미리보기 — 이 기자단 시점으로 스코프
 }) {
     const { isAdmin, canManageSheet, loading: authLoading, profile } = useAuth();
     const canBlog = isAdmin || canManageSheet('블로그'); // 블로그 담당 사원/매니저도 내부 접근 허용
     // 외부(고객/기자단) = 읽기전용 UI(customerMode 로직 재사용).
     const external = customerMode || reporterMode;
-    // 고객 모드면 본인 업체(client_id)로 데이터 스코프. 기자단은 RLS(reporter_id)로 스코프 → 전체 로드해도 본인 블로그만 옴.
-    const scopedClientId = customerMode ? profile?.client_id ?? null : null;
+    // 고객 모드면 본인 업체(client_id)로 데이터 스코프. 미리보기(previewClientId)면 그 업체로 강제.
+    //   기자단은 RLS(reporter_id)로 스코프 → 전체 로드해도 본인 블로그만. 미리보기(previewReporterId)면 그 기자단으로 필터.
+    const scopedClientId = previewClientId ?? (customerMode ? profile?.client_id ?? null : null);
     const [accounts, setAccounts] = useState<BlogAccount[]>([]);
     const [posts, setPosts] = useState<BlogPost[]>([]);
     const [loading, setLoading] = useState(true);
@@ -131,6 +136,21 @@ export function BlogRankProvider({
             setLoading(false);
             return;
         }
+        // 기자단 미리보기(내부 관리자) — 전체 로드 후 그 기자단 담당 블로그만 필터.
+        if (reporterMode && previewReporterId) {
+            const [accRes, postRes] = await Promise.all([getBlogAccounts(), getBlogPosts()]);
+            if (accRes.error || postRes.error) {
+                setError((accRes.error || postRes.error)?.message || failMsg);
+                setLoading(false);
+                return;
+            }
+            const mine = accRes.data.filter((a) => a.reporter_id === previewReporterId);
+            const ids = new Set(mine.map((a) => a.id));
+            setAccounts(mine);
+            setPosts(postRes.data.filter((p) => ids.has(p.blog_account_id)));
+            setLoading(false);
+            return;
+        }
         const [accRes, postRes] = await Promise.all([getBlogAccounts(), getBlogPosts()]);
         if (accRes.error || postRes.error) {
             setError((accRes.error || postRes.error)?.message || failMsg);
@@ -148,7 +168,9 @@ export function BlogRankProvider({
         if (isAllowed) {
             void reload();
         }
-    }, [isAllowed]);
+        // 미리보기 대상(업체/기자단)이 바뀌면 재조회.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isAllowed, scopedClientId, previewReporterId]);
 
     // 크롤 결과 자동 반영 — 탭을 다시 보거나(가시성 복귀) 창 포커스 시 재조회(수동 새로고침 없이 우측 순위 최신화).
     //   너무 잦은 재조회 방지: 마지막 로드 후 60초 지났을 때만.

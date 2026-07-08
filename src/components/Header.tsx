@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useAuth } from '../hooks/useAuth';
 import AccountMenu from './AccountMenu';
 import NotificationBell from './NotificationBell';
+import ErpViewSwitcher from './ErpViewSwitcher';
 import { SIDEBAR_CATEGORIES } from './categoryRank/categories';
 
 const pageTitles: Record<string, string> = {
@@ -46,55 +46,17 @@ function Header() {
             window.removeEventListener('app:navigate', sync);
         };
     }, []);
-    const currentPath = loc.path;
     const title = resolveTitle(loc.path, loc.search);
-    const { isAdmin, profile, role } = useAuth();
-    // 회사/고객 토글은 관리자·매니저만. 고객(viewer)은 업체명. 사원은 표기 없음(계정 메뉴에 이름만).
-    const isInternal = isAdmin || role === 'manager';
-    const isCustomerView = currentPath.startsWith('/portal');
-
-    const go = (path: string) => {
-        if (window.location.pathname !== path) {
-            window.history.pushState(null, '', path);
-            window.dispatchEvent(new Event('app:navigate'));
-        }
-    };
 
     return (
         <header className="mb-6 flex min-h-[48px] items-center justify-between gap-3">
             <h1 className="m-0 text-[28px] font-semibold">{title}</h1>
 
             <div className="flex items-center gap-3">
-            {/* 내부(관리자·매니저) = 회사 ⇄ 고객 토글 / 외부 고객 = 본인 업체명 */}
-            {isInternal ? (
-                <div className="inline-flex rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-0.5 text-sm font-semibold">
-                    <button
-                        className={`rounded-md px-3 py-1.5 ${
-                            !isCustomerView ? 'bg-white text-[#1e40af] shadow-sm' : 'text-[#94a3b8]'
-                        }`}
-                        onClick={() => go('/dashboard')}
-                        type="button"
-                    >
-                        회사 ERP
-                    </button>
-                    <button
-                        className={`rounded-md px-3 py-1.5 ${
-                            isCustomerView ? 'bg-white text-[#1e40af] shadow-sm' : 'text-[#94a3b8]'
-                        }`}
-                        onClick={() => go('/portal')}
-                        type="button"
-                    >
-                        고객 ERP
-                    </button>
-                </div>
-            ) : role === 'viewer' ? (
-                <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] px-3 py-1.5 text-sm font-semibold text-[#1e40af]">
-                    <span className="text-[#94a3b8]">업체</span>
-                    {profile?.name ?? '내 업체'}
-                </span>
-            ) : null}
-            <NotificationBell />
-            <AccountMenu />
+                {/* 회사/고객/기자단 ERP 토글 + 대상 검색(권한자만) / 외부 고객 = 업체명 */}
+                <ErpViewSwitcher />
+                <NotificationBell />
+                <AccountMenu />
             </div>
         </header>
     );

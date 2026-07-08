@@ -1,9 +1,25 @@
+import { useEffect, useState } from 'react';
 import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
 import { DashboardTab } from '../components/blogRank/pages/DashboardTab';
 import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { categoryByKey, type CategoryKey } from '../components/categoryRank/categories';
 import type { Tab } from '../components/blogRank/lib/helpers';
+
+// URL ?as=<id> 를 반응형으로 읽음 — 내부(관리자) 미리보기 대상(업체/기자단) 전환 시 재조회.
+export function useAsParam(): string {
+    const [as, setAs] = useState(() => new URLSearchParams(window.location.search).get('as') || '');
+    useEffect(() => {
+        const sync = () => setAs(new URLSearchParams(window.location.search).get('as') || '');
+        window.addEventListener('app:navigate', sync);
+        window.addEventListener('popstate', sync);
+        return () => {
+            window.removeEventListener('app:navigate', sync);
+            window.removeEventListener('popstate', sync);
+        };
+    }, []);
+    return as;
+}
 
 // 고객 ERP 카테고리 화면 — 블로그는 완성된 대시보드의 3개 탭(대시보드·블로그 관리 시트·순위 트래커) 재사용.
 //   고객은 본인 업체만/계약 중만 본다(customerMode = 계약종료 숨김, 실제 본인업체 격리는 RLS).
@@ -42,6 +58,7 @@ function BlogCustomerView() {
 function CustomerCategoryPage() {
     const key = (window.location.pathname.split('/')[2] || 'blog') as CategoryKey;
     const def = categoryByKey(key);
+    const as = useAsParam(); // 내부 미리보기 대상 업체 id(있으면 그 업체 시점)
 
     return (
         <section className="grid gap-4">
@@ -52,7 +69,7 @@ function CustomerCategoryPage() {
             <p className="m-0 text-sm text-[#64748b]">본인 업체의 정보만 표시됩니다.</p>
 
             {key === 'blog' ? (
-                <BlogRankProvider customerMode>
+                <BlogRankProvider customerMode previewClientId={as || null}>
                     <BlogCustomerView />
                 </BlogRankProvider>
             ) : (

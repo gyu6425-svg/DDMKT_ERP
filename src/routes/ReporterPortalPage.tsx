@@ -5,6 +5,7 @@ import { DashboardTab } from '../components/blogRank/pages/DashboardTab';
 import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { useAuth } from '../hooks/useAuth';
+import { useAsParam } from './CustomerCategoryPage';
 import { createReport, getReports, resubmitReport, type BlogPostReport } from '../api/blogPostReports';
 
 type RTab = 'dashboard' | 'sheet' | 'tracker' | 'report';
@@ -328,8 +329,9 @@ function ReporterShell() {
 }
 
 function ReporterPortalPage() {
+    const as = useAsParam(); // 내부 미리보기 대상 기자단 id(있으면 그 기자단 시점)
     return (
-        <BlogRankProvider reporterMode>
+        <BlogRankProvider previewReporterId={as || null} reporterMode>
             <ReporterShell />
         </BlogRankProvider>
     );
