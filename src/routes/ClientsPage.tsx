@@ -22,7 +22,6 @@ import { useAuth } from '../hooks/useAuth';
 import { DUTIES, canSeeAmounts } from '../lib/permissions';
 import {
     INDUSTRY_OPTIONS,
-    SOURCE_OPTIONS,
     STATUS_BADGE,
     STATUS_OPTIONS,
     formatPhone,
@@ -30,6 +29,9 @@ import {
     saleVat,
     todayStr,
 } from '../lib/erpUtils';
+
+// 문의 추가 '우리 담당자' 드롭다운 — 우선 2명만.
+const OUR_MANAGERS = ['김종인', '송민경'];
 
 const FAVS_KEY = 'erp_favs';
 // 계약완료로 막 넘어온 '신규건' — localStorage에 완료 시각 기록, 24시간 동안 계약 관리에서 강조·상단 고정.
@@ -538,13 +540,37 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         setForm((current) => ({ ...current, [field]: value }));
     };
 
+    // 문의/계약 추가 초안 — 모달이 닫혀도(튕겨도) 다시 열면 입력 복원. 저장 성공 시 삭제.
+    const draftKey = contractsOnly ? 'erp_draft_contract' : 'erp_draft_inquiry';
+    // 신규 등록(가이드) 폼 값이 바뀔 때마다 초안 저장.
+    useEffect(() => {
+        if (!modalOpen || editId) return;
+        try {
+            localStorage.setItem(draftKey, JSON.stringify({ form, pasteText, entryMode }));
+        } catch {
+            /* 저장 실패 무시 */
+        }
+    }, [form, pasteText, entryMode, modalOpen, editId, draftKey]);
 
     const openAdd = () => {
         setEditId(null);
-        // 계약 관리에서 추가 = 바로 계약완료 기본값. 고객사 관리(문의) = 신규문의.
-        setForm({ ...emptyForm, status: contractsOnly ? DONE_STATUS : STATUS_OPTIONS[0] });
-        setPasteText('');
-        setEntryMode('guide');
+        // 이전에 튕겨서 남은 초안이 있으면 복원, 없으면 빈 폼.
+        let draft: { form?: ClientForm; pasteText?: string; entryMode?: 'guide' | 'paste' } | null = null;
+        try {
+            draft = JSON.parse(localStorage.getItem(draftKey) || 'null');
+        } catch {
+            draft = null;
+        }
+        if (draft?.form) {
+            setForm(draft.form);
+            setPasteText(draft.pasteText || '');
+            setEntryMode(draft.entryMode || 'guide');
+        } else {
+            // 계약 관리에서 추가 = 바로 계약완료 기본값. 고객사 관리(문의) = 신규문의.
+            setForm({ ...emptyForm, status: contractsOnly ? DONE_STATUS : STATUS_OPTIONS[0] });
+            setPasteText('');
+            setEntryMode('guide');
+        }
         setProdCats([]);
         setProdInputs({});
         setModalOpen(true);
@@ -736,6 +762,14 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             setNewMap(readNewContracts());
         }
 
+        // 저장 성공 → 초안 삭제(다음 추가는 빈 폼으로).
+        if (!editId) {
+            try {
+                localStorage.removeItem(draftKey);
+            } catch {
+                /* 무시 */
+            }
+        }
         setModalOpen(false);
         await refresh();
         showToast('저장되었습니다');
@@ -1594,7 +1628,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             {modalOpen ? (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-                    onClick={(event) => event.target === event.currentTarget && setModalOpen(false)}
+                    // 배경 클릭으로 닫지 않음 — 실수로 눌러도 입력이 날아가지 않게(취소/저장 버튼으로만 닫힘).
                 >
                     <div className="max-h-[92vh] w-[min(620px,94vw)] overflow-y-auto rounded-[8px] bg-white p-6">
                         <h3 className="m-0 mb-4 text-lg font-bold">
@@ -1659,39 +1693,36 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
 
                         {/* 가이드 입력 — 고정 라벨 옆 칸에 값 입력(블로그 대시보드와 동일 방식) */}
                         <div className={`grid gap-2 ${!editId && entryMode === 'paste' ? 'hidden' : ''}`}>
-                            {/* 담당자 : 입력+선택(직접 입력 자유) */}
+                            {/* 담당자(우리 담당자) : 드롭다운 — 김종인·송민경 2명. 기존값이 다르면 그 값도 유지 */}
                             <div className="flex items-center gap-2">
                                 <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
                                     담당자 :
                                 </span>
-                                <input
+                                <select
                                     className="erp-input w-full min-w-0"
-                                    list="manager-suggest"
                                     onChange={(event) => updateField('manager', event.target.value)}
-                                    placeholder="담당자 입력 또는 선택"
                                     value={form.manager}
-                                />
-                                <datalist id="manager-suggest">
-                                    {salespeople.map((s) => (
-                                        <option key={s.id} value={s.name} />
+                                >
+                                    <option value="">담당자 선택</option>
+                                    {OUR_MANAGERS.map((m) => (
+                                        <option key={m}>{m}</option>
                                     ))}
-                                </datalist>
+                                    {form.manager && !OUR_MANAGERS.includes(form.manager) ? (
+                                        <option value={form.manager}>{form.manager}</option>
+                                    ) : null}
+                                </select>
                             </div>
-                            {/* 문의 경로 : */}
+                            {/* 문의 경로 : 직접 입력 */}
                             <div className="flex items-center gap-2">
                                 <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
                                     문의 경로 :
                                 </span>
-                                <select
+                                <input
                                     className="erp-input w-full min-w-0"
                                     onChange={(event) => updateField('source', event.target.value)}
+                                    placeholder="문의 경로 직접 입력 (예: 인스타 DM, 지인 소개)"
                                     value={form.source}
-                                >
-                                    <option value="">선택 안 함</option>
-                                    {SOURCE_OPTIONS.map((s) => (
-                                        <option key={s}>{s}</option>
-                                    ))}
-                                </select>
+                                />
                             </div>
                             {/* 업체명 (계약 추가만 거래처명·사업자등록번호·사업장 주소 추가) */}
                             {(
@@ -2043,7 +2074,17 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                             <div className="flex-1" />
                             <Button
                                 className="rounded-md border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold"
-                                onClick={() => setModalOpen(false)}
+                                onClick={() => {
+                                    // 취소 = 명시적 폐기(초안 삭제). 실수/튕김으로 닫힌 경우엔 초안이 남아 복원됨.
+                                    if (!editId) {
+                                        try {
+                                            localStorage.removeItem(draftKey);
+                                        } catch {
+                                            /* 무시 */
+                                        }
+                                    }
+                                    setModalOpen(false);
+                                }}
                                 type="button"
                             >
                                 취소
