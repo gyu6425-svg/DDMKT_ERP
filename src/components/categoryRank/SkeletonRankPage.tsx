@@ -39,7 +39,7 @@ function Placeholder({ name }: { name: string }) {
     );
 }
 
-export function SkeletonRankPage({ label }: { label: string }) {
+export function SkeletonRankPage({ label, sheetOnly = false }: { label: string; sheetOnly?: boolean }) {
     const href = useLocHref();
     const displayLabel = subLabelOf(href, label);
     const scope = resolveScope(href);
@@ -49,6 +49,10 @@ export function SkeletonRankPage({ label }: { label: string }) {
     ) : (
         <Placeholder name={displayLabel} />
     );
+    // sheetOnly: 관리 시트 탭만(단일 탭 → CategoryShell이 탭바 숨김). 블로그 배포 하위 등.
+    if (sheetOnly) {
+        return <CategoryShell label={displayLabel} tabs={[{ name: '관리 시트', el: sheet, slug: 'sheet' }]} />;
+    }
     return (
         <CategoryShell
             badge="준비 중"
