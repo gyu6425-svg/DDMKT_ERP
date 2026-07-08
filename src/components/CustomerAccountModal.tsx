@@ -19,7 +19,8 @@ export default function CustomerAccountModal({
 }) {
   const isReporter = mode === 'reporter'
   const [login, setLogin] = useState('')
-  const [name, setName] = useState(companyName || '')
+  // 기자단은 담당자(사람) 이름을 직접 입력 → 업체명으로 채우지 않음. 고객은 업체명 기본값.
+  const [name, setName] = useState(isReporter ? '' : companyName || '')
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState<{ email: string; password: string } | null>(null)
   const [err, setErr] = useState('')
@@ -115,7 +116,7 @@ export default function CustomerAccountModal({
                 <input
                   className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={isReporter ? '예: 홍길동' : '고객 담당자명 등'}
+                  placeholder={isReporter ? '담당자를 입력하세요' : '고객 담당자명 등'}
                   value={name}
                 />
               </label>
