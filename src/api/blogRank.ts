@@ -178,17 +178,29 @@ export async function ensureClientBlogAccount(
         remain_count?: number | null;
         contract_date?: string | null;
         amount?: number | null;
+        blog_url?: string | null; // 계약 추가 시 입력한 발행 URL → 크롤 대상으로 바로 연동
     },
 ) {
+    const url = (fields.blog_url || '').trim();
     const { data } = await getBlogAccounts(clientId);
-    // 같은 이름(관리시트 업체명)의 계정이 이미 있으면 skip. 다중 블로그(A/B/C)는 이름이 달라 각각 생성됨.
-    if (data.some((a) => a.name === name)) {
+    // 같은 이름(관리시트 업체명)의 계정이 이미 있으면 기본 skip. 다중 블로그(A/B/C)는 이름이 달라 각각 생성됨.
+    const existing = data.find((a) => a.name === name);
+    if (existing) {
+        // 이미 있는데 URL이 비었/placeholder이고 새 URL이 들어오면 채워서 연동(크롤 대상화).
+        if (url && !/^https?:\/\//.test((existing.blog_url || '').trim())) {
+            const { error } = await updateBlogAccount(existing.id, {
+                blog_url: url,
+                blog_id: extractBlogId(url) || existing.blog_id,
+            });
+            return { created: false, error };
+        }
         return { created: false };
     }
     const { error } = await insertBlogAccounts([
         {
             amounts: fields.amount ? [{ amount: fields.amount }] : [],
-            blog_url: '',
+            blog_url: url,
+            blog_id: url ? extractBlogId(url) : null,
             client_id: clientId,
             contract_date: fields.contract_date ?? null,
             goal_count: fields.goal_count ?? null,

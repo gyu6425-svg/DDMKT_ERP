@@ -301,6 +301,7 @@ function ContractAddModal({
     const [outTotal, setOutTotal] = useState(''); // 외주비 직접입력(총액) — 입력 시 외주단가×수량 대신 사용
     const [outCompany, setOutCompany] = useState(''); // 외주업체명
     const [blogName, setBlogName] = useState(''); // 브랜드 블로그 이름(관리시트 업체명)
+    const [blogUrl, setBlogUrl] = useState(''); // 브랜드 블로그 발행 URL(크롤 대상 연동)
     const [serviceNote, setServiceNote] = useState(''); // 서비스 내용 메모(무슨 서비스인지)
     const [noVat, setNoVat] = useState(false); // 부가세 없음(현금) — 실매출 VAT 미포함
     const [date, setDate] = useState('');
@@ -386,6 +387,7 @@ function ContractAddModal({
                 goal_count: n,
                 manager: managerName || null,
                 remain_count: n,
+                blog_url: blogUrl.trim() || null, // 입력한 발행 URL → 즉시 크롤 대상으로 연동
             });
         }
         await onReload();
@@ -524,6 +526,19 @@ function ContractAddModal({
                             />
                         </label>
                     )}
+                    {/* 브랜드 블로그 발행 URL — 계약 등록 시 입력하면 그 블로그 계정에 바로 연동(크롤 대상). */}
+                    {isBrandBlog ? (
+                        <label className="block text-xs font-semibold text-[#475569]">
+                            블로그 발행 URL
+                            <input
+                                className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                                onChange={(e) => setBlogUrl(e.target.value)}
+                                placeholder="https://blog.naver.com/아이디 · 비우면 나중에 시트에서 입력"
+                                type="text"
+                                value={blogUrl}
+                            />
+                        </label>
+                    ) : null}
                     {isEtc ? (
                         <div className="grid grid-cols-2 gap-2">
                             <label className="block text-xs font-semibold text-[#475569]">
