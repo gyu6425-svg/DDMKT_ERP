@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { getClients, type ErpClient } from '../../api/erp';
 import { getClientContracts, updateClientContract, type ClientContract } from '../../api/clientContracts';
 import { useAuth } from '../../hooks/useAuth';
@@ -210,6 +210,71 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
             });
     }, [allRows, q, mgr, tab, dateSort]);
 
+    // 업체 단위 그룹핑 — 같은 업체 여러 상품이면 1줄로 접어 목록 압축. rows 정렬(계약일/업체명)을 그대로 계승.
+    //   상품 1개면 그룹 헤더 없이 바로 상품 행으로. 2개↑면 요약 헤더 + 펼침(클릭).
+    const groups = useMemo(() => {
+        const map = new Map<string, typeof rows>();
+        const order: string[] = [];
+        for (const r of rows) {
+            const key = r.cl.id; // 동명 업체도 분리되도록 client id 기준
+            if (!map.has(key)) {
+                map.set(key, []);
+                order.push(key);
+            }
+            map.get(key)!.push(r);
+        }
+        return order.map((key) => {
+            const grp = map.get(key)!;
+            let amtSum = 0;
+            let doneAmtSum = 0;
+            let goalSum = 0;
+            let doneSum = 0;
+            let remainSum = 0;
+            let latest = '';
+            for (const { ct } of grp) {
+                const goal = ct.goal_count ?? 0;
+                const remain = ct.remain_count ?? goal;
+                const done = Math.max(0, goal - remain);
+                goalSum += goal;
+                doneSum += done;
+                remainSum += remain;
+                amtSum += ct.amount ?? 0;
+                doneAmtSum += done * (ct.unit_price ?? 0);
+                if ((ct.contract_date || '') > latest) latest = ct.contract_date || '';
+            }
+            const pct = !goalSum
+                ? null
+                : remainSum <= 0
+                  ? 100
+                  : doneSum <= 0
+                    ? 0
+                    : amtSum > 0 && doneAmtSum > 0
+                      ? Math.min(100, Math.round((doneAmtSum / amtSum) * 100))
+                      : Math.round((doneSum / goalSum) * 100);
+            return {
+                key,
+                company: grp[0].cl.company || '—',
+                manager: grp[0].cl.manager || '—',
+                rows: grp,
+                count: grp.length,
+                pct,
+                goalSum,
+                doneSum,
+                remainSum,
+                latest,
+            };
+        });
+    }, [rows]);
+
+    // 펼친 업체(client id) 집합 — 기본은 접힘.
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const toggleGroup = (key: string) =>
+        setExpanded((prev) => {
+            const next = new Set(prev);
+            next.has(key) ? next.delete(key) : next.add(key);
+            return next;
+        });
+
     if (loading) {
         return <div className="py-16 text-center text-sm text-[#94a3b8]">불러오는 중...</div>;
     }
@@ -220,6 +285,117 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
     const showApprove = tab === 'new' && canManageSheet(category); // 담당 시트 권한자 + 신규 탭에서만 승인
     const dash = <span className="text-xs text-[#cbd5e1]">—</span>;
     const colSpan = showSub ? 12 : 11;
+
+    // 상품 1건 = 1행. detail=true면 그룹 안 상세행(업체명 대신 들여쓰기 마커).
+    const renderProductRow = (ct: ClientContract, cl: ErpClient, detail: boolean) => {
+        const goal = ct.goal_count ?? 0;
+        const remain = ct.remain_count ?? goal;
+        const done = Math.max(0, goal - remain);
+        const amt = ct.amount ?? 0;
+        const doneAmt = done * (ct.unit_price ?? 0);
+        const pct = !goal
+            ? null
+            : remain <= 0
+              ? 100
+              : done <= 0
+                ? 0
+                : amt > 0 && doneAmt > 0
+                  ? Math.min(100, Math.round((doneAmt / amt) * 100))
+                  : Math.round((done / goal) * 100);
+        const remainColor =
+            ct.remain_count == null ? '#94a3b8' : remain <= 1 ? '#dc2626' : remain <= 5 ? '#d97706' : '#0f172a';
+        return (
+            <tr
+                className={`cursor-pointer border-b border-[#e2e8f0] hover:bg-[#f8fafc] ${detail ? 'bg-[#fbfcfe]' : ''}`}
+                key={ct.id}
+                onClick={() => goTracker(cl.company || '')}
+                title="클릭 → 순위 트래커"
+            >
+                <td
+                    className={
+                        detail
+                            ? 'px-3 py-2 pl-9 text-[12px] text-[#94a3b8]'
+                            : 'px-3 py-2 text-[13px] font-semibold text-[#0f172a]'
+                    }
+                >
+                    {detail ? '└' : cl.company || '—'}
+                </td>
+                <td className="px-3 py-2 text-[13px] font-semibold text-[#475569]">{ct.contract_date || '—'}</td>
+                {showSub && <td className="px-3 py-2 text-[13px] text-[#475569]">{ct.subtype}</td>}
+                <td className="px-3 py-2 text-[13px] text-[#475569]">{cl.manager || '—'}</td>
+                <td className="px-3 py-2">
+                    {pct == null ? (
+                        dash
+                    ) : (
+                        <div className="min-w-[110px]">
+                            <div className="flex items-baseline justify-between gap-2">
+                                <span className="text-sm font-bold" style={{ color: progColor(pct) }}>
+                                    {pct}%
+                                </span>
+                                <span className="text-[10px] text-[#94a3b8]">
+                                    {done}/{goal}건
+                                </span>
+                            </div>
+                            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#eef2f7]">
+                                <div
+                                    className="h-full rounded-full"
+                                    style={{ background: progColor(pct), width: `${pct}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
+                </td>
+                <td className="px-3 py-2 text-center text-sm font-bold" style={{ color: remainColor }}>
+                    {ct.remain_count == null ? '—' : remain}
+                </td>
+                {/* 주 발행 · 추적 글 · 통합 10위 = 블로그 전용(크롤) → 비-블로그는 '—' */}
+                <td className="px-3 py-2 text-center">{dash}</td>
+                <td className="px-3 py-2 text-center">{dash}</td>
+                <td className="px-3 py-2 text-center">{dash}</td>
+                <td className="px-3 py-2 text-center">
+                    <StatusTag ct={ct} />
+                </td>
+                <td className="px-3 py-2">
+                    <div className="flex items-center gap-1">
+                        <span
+                            className="block max-w-[120px] truncate text-xs text-[#94a3b8]"
+                            title={ct.note || ''}
+                        >
+                            {ct.note || '—'}
+                        </span>
+                    </div>
+                </td>
+                <td className="px-3 py-2 text-center">
+                    <div className="flex items-center justify-center gap-1">
+                        {showApprove ? (
+                            <button
+                                className="rounded bg-[#1e40af] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#1e3a8a]"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    void approve(ct.id);
+                                }}
+                                title="승인 → 계약 중 시트로 이동"
+                                type="button"
+                            >
+                                승인
+                            </button>
+                        ) : null}
+                        <button
+                            className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                navTo(`/clients?id=${cl.id}`);
+                            }}
+                            title="고객사 상세에서 계약 편집"
+                            type="button"
+                        >
+                            관리
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        );
+    };
 
     return (
         <div className="grid gap-3">
@@ -309,125 +485,89 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.length ? (
-                            rows.map(({ ct, cl }) => {
-                                const goal = ct.goal_count ?? 0;
-                                const remain = ct.remain_count ?? goal;
-                                const done = Math.max(0, goal - remain);
-                                // 금액 기반 진행률 — 완료금액(완료건수×단가)÷총금액. 단가/금액 없으면 건수 %, 전량 완료=100%.
-                                const amt = ct.amount ?? 0;
-                                const doneAmt = done * (ct.unit_price ?? 0);
-                                const pct = !goal
-                                    ? null
-                                    : remain <= 0
-                                      ? 100
-                                      : done <= 0
-                                        ? 0
-                                        : amt > 0 && doneAmt > 0
-                                          ? Math.min(100, Math.round((doneAmt / amt) * 100))
-                                          : Math.round((done / goal) * 100);
-                                const remainColor =
-                                    ct.remain_count == null
-                                        ? '#94a3b8'
-                                        : remain <= 1
-                                          ? '#dc2626'
-                                          : remain <= 5
-                                            ? '#d97706'
-                                            : '#0f172a';
+                        {groups.length ? (
+                            groups.map((g) => {
+                                // 상품 1개 업체 → 그룹 헤더 없이 바로 상품 행.
+                                if (g.count === 1) return renderProductRow(g.rows[0].ct, g.rows[0].cl, false);
+                                const open = expanded.has(g.key);
                                 return (
-                                    <tr
-                                        className="cursor-pointer border-b border-[#e2e8f0] hover:bg-[#f8fafc]"
-                                        key={ct.id}
-                                        onClick={() => goTracker(cl.company || '')}
-                                        title="클릭 → 순위 트래커"
-                                    >
-                                        <td className="px-3 py-2 text-[13px] font-semibold text-[#0f172a]">
-                                            {cl.company || '—'}
-                                        </td>
-                                        <td className="px-3 py-2 text-[13px] font-semibold text-[#475569]">
-                                            {ct.contract_date || '—'}
-                                        </td>
-                                        {showSub && (
-                                            <td className="px-3 py-2 text-[13px] text-[#475569]">{ct.subtype}</td>
-                                        )}
-                                        <td className="px-3 py-2 text-[13px] text-[#475569]">{cl.manager || '—'}</td>
-                                        <td className="px-3 py-2">
-                                            {pct == null ? (
-                                                dash
-                                            ) : (
-                                                <div className="min-w-[110px]">
-                                                    <div className="flex items-baseline justify-between gap-2">
-                                                        <span
-                                                            className="text-sm font-bold"
-                                                            style={{ color: progColor(pct) }}
-                                                        >
-                                                            {pct}%
-                                                        </span>
-                                                        <span className="text-[10px] text-[#94a3b8]">
-                                                            {done}/{goal}건
-                                                        </span>
-                                                    </div>
-                                                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#eef2f7]">
-                                                        <div
-                                                            className="h-full rounded-full"
-                                                            style={{ background: progColor(pct), width: `${pct}%` }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td
-                                            className="px-3 py-2 text-center text-sm font-bold"
-                                            style={{ color: remainColor }}
+                                    <Fragment key={g.key}>
+                                        {/* 업체 요약 헤더 — 클릭하면 상품 상세 펼침/접힘 */}
+                                        <tr
+                                            className="cursor-pointer border-b border-[#e2e8f0] bg-[#f8fafc] hover:bg-[#f1f5f9]"
+                                            onClick={() => toggleGroup(g.key)}
+                                            title={open ? '접기' : '상품 펼치기'}
                                         >
-                                            {ct.remain_count == null ? '—' : remain}
-                                        </td>
-                                        {/* 주 발행 · 추적 글 · 통합 10위 = 블로그 전용(크롤) → 비-블로그는 '—' */}
-                                        <td className="px-3 py-2 text-center">{dash}</td>
-                                        <td className="px-3 py-2 text-center">{dash}</td>
-                                        <td className="px-3 py-2 text-center">{dash}</td>
-                                        <td className="px-3 py-2 text-center">
-                                            <StatusTag ct={ct} />
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <div className="flex items-center gap-1">
-                                                <span
-                                                    className="block max-w-[120px] truncate text-xs text-[#94a3b8]"
-                                                    title={ct.note || ''}
-                                                >
-                                                    {ct.note || '—'}
+                                            <td className="px-3 py-2 text-[13px] font-bold text-[#0f172a]">
+                                                <span className="mr-1.5 inline-block w-3 text-[#64748b]">
+                                                    {open ? '▼' : '▶'}
                                                 </span>
-                                            </div>
-                                        </td>
-                                        <td className="px-3 py-2 text-center">
-                                            <div className="flex items-center justify-center gap-1">
-                                                {showApprove ? (
-                                                    <button
-                                                        className="rounded bg-[#1e40af] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#1e3a8a]"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            void approve(ct.id);
-                                                        }}
-                                                        title="승인 → 계약 중 시트로 이동"
-                                                        type="button"
-                                                    >
-                                                        승인
-                                                    </button>
-                                                ) : null}
+                                                {g.company}
+                                                <span className="ml-2 rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-bold text-[#3730a3]">
+                                                    상품 {g.count}개
+                                                </span>
+                                            </td>
+                                            <td className="px-3 py-2 text-[13px] font-semibold text-[#475569]">
+                                                {g.latest || '—'}
+                                            </td>
+                                            {showSub && (
+                                                <td className="px-3 py-2 text-[12px] text-[#94a3b8]">여러 상품</td>
+                                            )}
+                                            <td className="px-3 py-2 text-[13px] text-[#475569]">{g.manager}</td>
+                                            <td className="px-3 py-2">
+                                                {g.pct == null ? (
+                                                    dash
+                                                ) : (
+                                                    <div className="min-w-[110px]">
+                                                        <div className="flex items-baseline justify-between gap-2">
+                                                            <span
+                                                                className="text-sm font-bold"
+                                                                style={{ color: progColor(g.pct) }}
+                                                            >
+                                                                {g.pct}%
+                                                            </span>
+                                                            <span className="text-[10px] text-[#94a3b8]">
+                                                                통합 {g.doneSum}/{g.goalSum}건
+                                                            </span>
+                                                        </div>
+                                                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#eef2f7]">
+                                                            <div
+                                                                className="h-full rounded-full"
+                                                                style={{
+                                                                    background: progColor(g.pct),
+                                                                    width: `${g.pct}%`,
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2 text-center text-sm font-bold text-[#475569]">
+                                                {g.remainSum}
+                                            </td>
+                                            <td className="px-3 py-2 text-center">{dash}</td>
+                                            <td className="px-3 py-2 text-center">{dash}</td>
+                                            <td className="px-3 py-2 text-center">{dash}</td>
+                                            <td className="px-3 py-2 text-center">{dash}</td>
+                                            <td className="px-3 py-2 text-center text-[11px] text-[#94a3b8]">
+                                                {open ? '접기' : '펼치기'}
+                                            </td>
+                                            <td className="px-3 py-2 text-center">
                                                 <button
                                                     className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        navTo(`/clients?id=${cl.id}`);
+                                                        navTo(`/clients?id=${g.rows[0].cl.id}`);
                                                     }}
-                                                    title="고객사 상세에서 계약 편집"
+                                                    title="고객사 상세로 이동"
                                                     type="button"
                                                 >
                                                     관리
                                                 </button>
-                                            </div>
-                                        </td>
-                                    </tr>
+                                            </td>
+                                        </tr>
+                                        {open && g.rows.map((r) => renderProductRow(r.ct, r.cl, true))}
+                                    </Fragment>
                                 );
                             })
                         ) : (
