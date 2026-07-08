@@ -2958,7 +2958,12 @@ export function ClientDetail({
                                                         잔여 외주 {fmtWon(outsourceOf(ct).remain)}원
                                                     </div>
                                                 ) : null}
-                                                {cardSheetHref(ct.category, ct.subtype, client.company || '') ? (
+                                                {/* 브랜드 블로그는 블로그 이름(A/B/C)으로 시트 필터 → 그 블로그로 이동. 그 외는 업체명. */}
+                                                {cardSheetHref(
+                                                    ct.category,
+                                                    ct.subtype,
+                                                    ct.blog_name || client.company || '',
+                                                ) ? (
                                                     <button
                                                         className="mt-auto self-start pt-2 text-[10px] font-semibold text-[#94a3b8] hover:text-[#1e40af]"
                                                         onClick={(e) => {
@@ -2967,7 +2972,7 @@ export function ClientDetail({
                                                                 cardSheetHref(
                                                                     ct.category,
                                                                     ct.subtype,
-                                                                    client.company || '',
+                                                                    ct.blog_name || client.company || '',
                                                                     !!ct.sheet_approved,
                                                                 ),
                                                             );
