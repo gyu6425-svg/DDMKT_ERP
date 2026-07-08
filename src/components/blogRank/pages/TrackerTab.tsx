@@ -177,9 +177,10 @@ export function TrackerTab() {
                             <th className="px-3 py-2 font-semibold">키워드 검색</th>
                             <th className="px-3 py-2 text-center font-bold text-[#059669]">통합탭</th>
                             <th className="px-3 py-2 text-center font-bold text-[#1e40af]">블로그탭</th>
-                            <th className="px-3 py-2 text-center font-semibold">웹사이트탭</th>
-                            <th className="px-3 py-2 text-center font-semibold">경과</th>
-                            <th className="px-3 py-2 text-center font-semibold">측정</th>
+                            {/* 고객/기자단 뷰: 웹사이트탭·경과·측정 컬럼 숨김 */}
+                            {!customerMode && <th className="px-3 py-2 text-center font-semibold">웹사이트탭</th>}
+                            {!customerMode && <th className="px-3 py-2 text-center font-semibold">경과</th>}
+                            {!customerMode && <th className="px-3 py-2 text-center font-semibold">측정</th>}
                         </tr>
                     </thead>
                     <tbody>
@@ -239,36 +240,42 @@ export function TrackerTab() {
                                     <td className="px-3 py-2 text-center">
                                         <RankCell post={p} keyName="bl" />
                                     </td>
-                                    <td className="px-3 py-2 text-center">
-                                        {(() => {
-                                            const ws = p.measurements.length
-                                                ? p.measurements[p.measurements.length - 1].ws
-                                                : undefined;
-                                            if (ws === '있음')
-                                                return (
-                                                    <span className="rounded bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#059669]">
-                                                        있음
-                                                    </span>
-                                                );
-                                            if (ws === '없음')
-                                                return <span className="text-[11px] font-semibold text-[#94a3b8]">없음</span>;
-                                            return <span className="text-[11px] text-[#cbd5e1]">—</span>;
-                                        })()}
-                                    </td>
-                                    <td className="px-3 py-2 text-center">
-                                        <span className="rounded bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#475569]">
-                                            D+{dayN(p)}
-                                        </span>
-                                    </td>
-                                    <td className="px-3 py-2 text-center text-xs text-[#94a3b8]">
-                                        {p.measurements.length}회
-                                    </td>
+                                    {!customerMode && (
+                                        <td className="px-3 py-2 text-center">
+                                            {(() => {
+                                                const ws = p.measurements.length
+                                                    ? p.measurements[p.measurements.length - 1].ws
+                                                    : undefined;
+                                                if (ws === '있음')
+                                                    return (
+                                                        <span className="rounded bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#059669]">
+                                                            있음
+                                                        </span>
+                                                    );
+                                                if (ws === '없음')
+                                                    return <span className="text-[11px] font-semibold text-[#94a3b8]">없음</span>;
+                                                return <span className="text-[11px] text-[#cbd5e1]">—</span>;
+                                            })()}
+                                        </td>
+                                    )}
+                                    {!customerMode && (
+                                        <td className="px-3 py-2 text-center">
+                                            <span className="rounded bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#475569]">
+                                                D+{dayN(p)}
+                                            </span>
+                                        </td>
+                                    )}
+                                    {!customerMode && (
+                                        <td className="px-3 py-2 text-center text-xs text-[#94a3b8]">
+                                            {p.measurements.length}회
+                                        </td>
+                                    )}
                                 </tr>
                                 );
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={9}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={customerMode ? 6 : 9}>
                                     아직 수집된 글이 없습니다 · 파이썬 크롤러 실행 후 표시됩니다
                                 </td>
                             </tr>
