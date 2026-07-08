@@ -438,16 +438,22 @@ export function DashboardTab() {
             ) : null}
             {showRejected ? (
                 <ReportsListModal
+                    accounts={accounts}
                     blogNameOf={nameOf}
+                    onChanged={loadReportCount}
                     onClose={() => setShowRejected(false)}
+                    onToast={onToast}
                     status="rejected"
                     title="반려 처리된 글"
                 />
             ) : null}
             {showMyReports ? (
                 <ReportsListModal
+                    accounts={accounts}
                     blogNameOf={nameOf}
+                    onChanged={loadReportCount}
                     onClose={() => setShowMyReports(false)}
+                    onToast={onToast}
                     title="보고한 글"
                 />
             ) : null}
