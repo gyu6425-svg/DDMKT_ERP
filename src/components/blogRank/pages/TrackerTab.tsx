@@ -59,7 +59,8 @@ export function TrackerTab() {
                     (p.published_date || '').slice(0, 10) === (pubFilter === 'today' ? today : yesterday)) &&
                 (!inOnly || (p.measurements.length && (lastM(p)?.ti ?? 99) <= 10)),
         );
-        return [...list].sort((a, b) => dayN(a) - dayN(b));
+        // 경과일 순 + id tiebreaker — 재검색/수정으로 재조회돼도 순서 고정(측정값과 무관한 결정적 정렬).
+        return [...list].sort((a, b) => dayN(a) - dayN(b) || String(a.id).localeCompare(String(b.id)));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [posts, co, nameQ, month, inOnly, pubFilter, accounts]);
 

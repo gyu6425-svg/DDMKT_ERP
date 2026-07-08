@@ -222,7 +222,12 @@ export async function getBlogPosts(accountIds?: string[]) {
     if (accountIds && accountIds.length === 0) {
         return { data: [] as BlogPost[], error: null };
     }
-    let query = supabase.from('blog_posts').select('*').order('published_date', { ascending: false });
+    // published_date desc + id — 동일 발행일 글의 순서를 고정(재조회해도 순위 트래커 행 위치 안 바뀌게).
+    let query = supabase
+        .from('blog_posts')
+        .select('*')
+        .order('published_date', { ascending: false })
+        .order('id', { ascending: true });
     if (accountIds) {
         query = query.in('blog_account_id', accountIds);
     }
