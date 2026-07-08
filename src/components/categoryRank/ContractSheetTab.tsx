@@ -323,7 +323,9 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
             ct.remain_count == null ? '#94a3b8' : remain <= 1 ? '#dc2626' : remain <= 5 ? '#d97706' : '#0f172a';
         return (
             <tr
-                className={`cursor-pointer border-b border-[#e2e8f0] hover:bg-[#f8fafc] ${detail ? 'bg-[#fafbfc]' : ''}`}
+                className={`cursor-pointer border-b border-[#e2e8f0] ${
+                    detail ? 'bg-[#eef3fb] hover:bg-[#e2e9f5]' : 'hover:bg-[#f8fafc]'
+                }`}
                 key={ct.id}
                 onClick={() => goTracker(cl.company || '')}
                 title="클릭 → 순위 트래커"
