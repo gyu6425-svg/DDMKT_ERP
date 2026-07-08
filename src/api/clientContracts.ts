@@ -66,16 +66,21 @@ export const completedOutsource = (ct: ClientContract): number => {
     return loggedAmt + extra;
 };
 
-// 금액 기반 진행률(%) — 완료 외주금액 ÷ 계약금액. 외주 데이터 없으면 건수%로 폴백.
-//   전량 완료여도 외주단가가 낮으면 100% 미만이 될 수 있음(의도된 동작 — 금액 기준).
+// 총 외주비 — 저장된 값(ct.outsource) 우선, 없으면 외주단가 × 총건수. (상세 패널 '총 외주비'와 동일)
+export const totalOutsource = (ct: ClientContract): number =>
+    ct.outsource ?? (ct.unit_outsource ?? 0) * (ct.goal_count ?? 0);
+
+// 금액 기반 진행률(%) — 완료(소진) 외주금액 ÷ 총 외주비. (= 상세 패널의 외주비 소진율과 일치)
+//   외주단가가 낮게 진행되면 건수 100%여도 100% 미만이 될 수 있음(의도). 외주 데이터 없으면 건수%로 폴백.
 export const amountProgress = (ct: ClientContract): number | null => {
     const goal = ct.goal_count ?? 0;
-    if (!goal) return null;
     const remain = ct.remain_count ?? goal;
     const done = Math.max(0, goal - remain);
-    const amt = ct.amount ?? 0;
-    const outDone = completedOutsource(ct);
-    if (amt > 0 && outDone > 0) return Math.min(100, Math.round((outDone / amt) * 100));
+    const total = totalOutsource(ct);
+    const used = completedOutsource(ct);
+    if (total > 0) return Math.min(100, Math.round((used / total) * 100));
+    // 외주비 정보 없으면 건수%로 폴백.
+    if (!goal) return null;
     if (remain <= 0) return 100;
     if (done <= 0) return 0;
     return Math.round((done / goal) * 100);

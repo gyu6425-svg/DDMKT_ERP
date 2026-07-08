@@ -4,6 +4,7 @@ import {
     amountProgress,
     completedOutsource,
     getClientContracts,
+    totalOutsource,
     updateClientContract,
     type ClientContract,
 } from '../../api/clientContracts';
@@ -261,8 +262,8 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                 goalSum += goal;
                 doneSum += done;
                 remainSum += remain;
-                amtSum += ct.amount ?? 0;
-                doneAmtSum += completedOutsource(ct); // 완료 외주금액 누적(금액 기반)
+                amtSum += totalOutsource(ct); // 분모=총 외주비
+                doneAmtSum += completedOutsource(ct); // 완료(소진) 외주금액
                 if ((ct.contract_date || '') > latest) latest = ct.contract_date || '';
             }
             // 금액 우선 — 완료 외주금액 ÷ 총금액. 외주 데이터 없으면 건수%.

@@ -11,6 +11,7 @@ import {
     completedOutsource,
     getClientContracts,
     insertClientContracts,
+    totalOutsource,
     updateClientContract,
     type ClientContract,
 } from '../api/clientContracts';
@@ -1252,8 +1253,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     };
                                     cur.goal += ct.goal_count ?? 0;
                                     cur.remain += ct.remain_count ?? 0;
-                                    cur.amt += ct.amount ?? 0;
-                                    // 완료금액 = 누적 완료 외주금액(배치별 외주단가 반영)
+                                    // 분모=총 외주비, 완료=소진 외주금액 → 진행률 = 소진/총외주(외주비 소진율)
+                                    cur.amt += totalOutsource(ct);
                                     cur.doneAmt += completedOutsource(ct);
                                     cur.n += 1;
                                     subs.set(ct.subtype, cur);
