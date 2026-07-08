@@ -1584,8 +1584,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                         </Button>
                                                     </>
                                                 ) : null}
-                                                {/* 모든 탭에서 계약 진행(상태 변경) 가능 — 스테이지 모달로 탭 간 상호 이동 */}
-                                                {!contractsOnly ? (
+                                                {/* 계약 진행(상태 변경) — 계약 완료 탭 제외(바꿀 일 없음). 나머지 탭에서 탭 간 상호 이동 */}
+                                                {!contractsOnly && clientTab !== 'done' ? (
                                                     <Button
                                                         className="rounded border border-[#1e40af] px-2 py-1 text-[11px] font-semibold text-[#1e40af] hover:bg-[#eff6ff]"
                                                         onClick={() => setStageClient(c)}
