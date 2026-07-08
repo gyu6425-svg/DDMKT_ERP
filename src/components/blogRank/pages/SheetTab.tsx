@@ -479,7 +479,22 @@ export function SheetTab() {
                                         </td>
                                         {!customerMode && (
                                             <td className="px-2 py-2">
+                                                {(() => {
+                                                    // 배정된 계정 이름 — 목록에 있으면 그걸, 없으면 기자단 텍스트로 폴백(목록 로딩 전에도 표시).
+                                                    const assignedName = a.reporter_id
+                                                        ? reporters.find((r) => r.id === a.reporter_id)?.name ||
+                                                          currentField(a.reporter_history, a.reporter) ||
+                                                          '기자단'
+                                                        : '';
+                                                    const inList = reporters.some((r) => r.id === a.reporter_id);
+                                                    return (
                                                 <div className="grid gap-1">
+                                                    {/* 발급/배정 완료 표시 */}
+                                                    {a.reporter_id ? (
+                                                        <span className="rounded bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#16a34a]">
+                                                            ✓ 발급 완료 · {assignedName}
+                                                        </span>
+                                                    ) : null}
                                                     {/* 담당 기자단(계정) — 지정하면 그 기자단 ERP에 이 블로그가 보임 */}
                                                     <select
                                                         className="h-7 rounded border border-[#cbd5e1] bg-white px-1 text-[11px] text-[#6d28d9]"
@@ -494,12 +509,16 @@ export function SheetTab() {
                                                         title="담당 기자단(계정) 지정 — 기자단 ERP 노출 기준"
                                                         value={a.reporter_id || ''}
                                                     >
-                                                        <option value="">계정 미지정</option>
+                                                        <option value="">{a.reporter_id ? '배정 해제' : '계정 미지정'}</option>
                                                         {reporters.map((r) => (
                                                             <option key={r.id} value={r.id}>
                                                                 {reporterLabel(r)}
                                                             </option>
                                                         ))}
+                                                        {/* 목록이 아직 안 뜬(RLS/로딩) 경우에도 배정된 계정을 선택 상태로 유지 */}
+                                                        {a.reporter_id && !inList ? (
+                                                            <option value={a.reporter_id}>{assignedName} (배정됨)</option>
+                                                        ) : null}
                                                         <option value="__new__">+ 새 기자단 발급…</option>
                                                     </select>
                                                     {/* 기존 기자단 텍스트/이력(표시용) */}
@@ -518,6 +537,8 @@ export function SheetTab() {
                                                         )}
                                                     </button>
                                                 </div>
+                                                    );
+                                                })()}
                                             </td>
                                         )}
                                         <td className="px-3 py-2">
