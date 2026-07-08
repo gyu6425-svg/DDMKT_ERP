@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { CategoryShell } from './CategoryShell';
 import { SIDEBAR_CATEGORIES } from './categories';
 import { ContractSheetTab, resolveScope } from './ContractSheetTab';
@@ -67,12 +67,25 @@ export function SkeletonRankPage({ label, sheetOnly = false }: { label: string; 
     );
 }
 
-// 플레이스 대시보드.
-//   · 최상위(?sub 없음) = '순위 트래커'(애드로그류 크롤링 관리) 전용 화면.
-//   · 하위 카테고리(?sub=영수증 리뷰 등) = 대시보드/관리 시트만 — 순위 트래커 없음.
-export function PlaceRankPage() {
+// 카테고리 대시보드 공용(플레이스/인스타/카페/쇼핑/파워링크/영상) — 플레이스와 동일 구조.
+//   · 최상위(?sub 없음) = 대시보드 / 관리 시트(전 하위유형 통합) / 순위 트래커 / 크롤링 현황.
+//   · 하위 카테고리(?sub=) = 관리 시트만(단일 탭 → 탭바 숨김).
+//   dashboard/tracker/crawl 을 넘기면 그 컴포넌트를, 없으면 '준비 중' 플레이스홀더를 표시.
+export function CategoryDashPage({
+    category,
+    label,
+    dashboard,
+    tracker,
+    crawl,
+}: {
+    category: string;
+    label: string;
+    dashboard?: ReactNode;
+    tracker?: ReactNode;
+    crawl?: ReactNode;
+}) {
     const href = useLocHref();
-    const displayLabel = subLabelOf(href, '플레이스 대시보드');
+    const displayLabel = subLabelOf(href, `${label} 대시보드`);
     const hasSub = new URLSearchParams(href.split('?')[1] || '').has('sub');
 
     if (hasSub) {
@@ -82,30 +95,24 @@ export function PlaceRankPage() {
         ) : (
             <Placeholder name={displayLabel} />
         );
-        return (
-            <CategoryShell
-                badge="준비 중"
-                label={displayLabel}
-                tabs={[
-                    { name: '관리 시트', el: sheet, slug: 'sheet' },
-                    { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" />, slug: 'crawl' },
-                ]}
-            />
-        );
+        return <CategoryShell label={displayLabel} tabs={[{ name: '관리 시트', el: sheet, slug: 'sheet' }]} />;
     }
 
-    // 최상위 플레이스 대시보드 = 4개 하위유형 통합.
-    //   맨 좌측 '관리 시트' = 플레이스로 등록된 모든 업체(전 하위유형 통합) + 순위 트래커 + 크롤링 현황.
     return (
         <CategoryShell
             forceTabs
-            label="플레이스 대시보드"
+            label={`${label} 대시보드`}
             tabs={[
-                { name: '대시보드', el: <Placeholder name="플레이스 대시보드" />, slug: 'dashboard' },
-                { name: '관리 시트', el: <ContractSheetTab category="플레이스" />, slug: 'sheet' },
-                { name: '순위 트래커', el: <PlaceRankTracker />, slug: 'tracker' },
-                { name: '크롤링 현황', el: <Placeholder name="크롤링 현황" />, slug: 'crawl' },
+                { name: '대시보드', el: dashboard ?? <Placeholder name={`${label} 대시보드`} />, slug: 'dashboard' },
+                { name: '관리 시트', el: <ContractSheetTab category={category} />, slug: 'sheet' },
+                { name: '순위 트래커', el: tracker ?? <Placeholder name="순위 트래커" />, slug: 'tracker' },
+                { name: '크롤링 현황', el: crawl ?? <Placeholder name="크롤링 현황" />, slug: 'crawl' },
             ]}
         />
     );
+}
+
+// 플레이스 대시보드 — 순위 트래커는 실제 컴포넌트(PlaceRankTracker), 나머지는 준비 중.
+export function PlaceRankPage() {
+    return <CategoryDashPage category="플레이스" label="플레이스" tracker={<PlaceRankTracker />} />;
 }

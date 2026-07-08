@@ -17,7 +17,7 @@ import PowerLinkPage from './routes/PowerLinkPage';
 import ReportsPage from './routes/ReportsPage';
 import CustomerOverviewPage from './routes/CustomerOverviewPage';
 import CustomerCategoryPage from './routes/CustomerCategoryPage';
-import { SkeletonRankPage, PlaceRankPage } from './components/categoryRank/SkeletonRankPage';
+import { SkeletonRankPage, PlaceRankPage, CategoryDashPage } from './components/categoryRank/SkeletonRankPage';
 import InstaRankPage from './routes/InstaRankPage';
 import CafeRankPage from './routes/CafeRankPage';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -33,9 +33,9 @@ const routes = [
     { path: '/place-rank', element: <PlaceRankPage /> },
     { path: '/insta-rank', element: <InstaRankPage /> },
     { path: '/cafe-rank', element: <CafeRankPage /> },
-    { path: '/shopping-rank', element: <SkeletonRankPage label="쇼핑 대시보드" /> },
-    { path: '/powerlink-rank', element: <SkeletonRankPage label="파워링크 대시보드" /> },
-    { path: '/video-rank', element: <SkeletonRankPage label="영상 대시보드" /> },
+    { path: '/shopping-rank', element: <CategoryDashPage category="쇼핑" label="쇼핑" /> },
+    { path: '/powerlink-rank', element: <CategoryDashPage category="파워링크" label="파워링크" /> },
+    { path: '/video-rank', element: <CategoryDashPage category="영상" label="영상" /> },
     { path: '/blog-rank', element: <BlogRankPage sheetOnly /> }, // 브랜드 블로그 하위 = 관리 시트만
     { path: '/blog-dash', element: <BlogRankPage /> }, // 블로그 대시보드 = 브랜드 블로그 전체(대시보드/관리시트/순위/크롤/작성기)
     { path: '/blog-optimized', element: <SkeletonRankPage label="최적화 블로그 배포" sheetOnly /> },
