@@ -1229,7 +1229,7 @@ function ContractEditModal({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
             onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
-            <div className="max-h-[92vh] w-[min(520px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
+            <div className="max-h-[92vh] w-[min(760px,96vw)] overflow-y-auto rounded-2xl bg-white p-6">
                 <h3 className="m-0 text-lg font-bold">
                     {contract.category} · {contract.subtype}
                 </h3>
@@ -1714,12 +1714,12 @@ function ContractEditModal({
                                                     </button>
                                                 )}
                                                 {l.vendor ? (
-                                                    <span className="rounded bg-[#fee2e2] px-1.5 py-0.5 text-[10px] font-bold text-[#dc2626]">
+                                                    <span className="shrink-0 whitespace-nowrap rounded bg-[#fee2e2] px-1.5 py-0.5 text-[10px] font-bold text-[#dc2626]">
                                                         {l.vendor}
                                                     </span>
                                                 ) : null}
                                                 {(l.outUnit || contract.unit_outsource || 0) > 0 ? (
-                                                    <span className="text-[11px] font-semibold text-[#dc2626]">
+                                                    <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-[#dc2626]">
                                                         {fmtWon(l.count * (l.outUnit || contract.unit_outsource || 0))}원
                                                     </span>
                                                 ) : null}
