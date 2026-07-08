@@ -767,6 +767,7 @@ export function SheetTab() {
             {issueForBlog ? (
                 <CustomerAccountModal
                     companyName={issueForBlog.name}
+                    defaultName={currentField(issueForBlog.reporter_history, issueForBlog.reporter) || ''}
                     mode="reporter"
                     onClose={() => setIssueForBlog(null)}
                     onIssued={({ profileId }) => {

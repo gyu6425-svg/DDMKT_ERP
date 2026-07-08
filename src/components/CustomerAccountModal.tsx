@@ -8,19 +8,21 @@ export default function CustomerAccountModal({
   clientId,
   companyName,
   mode = 'customer',
+  defaultName,
   onClose,
   onIssued,
 }: {
   clientId?: string
   companyName: string
   mode?: 'customer' | 'reporter'
+  defaultName?: string // 기자단 발급 시 기존 기자단 텍스트(예: 박소은)로 이름 자동 채움
   onClose: () => void
   onIssued?: (info: { profileId: string | null; email: string; name: string }) => void
 }) {
   const isReporter = mode === 'reporter'
   const [login, setLogin] = useState('')
-  // 기자단은 담당자(사람) 이름을 직접 입력 → 업체명으로 채우지 않음. 고객은 업체명 기본값.
-  const [name, setName] = useState(isReporter ? '' : companyName || '')
+  // 기자단: 기존 기자단 텍스트(defaultName)가 있으면 자동 채움, 없으면 빈 칸. 고객: 업체명 기본값.
+  const [name, setName] = useState(isReporter ? defaultName || '' : companyName || '')
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState<{ email: string; password: string } | null>(null)
   const [err, setErr] = useState('')
