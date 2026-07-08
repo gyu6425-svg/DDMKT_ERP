@@ -36,7 +36,7 @@ const routes = [
     { path: '/shopping-rank', element: <SkeletonRankPage label="쇼핑 대시보드" /> },
     { path: '/powerlink-rank', element: <SkeletonRankPage label="파워링크 대시보드" /> },
     { path: '/video-rank', element: <SkeletonRankPage label="영상 대시보드" /> },
-    { path: '/blog-rank', element: <BlogRankPage /> }, // (구) 브랜드 블로그 — 대시보드로 통합, 딥링크 호환용 유지
+    { path: '/blog-rank', element: <BlogRankPage sheetOnly /> }, // 브랜드 블로그 하위 = 관리 시트만
     { path: '/blog-dash', element: <BlogRankPage /> }, // 블로그 대시보드 = 브랜드 블로그 전체(대시보드/관리시트/순위/크롤/작성기)
     { path: '/blog-optimized', element: <SkeletonRankPage label="최적화 블로그 배포" /> },
     { path: '/blog-semi', element: <SkeletonRankPage label="준최적화 블로그 배포" /> },

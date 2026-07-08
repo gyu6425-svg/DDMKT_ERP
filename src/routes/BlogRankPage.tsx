@@ -9,7 +9,7 @@ import { CrawlStatusTab } from '../components/blogRank/pages/CrawlStatusTab';
 
 // 블로그 대시보드 = 얇은 셸: Provider(공유 상태) + 헤더 + 탭바 + 활성 페이지.
 //   5개 기능은 각자 useBlogRank()로 필요한 값만 읽는 독립 페이지 컴포넌트.
-function BlogRankShell() {
+function BlogRankShell({ sheetOnly = false }: { sheetOnly?: boolean }) {
     const { isAdmin, authLoading, accounts, posts, loading, error, reload, tab, goTab, toastMsg } = useBlogRank();
     const { canManageSheet } = useAuth();
 
@@ -31,7 +31,9 @@ function BlogRankShell() {
         <section className="grid gap-4">
             <div className="flex items-center justify-between gap-3">
                 <div>
-                    <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">블로그 대시보드</h2>
+                    <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">
+                        {sheetOnly ? '브랜드 블로그 · 관리 시트' : '블로그 대시보드'}
+                    </h2>
                     <p className="mt-1 mb-0 text-sm text-[#64748b]">
                         블로그 발행 관리 + 네이버 순위 추적{' '}
                         {loading ? '· 불러오는 중...' : `· 블로그 ${accounts.length}개 · 추적 글 ${posts.length}건`}
@@ -50,36 +52,43 @@ function BlogRankShell() {
                 <p className="m-0 rounded-md bg-[#fee2e2] px-4 py-3 text-sm text-[#dc2626]">{error}</p>
             ) : null}
 
-            <div className="flex gap-1 border-b border-[#e2e8f0]">
-                {(
-                    [
-                        ['dashboard', '대시보드'],
-                        ['sheet', '관리 시트'],
-                        ['tracker', '순위 트래커'],
-                        ['crawl', '크롤링 현황'],
-                        ['writer', '블로그 작성기'],
-                    ] as const
-                ).map(([key, label]) => (
-                    <button
-                        className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
-                            tab === key
-                                ? 'border-[#1e40af] text-[#1e40af]'
-                                : 'border-transparent text-[#94a3b8]'
-                        }`}
-                        key={key}
-                        onClick={() => goTab(key as Tab)}
-                        type="button"
-                    >
-                        {label}
-                    </button>
-                ))}
-            </div>
+            {/* 브랜드 블로그 하위 = 관리 시트 전용(탭바 없음). 대시보드는 5탭 전체. */}
+            {sheetOnly ? (
+                <SheetTab />
+            ) : (
+                <>
+                    <div className="flex gap-1 border-b border-[#e2e8f0]">
+                        {(
+                            [
+                                ['dashboard', '대시보드'],
+                                ['sheet', '관리 시트'],
+                                ['tracker', '순위 트래커'],
+                                ['crawl', '크롤링 현황'],
+                                ['writer', '블로그 작성기'],
+                            ] as const
+                        ).map(([key, label]) => (
+                            <button
+                                className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
+                                    tab === key
+                                        ? 'border-[#1e40af] text-[#1e40af]'
+                                        : 'border-transparent text-[#94a3b8]'
+                                }`}
+                                key={key}
+                                onClick={() => goTab(key as Tab)}
+                                type="button"
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
 
-            {tab === 'dashboard' ? <DashboardTab /> : null}
-            {tab === 'sheet' ? <SheetTab /> : null}
-            {tab === 'tracker' ? <TrackerTab /> : null}
-            {tab === 'crawl' ? <CrawlStatusTab /> : null}
-            {tab === 'writer' ? <BlogPage /> : null}
+                    {tab === 'dashboard' ? <DashboardTab /> : null}
+                    {tab === 'sheet' ? <SheetTab /> : null}
+                    {tab === 'tracker' ? <TrackerTab /> : null}
+                    {tab === 'crawl' ? <CrawlStatusTab /> : null}
+                    {tab === 'writer' ? <BlogPage /> : null}
+                </>
+            )}
 
             {toastMsg ? (
                 <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-medium text-white shadow-lg">
@@ -90,10 +99,10 @@ function BlogRankShell() {
     );
 }
 
-function BlogRankPage() {
+function BlogRankPage({ sheetOnly = false }: { sheetOnly?: boolean }) {
     return (
         <BlogRankProvider>
-            <BlogRankShell />
+            <BlogRankShell sheetOnly={sheetOnly} />
         </BlogRankProvider>
     );
 }

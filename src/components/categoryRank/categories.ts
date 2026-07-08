@@ -104,11 +104,12 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
     },
     {
         key: 'blog',
-        // 대시보드(/blog-dash) = 브랜드 블로그 전체(대시보드/관리시트/순위트래커/크롤링/작성기)로 통합.
-        //   하위 배포 상품(최적화/준최적화/저인망)만 별도 pathname으로 유지.
+        // 대시보드(/blog-dash) = 브랜드 블로그 전체 5탭(대시보드/관리시트/순위트래커/크롤링/작성기).
+        //   브랜드 블로그 하위(/blog-rank)는 '관리 시트'만. 배포 상품(최적화/준최적화/저인망)은 별도 pathname.
         label: '블로그',
         dashHref: '/blog-dash',
         subs: [
+            { label: '브랜드 블로그', href: '/blog-rank' },
             { label: '최적화 블로그 배포', href: '/blog-optimized' },
             { label: '준최적화 블로그 배포', href: '/blog-semi' },
             { label: '저인망 블로그 배포', href: '/blog-jeoinmang' },
