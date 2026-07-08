@@ -20,6 +20,7 @@ export function DashboardTab() {
         goSheetBlog: onGoSheetBlog,
         showToast: onToast,
         customerMode,
+        reporterMode,
     } = useBlogRank();
     const { profile } = useAuth();
     const [showLow, setShowLow] = useState(false);
@@ -162,19 +163,26 @@ export function DashboardTab() {
 
     return (
         <div className="grid gap-4">
-            <div className={`grid grid-cols-2 gap-3 ${customerMode ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+            <div
+                className={`grid grid-cols-2 gap-3 ${
+                    reporterMode ? 'lg:grid-cols-2' : customerMode ? 'lg:grid-cols-3' : 'lg:grid-cols-4'
+                }`}
+            >
                 <Kpi
                     label="관리 블로그"
                     value={`${accounts.length}`}
                     sub={`진행 ${accounts.length - stopCnt} · 중단 ${stopCnt}`}
                     onClick={() => onGo('sheet')}
                 />
-                <Kpi
-                    label="전체 진행률"
-                    value={goal ? `${Math.round((done / goal) * 100)}%` : '—'}
-                    accent="#1e40af"
-                    sub={`발행 ${done} / 계약 ${goal}건`}
-                />
+                {/* 전체 진행률 = 계약(영업) 지표 → 기자단 뷰에선 숨김 */}
+                {!reporterMode ? (
+                    <Kpi
+                        label="전체 진행률"
+                        value={goal ? `${Math.round((done / goal) * 100)}%` : '—'}
+                        accent="#1e40af"
+                        sub={`발행 ${done} / 계약 ${goal}건`}
+                    />
+                ) : null}
                 <Kpi
                     label="통합탭 10위 이내"
                     value={measured.length ? `${inTen}` : '—'}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
+import type { Tab } from '../components/blogRank/lib/helpers';
 import { DashboardTab } from '../components/blogRank/pages/DashboardTab';
 import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
@@ -156,8 +157,18 @@ function ReportSubmitTab() {
 
 // 기자단 ERP 포털 — 본인 담당 블로그만(RLS 스코프) 읽기전용 + 글 보고.
 function ReporterShell() {
-    const { accounts, posts, loading, error, reload, toastMsg } = useBlogRank();
-    const [active, setActive] = useState<RTab>('dashboard');
+    const { accounts, posts, loading, error, reload, toastMsg, tab, goTab } = useBlogRank();
+    // 대시보드/내블로그/순위는 context tab 사용(대시보드 KPI 클릭 네비게이션이 먹히도록). 글 보고는 별도 플래그.
+    const [reportMode, setReportMode] = useState(false);
+    const active: RTab = reportMode ? 'report' : tab === 'sheet' ? 'sheet' : tab === 'tracker' ? 'tracker' : 'dashboard';
+    const select = (key: RTab) => {
+        if (key === 'report') {
+            setReportMode(true);
+            return;
+        }
+        setReportMode(false);
+        goTab(key as Tab);
+    };
 
     return (
         <section className="grid gap-4">
@@ -201,7 +212,7 @@ function ReporterShell() {
                             active === key ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
                         }`}
                         key={key}
-                        onClick={() => setActive(key as RTab)}
+                        onClick={() => select(key as RTab)}
                         type="button"
                     >
                         {label}

@@ -28,6 +28,7 @@ type BlogRankCtx = {
     goTrackerBlog: (id: string) => void; // 시트 업체명 → 트래커(그 업체만)
     // 고객 ERP 모드 — true 면 관리시트에서 '계약 종료' 탭 숨김(계약 중만), 본인 업체 한정(데이터는 RLS로 격리).
     customerMode: boolean;
+    reporterMode: boolean; // 기자단 ERP 모드(고객과 구분 — 대시보드 KPI 구성 등)
 };
 
 const Ctx = createContext<BlogRankCtx | null>(null);
@@ -199,6 +200,7 @@ export function BlogRankProvider({
             setTab('tracker');
         },
         customerMode: external, // 고객·기자단 모두 읽기전용 UI(관리 컬럼/버튼 숨김)
+        reporterMode, // 기자단만 별도 구분(대시보드 KPI 등)
     };
 
     return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
