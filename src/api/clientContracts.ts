@@ -53,6 +53,31 @@ export type ClientContract = {
     no_vat?: boolean | null; // 부가세 없음(현금 거래) — true면 실매출에 VAT 10% 미포함
 };
 
+// 누적 완료 외주금액 = Σ(진행 배치 건수 × 그 배치 외주단가). 로그 없으면 완료건수 × 외주단가.
+export const completedOutsource = (ct: ClientContract): number => {
+    const logs = ct.weekly_logs ?? [];
+    const unit = ct.unit_outsource ?? 0;
+    const goal = ct.goal_count ?? 0;
+    const done = Math.max(0, goal - (ct.remain_count ?? goal));
+    if (logs.length) return logs.reduce((s, l) => s + (l.count || 0) * (l.outUnit || unit), 0);
+    return done * unit;
+};
+
+// 금액 기반 진행률(%) — 완료 외주금액 ÷ 계약금액. 외주 데이터 없으면 건수%로 폴백.
+//   전량 완료여도 외주단가가 낮으면 100% 미만이 될 수 있음(의도된 동작 — 금액 기준).
+export const amountProgress = (ct: ClientContract): number | null => {
+    const goal = ct.goal_count ?? 0;
+    if (!goal) return null;
+    const remain = ct.remain_count ?? goal;
+    const done = Math.max(0, goal - remain);
+    const amt = ct.amount ?? 0;
+    const outDone = completedOutsource(ct);
+    if (amt > 0 && outDone > 0) return Math.min(100, Math.round((outDone / amt) * 100));
+    if (remain <= 0) return 100;
+    if (done <= 0) return 0;
+    return Math.round((done / goal) * 100);
+};
+
 // clientId 주면 그 고객만. 테이블 미생성 등 오류 시에도 앱이 죽지 않도록 [] 반환.
 export async function getClientContracts(clientId?: string) {
     let query = supabase.from('client_contracts').select('*').order('created_at', { ascending: true });

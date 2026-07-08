@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ErpClient } from '../api/erp';
 import {
+    amountProgress,
     deleteClientContract,
     insertClientContracts,
     updateClientContract,
@@ -138,17 +139,8 @@ type FieldDef = {
     format?: (v: string) => string;
 };
 
-// 금액 기반 진행률 — 완료 금액(완료건수×단가) ÷ 총금액(amount). 단가·금액 없으면 건수 %로 폴백. 전량 완료=100%.
-const progOf = (ct: ClientContract): number | null => {
-    if (ct.goal_count == null || ct.remain_count == null || ct.goal_count === 0) return null;
-    if (ct.remain_count <= 0) return 100;
-    const done = ct.goal_count - ct.remain_count;
-    if (done <= 0) return 0;
-    const amt = ct.amount ?? 0;
-    const doneAmt = done * (ct.unit_price ?? 0);
-    if (amt > 0 && doneAmt > 0) return Math.min(100, Math.round((doneAmt / amt) * 100));
-    return Math.round((done / ct.goal_count) * 100);
-};
+// 금액 기반 진행률 — 완료 외주금액(Σ 배치 외주단가×건수) ÷ 계약금액. 공용 헬퍼(amountProgress) 사용.
+const progOf = (ct: ClientContract): number | null => amountProgress(ct);
 
 // ISO 주 키(예: 2026-W27) — 주간 로그 정렬·중복 방지용.
 const isoWeek = (d: Date) => {
@@ -779,16 +771,10 @@ function ContractEditModal({
     const remainN = Number(remain) || 0;
     const hasGoal = goal.trim() !== '';
     const done = Math.max(0, goalN - remainN);
-    // 금액 기반 진행률 — 완료금액(완료건수×단가) ÷ 총금액. 단가·금액 없으면 건수 %. 전량 완료=100%.
-    const pct = !goalN
-        ? 0
-        : remainN <= 0
-          ? 100
-          : done <= 0
-            ? 0
-            : (contract.amount ?? 0) > 0 && done * (contract.unit_price ?? 0) > 0
-              ? Math.min(100, Math.round(((done * (contract.unit_price ?? 0)) / (contract.amount ?? 1)) * 100))
-              : Math.round((done / goalN) * 100);
+    // 금액 기반 진행률 — 완료 외주금액(Σ 배치 외주단가×건수) ÷ 계약금액. 외주 데이터 없으면 건수 %.
+    //   live 상태(잔여·진행 이력) 반영. 전량 완료여도 외주단가가 낮으면 100% 미만이 될 수 있음(의도).
+    const pct =
+        amountProgress({ ...contract, goal_count: goalN, remain_count: remainN, weekly_logs: weeklyLogs }) ?? 0;
     // 재계약/계약 종료 버튼 노출 조건 — 우선 비활성화(사용자 요청). 필요 시 아래 조건 복원.
     //   원래: hasGoal && (remainN <= 5 || pct >= 80)  (잔여 5건 이하 또는 진행률 80%↑)
     const imminent = false;

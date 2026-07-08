@@ -1,6 +1,12 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { getClients, type ErpClient } from '../../api/erp';
-import { getClientContracts, updateClientContract, type ClientContract } from '../../api/clientContracts';
+import {
+    amountProgress,
+    completedOutsource,
+    getClientContracts,
+    updateClientContract,
+    type ClientContract,
+} from '../../api/clientContracts';
 import { useAuth } from '../../hooks/useAuth';
 import { SIDEBAR_CATEGORIES } from './categories';
 import { CONTAINER_SUBS } from '../../lib/products';
@@ -256,17 +262,18 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                 doneSum += done;
                 remainSum += remain;
                 amtSum += ct.amount ?? 0;
-                doneAmtSum += done * (ct.unit_price ?? 0);
+                doneAmtSum += completedOutsource(ct); // 완료 외주금액 누적(금액 기반)
                 if ((ct.contract_date || '') > latest) latest = ct.contract_date || '';
             }
+            // 금액 우선 — 완료 외주금액 ÷ 총금액. 외주 데이터 없으면 건수%.
             const pct = !goalSum
                 ? null
-                : remainSum <= 0
-                  ? 100
-                  : doneSum <= 0
-                    ? 0
-                    : amtSum > 0 && doneAmtSum > 0
-                      ? Math.min(100, Math.round((doneAmtSum / amtSum) * 100))
+                : amtSum > 0 && doneAmtSum > 0
+                  ? Math.min(100, Math.round((doneAmtSum / amtSum) * 100))
+                  : remainSum <= 0
+                    ? 100
+                    : doneSum <= 0
+                      ? 0
                       : Math.round((doneSum / goalSum) * 100);
             return {
                 key,
@@ -308,17 +315,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
         const goal = ct.goal_count ?? 0;
         const remain = ct.remain_count ?? goal;
         const done = Math.max(0, goal - remain);
-        const amt = ct.amount ?? 0;
-        const doneAmt = done * (ct.unit_price ?? 0);
-        const pct = !goal
-            ? null
-            : remain <= 0
-              ? 100
-              : done <= 0
-                ? 0
-                : amt > 0 && doneAmt > 0
-                  ? Math.min(100, Math.round((doneAmt / amt) * 100))
-                  : Math.round((done / goal) * 100);
+        const pct = amountProgress(ct); // 금액 기반(완료 외주금액 ÷ 계약금액), 외주 없으면 건수%
         const remainColor =
             ct.remain_count == null ? '#94a3b8' : remain <= 1 ? '#dc2626' : remain <= 5 ? '#d97706' : '#0f172a';
         return (

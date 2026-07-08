@@ -8,6 +8,7 @@ import {
 } from '../api/erp';
 import { ensureClientBlogAccount, getBlogAccounts, type BlogAccount } from '../api/blogRank';
 import {
+    completedOutsource,
     getClientContracts,
     insertClientContracts,
     updateClientContract,
@@ -63,7 +64,8 @@ const withCommas = (s: string) => (onlyDigits(s) ? Number(onlyDigits(s)).toLocal
 // 상품 상세(진행률) — ClientDetail 카드와 동일 색/계산.
 const progColor = (p: number | null) =>
     p == null ? '#94a3b8' : p >= 70 ? '#059669' : p >= 40 ? '#d97706' : '#dc2626';
-// 금액 기반 진행률 — 완료 금액(완료건수×단가) ÷ 총금액. 단가·금액 없으면 건수 %로 폴백. 전량 완료=100%.
+// 금액 기반 진행률 — 완료 외주금액(doneAmt) ÷ 총금액(amt). 금액 우선 → 전량 완료여도 외주 적으면 100% 미만.
+//   외주 데이터 없을 때만 건수 %로 폴백.
 const progMoney = (
     goal: number | null,
     remain: number | null,
@@ -71,10 +73,11 @@ const progMoney = (
     doneAmt: number,
 ): number | null => {
     if (goal == null || remain == null || goal === 0) return null;
-    if (remain <= 0) return 100;
     const done = goal - remain;
-    if (done <= 0) return 0;
+    // 금액 우선 — 완료 외주금액 ÷ 총금액.
     if (amt > 0 && doneAmt > 0) return Math.min(100, Math.round((doneAmt / amt) * 100));
+    if (remain <= 0) return 100;
+    if (done <= 0) return 0;
     return Math.round((done / goal) * 100);
 };
 // 카테고리별 박스 색(연한 배경 + 테두리) — 상품 셀 구분용.
@@ -1250,8 +1253,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     cur.goal += ct.goal_count ?? 0;
                                     cur.remain += ct.remain_count ?? 0;
                                     cur.amt += ct.amount ?? 0;
-                                    cur.doneAmt +=
-                                        ((ct.goal_count ?? 0) - (ct.remain_count ?? 0)) * (ct.unit_price ?? 0);
+                                    // 완료금액 = 누적 완료 외주금액(배치별 외주단가 반영)
+                                    cur.doneAmt += completedOutsource(ct);
                                     cur.n += 1;
                                     subs.set(ct.subtype, cur);
                                     byCat.set(ct.category, subs);
