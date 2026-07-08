@@ -2410,8 +2410,9 @@ export function ClientDetail({
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
     // 실매출(VAT 포함) — 계약별로 부가세 없음(현금)이면 VAT 미포함. 합산은 계약별로.
     const totalReal = contracts.reduce((s, ct) => s + saleVat(ct.amount, ct.no_vat), 0);
+    const totalSupply = contracts.reduce((s, ct) => s + (ct.amount || 0), 0); // 공급가(VAT 제외) 합계
     const totalOutsource = contracts.reduce((s, ct) => s + (ct.outsource || 0), 0); // 외주비 합계(받은·고정)
-    // 순매출 = 실매출(VAT 포함) − 외주비 정산 차액(예상 외주비 − 실제 사용). (차액 = outMargin, 아래에서 계산)
+    // 순매출 = 공급가(VAT 제외) − 외주비 정산 차액(예상 외주비 − 실제 사용). (차액 = outMargin, 아래에서 계산)
 
     // 외주비 정산 — 품목별로 받은 외주비(단가×계약수량) vs 실제 사용 외주비(완료분 소진).
     //   실제 사용 = 진행 처리(완료)로 잔여가 줄면 자동 반영. 별도 수기 입력 없음.
@@ -2434,8 +2435,8 @@ export function ClientDetail({
     const receivedTotal = totalOutsource; // 예상(받은) 외주비 = 상단 외주비 합계
     const usedTotal = outsourceRows.reduce((s, r) => s + r.used, 0); // 실제 사용 = 진행 이력 합
     const outMargin = receivedTotal - usedTotal; // 차액 = 예상 − 사용
-    // 순매출 = 실매출(VAT 포함) − 외주비 정산 차액.
-    const netRevenue = totalReal - outMargin;
+    // 순매출 = 공급가(VAT 제외) − 외주비 정산 차액.
+    const netRevenue = totalSupply - outMargin;
 
     // (외주비 정산 내역의 삭제 버튼은 제거 — 외주비/사용이력 삭제는 계약(카드/진행 이력)에서만)
     // 계약 내역 일괄삭제(임시 버튼) — 이 업체의 모든 계약행 제거. 되돌릴 수 없음.
@@ -2569,9 +2570,12 @@ export function ClientDetail({
                     onClick={() => setBreakdown('sales')}
                     type="button"
                 >
-                    <div className="text-[11px] font-semibold text-[#94a3b8]">실매출 (VAT 포함)</div>
+                    <div className="text-[11px] font-semibold text-[#94a3b8]">공급가 (VAT 제외)</div>
                     <div className="mt-0.5 text-lg font-bold text-[#1e40af] sm:text-2xl">
-                        {fmtWon(totalReal)}원
+                        {fmtWon(totalSupply)}원
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-[#94a3b8]">
+                        실매출 {fmtWon(totalReal)}원 (VAT 포함)
                     </div>
                 </button>
                 <div className="flex items-center text-xl font-bold text-[#94a3b8]">−</div>
