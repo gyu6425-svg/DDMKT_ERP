@@ -35,10 +35,12 @@ export default function NotificationBell() {
   const [readSet, setReadSet] = useState<Set<string>>(loadRead)
   const boxRef = useRef<HTMLDivElement>(null)
 
-  const seePending = canSeeContractPending(profile?.email)
-  const seeNewContract = canSeeNewContract(profile?.email)
-  const myCats = SHEET_CATEGORIES.filter((c) => canManageSheet(c))
-  const seeReports = role === 'admin' || canManageSheet('블로그') // 관리자(장규진 등)·블로그 담당(김다영)이 기자단 보고 알림 수신
+  // 대표(김종인) — 모든 알림을 무조건 수신.
+  const isOwner = (profile?.email || '').toLowerCase() === 'rlawhddls@ddmkt.com'
+  const seePending = isOwner || canSeeContractPending(profile?.email)
+  const seeNewContract = isOwner || canSeeNewContract(profile?.email)
+  const myCats = isOwner ? SHEET_CATEGORIES : SHEET_CATEGORIES.filter((c) => canManageSheet(c))
+  const seeReports = isOwner || role === 'admin' || canManageSheet('블로그') // 대표·관리자·블로그 담당(김다영)이 기자단 보고 알림 수신
   // 외부(고객·기자단)는 내부 알림 벨 미노출.
   const eligible =
     role !== 'viewer' && role !== 'reporter' && (seePending || seeNewContract || myCats.length > 0 || seeReports)
