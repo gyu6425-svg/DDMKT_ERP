@@ -139,6 +139,11 @@ function ReportSubmitTab() {
                                         >
                                             {r.post_url}
                                         </a>
+                                        {r.status === 'rejected' && r.note ? (
+                                            <div className="mt-0.5 text-[11px] font-semibold text-[#dc2626]">
+                                                반려 사유: {r.note}
+                                            </div>
+                                        ) : null}
                                     </div>
                                     <span
                                         className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${st.c}`}

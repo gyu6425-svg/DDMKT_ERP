@@ -24,6 +24,8 @@ export function ReportReviewModal({
     const [names, setNames] = useState<Record<string, string>>({});
     const [busy, setBusy] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    const [rejectId, setRejectId] = useState<string | null>(null); // 반려 사유 입력 중인 보고
+    const [rejectReason, setRejectReason] = useState('');
 
     const load = () => {
         setLoading(true);
@@ -48,15 +50,16 @@ export function ReportReviewModal({
         setReports((prev) => prev.filter((x) => x.id !== r.id));
         onChanged?.();
     };
-    const reject = async (r: BlogPostReport) => {
-        if (!window.confirm('이 보고를 반려할까요?')) return;
+    const doReject = async (r: BlogPostReport) => {
         setBusy(r.id);
-        const { error } = await rejectReport(r.id, reviewerProfileId);
+        const { error } = await rejectReport(r.id, reviewerProfileId, rejectReason.trim() || undefined);
         setBusy(null);
         if (error) {
             alert('반려 실패: ' + error.message);
             return;
         }
+        setRejectId(null);
+        setRejectReason('');
         setReports((prev) => prev.filter((x) => x.id !== r.id));
         onChanged?.();
     };
@@ -115,24 +118,58 @@ export function ReportReviewModal({
                                         </a>
                                     </td>
                                     <td className="px-3 py-2">
-                                        <div className="flex items-center justify-center gap-1">
-                                            <button
-                                                className="rounded bg-[#1e40af] px-3 py-1 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
-                                                disabled={busy === r.id}
-                                                onClick={() => void approve(r)}
-                                                type="button"
-                                            >
-                                                {busy === r.id ? '처리 중…' : '승인'}
-                                            </button>
-                                            <button
-                                                className="rounded border border-[#fca5a5] px-2 py-1 text-[12px] font-semibold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
-                                                disabled={busy === r.id}
-                                                onClick={() => void reject(r)}
-                                                type="button"
-                                            >
-                                                반려
-                                            </button>
-                                        </div>
+                                        {rejectId === r.id ? (
+                                            <div className="flex items-center justify-end gap-1">
+                                                <input
+                                                    autoFocus
+                                                    className="h-8 w-36 rounded border border-[#fca5a5] px-2 text-[12px]"
+                                                    onChange={(e) => setRejectReason(e.target.value)}
+                                                    onKeyDown={(e) => e.key === 'Enter' && void doReject(r)}
+                                                    placeholder="반려 사유"
+                                                    value={rejectReason}
+                                                />
+                                                <button
+                                                    className="rounded bg-[#dc2626] px-2 py-1 text-[12px] font-bold text-white disabled:opacity-50"
+                                                    disabled={busy === r.id}
+                                                    onClick={() => void doReject(r)}
+                                                    type="button"
+                                                >
+                                                    확정
+                                                </button>
+                                                <button
+                                                    className="rounded border border-[#cbd5e1] px-2 py-1 text-[12px] font-semibold text-[#64748b]"
+                                                    onClick={() => {
+                                                        setRejectId(null);
+                                                        setRejectReason('');
+                                                    }}
+                                                    type="button"
+                                                >
+                                                    취소
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center justify-center gap-1">
+                                                <button
+                                                    className="rounded bg-[#1e40af] px-3 py-1 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
+                                                    disabled={busy === r.id}
+                                                    onClick={() => void approve(r)}
+                                                    type="button"
+                                                >
+                                                    {busy === r.id ? '처리 중…' : '승인'}
+                                                </button>
+                                                <button
+                                                    className="rounded border border-[#fca5a5] px-2 py-1 text-[12px] font-semibold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
+                                                    disabled={busy === r.id}
+                                                    onClick={() => {
+                                                        setRejectId(r.id);
+                                                        setRejectReason('');
+                                                    }}
+                                                    type="button"
+                                                >
+                                                    반려
+                                                </button>
+                                            </div>
+                                        )}
                                     </td>
                                 </tr>
                             ))}

@@ -10,6 +10,7 @@ import { RankMovesModal } from '../components/RankMovesModal';
 import { SameDayModal, type SameDayRow } from '../components/SameDayModal';
 import { CrawlListModal, type CrawlRow } from '../components/CrawlListModal';
 import { ReportReviewModal } from '../components/ReportReviewModal';
+import { RejectedReportsModal } from '../components/RejectedReportsModal';
 
 export function DashboardTab() {
     const {
@@ -28,11 +29,17 @@ export function DashboardTab() {
     const [showSameDay, setShowSameDay] = useState(false);
     const [showPrevDay, setShowPrevDay] = useState(false);
     const [showMissed, setShowMissed] = useState(false);
-    // 기자단 발행 보고(승인 대기) — 내부 전용. KPI 카드 + 승인 모달.
+    // 기자단 발행 보고 — 내부: 승인 대기 KPI+모달 / 기자단: 반려 처리된 글 KPI+모달.
     const [showReports, setShowReports] = useState(false);
     const [reportPending, setReportPending] = useState(0);
+    const [showRejected, setShowRejected] = useState(false);
+    const [rejectedCount, setRejectedCount] = useState(0);
     const loadReportCount = () => {
-        if (customerMode) return; // 외부(고객/기자단) 뷰에선 미표시
+        if (reporterMode) {
+            void getReports('rejected').then(({ data }) => setRejectedCount(data.length));
+            return;
+        }
+        if (customerMode) return; // 고객 뷰에선 미표시
         void getReports('pending').then(({ data }) => setReportPending(data.length));
     };
     useEffect(() => {
@@ -42,7 +49,7 @@ export function DashboardTab() {
             setShowReports(true);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [customerMode]);
+    }, [customerMode, reporterMode]);
 
     // 당일(오늘 발행)·전날(어제 발행) 측정 글 — 크롤링 현황과 동일 기준(오늘 측정 완료분).
     const today = todayKST();
@@ -202,8 +209,12 @@ export function DashboardTab() {
                 ) : null}
             </div>
 
-            {/* 당일/전날 측정 글 + 누락 건 + 기자단 보고 — 당일=노랑, 전날=보라, 누락=빨강, 기자단=초록. 고객 뷰=내부지표 숨김 */}
-            <div className={`grid grid-cols-2 gap-3 ${customerMode ? 'lg:grid-cols-2' : 'lg:grid-cols-4'}`}>
+            {/* 당일/전날 측정 글 + 누락 건 + 기자단 보고. 기자단 뷰=당일/전날/반려 3개. 고객 뷰=당일/전날 2개. */}
+            <div
+                className={`grid grid-cols-2 gap-3 ${
+                    reporterMode ? 'lg:grid-cols-3' : customerMode ? 'lg:grid-cols-2' : 'lg:grid-cols-4'
+                }`}
+            >
                 <KpiCard
                     label={`당일 측정 글 (${mmdd(today)})`}
                     value={sameDayRows.length}
@@ -240,6 +251,17 @@ export function DashboardTab() {
                         sub="승인 대기 · 눌러서 승인"
                         tone="green"
                         onClick={() => setShowReports(true)}
+                    />
+                ) : null}
+                {/* 반려 처리된 글 = 기자단 뷰 전용 → 사유 확인 */}
+                {reporterMode ? (
+                    <KpiCard
+                        label="반려 처리된 글"
+                        value={rejectedCount}
+                        color="#dc2626"
+                        sub="반려 사유 확인 · 눌러서 목록"
+                        tone="red"
+                        onClick={() => setShowRejected(true)}
                     />
                 ) : null}
             </div>
@@ -397,6 +419,9 @@ export function DashboardTab() {
                     onClose={() => setShowReports(false)}
                     reviewerProfileId={profile?.id ?? null}
                 />
+            ) : null}
+            {showRejected ? (
+                <RejectedReportsModal blogNameOf={nameOf} onClose={() => setShowRejected(false)} />
             ) : null}
         </div>
     );

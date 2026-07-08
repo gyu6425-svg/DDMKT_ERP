@@ -38,7 +38,7 @@ export default function NotificationBell() {
   const seePending = canSeeContractPending(profile?.email)
   const seeNewContract = canSeeNewContract(profile?.email)
   const myCats = SHEET_CATEGORIES.filter((c) => canManageSheet(c))
-  const seeReports = canManageSheet('블로그') // 블로그 시트 담당(김다영 등)만 기자단 보고 알림
+  const seeReports = role === 'admin' || canManageSheet('블로그') // 관리자(장규진 등)·블로그 담당(김다영)이 기자단 보고 알림 수신
   // 외부(고객·기자단)는 내부 알림 벨 미노출.
   const eligible =
     role !== 'viewer' && role !== 'reporter' && (seePending || seeNewContract || myCats.length > 0 || seeReports)
