@@ -5,7 +5,7 @@ import { DashboardTab } from '../components/blogRank/pages/DashboardTab';
 import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { useAuth } from '../hooks/useAuth';
-import { createReport, getReports, type BlogPostReport } from '../api/blogPostReports';
+import { createReport, getReports, resubmitReport, type BlogPostReport } from '../api/blogPostReports';
 
 type RTab = 'dashboard' | 'sheet' | 'tracker' | 'report';
 
@@ -19,9 +19,38 @@ function ReportSubmitTab() {
     const [keyword, setKeyword] = useState('');
     const [saving, setSaving] = useState(false);
     const [mine, setMine] = useState<BlogPostReport[]>([]);
+    // 재보고(반려 건 다시 보내기)
+    const [reId, setReId] = useState<string | null>(null);
+    const [reBlogId, setReBlogId] = useState('');
+    const [reUrl, setReUrl] = useState('');
+    const [reKeyword, setReKeyword] = useState('');
+    const [reSaving, setReSaving] = useState(false);
 
     const loadMine = () => void getReports().then(({ data }) => setMine(data));
     useEffect(loadMine, []);
+
+    const startRe = (r: BlogPostReport) => {
+        setReId(r.id);
+        setReBlogId(r.blog_account_id);
+        setReUrl(r.post_url);
+        setReKeyword(r.keyword || '');
+    };
+    const doRe = async (r: BlogPostReport) => {
+        if (!reBlogId) return showToast('블로그를 선택하세요');
+        if (!reUrl.trim()) return showToast('글 주소(URL)를 입력하세요');
+        setReSaving(true);
+        const { error } = await resubmitReport(r.id, {
+            blog_account_id: reBlogId,
+            post_url: reUrl.trim(),
+            keyword: reKeyword.trim() || null,
+            title: r.title,
+        });
+        setReSaving(false);
+        if (error) return showToast('재보고 실패: ' + error.message);
+        setReId(null);
+        showToast('재보고 완료 · 다시 검토중으로 전환됩니다');
+        loadMine();
+    };
 
     const submit = async () => {
         if (!blogId) return showToast('블로그를 선택하세요');
@@ -122,34 +151,93 @@ function ReportSubmitTab() {
                     <div className="overflow-hidden rounded-md border border-[#e2e8f0] bg-white">
                         {mine.map((r) => {
                             const st = statusTag(r.status);
+                            const editing = reId === r.id;
                             return (
                                 <div
-                                    className="flex items-center justify-between gap-2 border-b border-[#f1f5f9] px-3 py-2 text-sm last:border-b-0"
+                                    className="border-b border-[#f1f5f9] px-3 py-2 text-sm last:border-b-0"
                                     key={r.id}
                                 >
-                                    <div className="min-w-0">
-                                        <div className="truncate font-semibold text-[#334155]">
-                                            {nameOf(r.blog_account_id)} · {r.title || '제목 없음'}
-                                        </div>
-                                        <a
-                                            className="block truncate text-xs text-[#7c3aed] hover:underline"
-                                            href={r.post_url}
-                                            rel="noopener noreferrer"
-                                            target="_blank"
-                                        >
-                                            {r.post_url}
-                                        </a>
-                                        {r.status === 'rejected' && r.note ? (
-                                            <div className="mt-0.5 text-[11px] font-semibold text-[#dc2626]">
-                                                반려 사유: {r.note}
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <div className="truncate font-semibold text-[#334155]">
+                                                {nameOf(r.blog_account_id)} · {r.title || '제목 없음'}
                                             </div>
-                                        ) : null}
+                                            <a
+                                                className="block truncate text-xs text-[#7c3aed] hover:underline"
+                                                href={r.post_url}
+                                                rel="noopener noreferrer"
+                                                target="_blank"
+                                            >
+                                                {r.post_url}
+                                            </a>
+                                            {r.status === 'rejected' && r.note ? (
+                                                <div className="mt-0.5 text-[11px] font-semibold text-[#dc2626]">
+                                                    반려 사유: {r.note}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                        <div className="flex shrink-0 items-center gap-1">
+                                            <span
+                                                className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${st.c}`}
+                                            >
+                                                {st.t}
+                                            </span>
+                                            {r.status === 'rejected' && !editing ? (
+                                                <button
+                                                    className="rounded border border-[#1e40af] px-2 py-0.5 text-[11px] font-semibold text-[#1e40af] hover:bg-[#eff6ff]"
+                                                    onClick={() => startRe(r)}
+                                                    type="button"
+                                                >
+                                                    재보고
+                                                </button>
+                                            ) : null}
+                                        </div>
                                     </div>
-                                    <span
-                                        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${st.c}`}
-                                    >
-                                        {st.t}
-                                    </span>
+                                    {editing ? (
+                                        <div className="mt-2 grid gap-2 rounded-md border border-[#c7d2fe] bg-[#eef2ff] p-2">
+                                            <select
+                                                className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                                onChange={(e) => setReBlogId(e.target.value)}
+                                                value={reBlogId}
+                                            >
+                                                <option value="">블로그 선택</option>
+                                                {accounts.map((a) => (
+                                                    <option key={a.id} value={a.id}>
+                                                        {a.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <input
+                                                className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                                onChange={(e) => setReUrl(e.target.value)}
+                                                placeholder="글 주소(URL)"
+                                                value={reUrl}
+                                            />
+                                            <input
+                                                className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                                onChange={(e) => setReKeyword(e.target.value)}
+                                                placeholder="키워드(선택)"
+                                                value={reKeyword}
+                                            />
+                                            <div className="flex justify-end gap-1">
+                                                <button
+                                                    className="rounded-md border border-[#cbd5e1] px-3 py-1.5 text-xs font-semibold text-[#64748b]"
+                                                    onClick={() => setReId(null)}
+                                                    type="button"
+                                                >
+                                                    취소
+                                                </button>
+                                                <button
+                                                    className="rounded-md bg-[#1e40af] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                                                    disabled={reSaving}
+                                                    onClick={() => void doRe(r)}
+                                                    type="button"
+                                                >
+                                                    {reSaving ? '보고 중…' : '글 보고'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : null}
                                 </div>
                             );
                         })}

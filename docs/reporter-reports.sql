@@ -48,3 +48,19 @@ create policy "bpr 기자단 등록" on public.blog_post_reports
             where a.id = blog_account_id and a.reporter_id = public.my_profile_id()
         )
     );
+
+-- 기자단 재보고: 본인의 '반려(rejected)' 보고만 → '검토중(pending)'으로 되돌리기.
+--   with check 로 결과 status 를 pending 으로 강제 → 기자단이 자기 글을 confirmed 로 self-승인 못 함.
+drop policy if exists "bpr 기자단 재보고" on public.blog_post_reports;
+create policy "bpr 기자단 재보고" on public.blog_post_reports
+    for update to authenticated
+    using (public.is_reporter() and reporter_id = public.my_profile_id() and status = 'rejected')
+    with check (
+        public.is_reporter()
+        and reporter_id = public.my_profile_id()
+        and status = 'pending'
+        and exists (
+            select 1 from public.blog_accounts a
+            where a.id = blog_account_id and a.reporter_id = public.my_profile_id()
+        )
+    );

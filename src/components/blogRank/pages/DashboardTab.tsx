@@ -10,7 +10,7 @@ import { RankMovesModal } from '../components/RankMovesModal';
 import { SameDayModal, type SameDayRow } from '../components/SameDayModal';
 import { CrawlListModal, type CrawlRow } from '../components/CrawlListModal';
 import { ReportReviewModal } from '../components/ReportReviewModal';
-import { RejectedReportsModal } from '../components/RejectedReportsModal';
+import { ReportsListModal } from '../components/ReportsListModal';
 
 export function DashboardTab() {
     const {
@@ -34,9 +34,14 @@ export function DashboardTab() {
     const [reportPending, setReportPending] = useState(0);
     const [showRejected, setShowRejected] = useState(false);
     const [rejectedCount, setRejectedCount] = useState(0);
+    const [showMyReports, setShowMyReports] = useState(false);
+    const [totalReports, setTotalReports] = useState(0);
     const loadReportCount = () => {
         if (reporterMode) {
-            void getReports('rejected').then(({ data }) => setRejectedCount(data.length));
+            void getReports().then(({ data }) => {
+                setTotalReports(data.length);
+                setRejectedCount(data.filter((r) => r.status === 'rejected').length);
+            });
             return;
         }
         if (customerMode) return; // 고객 뷰에선 미표시
@@ -212,7 +217,7 @@ export function DashboardTab() {
             {/* 당일/전날 측정 글 + 누락 건 + 기자단 보고. 기자단 뷰=당일/전날/반려 3개. 고객 뷰=당일/전날 2개. */}
             <div
                 className={`grid grid-cols-2 gap-3 ${
-                    reporterMode ? 'lg:grid-cols-3' : customerMode ? 'lg:grid-cols-2' : 'lg:grid-cols-4'
+                    reporterMode ? 'lg:grid-cols-4' : customerMode ? 'lg:grid-cols-2' : 'lg:grid-cols-4'
                 }`}
             >
                 <KpiCard
@@ -251,6 +256,17 @@ export function DashboardTab() {
                         sub="승인 대기 · 눌러서 승인"
                         tone="green"
                         onClick={() => setShowReports(true)}
+                    />
+                ) : null}
+                {/* 보고한 글 = 기자단 뷰 전용 → 내가 보고한 전체 글 */}
+                {reporterMode ? (
+                    <KpiCard
+                        label="보고한 글"
+                        value={totalReports}
+                        color="#2563eb"
+                        sub="내 보고 전체 · 눌러서 목록"
+                        tone="green"
+                        onClick={() => setShowMyReports(true)}
                     />
                 ) : null}
                 {/* 반려 처리된 글 = 기자단 뷰 전용 → 사유 확인 */}
@@ -421,7 +437,19 @@ export function DashboardTab() {
                 />
             ) : null}
             {showRejected ? (
-                <RejectedReportsModal blogNameOf={nameOf} onClose={() => setShowRejected(false)} />
+                <ReportsListModal
+                    blogNameOf={nameOf}
+                    onClose={() => setShowRejected(false)}
+                    status="rejected"
+                    title="반려 처리된 글"
+                />
+            ) : null}
+            {showMyReports ? (
+                <ReportsListModal
+                    blogNameOf={nameOf}
+                    onClose={() => setShowMyReports(false)}
+                    title="보고한 글"
+                />
             ) : null}
         </div>
     );
