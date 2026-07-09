@@ -264,17 +264,28 @@ export function rankInPopular(html, blogId, logNo = '') {
         const area = blockArea(j);
         const blk = (j.refs || {}).blockId || '';
         if (tiExcluded(area, blk, blockMinR(j))) continue;
+        // 2026-07-09 실측 보정(하이브리드 카운트) — 파이썬 _rank_in_popular 1:1:
+        //   · 웹사이트 블록(blk이 'web/…') = 화면 한 칸. 같은 사이트 하위 링크가 여러 개(r=1,2 …)여도 한 칸.
+        //     카드 r 개수로 세면 과다(화성시장안면 8→6, 백석동 4→3).
+        //   · 블로그/카페 인기글 블록 = 카드(r)마다 한 칸(김포경호 gkstjeo97 5위 회귀 방지).
         const cards = ugbCards(j);
-        if (cards.length) {
-            // 웹사이트 카드는 blog prims 가 비지만 화면 한 칸 차지 → 함께 카운트(빈 카드도 rank+1).
+        const hasTarget = () =>
+            cards.some(([, prims]) => prims.some(([bid, lno]) => (logNo && lno === logNo) || (!logNo && bid === blogId)));
+        const isWeb = blk.toLowerCase().startsWith('web/');
+        if (isWeb) {
+            rank += 1; // 웹사이트 블록 = 한 칸
+            if (hasTarget()) return { rank, status: 'ok' };
+            const { posts, profiles } = blockBlogEntries(j);
+            if (entryMatch(blogId, logNo, posts, profiles)) return { rank, status: 'ok' };
+        } else if (cards.length) {
             for (const [, prims] of cards) {
-                rank += 1;
+                rank += 1; // 블로그/카페 인기글 = 카드(r)마다 한 칸
                 for (const [bid, lno] of prims) {
                     if ((logNo && lno === logNo) || (!logNo && bid === blogId)) return { rank, status: 'ok' };
                 }
             }
         } else {
-            rank += 1; // r 카드가 없는 단일 결과 블록도 한 칸
+            rank += 1;
             const { posts, profiles } = blockBlogEntries(j);
             if (entryMatch(blogId, logNo, posts, profiles)) return { rank, status: 'ok' };
         }

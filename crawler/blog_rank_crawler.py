@@ -978,6 +978,17 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
     # 2026-07-09 사용자 재정의: 통합탭 = 맨 위 파워링크 광고·이미지/동영상·플레이스만 빼고, 그 아래
     #   모든 결과 카드(블로그·카페·웹사이트/문서)를 화면 위에서부터 순차 카운트. blockId 템플릿으로 제외 판정.
     #   (이전 '외부 웹사이트 제외' 규칙 폐기 — 웹사이트도 순위 칸으로 센다.)
+    # 2026-07-09 실측 보정(하이브리드 카운트):
+    #   · 웹사이트 블록(blk이 'web/…') = 화면 한 칸. 같은 사이트의 하위 링크를 여러 개(clickLog r=1,2 …)
+    #     보여줘도 한 칸으로 센다. 카드 r 개수로 세면 과다 계산됨 — 실측: 화성시장안면 8위→실제 6위,
+    #     백석동 4→3, 처인구 6→5(웹사이트 블록이 2링크라 초과 계산됐음).
+    #   · 블로그/카페 인기글 블록(ugB 등) = 카드(r)마다 한 칸. 한 블록 안에 서로 다른 블로그 카드가
+    #     여러 개(r=2·r=5 …)면 각자 제 순위 — 뭉개면 안 됨(김포경호 gkstjeo97 5위 회귀 방지).
+    def _has_target(cards):
+        return any(
+            (log_no and lno == log_no) or (not log_no and bid == blog_id)
+            for _r, prims in cards for bid, lno in prims
+        )
     rank = 0
     for b in blocks:
         try:
@@ -989,15 +1000,22 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
         if _ti_excluded(area, blk, _block_min_r(j)):
             continue
         cards = _ugb_cards(j)
-        if cards:
-            # 웹사이트 카드는 blog prims 가 비지만 화면 한 칸을 차지 → 함께 카운트(빈 카드도 rank+1).
-            for r, prims in cards:
+        is_web = (blk or "").lower().startswith("web/")
+        if is_web:
+            rank += 1                        # 웹사이트 블록 = 한 칸(하위 링크 여러 개여도)
+            if _has_target(cards):
+                return rank, "ok"
+            posts, profiles = _block_blog_entries(j)
+            if _entry_match(blog_id, log_no, posts, profiles):
+                return rank, "ok"
+        elif cards:
+            for _r, prims in cards:          # 블로그/카페 인기글 = 카드(r)마다 한 칸
                 rank += 1
                 for bid, lno in prims:
                     if (log_no and lno == log_no) or (not log_no and bid == blog_id):
                         return rank, "ok"
         else:
-            rank += 1                        # r 카드가 없는 단일 결과 블록도 한 칸
+            rank += 1                        # r 카드 없는 단일 결과 블록도 한 칸
             posts, profiles = _block_blog_entries(j)
             if _entry_match(blog_id, log_no, posts, profiles):
                 return rank, "ok"
