@@ -463,6 +463,14 @@ export function SheetTab() {
                                             >
                                                 {a.name}
                                             </a>
+                                            {(a.note || '').includes('자사 관리') ? (
+                                                <span
+                                                    className="ml-1.5 inline-block rounded bg-[#dcfce7] px-1.5 py-0.5 text-[10px] font-bold text-[#15803d] align-middle"
+                                                    title="우리 회사가 직접 관리하는 블로그"
+                                                >
+                                                    자사 관리
+                                                </span>
+                                            ) : null}
                                         </td>
                                         {!reporterMode && (
                                             <td className="px-2 py-2">
