@@ -6,7 +6,7 @@ REM   ASCII-only on purpose: Korean text in a .bat breaks under Task Scheduler c
 cd /d "%~dp0"
 echo ============================================== >> crawler.log
 echo [START] %date% %time% >> crawler.log
-REM anti-block: wide delay + time-spread (--spread). start 04:00, finish before 09:00(-20m).
+REM anti-block: wide delay + time-spread (--spread). start 03:00, finish before 09:00 (6h window, generous).
 REM   blogtab uses official API + 5 posts + chunks of 5 blogs + gaps = effectively no block.
 set CRAWL_DELAY=3.5
 set CRAWL_REST_EVERY=6

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { todayKST } from '../../../api/blogRank';
+import { getPlaceAccounts, getPlaceKeywords } from '../../../api/placeRank';
 import { getReports } from '../../../api/blogPostReports';
 import { useAuth } from '../../../hooks/useAuth';
 import { lastM, prevM, renewLevel } from '../lib/helpers';
@@ -22,8 +23,34 @@ export function DashboardTab() {
         showToast: onToast,
         customerMode,
         reporterMode,
+        scopedClientId,
     } = useBlogRank();
     const { profile } = useAuth();
+    // 고객 뷰: '관리 플레이스' KPI — 본인 업체의 플레이스 키워드 수(측정 순위 요약). 클릭 시 플레이스 화면으로 이동.
+    const [placeKw, setPlaceKw] = useState<{ total: number; inTen: number }>({ inTen: 0, total: 0 });
+    useEffect(() => {
+        if (!customerMode || reporterMode) return;
+        let alive = true;
+        void (async () => {
+            const { data: accs } = await getPlaceAccounts(scopedClientId || undefined);
+            const { data: kws } = accs.length ? await getPlaceKeywords(accs.map((a) => a.id)) : { data: [] };
+            if (!alive) return;
+            const inTen = kws.filter((k) => {
+                const ms = [...(k.measurements || [])].sort((a, b) => b.date.localeCompare(a.date))[0];
+                return ms && ms.status === 'ok' && ms.rank <= 10;
+            }).length;
+            setPlaceKw({ inTen, total: kws.length });
+        })();
+        return () => {
+            alive = false;
+        };
+    }, [customerMode, reporterMode, scopedClientId]);
+    const goPlace = () => {
+        const as = new URLSearchParams(window.location.search).get('as');
+        const url = `/portal/place${as ? `?as=${as}` : ''}`;
+        window.history.pushState({}, '', url);
+        window.dispatchEvent(new Event('app:navigate'));
+    };
     const [showLow, setShowLow] = useState(false);
     const [showMoves, setShowMoves] = useState(false);
     const [showSameDay, setShowSameDay] = useState(false);
@@ -177,7 +204,7 @@ export function DashboardTab() {
         <div className="grid gap-4">
             <div
                 className={`grid grid-cols-2 gap-3 ${
-                    reporterMode ? 'lg:grid-cols-2' : customerMode ? 'lg:grid-cols-3' : 'lg:grid-cols-4'
+                    reporterMode ? 'lg:grid-cols-2' : 'lg:grid-cols-4'
                 }`}
             >
                 <Kpi
@@ -186,6 +213,16 @@ export function DashboardTab() {
                     sub={`진행 ${accounts.length - stopCnt} · 중단 ${stopCnt}`}
                     onClick={() => onGo('sheet')}
                 />
+                {/* 고객 뷰 & 플레이스 키워드가 있을 때만 — 플레이스 순위 화면으로 이동 */}
+                {customerMode && placeKw.total > 0 ? (
+                    <Kpi
+                        label="관리 플레이스"
+                        value={`${placeKw.total}`}
+                        accent="#7c3aed"
+                        sub={`10위 이내 ${placeKw.inTen}건 · 눌러서 보기`}
+                        onClick={goPlace}
+                    />
+                ) : null}
                 {/* 전체 진행률 = 계약(영업) 지표 → 기자단 뷰에선 숨김 */}
                 {!reporterMode ? (
                     <Kpi
