@@ -2195,6 +2195,7 @@ export function ClientDetail({
     const [confirmDel, setConfirmDel] = useState(false);
     const [editField, setEditField] = useState<{
         patchKey:
+            | 'company'
             | 'manager'
             | 'source'
             | 'contact'
@@ -2498,8 +2499,21 @@ export function ClientDetail({
                 </button>
                 <div className="min-w-0">
                     <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">
-                        {client.company || '고객사'}
-                        <span className="ml-2 text-xs font-semibold text-[#94a3b8]">업체명</span>
+                        <button
+                            className="-mx-1 rounded px-1 text-left hover:bg-[#f1f5f9]"
+                            onClick={() =>
+                                setEditField({
+                                    label: '업체명',
+                                    patchKey: 'company',
+                                    value: client.company || '',
+                                })
+                            }
+                            title="클릭해서 업체명 수정"
+                            type="button"
+                        >
+                            {client.company || '고객사'}
+                        </button>
+                        <span className="ml-2 text-xs font-semibold text-[#94a3b8]">업체명 ✎</span>
                     </h2>
                     <div className="mt-0.5 text-sm font-semibold text-[#64748b]">
                         {client.client_partner || '—'}
