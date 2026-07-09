@@ -27,6 +27,18 @@ export function TrackerTab() {
     const [inOnly, setInOnly] = useState(initialInOnly);
     const [pubFilter, setPubFilter] = useState<'all' | 'today' | 'yesterday'>('all'); // 당일/전날 발행 필터
     const [page, setPage] = useState(1);
+    // 우측 '키워드 검색' 결과 슬롯 — post.id → 최근 검색 최대 3개(세션 유지). 자동키워드 순위와 별개로 쌓임.
+    type Slot = { kw: string; ti: number; ti_status: string; bl: number; bl_status: string };
+    const [extraByPost, setExtraByPost] = useState<Record<string, Slot[]>>({});
+    const addExtra = (postId: string, kw: string, r: Omit<Slot, 'kw'>) => {
+        setExtraByPost((prev) => {
+            const cur = prev[postId] || [];
+            const rest = cur.filter((e) => e.kw !== kw); // 같은 키워드는 최신값으로 교체
+            return { ...prev, [postId]: [...rest, { kw, ...r }].slice(-3) }; // 최근 3개만
+        });
+    };
+    const rankLabel = (v: number, status: string) =>
+        status === 'ok' ? `${v}위` : status === 'fail' ? '실패' : '권외';
     // 오늘/어제(KST) — 발행일 필터용.
     const today = todayKST();
     const yesterday = (() => {
@@ -179,14 +191,15 @@ export function TrackerTab() {
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">발행</th>
                             <th className="px-3 py-2 font-semibold">블로그</th>
-                            <th className="px-3 py-2 font-semibold">제목 · 자동 키워드</th>
+                            {/* 키워드 검색란을 왼쪽으로 이동(공간 확보) */}
                             <th className="px-3 py-2 font-semibold">키워드 검색</th>
+                            <th className="px-3 py-2 font-semibold">제목 · 자동 키워드</th>
                             <th className="px-3 py-2 text-center font-bold text-[#059669]">통합탭</th>
                             <th className="px-3 py-2 text-center font-bold text-[#1e40af]">블로그탭</th>
-                            {/* 고객/기자단 뷰: 웹사이트탭·경과·측정 컬럼 숨김 */}
-                            {!customerMode && <th className="px-3 py-2 text-center font-semibold">웹사이트탭</th>}
-                            {!customerMode && <th className="px-3 py-2 text-center font-semibold">경과</th>}
-                            {!customerMode && <th className="px-3 py-2 text-center font-semibold">측정</th>}
+                            {/* 웹사이트탭·경과·측정 자리 → 직접 검색한 키워드 3개 결과 슬롯 */}
+                            <th className="px-2 py-2 text-center font-semibold">검색 ①</th>
+                            <th className="px-2 py-2 text-center font-semibold">검색 ②</th>
+                            <th className="px-2 py-2 text-center font-semibold">검색 ③</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -205,6 +218,15 @@ export function TrackerTab() {
                                     </td>
                                     <td className="px-3 py-2 text-[13px] font-semibold text-[#475569]">
                                         {nameOf(p.blog_account_id)}
+                                    </td>
+                                    <td className="px-3 py-2">
+                                        <PostSearchCell
+                                            account={acc}
+                                            hideEdit={customerMode}
+                                            post={p}
+                                            onSaved={onReload}
+                                            onExtraResult={(kw, r) => addExtra(p.id, kw, r)}
+                                        />
                                     </td>
                                     <td className="px-3 py-2">
                                         {(() => {
@@ -237,51 +259,47 @@ export function TrackerTab() {
                                             );
                                         })()}
                                     </td>
-                                    <td className="px-3 py-2">
-                                        <PostSearchCell account={acc} hideEdit={customerMode} post={p} onSaved={onReload} />
-                                    </td>
                                     <td className="px-3 py-2 text-center">
                                         <RankCell post={p} keyName="ti" />
                                     </td>
                                     <td className="px-3 py-2 text-center">
                                         <RankCell post={p} keyName="bl" />
                                     </td>
-                                    {!customerMode && (
-                                        <td className="px-3 py-2 text-center">
-                                            {(() => {
-                                                const ws = p.measurements.length
-                                                    ? p.measurements[p.measurements.length - 1].ws
-                                                    : undefined;
-                                                if (ws === '있음')
-                                                    return (
-                                                        <span className="rounded bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#059669]">
-                                                            있음
-                                                        </span>
-                                                    );
-                                                if (ws === '없음')
-                                                    return <span className="text-[11px] font-semibold text-[#94a3b8]">없음</span>;
-                                                return <span className="text-[11px] text-[#cbd5e1]">—</span>;
-                                            })()}
-                                        </td>
-                                    )}
-                                    {!customerMode && (
-                                        <td className="px-3 py-2 text-center">
-                                            <span className="rounded bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#475569]">
-                                                D+{dayN(p)}
-                                            </span>
-                                        </td>
-                                    )}
-                                    {!customerMode && (
-                                        <td className="px-3 py-2 text-center text-xs text-[#94a3b8]">
-                                            {p.measurements.length}회
-                                        </td>
-                                    )}
+                                    {/* 직접 검색한 키워드 결과 슬롯 3개 — #키워드 아래 통합/블로그 순위 작게 */}
+                                    {[0, 1, 2].map((i) => {
+                                        const slot = (extraByPost[p.id] || [])[i];
+                                        return (
+                                            <td className="px-2 py-2 text-center align-top" key={i}>
+                                                {slot ? (
+                                                    <div className="min-w-[84px]">
+                                                        <div
+                                                            className="truncate text-[11px] font-semibold text-[#7c3aed]"
+                                                            title={slot.kw}
+                                                        >
+                                                            #{slot.kw}
+                                                        </div>
+                                                        <div className="mt-0.5 text-[11px] leading-tight">
+                                                            <span className="font-bold text-[#059669]">
+                                                                통합 {rankLabel(slot.ti, slot.ti_status)}
+                                                            </span>
+                                                            <span className="mx-1 text-[#cbd5e1]">·</span>
+                                                            <span className="font-bold text-[#1e40af]">
+                                                                블로그 {rankLabel(slot.bl, slot.bl_status)}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-[11px] text-[#cbd5e1]">—</span>
+                                                )}
+                                            </td>
+                                        );
+                                    })}
                                 </tr>
                                 );
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={customerMode ? 6 : 9}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={9}>
                                     아직 수집된 글이 없습니다 · 파이썬 크롤러 실행 후 표시됩니다
                                 </td>
                             </tr>

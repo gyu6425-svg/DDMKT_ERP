@@ -34,16 +34,21 @@ function useCooldownLeft(): number {
     return Math.max(0, Math.ceil((_coolUntil - Date.now()) / 1000));
 }
 
+export type ExtraSearchResult = { ti: number; ti_status: string; bl: number; bl_status: string };
+
 export function PostSearchCell({
     account,
     post,
     onSaved,
     hideEdit = false,
+    onExtraResult,
 }: {
     account: BlogAccount | null;
     post: BlogPost;
     onSaved: () => Promise<void>;
     hideEdit?: boolean; // 기자단/고객 뷰(읽기 전용) — '수정' 버튼 숨김
+    // 있으면 '검색' 결과를 자동키워드 순위에 덮어쓰지 않고 우측 슬롯(콜백)으로 전달.
+    onExtraResult?: (keyword: string, r: ExtraSearchResult) => void;
 }) {
     const [kw, setKw] = useState('');
     const [busy, setBusy] = useState(false);
@@ -73,13 +78,20 @@ export function PostSearchCell({
         try {
             // 이 '글' 단위로 측정(블로그탭은 logNo 매칭).
             const r = await searchRankPC(q, blogId, extractLogNo(post.post_url || ''));
-            const today = todayKST();
-            const next: BlogMeasurement[] = [
-                ...post.measurements.filter((m) => m.date !== today),
-                { date: today, ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status },
-            ];
-            await updatePostMeasurements(post.id, next);
-            await onSaved(); // 우측 순위(저장값) 즉시 갱신
+            if (onExtraResult) {
+                // 새 방식: 자동키워드 순위(통합/블로그)는 그대로 두고, 검색한 키워드 결과를 우측 슬롯에 추가.
+                onExtraResult(q, { ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status });
+                setKw('');
+            } else {
+                // 폴백: 자동키워드 저장값을 덮어씀(옛 동작).
+                const today = todayKST();
+                const next: BlogMeasurement[] = [
+                    ...post.measurements.filter((m) => m.date !== today),
+                    { date: today, ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status },
+                ];
+                await updatePostMeasurements(post.id, next);
+                await onSaved();
+            }
         } catch (e) {
             setErr(e instanceof Error ? e.message : '검색 실패');
         } finally {
