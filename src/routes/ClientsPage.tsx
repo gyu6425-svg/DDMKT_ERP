@@ -514,25 +514,20 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     //   공급가(Σ amount) · 부가세(공급가×10%) · 실매출/합계(공급가+부가세) · 외주비 · 순매출(공급가−외주).
     const revenueSummary = useMemo(() => {
         const shown = new Set(filtered.map((c) => c.id));
-        const cliById = new Map(clients.map((c) => [c.id, c]));
         let supply = 0;
         let outs = 0; // 예상(받은) 외주비 = Σ ct.outsource
         let used = 0; // 실제 사용(소진) 외주비 = Σ completedOutsource
         let total = 0; // 실매출 — 계약별 부가세(현금이면 VAT 미포함) 합산
         for (const ct of clientContracts) {
             if (!shown.has(ct.client_id)) continue;
-            // 연/월 필터 시 계약일 기준(없으면 등록월 폴백)으로 그 기간 계약만 합산.
+            // 연/월 필터 시 계약일(contract_date) 기준으로만 합산. 계약일 없는 계약은 월 매출에서 제외
+            //   — 계약 내역 화면(계약일 있는 것만 표시)·회계(이카운트 전표일자)와 일치시키기 위함.
+            //   (예전엔 계약일 없으면 고객 등록월 폴백으로 잡았으나, 화면엔 안 보이는 계약이 매출에만
+            //    잡혀 중복·과다계상되는 문제가 있어 제거.)
             if (yearFilter || monthFilter) {
-                if (ct.contract_date) {
-                    if (yearFilter && Number(ct.contract_date.slice(0, 4)) !== yearFilter) continue;
-                    if (monthFilter && Number(ct.contract_date.slice(5, 7)) !== monthFilter) continue;
-                } else {
-                    const cl = cliById.get(ct.client_id);
-                    const cy = cl?.created_at ? new Date(cl.created_at).getFullYear() : 0;
-                    const cm = cl?.created_at ? new Date(cl.created_at).getMonth() + 1 : 0;
-                    if (yearFilter && cy !== yearFilter) continue;
-                    if (monthFilter && cm !== monthFilter) continue;
-                }
+                if (!ct.contract_date) continue;
+                if (yearFilter && Number(ct.contract_date.slice(0, 4)) !== yearFilter) continue;
+                if (monthFilter && Number(ct.contract_date.slice(5, 7)) !== monthFilter) continue;
             }
             supply += ct.amount || 0;
             outs += ct.outsource || 0;
