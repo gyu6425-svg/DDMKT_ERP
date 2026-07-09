@@ -982,20 +982,22 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
         if "ader.naver.com" in b and not _is_content_card(j, b):
             continue
         area = _block_area(j)
-        if _is_web_area(area):               # 웹사이트(문서)탭 섹션 제외 — 통합탭 순위 아님
-            continue
         if _block_min_r(j) >= 999:           # 비-결과 블록(AI/이미지/연관검색어) 제외
             continue
         if not _is_content_card(j, b):       # 외부 웹사이트(당근/사이트=관련문서 묶음)·블로그 채널카드 제외
-            continue                         #   = 통합탭(블로그·카페 콘텐츠 목록) 순위 아님
+            continue                         #   = 통합탭(블로그·카페 콘텐츠 목록) 순위 아님. 외부 문서만인 web* 블록도 여기서 제외.
         # 2026-06-29 변경: 섹션(area)이 바뀌어도 순위를 리셋하지 않는다 — 위/아래 섹션을 합산해
         #   '위에서부터 연속 순위'로 센다(블로그/카페 인기글만). 이미지/웹/광고는 위에서 이미 제외됨.
-        # ugB_*(한 블록=여러 카드, 예 ugB_bsR) 은 블록 안 카드를 r 순서로 한 칸씩 — 같은 블록의
-        #   다른 카드(예 서천: sd44422 1위 … limebuffet 5위)에 순위가 1로 뭉개지지 않게.
-        # urB_*(블록=카드 1개) 은 블록 등장 순서로 한 칸씩(블록 내부 r 무시 — 화면 위치와 1:1).
+        # 2026-07-09 추가: 모바일 통합검색이 블로그 결과를 web_gen(web_basic) 스마트블록으로 렌더하는
+        #   레이아웃 대응. 과거엔 web* 를 웹사이트탭으로 보고 통째로 뺐으나(위너키친 '평택 주방기기'·'천안
+        #   주방집기' 1위가 권외로 누락됨), 그 블록이 네이버 블로그/카페 콘텐츠 카드면(_is_content_card=True)
+        #   통합탭 순위에 포함한다. 외부 문서만인 web 블록은 위 _is_content_card=False 로 이미 제외됨.
+        # ugB_*·web_gen(한 블록=여러 카드) 은 블록 안 카드를 r 순서로 한 칸씩 — 같은 블록의 다른 카드에
+        #   순위가 1로 뭉개지지 않게. urB_*(블록=카드 1개) 은 블록 등장 순서로 한 칸씩.
         # log_no 있으면 '그 글'만 매칭(통합탭도 글 단위). 없으면 블로그 단위 매칭.
-        if area.startswith("ugB"):
-            for r, prims in _ugb_cards(j):
+        multi_cards = _ugb_cards(j) if (area.startswith("ugB") or _is_web_area(area)) else []
+        if multi_cards:
+            for r, prims in multi_cards:
                 rank += 1
                 for bid, lno in prims:
                     if (log_no and lno == log_no) or (not log_no and bid == blog_id):
@@ -1022,6 +1024,8 @@ def _website_present(html_text, blog_id, log_no=""):
         if "ader.naver.com" in b:
             continue
         if not _is_web_area(_block_area(j)):     # 웹사이트(문서) 섹션만 본다
+            continue
+        if _is_content_card(j, b):               # 블로그/카페 콘텐츠(web_gen 스마트블록=통합탭)는 웹사이트탭 아님
             continue
         for bid, lno in _primary_blog_posts(j):
             if (log_no and lno == log_no) or (not log_no and bid == blog_id):
