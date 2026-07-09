@@ -82,8 +82,9 @@ def _pause(base=None):
     time.sleep(b + random.uniform(0, b * 0.6))
 OLDEST_DATE = "2025-01-01"  # 이 날짜 이전(너무 옛날) 글은 추적 제외 — 최신 1~2년만 추적
 # 최근성 컷오프 — 발행일이 이 일수보다 오래된 글은 측정 제외(휴면 블로그 자동 스킵).
-#   2026-06-26 사용자 요청: 최신글이 한참 전(1~2월 등)인 블로그는 크롤 안 함. 120일≈4개월(6월이면 ~2월 말 이후만).
-RECENT_DAYS = 120
+#   2026-07-09 사용자 요청: 오늘로부터 90일 전까지만. 최신글이 90일보다 오래된 블로그는 창 안 글 0개라 자동 스킵.
+RECENT_DAYS = 90
+RSS_INGEST_MAX = 60  # RSS 수집 안전상한(창 이내 글만 담되, 폭주 방지 상한)
 def recent_cutoff():
     return (datetime.date.today() - datetime.timedelta(days=RECENT_DAYS)).isoformat()
 MAX_KEYWORDS_PER_ACCOUNT = 3  # 블로그당 대표키워드 측정 상한(네이버 요청량/차단 가드)
@@ -532,11 +533,13 @@ def fetch_rss_posts(blog_id: str):
 
 
 def _rss_entries_light(blog_id: str):
-    """RSS 최신 N글의 (url·제목·발행일·RSS태그)만 — 하단 해시태그 fetch 는 안 함(라운드로빈 1단계: 빠르게
-    전체 글목록만 확보. 해시태그/자동키워드 확정은 측정 직전에)."""
+    """RSS에서 최근성 창(RECENT_DAYS=90일) 이내 글의 (url·제목·발행일·RSS태그)만 — 하단 해시태그 fetch 는
+    안 함(라운드로빈 1단계). RSS는 최신순이라 발행일이 창 밖으로 넘어가면 그 뒤는 더 옛날 → 중단.
+    최신글이 창 밖이면(휴면 블로그) 빈 리스트 → 그 블로그는 측정 대상에서 자동 제외."""
     parsed = feedparser.parse(f"https://rss.blog.naver.com/{blog_id}.xml")
+    cutoff = recent_cutoff()
     out = []
-    for entry in parsed.entries[:MAX_POSTS_PER_BLOG]:
+    for entry in parsed.entries[:RSS_INGEST_MAX]:
         link = entry.get("link", "")
         pub = pub_at = None
         if entry.get("published_parsed"):
@@ -544,6 +547,8 @@ def _rss_entries_light(blog_id: str):
             _kst = datetime.datetime(*entry.published_parsed[:6]) + datetime.timedelta(hours=9)
             pub = _kst.date().isoformat()
             pub_at = _kst.isoformat()
+        if pub and pub < cutoff:             # 창(90일) 밖 → 이후는 더 옛날이므로 수집 중단
+            break
         tag_raw = entry.get("tag") or entry.get("tags") or ""
         if isinstance(tag_raw, list):
             tag_raw = ",".join(getattr(x, "term", None) or (x.get("term") if isinstance(x, dict) else str(x)) for x in tag_raw)
