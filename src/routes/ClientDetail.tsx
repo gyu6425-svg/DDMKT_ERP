@@ -774,6 +774,14 @@ function ContractEditModal({
     const [date, setDate] = useState(contract.contract_date ?? '');
     const [note, setNote] = useState(contract.note ?? '');
     const [saving, setSaving] = useState(false);
+    // 재조회로 contract(최신 DB값)가 갱신되면 진행 이력을 그 값으로 동기화(저장 중엔 스킵 — 레이스 방지).
+    //   진행 이력의 '처리/미처리'·'계산서 발행/미발행' 토글이 나갔다 들어오면 되돌아가던 문제 방지.
+    //   (부모가 live 계약을 넘겨주므로, 저장→재조회 후 contract.weekly_logs 가 최신값이 되어 여기서 반영됨.)
+    useEffect(() => {
+        if (saving) return;
+        setWeeklyLogs(contract.weekly_logs ?? []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [contract]);
     const [confirmDel, setConfirmDel] = useState(false);
     const [renewMode, setRenewMode] = useState(false); // 재계약 클릭 → 계약 추가 UI
     const [reStart, setReStart] = useState('');
@@ -3207,7 +3215,8 @@ export function ClientDetail({
             ) : null}
             {editContract ? (
                 <ContractEditModal
-                    contract={editContract}
+                    // 재조회로 갱신된 최신 계약을 넘김(스냅샷 X) → 진행 이력 토글이 재진입 시 유지됨.
+                    contract={contracts.find((c) => c.id === editContract.id) ?? editContract}
                     companyName={client.company || ''}
                     onClose={() => setEditContract(null)}
                     onEnd={endClient}
