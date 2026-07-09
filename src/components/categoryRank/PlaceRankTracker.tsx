@@ -49,6 +49,17 @@ export function PlaceRankTracker() {
     const [busy, setBusy] = useState(false);
     const [toast, setToast] = useState('');
     const [expanded, setExpanded] = useState<Set<string>>(new Set()); // 순위 전체 펼친 키워드 id
+    // 관리 시트에서 업체명 클릭(?q=업체명)으로 들어오면 그 업체만 필터. app:navigate 로 재동기화.
+    const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get('q') || '');
+    useEffect(() => {
+        const sync = () => setQ(new URLSearchParams(window.location.search).get('q') || '');
+        window.addEventListener('app:navigate', sync);
+        window.addEventListener('popstate', sync);
+        return () => {
+            window.removeEventListener('app:navigate', sync);
+            window.removeEventListener('popstate', sync);
+        };
+    }, []);
     const toggleExpand = (id: string) =>
         setExpanded((p) => {
             const n = new Set(p);
@@ -253,6 +264,11 @@ export function PlaceRankTracker() {
         );
     };
 
+    // 관리 시트에서 넘어온 업체명(?q)이 있으면 그 업체만. 없으면 전체.
+    const shownAccounts = q.trim()
+        ? accounts.filter((a) => (a.name || '').toLowerCase().includes(q.trim().toLowerCase()))
+        : accounts;
+
     if (loading) {
         return <div className="py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
     }
@@ -260,9 +276,24 @@ export function PlaceRankTracker() {
     return (
         <div className="grid gap-3">
             <div className="flex items-center justify-between">
-                <div className="text-sm text-[#64748b]">
-                    업체 <b className="text-[#0f172a]">{accounts.length}</b> · 키워드{' '}
-                    <b className="text-[#0f172a]">{keywords.length}</b> · 순위는 매일 자동 측정
+                <div className="flex items-center gap-2 text-sm text-[#64748b]">
+                    <span>
+                        업체 <b className="text-[#0f172a]">{shownAccounts.length}</b> · 키워드{' '}
+                        <b className="text-[#0f172a]">{keywords.length}</b> · 순위는 매일 자동 측정
+                    </span>
+                    {q.trim() ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[#ede9fe] px-2 py-0.5 text-[12px] font-semibold text-[#6d28d9]">
+                            🔎 {q}
+                            <button
+                                className="text-[#a78bfa] hover:text-[#6d28d9]"
+                                onClick={() => setQ('')}
+                                title="필터 해제(전체 보기)"
+                                type="button"
+                            >
+                                ✕
+                            </button>
+                        </span>
+                    ) : null}
                 </div>
                 <div className="flex gap-1.5">
                     <button
@@ -309,9 +340,11 @@ export function PlaceRankTracker() {
                 </div>
             ) : null}
 
-            {accounts.length === 0 ? (
+            {shownAccounts.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-5 py-12 text-center text-sm text-[#94a3b8]">
-                    추적할 업체가 없습니다. ‘+ 업체 추가’로 플레이스 URL을 등록하세요.
+                    {q.trim()
+                        ? `'${q}' 업체를 순위 트래커에서 찾지 못했습니다. ‘계약에서 불러오기’ 또는 ‘+ 업체 추가’로 등록하세요.`
+                        : '추적할 업체가 없습니다. ‘+ 업체 추가’로 플레이스 URL을 등록하세요.'}
                 </div>
             ) : (
                 <div className="overflow-x-auto rounded-xl border border-[#e2e8f0]">
@@ -326,7 +359,7 @@ export function PlaceRankTracker() {
                             </tr>
                         </thead>
                         <tbody>
-                            {accounts.map((acc) => {
+                            {shownAccounts.map((acc) => {
                                 const kws = kwByAccount.get(acc.id) || [];
                                 const rowCount = Math.max(1, kws.length) + 1; // 키워드들 + 입력행
                                 return kws
