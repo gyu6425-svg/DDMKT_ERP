@@ -137,8 +137,9 @@ export function BlogRankProvider({
         window.setTimeout(() => setToastMsg(''), 2200);
     };
 
-    const reload = async () => {
-        setLoading(true);
+    // silent=true → 배경 새로고침(포커스 복귀 등): 로딩 플래시 없이 조용히 데이터만 갱신(화면 초기화 방지).
+    const reload = async (silent = false) => {
+        if (!silent) setLoading(true);
         setError('');
         const failMsg = '데이터를 불러오지 못했습니다. blog-rank-tables.sql 실행을 확인하세요.';
         // 고객 모드: 본인 업체 계정 → 그 계정들의 글만. 관리자: 전체(기존과 동일, 병렬).
@@ -205,7 +206,7 @@ export function BlogRankProvider({
             if (document.visibilityState !== 'visible') return;
             if (Date.now() - last < 60_000) return;
             last = Date.now();
-            void reload();
+            void reload(true); // 조용히(로딩 플래시·초기화 없이) 배경 갱신
         };
         window.addEventListener('focus', maybeReload);
         document.addEventListener('visibilitychange', maybeReload);

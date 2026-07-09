@@ -1,5 +1,5 @@
 import type { Session, User } from '@supabase/supabase-js'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { getSession, signOut as signOutRequest } from '../api/auth'
 import { AUTH_DISABLED } from '../lib/authConfig'
 import { supabase } from '../lib/supabase'
@@ -92,7 +92,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setIsAdmin(roles.some(isAdminRole))
   }, [])
 
+  // 마지막으로 프로필을 로드한 유저 id — 포커스 복귀 시 반복 발생하는 auth 이벤트에서 재조회 여부 판단.
+  const lastUserId = useRef<string | null>(null)
+
   const syncSession = useCallback(async (nextSession: Session | null) => {
+    lastUserId.current = nextSession?.user?.id ?? null
     setSession(nextSession)
 
     if (nextSession?.user) {
@@ -133,6 +137,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      const uid = nextSession?.user?.id ?? null
+      // 탭 포커스 복귀 시 Supabase가 TOKEN_REFRESHED/SIGNED_IN 을 반복 발생 → 같은 유저면
+      //   프로필 재조회를 건너뛰고 세션 토큰만 갱신(재조회로 인한 화면 초기화 방지).
+      if (uid && uid === lastUserId.current) {
+        setSession(nextSession)
+        return
+      }
       void syncSession(nextSession)
     })
 
