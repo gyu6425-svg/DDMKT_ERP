@@ -147,7 +147,14 @@ export default function ErpViewSwitcher() {
     const clientItems = clients
         .filter((c) => c.company)
         .map((c) => ({ id: c.id, label: c.company as string, sub: c.manager || undefined }));
-    const reporterItems = reporters.map((r) => ({ id: r.id, label: r.name || r.email, sub: r.email.split('@')[0] }));
+    // 기자단 = ddmkt_N 숫자 아이디 순으로 정렬(1,2,3…), 숫자 아닌 계정은 뒤로.
+    const reporterNum = (email: string) => {
+        const m = /^ddmkt_(\d+)@/.exec(email || '');
+        return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+    };
+    const reporterItems = [...reporters]
+        .sort((a, b) => reporterNum(a.email) - reporterNum(b.email))
+        .map((r) => ({ id: r.id, label: r.name || r.email, sub: r.email.split('@')[0] }));
 
     return (
         <div className="flex items-center gap-2">
