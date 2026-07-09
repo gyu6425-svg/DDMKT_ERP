@@ -10,9 +10,12 @@ import { ensureClientBlogAccount, getBlogAccounts, type BlogAccount } from '../a
 import {
     completedOutsource,
     getClientContracts,
+    hasProcessInPeriod,
     insertClientContracts,
+    outsourceInPeriod,
     totalOutsource,
     updateClientContract,
+    usedOutsourceInPeriod,
     type ClientContract,
 } from '../api/clientContracts';
 import { PRODUCT_CATEGORIES, isDailySub, isBrandBlogSub } from '../lib/products';
@@ -386,10 +389,15 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         if (!year && !month) return true;
         const cs = clientContracts.filter((ct) => ct.client_id === client.id && ct.contract_date);
         if (cs.length) {
-            return cs.some((ct) => {
+            const bySale = cs.some((ct) => {
                 const d = ct.contract_date || '';
                 return (!year || Number(d.slice(0, 4)) === year) && (!month || Number(d.slice(5, 7)) === month);
             });
+            // 월 보장형은 처리월(주간 로그)에도 노출 — 외주비 정산이 그 달에 잡히므로.
+            const byProcess = clientContracts.some(
+                (ct) => ct.client_id === client.id && hasProcessInPeriod(ct, year, month),
+            );
+            return bySale || byProcess;
         }
         if (contractsOnly) return false; // 계약 관리: 날짜 없으면 임시 탭에서만
         const cy = client.created_at ? new Date(client.created_at).getFullYear() : 0;
@@ -400,8 +408,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const contractInPeriod = (ct: ClientContract, year: number, month: number) => {
         if (!year && !month) return true;
         const d = ct.contract_date || '';
-        if (!d) return false;
-        return (!year || Number(d.slice(0, 4)) === year) && (!month || Number(d.slice(5, 7)) === month);
+        const bySale = !!d && (!year || Number(d.slice(0, 4)) === year) && (!month || Number(d.slice(5, 7)) === month);
+        // 월 보장형은 처리월(주간 로그)에도 노출(외주비만 그 달에 귀속).
+        return bySale || hasProcessInPeriod(ct, year, month);
     };
     // 계약 관리(연/월 필터 화면)에서만 상품을 스코프. 임시 탭은 스코프 안 함(날짜 없는 상품 전부).
     const scopeMonth = (cts: ClientContract[]) =>
@@ -520,21 +529,22 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         let total = 0; // 실매출 — 계약별 부가세(현금이면 VAT 미포함) 합산
         for (const ct of clientContracts) {
             if (!shown.has(ct.client_id)) continue;
-            // 연/월 필터 시 계약일(contract_date) 기준으로만 합산. 계약일 없는 계약은 월 매출에서 제외
-            //   — 계약 내역 화면(계약일 있는 것만 표시)·회계(이카운트 전표일자)와 일치시키기 위함.
-            //   (예전엔 계약일 없으면 고객 등록월 폴백으로 잡았으나, 화면엔 안 보이는 계약이 매출에만
-            //    잡혀 중복·과다계상되는 문제가 있어 제거.)
-            if (yearFilter || monthFilter) {
-                if (!ct.contract_date) continue;
-                if (yearFilter && Number(ct.contract_date.slice(0, 4)) !== yearFilter) continue;
-                if (monthFilter && Number(ct.contract_date.slice(5, 7)) !== monthFilter) continue;
+            // 판매(공급가·부가세·실매출) = 계약일(contract_date) 월에만 귀속. 계약일 없으면 월 매출 제외
+            //   (화면·이카운트 전표일자와 일치). 월보장이라도 매출은 계약월 한 번만 잡힌다.
+            const saleInMonth =
+                !(yearFilter || monthFilter) ||
+                (!!ct.contract_date &&
+                    (!yearFilter || Number(ct.contract_date.slice(0, 4)) === yearFilter) &&
+                    (!monthFilter || Number(ct.contract_date.slice(5, 7)) === monthFilter));
+            if (saleInMonth) {
+                supply += ct.amount || 0;
+                total += saleVat(ct.amount, ct.no_vat); // 계약별 VAT
             }
-            supply += ct.amount || 0;
-            outs += ct.outsource || 0;
-            used += completedOutsource(ct); // 실제 사용(진행 완료분 소진)
-            total += saleVat(ct.amount, ct.no_vat); // 계약별 VAT
+            // 외주비 = 월보장이면 처리월(주간 로그)로 귀속, 그 외 상품은 계약월. (계약월≠처리월 분리 정산)
+            outs += outsourceInPeriod(ct, yearFilter, monthFilter);
+            used += usedOutsourceInPeriod(ct, yearFilter, monthFilter); // 실제 사용(그 달 소진)
         }
-        // 남은 차액 = 예상 외주비 − 실제 사용 외주비(아직 안 쓴 외주비 여유분).
+        // 남은 차액 = (그 달) 예상 외주비 − 실제 사용 외주비(아직 안 쓴 외주비 여유분).
         return { supply, vat: total - supply, total, outs, used, diff: outs - used, net: supply - outs };
     }, [filtered, clients, clientContracts, monthFilter, yearFilter]);
 

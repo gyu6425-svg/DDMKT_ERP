@@ -86,6 +86,56 @@ export const amountProgress = (ct: ClientContract): number | null => {
     return Math.round((done / goal) * 100);
 };
 
+// ── 월 보장형 외주비 월별 귀속 ───────────────────────────────────────────────
+// 월 보장형(상위노출 보장형·플레이스 리워드 등) = 25일 등 계약이라 계약월과 처리월이 다를 수 있음.
+//   → 외주비를 '계약월 전액'이 아니라 '주간 처리 이력(at)의 달'로 귀속(월별 정산 일치). 그 외 상품은 계약월 전액.
+//   (사용자 확정 2026-07-09: 외주비만 처리월로 분리, 공급가·매출은 계약월 그대로.)
+export const isMonthlyGuarantee = (ct: ClientContract): boolean => {
+    if (ct.per_day != null) return true;
+    const s = ct.subtype || '';
+    return s.includes('리워드') || s.includes('보장형');
+};
+
+// (내부) 날짜 문자열(YYYY-MM-DD)이 연/월 필터에 속하는지. year·month 0 = 무관.
+const inYM = (d: string | null | undefined, year: number, month: number): boolean => {
+    const s = d || '';
+    if (!s) return false;
+    if (year && Number(s.slice(0, 4)) !== year) return false;
+    if (month && Number(s.slice(5, 7)) !== month) return false;
+    return true;
+};
+
+// 월 보장형 계약이 그 연/월에 '처리 이력(주간 로그)'을 가지는지 — 처리월 목록/스코프 노출 판정용.
+export const hasProcessInPeriod = (ct: ClientContract, year: number, month: number): boolean =>
+    isMonthlyGuarantee(ct) && (ct.weekly_logs ?? []).some((l) => inYM(l.at, year, month));
+
+// 특정 연/월에 귀속되는 (예상/받은) 외주비 = 매출요약 '외주비' 카드의 월별 값.
+//   · 월보장: 주간 로그(처리일 at) 외주비는 그 달에, 아직 처리 안 한 잔여 외주비는 계약월에 귀속
+//     → 달마다 합치면 항상 총(받은) 외주비와 같음(사라짐 없음). · 그 외: 계약월(contract_date) 전액.
+//   year·month 0 이면 전체(월 무관).
+export const outsourceInPeriod = (ct: ClientContract, year: number, month: number): number => {
+    const total = ct.outsource || 0; // 예상/받은 외주비(카드 값)
+    if (!year && !month) return total;
+    if (!isMonthlyGuarantee(ct)) return inYM(ct.contract_date, year, month) ? total : 0;
+    const logs = ct.weekly_logs ?? [];
+    const unit = ct.unit_outsource ?? 0;
+    const amt = (l: RewardWeeklyLog) => (l.count || 0) * (l.outUnit || unit);
+    const loggedMonth = logs.reduce((s, l) => (inYM(l.at, year, month) ? s + amt(l) : s), 0);
+    const loggedAll = logs.reduce((s, l) => s + amt(l), 0);
+    const remainder = Math.max(0, total - loggedAll); // 아직 처리 안 한 외주 = 계약월 귀속
+    return loggedMonth + (inYM(ct.contract_date, year, month) ? remainder : 0);
+};
+
+// 특정 연/월에 실제 사용(소진)된 외주비 = 남은 차액 계산용.
+//   · 월보장: 그 달 주간 로그 외주비 합. · 그 외: 계약월에 completedOutsource 전액. year·month 0 = 전체.
+export const usedOutsourceInPeriod = (ct: ClientContract, year: number, month: number): number => {
+    if (!year && !month) return completedOutsource(ct);
+    if (!isMonthlyGuarantee(ct)) return inYM(ct.contract_date, year, month) ? completedOutsource(ct) : 0;
+    const logs = ct.weekly_logs ?? [];
+    const unit = ct.unit_outsource ?? 0;
+    return logs.reduce((s, l) => (inYM(l.at, year, month) ? s + (l.count || 0) * (l.outUnit || unit) : s), 0);
+};
+
 // clientId 주면 그 고객만. 테이블 미생성 등 오류 시에도 앱이 죽지 않도록 [] 반환.
 export async function getClientContracts(clientId?: string) {
     let query = supabase.from('client_contracts').select('*').order('created_at', { ascending: true });
