@@ -2244,6 +2244,15 @@ export function ClientDetail({
         onClose();
     };
 
+    // 고객 ERP 아이디 클릭 → 이 업체 고객 ERP(내부 관리자 미리보기)로 이동.
+    const goCustomerErp = () => {
+        const path = `/portal/blog?as=${client.id}`;
+        if (window.location.pathname + window.location.search !== path) {
+            window.history.pushState(null, '', path);
+            window.dispatchEvent(new Event('app:navigate'));
+        }
+    };
+
     const managerOptions = [
         ...new Set(([client.manager, ...salespeople.map((s) => s.name)].filter(Boolean) as string[])),
     ];
@@ -2492,16 +2501,26 @@ export function ClientDetail({
                 <div className="flex-1" />
                 {!confirmDel && isAdmin ? (
                     custAcct ? (
-                        // 이미 발급된 고객 계정 — 발급 버튼 대신 고객 아이디 표시(클릭 시 재발급/비번재설정 모달).
-                        <button
-                            className="rounded-md border border-[#c7d2fe] bg-[#eef2ff] px-3 py-1.5 text-left text-xs font-semibold text-[#4338ca] hover:bg-[#e0e7ff]"
-                            onClick={() => setCustAcctOpen(true)}
-                            title="고객 ERP 계정 — 클릭하면 재발급/비밀번호 재설정"
-                            type="button"
-                        >
-                            <span className="block text-[10px] font-normal text-[#818cf8]">고객 ERP 아이디</span>
-                            {custAcct.email}
-                        </button>
+                        // 이미 발급된 고객 계정 — 아이디 클릭 시 그 고객 ERP로 이동. 옆 '재발급'으로 비번 재설정.
+                        <div className="flex items-stretch gap-1">
+                            <button
+                                className="rounded-md border border-[#c7d2fe] bg-[#eef2ff] px-3 py-1.5 text-left text-xs font-semibold text-[#4338ca] hover:bg-[#e0e7ff]"
+                                onClick={goCustomerErp}
+                                title="클릭하면 이 고객의 ERP로 이동"
+                                type="button"
+                            >
+                                <span className="block text-[10px] font-normal text-[#818cf8]">고객 ERP 아이디 →</span>
+                                {(custAcct.email || '').split('@')[0] || custAcct.email}
+                            </button>
+                            <button
+                                className="rounded-md border border-[#c7d2fe] bg-white px-2 py-1.5 text-[11px] font-semibold text-[#6366f1] hover:bg-[#eef2ff]"
+                                onClick={() => setCustAcctOpen(true)}
+                                title="재발급 / 비밀번호 재설정"
+                                type="button"
+                            >
+                                재발급
+                            </button>
+                        </div>
                     ) : (
                         <button
                             className="rounded-md border border-[#7c3aed] bg-white px-3 py-1.5 text-sm font-semibold text-[#7c3aed] hover:bg-[#f5f3ff]"
