@@ -2,6 +2,8 @@ import { useMemo, useRef, useState } from 'react';
 import { getFontEmbedCSS, toPng } from 'html-to-image';
 import { generateCafe } from '../api/cafeWriter';
 import {
+    buildCafePost,
+    defaultCafeTitle,
     DEFAULT_CAFE_CONTENT,
     mergeCafeContent,
     type CafeContent,
@@ -54,9 +56,11 @@ function CafePage() {
     const [business, setBusiness] = useState('누수탐지');
 
     const [content, setContent] = useState<CafeContent>(DEFAULT_CAFE_CONTENT);
+    const [title, setTitle] = useState(defaultCafeTitle(DEFAULT_CAFE_CONTENT));
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
     const [downloading, setDownloading] = useState(false);
+    const [copied, setCopied] = useState(false);
 
     const cardRefs = useRef<Array<HTMLDivElement | null>>([]);
 
@@ -68,6 +72,18 @@ function CafePage() {
         [brand, branch, phone, region],
     );
     const cards = useMemo<CafeContent>(() => ({ ...content, ...fixed }), [content, fixed]);
+    // 카페 글쓰기용 본문(제목 + 「사진 N」 위치 + 설명글) — 카드와 같은 문구로 조립.
+    const postText = useMemo(() => buildCafePost(cards, title), [cards, title]);
+
+    const copyBody = async () => {
+        try {
+            await navigator.clipboard.writeText(postText);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+        } catch {
+            setMsg('복사 실패 — 본문 영역을 직접 선택해 복사하세요.');
+        }
+    };
 
     const onGenerate = async () => {
         if (!keyword.trim() || busy) return;
@@ -77,6 +93,7 @@ function CafePage() {
             const { content: gen } = await generateCafe({ brand, branch, business, keyword, phone, region });
             const merged = mergeCafeContent({ ...gen, ...fixed });
             setContent(merged);
+            setTitle(defaultCafeTitle(merged));
             if (gen.region && !region) setRegion(gen.region);
             setMsg('원고 생성 완료 — 아래에서 문구를 수정하고 카드를 다운로드하세요.');
         } catch (e) {
@@ -163,6 +180,36 @@ function CafePage() {
                     </button>
                     {msg ? <span className="text-[13px] text-[#6366f1]">{msg}</span> : null}
                 </div>
+            </div>
+
+            {/* 카페 본문 (복사용) — 카페 글쓰기에 붙여넣고 「사진 N」 위치에 해당 PNG를 넣으면 됨 */}
+            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[13px] font-bold text-[#334155]">카페 본문 (복사용)</div>
+                    <button
+                        className="h-9 rounded-md bg-[#0f766e] px-4 text-sm font-bold text-white hover:bg-[#115e59]"
+                        onClick={() => void copyBody()}
+                        type="button"
+                    >
+                        {copied ? '복사됨 ✓' : '본문 전체 복사'}
+                    </button>
+                </div>
+                <label className="mb-2 grid gap-1">
+                    <span className="text-[12px] font-semibold text-[#475569]">제목</span>
+                    <input
+                        className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
+                        onChange={(e) => setTitle(e.target.value)}
+                        value={title}
+                    />
+                </label>
+                <textarea
+                    className="h-[300px] w-full rounded-md border border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 text-[13px] leading-6 text-[#0f172a]"
+                    readOnly
+                    value={postText}
+                />
+                <p className="mt-1.5 text-[12px] text-[#64748b]">
+                    카페 글쓰기에 붙여넣은 뒤, 본문의 <b>「사진 N」</b> 위치에 아래 <b>N번 PNG</b>를 순서대로 삽입하면 됩니다. (문구는 위 “원고 수정”을 고치면 본문·카드에 자동 반영)
+                </p>
             </div>
 
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto]">

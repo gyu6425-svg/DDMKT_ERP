@@ -145,6 +145,85 @@ export const DEFAULT_CAFE_CONTENT: CafeContent = {
     promiseClose2: '지금 확인하는 것이 가장 비용을 아끼는 방법입니다.',
 };
 
+// 카페 글쓰기에 붙여넣을 '본문 원고' 조립 — 카드(이미지) 사이사이에 「사진 N」 위치 표시 + 그 카드 설명글.
+//   카드와 100% 같은 문구를 쓰므로 이미지↔본문이 어긋나지 않는다. 반환 = 복사용 전체 텍스트(제목 포함).
+export function buildCafePost(c: CafeContent, title: string): string {
+    const L: string[] = [];
+    const sec = (n: number, label: string) => L.push('', `「사진 ${n}」 ${label}`, '');
+
+    if (title.trim()) {
+        L.push(title.trim(), '');
+    }
+    // 사진 1 — 커버
+    sec(1, '커버');
+    L.push(`안녕하세요, ${c.brand} ${c.branch}입니다.`);
+    L.push(`"${c.coverEmphasisPre} ${c.coverEmphasisHi} ${c.coverEmphasisPost}"`);
+    L.push(`저희는 ${c.areaWide} 지역을 중심으로 누수 원인 진단부터 탐지·공사 상담까지 진행하는 ${c.coverSub.replace(/\s*전문\s*$/, '')} 전문 업체입니다.`);
+
+    // 사진 2 — 상황
+    sec(2, '이런 상황 아니신가요?');
+    L.push('■ 지금 혹시 이런 상황 아니신가요?');
+    c.situations.forEach((s) => L.push(`· ${s}`));
+    L.push(c.situationWarn + '.');
+
+    // 사진 3 — 피해
+    sec(3, '미룰수록 커지는 누수 피해');
+    L.push('■ 미룰수록 커지는 누수 피해');
+    c.damages.forEach((d) => L.push(`· ${d.period} ▶ ${d.text}`));
+    L.push(`그래서 ${c.damagePunch1} ${c.damagePunch2}이라고 말씀드리는 것입니다.`);
+
+    // 사진 4 — 방식
+    sec(4, '저희는 다릅니다');
+    L.push('■ 무조건 철거부터 하지 않습니다');
+    L.push(`${c.wayIntroPre} ${c.wayIntroHi}${c.wayIntroPost}`);
+    c.waySteps.forEach((s, i) => L.push(`${i + 1}. ${s}`));
+    L.push(`${c.wayFooter}.`);
+
+    // 사진 5 — 자가점검
+    sec(5, '이런 경우 바로 점검');
+    L.push('■ 이런 경우 바로 점검이 필요합니다');
+    c.checklist.forEach((s) => L.push(`· ${s}`));
+
+    // 사진 6 — 시기
+    sec(6, '발견이 빠를수록');
+    L.push('■ 발견이 빠를수록 공사는 작아집니다');
+    L.push(`${c.whyIntroPre} ${c.whyIntroHi}${c.whyIntroPost}`);
+    L.push(`· ${c.whyEarlyLabel} ${c.whyEarly}`);
+    L.push(`· ${c.whyLateLabel} ${c.whyLate}`);
+
+    // 사진 7 — 서비스
+    sec(7, '주요 서비스');
+    L.push('■ 건물부터 배관까지 모든 누수를 다룹니다');
+    L.push(c.buildingTypes.join(' · ') + ' 누수탐지');
+    L.push(c.leakTypes.join(' · '));
+    L.push(`${c.serviceFooter}.`);
+
+    // 사진 8 — FAQ
+    sec(8, '자주 묻는 질문');
+    L.push('■ 가장 많이 물어보시는 질문');
+    c.faqs.forEach((f) => {
+        L.push(`Q. ${f.q}`);
+        L.push(`A. ${f.a}`);
+    });
+
+    // 사진 9 — 약속 + 연락처
+    sec(9, '약속 + 연락처');
+    L.push(`■ ${c.brand} ${c.branch}이 약속드립니다`);
+    c.promises.forEach((p, i) => L.push(`${i + 1}. ${p}`));
+    L.push('');
+    L.push(c.promiseClose1);
+    L.push(c.promiseClose2);
+    L.push('');
+    L.push(`▶ 24시간 상담문의: ${c.phone}`);
+
+    return L.join('\n');
+}
+
+// 제목 기본값 — 지역 + 강조문구 기반(수정 가능).
+export function defaultCafeTitle(c: CafeContent): string {
+    return `${c.region} 누수탐지 | ${c.coverEmphasisPre} ${c.coverEmphasisHi} ${c.coverEmphasisPost}`;
+}
+
 // 생성 결과(부분 JSON)를 기본값과 병합 — 누락 필드는 기본값 유지(카드가 비지 않게).
 export function mergeCafeContent(partial: Partial<CafeContent> | null | undefined): CafeContent {
     const base = DEFAULT_CAFE_CONTENT;
