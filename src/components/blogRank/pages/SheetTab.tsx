@@ -33,6 +33,7 @@ export function SheetTab() {
         goCrawl: onGoCrawl,
         goTrackerBlog: onGoTrackerBlog,
         sheetQ: initialQ,
+        setSheetQ,
         customerMode,
         reporterMode,
     } = useBlogRank();
@@ -42,6 +43,11 @@ export function SheetTab() {
     useEffect(() => {
         if (initialQ) setQ(initialQ);
     }, [initialQ]);
+    // 시트 검색어를 컨텍스트에 반영 → 순위 트래커 탭으로 넘어갈 때 그 업체가 유지되게.
+    useEffect(() => {
+        setSheetQ(q);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [q]);
     const [mgr, setMgr] = useState('');
     const [lowOnly, setLowOnly] = useState(false);
     const [sortKey, setSortKey] = useState<'remain' | 'prog' | 'date'>('date'); // 기본=계약일 최신순

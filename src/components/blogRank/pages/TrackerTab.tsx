@@ -13,9 +13,15 @@ export function TrackerTab() {
         reload: onReload,
         trackerInOnly: initialInOnly,
         trackerCo: initialCo,
+        setTrackerCo,
         customerMode,
     } = useBlogRank();
     const [co, setCo] = useState(initialCo);
+    // 트래커 드롭다운 선택을 컨텍스트에 반영 → 관리 시트 탭으로 넘어갈 때 그 업체가 유지되게.
+    useEffect(() => {
+        setTrackerCo(co);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [co]);
     const [nameQ, setNameQ] = useState('');
     const [month, setMonth] = useState('');
     const [inOnly, setInOnly] = useState(initialInOnly);

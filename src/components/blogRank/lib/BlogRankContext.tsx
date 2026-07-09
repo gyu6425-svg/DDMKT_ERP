@@ -19,8 +19,10 @@ type BlogRankCtx = {
     goTab: (key: Tab) => void;
     // 탭 간 이동 시 전달되는 초기 필터(일반 탭 이동 시 goTab 이 해제).
     trackerInOnly: boolean; // 통합 10위 이내만
-    trackerCo: string; // 특정 업체만(시트 업체명 클릭)
-    sheetQ: string; // 시트 검색 초기값(대시보드 재계약 임박 클릭)
+    trackerCo: string; // 특정 업체만(시트 업체명 클릭) — 트래커 라이브 선택도 여기 동기화
+    setTrackerCo: (id: string) => void; // 트래커 드롭다운 선택을 컨텍스트에 반영(탭 전환 시 유지)
+    sheetQ: string; // 시트 검색 초기값(대시보드 재계약 임박 클릭) — 시트 라이브 검색도 여기 동기화
+    setSheetQ: (q: string) => void; // 시트 검색어를 컨텍스트에 반영(탭 전환 시 유지)
     // 탭 간 이동 헬퍼.
     goTracker10: () => void; // 대시보드 → 트래커(통합10위 필터)
     goSheetBlog: (name: string) => void; // 대시보드 → 시트(업체검색)
@@ -77,6 +79,28 @@ export function BlogRankProvider({
     const [sheetQ, setSheetQ] = useState(() => new URLSearchParams(window.location.search).get('q') || '');
 
     const goTab = (key: Tab) => {
+        // 관리 시트 ↔ 순위 트래커: 선택된 업체(트래커 co ↔ 시트 검색어)를 서로 이어받아 초기화 방지.
+        if (key === 'sheet') {
+            // 트래커에서 특정 업체가 선택돼 있으면 그 업체명으로 시트 검색을 채움.
+            const name = trackerCo ? accounts.find((a) => a.id === trackerCo)?.name ?? '' : sheetQ;
+            setSheetQ(name);
+            setTrackerInOnly(false);
+            setTab('sheet'); // trackerCo 유지 → 다시 트래커로 가도 그 업체 유지
+            return;
+        }
+        if (key === 'tracker') {
+            // 시트 검색어가 있으면 매칭되는 블로그를 트래커 선택으로.
+            let co = trackerCo;
+            if (sheetQ) {
+                const s = sheetQ.trim().toLowerCase();
+                const hit = accounts.find((a) => (a.name ?? '').toLowerCase().includes(s));
+                if (hit) co = hit.id;
+            }
+            setTrackerCo(co);
+            setTab('tracker');
+            return;
+        }
+        // 그 외 탭(대시보드/크롤/작성기) = 필터 초기화.
         setTrackerInOnly(false);
         setTrackerCo('');
         setSheetQ('');
@@ -206,7 +230,9 @@ export function BlogRankProvider({
         goTab,
         trackerInOnly,
         trackerCo,
+        setTrackerCo,
         sheetQ,
+        setSheetQ,
         goTracker10: () => {
             setTrackerInOnly(true);
             setTab('tracker');
