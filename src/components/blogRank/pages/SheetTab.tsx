@@ -60,6 +60,7 @@ export function SheetTab() {
     const [noteAcc, setNoteAcc] = useState<BlogAccount | null>(null);
     const [weeklyAcc, setWeeklyAcc] = useState<BlogAccount | null>(null);
     const [reporterAcc, setReporterAcc] = useState<BlogAccount | null>(null);
+    const [historyAcc, setHistoryAcc] = useState<BlogAccount | null>(null); // 지난 기자단 이력 모달
     const [reportAcc, setReportAcc] = useState<BlogAccount | null>(null); // 성과 보고서 글 선택 모달
     const [progressAcc, setProgressAcc] = useState<BlogAccount | null>(null);
     const [crawlingId, setCrawlingId] = useState<string | null>(null);
@@ -577,6 +578,20 @@ export function SheetTab() {
                                                             <span className="text-[#cbd5e1]">+ 기자단 텍스트</span>
                                                         )}
                                                     </button>
+                                                    {/* 지난 기자단 기록 보기 — reporter_history 이력이 있을 때만 */}
+                                                    {(a.reporter_history?.length ?? 0) > 0 ? (
+                                                        <button
+                                                            className="rounded border border-[#c4b5fd] bg-white px-1.5 py-0.5 text-[10px] font-semibold text-[#6d28d9] hover:bg-[#f5f3ff]"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setHistoryAcc(a);
+                                                            }}
+                                                            title="이 블로그의 지난 기자단 기록"
+                                                            type="button"
+                                                        >
+                                                            기자단 히스토리
+                                                        </button>
+                                                    ) : null}
                                                 </div>
                                                     );
                                                 })()}
@@ -806,6 +821,55 @@ export function SheetTab() {
                     onToast={onToast}
                     placeholder="예: A팀"
                 />
+            ) : null}
+            {/* 지난 기자단 히스토리(읽기 전용) — 이 블로그를 담당했던 기자단 기록을 최근순으로 표시 */}
+            {historyAcc ? (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                    onMouseDown={(e) => e.target === e.currentTarget && setHistoryAcc(null)}
+                >
+                    <div className="w-[min(420px,94vw)] rounded-2xl bg-white p-6">
+                        <h3 className="m-0 text-lg font-bold">{historyAcc.name} · 기자단 히스토리</h3>
+                        <p className="mt-1 mb-3 text-sm text-[#64748b]">
+                            이 블로그를 담당했던 기자단 기록(최근순)입니다.
+                        </p>
+                        <div className="grid max-h-[50vh] gap-1 overflow-y-auto">
+                            {(historyAcc.reporter_history?.length ?? 0) ? (
+                                [...(historyAcc.reporter_history || [])].reverse().map((e, i) => (
+                                    <div
+                                        className="flex items-center gap-2 rounded-md border border-[#eef2f7] px-3 py-2 text-sm"
+                                        key={i}
+                                    >
+                                        {i === 0 ? (
+                                            <span className="rounded bg-[#dcfce7] px-1.5 py-0.5 text-[10px] font-bold text-[#16a34a]">
+                                                현재
+                                            </span>
+                                        ) : (
+                                            <span className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[10px] font-semibold text-[#64748b]">
+                                                이전
+                                            </span>
+                                        )}
+                                        <span className="font-semibold text-[#0f172a]">{e.value}</span>
+                                        <span className="ml-auto text-xs text-[#94a3b8]">{e.date || '날짜 미입력'}</span>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="rounded-md border border-dashed border-[#cbd5e1] px-3 py-4 text-center text-xs text-[#94a3b8]">
+                                    기록 없음
+                                </div>
+                            )}
+                        </div>
+                        <div className="mt-4 flex justify-end">
+                            <button
+                                className="rounded-md border border-[#cbd5e1] px-4 py-2 text-sm font-semibold text-[#64748b]"
+                                onClick={() => setHistoryAcc(null)}
+                                type="button"
+                            >
+                                닫기
+                            </button>
+                        </div>
+                    </div>
+                </div>
             ) : null}
             {progressAcc ? (
                 <ProgressModal
