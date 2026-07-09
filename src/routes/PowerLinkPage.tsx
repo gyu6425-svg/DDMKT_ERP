@@ -313,7 +313,7 @@ export default function PowerLinkPage() {
 
   // ── 패턴 조작 ──
   const addPattern = (p) => {
-    if (p.length < 2) return;
+    if (p.length < 1) return; // 단일 컬럼(1개) 패턴도 허용 — 예: 지역만 → "서울 강남구, 서울 강동구…"
     setPatterns((prev) => prev.some((x) => patternKey(x) === patternKey(p)) ? prev : [...prev, p]);
   };
   const addAllCombinations = () => {
@@ -334,8 +334,12 @@ export default function PowerLinkPage() {
   // ── 행정구역 선택기 ──
   const pickerSidoList = Object.keys(KOREA_REGIONS);
   const pickerSggList = Object.keys(KOREA_REGIONS[pickerSido] || {});
+  // 구를 하나도 안 고르면(pickerSggs 빈 값) 그 시/도의 전체 구를 대상으로 생성. 고르면 고른 구들만.
   const pickerTerms = useMemo(
-    () => genRegionTerms(pickerSido, pickerSggs, pickerFmt, mergeNum),
+    () => {
+      const sggs = pickerSggs.length ? pickerSggs : Object.keys(KOREA_REGIONS[pickerSido] || {});
+      return genRegionTerms(pickerSido, sggs, pickerFmt, mergeNum);
+    },
     [pickerSido, pickerSggs, pickerFmt, mergeNum]
   );
   const toggleSgg = (sgg) =>
@@ -634,7 +638,7 @@ export default function PowerLinkPage() {
               {/* 시군구 */}
               <div style={{ flex: 1, minWidth: 240 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-                  <span style={{ fontSize: 11.5, color: COLORS.sub, fontWeight: 600 }}>시 / 군 / 구 ({pickerSggs.length}개 선택)</span>
+                  <span style={{ fontSize: 11.5, color: COLORS.sub, fontWeight: 600 }}>시 / 군 / 구 {pickerSggs.length ? `(${pickerSggs.length}개 선택)` : `(미선택 = 전체 ${pickerSggList.length}개 포함)`}</span>
                   <button onClick={toggleAllSgg} style={{ ...btn("ghost"), padding: "3px 9px", fontSize: 11.5 }}>{allSggSelected ? "전체해제" : "전체선택"}</button>
                 </div>
                 <div style={{ maxHeight: 110, overflowY: "auto", display: "flex", flexWrap: "wrap", gap: 5, padding: "8px 10px", background: "#fff", borderRadius: 8, border: `1px solid ${COLORS.line}` }}>
@@ -837,7 +841,7 @@ export default function PowerLinkPage() {
                 ))}
             </div>
             <button onClick={() => setBuilding((b) => b.slice(0, -1))} disabled={!building.length} style={{ ...btn("ghost"), opacity: building.length ? 1 : 0.4 }}>지우기</button>
-            <button onClick={() => { addPattern(building); setBuilding([]); }} disabled={building.length < 2} style={{ ...btn("dark"), opacity: building.length >= 2 ? 1 : 0.4 }}>패턴 추가</button>
+            <button onClick={() => { addPattern(building); setBuilding([]); }} disabled={building.length < 1} style={{ ...btn("dark"), opacity: building.length >= 1 ? 1 : 0.4 }}>패턴 추가</button>
           </div>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
