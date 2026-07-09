@@ -18,7 +18,12 @@ import {
 // 플레이스 순위 트래커 — 업체(플레이스 URL)별 키워드의 날짜별 순위 표(애드로그류).
 //   순위 값은 크롤러(place_rank_crawler.py)가 매일 기록. 여기선 업체·키워드 등록/삭제 + 조회.
 
-const RECENT_DAYS = 10; // 표에 보여줄 최근 날짜 컬럼 수
+const DEFAULT_SHOWN = 8; // 순위 스트립에 기본으로 한 줄에 보여줄 카드 수(나머지는 '더보기')
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+const weekdayOf = (date: string) => {
+    const [y, m, d] = date.split('-').map(Number);
+    return WEEKDAYS[new Date(y, (m || 1) - 1, d || 1).getDay()] || '';
+};
 
 // 순위 셀 클릭 → 그 키워드의 네이버 플레이스 검색(순위) 화면.
 const placeSearchUrl = (kw: string) =>
@@ -43,6 +48,13 @@ export function PlaceRankTracker() {
     const [kwInput, setKwInput] = useState<Record<string, string>>({}); // accountId → 입력값
     const [busy, setBusy] = useState(false);
     const [toast, setToast] = useState('');
+    const [expanded, setExpanded] = useState<Set<string>>(new Set()); // 순위 전체 펼친 키워드 id
+    const toggleExpand = (id: string) =>
+        setExpanded((p) => {
+            const n = new Set(p);
+            n.has(id) ? n.delete(id) : n.add(id);
+            return n;
+        });
 
     const reload = async () => {
         setLoading(true);
@@ -59,13 +71,6 @@ export function PlaceRankTracker() {
         setToast(m);
         window.setTimeout(() => setToast(''), 2500);
     };
-
-    // 최근 날짜 컬럼 — 모든 키워드 measurements 날짜 합집합에서 최신 N개.
-    const dates = useMemo(() => {
-        const s = new Set<string>();
-        for (const k of keywords) for (const m of k.measurements || []) s.add(m.date);
-        return [...s].sort().reverse().slice(0, RECENT_DAYS);
-    }, [keywords]);
 
     const kwByAccount = useMemo(() => {
         const map = new Map<string, PlaceKeyword[]>();
@@ -203,6 +208,51 @@ export function PlaceRankTracker() {
         </td>
     );
 
+    // 순위 스트립 — 그 키워드의 날짜별 순위를 한 줄로 나열(최신순). 기본 DEFAULT_SHOWN개, '더보기'로 처음 측정까지 전부.
+    const rankStrip = (k: PlaceKeyword) => {
+        const ms = [...(k.measurements || [])].sort((a, b) => b.date.localeCompare(a.date));
+        if (!ms.length)
+            return <span className="text-[11px] text-[#cbd5e1]">아직 측정 없음 · 매일 자동 기록됩니다</span>;
+        const exp = expanded.has(k.id);
+        const shown = exp ? ms : ms.slice(0, DEFAULT_SHOWN);
+        return (
+            <div className="flex items-center gap-2">
+                <div className="flex gap-1 overflow-x-auto pb-0.5">
+                    {shown.map((m) => {
+                        const { label, color } = rankText(m);
+                        return (
+                            <a
+                                className="shrink-0 rounded-lg border border-[#e2e8f0] bg-white px-2.5 py-1 text-center leading-tight transition hover:border-[#1e40af] hover:shadow-sm"
+                                href={placeSearchUrl(k.keyword)}
+                                key={m.date}
+                                rel="noreferrer"
+                                target="_blank"
+                                title={`${m.date} · 네이버 플레이스 검색`}
+                            >
+                                <div className="text-[10px] font-medium text-[#94a3b8]">
+                                    {m.date.slice(5)}
+                                    <span className="ml-0.5 text-[#cbd5e1]">({weekdayOf(m.date)})</span>
+                                </div>
+                                <div className="text-[13px] font-extrabold" style={{ color }}>
+                                    {label}
+                                </div>
+                            </a>
+                        );
+                    })}
+                </div>
+                {ms.length > DEFAULT_SHOWN ? (
+                    <button
+                        className="shrink-0 rounded-md border border-[#cbd5e1] bg-white px-2 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                        onClick={() => toggleExpand(k.id)}
+                        type="button"
+                    >
+                        {exp ? '접기' : `더보기 +${ms.length - DEFAULT_SHOWN}`}
+                    </button>
+                ) : null}
+            </div>
+        );
+    };
+
     if (loading) {
         return <div className="py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
     }
@@ -268,13 +318,10 @@ export function PlaceRankTracker() {
                     <table className="w-full min-w-[720px] border-collapse text-sm">
                         <thead>
                             <tr className="bg-[#f1f5f9] text-left text-[12px] text-[#475569]">
-                                <th className="px-3 py-2 font-semibold">업체</th>
+                                <th className="px-3 py-2 font-semibold">업체명</th>
                                 <th className="px-3 py-2 font-semibold">검색 키워드</th>
-                                {dates.map((d) => (
-                                    <th className="px-2 py-2 text-center font-semibold" key={d}>
-                                        {d.slice(5)}
-                                    </th>
-                                ))}
+                                <th className="px-3 py-2 font-semibold">순위 (일별)</th>
+                                <th className="px-3 py-2 text-center font-semibold">월 검색량</th>
                                 <th className="px-2 py-2" />
                             </tr>
                         </thead>
@@ -286,27 +333,14 @@ export function PlaceRankTracker() {
                                     .map((k, ki) => (
                                         <tr className="border-t border-[#f1f5f9]" key={k.id}>
                                             {ki === 0 ? accountCell(acc, rowCount) : null}
-                                            <td className="px-3 py-2 font-semibold text-[#7c3aed]">
+                                            <td className="whitespace-nowrap px-3 py-2 align-top font-semibold text-[#7c3aed]">
                                                 {k.keyword}
                                             </td>
-                                            {dates.map((d) => {
-                                                const m = (k.measurements || []).find((x) => x.date === d);
-                                                const { label, color } = rankText(m);
-                                                return (
-                                                    <td className="px-2 py-2 text-center font-bold" key={d}>
-                                                        <a
-                                                            href={placeSearchUrl(k.keyword)}
-                                                            rel="noreferrer"
-                                                            style={{ color }}
-                                                            target="_blank"
-                                                            title="네이버 플레이스 검색 화면"
-                                                        >
-                                                            {label}
-                                                        </a>
-                                                    </td>
-                                                );
-                                            })}
-                                            <td className="px-2 py-2 text-center">
+                                            <td className="max-w-[520px] px-3 py-2 align-top">{rankStrip(k)}</td>
+                                            <td className="px-3 py-2 text-center align-top text-[12px] text-[#cbd5e1]">
+                                                —
+                                            </td>
+                                            <td className="px-2 py-2 text-center align-top">
                                                 <button
                                                     className="text-[11px] text-[#94a3b8] hover:text-[#dc2626]"
                                                     onClick={() => void removeKeyword(k.id)}
@@ -320,7 +354,7 @@ export function PlaceRankTracker() {
                                     .concat(
                                         <tr className="border-t border-[#f1f5f9] bg-[#fafbff]" key={acc.id + ':add'}>
                                             {kws.length === 0 ? accountCell(acc, 1) : null}
-                                            <td className="px-3 py-2" colSpan={dates.length + 2}>
+                                            <td className="px-3 py-2" colSpan={4}>
                                                 <div className="flex gap-1">
                                                     <input
                                                         className="h-8 w-56 rounded-md border border-[#cbd5e1] px-2 text-[13px]"
