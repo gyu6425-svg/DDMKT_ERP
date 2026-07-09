@@ -47,15 +47,19 @@ function Sidebar() {
         });
     const { signOut, role, isAdmin, canManageSheet, profile } = useAuth();
     // 고객(viewer) — 자기 계약(RLS 스코프) 중 '시트 승인(sheet_approved)'된 것만 메뉴에 노출.
+    //   내부(관리자) '고객 ERP' 토글 미리보기(?as=<업체>)면 그 업체 계약으로 로드 → 실제 로그인과 동일 메뉴.
+    const previewAs = new URLSearchParams(loc.search).get('as') || '';
+    const isCustomerViewPath = currentPath.startsWith('/portal');
     const [custContracts, setCustContracts] = useState<ClientContract[]>([]);
     useEffect(() => {
-        if (role !== 'viewer') return;
+        // viewer 본인(RLS 스코프) 또는 내부 미리보기(고객뷰 경로 + ?as 대상)일 때만.
+        if (role !== 'viewer' && !(isCustomerViewPath && previewAs)) return;
         let alive = true;
-        void getClientContracts().then(({ data }) => alive && setCustContracts(data));
+        void getClientContracts(previewAs || undefined).then(({ data }) => alive && setCustContracts(data));
         return () => {
             alive = false;
         };
-    }, [role]);
+    }, [role, previewAs, isCustomerViewPath]);
     // 계약 → (카테고리 → 하위유형 집합). 컨테이너(보장형/종합광고) 하위는 실제 카테고리로 역추적.
     const custCatMap = useMemo(() => {
         const m = new Map<string, Set<string>>();
@@ -126,7 +130,7 @@ function Sidebar() {
     // 카테고리 대시보드(관리자 전용)를 '계약 관리' 바로 밑에 배치.
     const afterContracts = navigationItems.findIndex((i) => i.path === '/contracts') + 1;
     // 고객 ERP(/portal*)·기자단 ERP(/reporter)에서는 내부 메뉴를 숨기고 각 전용 메뉴만 보여준다.
-    const isCustomerView = currentPath.startsWith('/portal');
+    const isCustomerView = isCustomerViewPath;
     const isReporterView = currentPath.startsWith('/reporter');
 
     return (
