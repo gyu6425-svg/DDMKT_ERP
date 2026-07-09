@@ -516,7 +516,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         const shown = new Set(filtered.map((c) => c.id));
         const cliById = new Map(clients.map((c) => [c.id, c]));
         let supply = 0;
-        let outs = 0;
+        let outs = 0; // 예상(받은) 외주비 = Σ ct.outsource
+        let used = 0; // 실제 사용(소진) 외주비 = Σ completedOutsource
         let total = 0; // 실매출 — 계약별 부가세(현금이면 VAT 미포함) 합산
         for (const ct of clientContracts) {
             if (!shown.has(ct.client_id)) continue;
@@ -535,9 +536,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             }
             supply += ct.amount || 0;
             outs += ct.outsource || 0;
+            used += completedOutsource(ct); // 실제 사용(진행 완료분 소진)
             total += saleVat(ct.amount, ct.no_vat); // 계약별 VAT
         }
-        return { supply, vat: total - supply, total, outs, net: supply - outs };
+        // 남은 차액 = 예상 외주비 − 실제 사용 외주비(아직 안 쓴 외주비 여유분).
+        return { supply, vat: total - supply, total, outs, used, diff: outs - used, net: supply - outs };
     }, [filtered, clients, clientContracts, monthFilter, yearFilter]);
 
     // 계약 관리 KPI — 계약 중(계약완료 고객 수) + 재계약 임박(카테고리 계약 중 잔여 5건 이하).
@@ -1122,7 +1125,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                         </span>
                         <span className="text-xs font-semibold text-[#64748b]">매출 요약</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                         {(
                             [
                                 ['공급가액', revenueSummary.supply, '#334155'],
@@ -1130,6 +1133,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                 ['실매출 (VAT 포함)', revenueSummary.total, '#1e40af'],
                                 ['외주비', revenueSummary.outs, '#dc2626'],
                                 ['순매출 (공급가−외주)', revenueSummary.net, '#059669'],
+                                // 남은 차액 = 예상 외주비 − 실제 사용 외주비(아직 안 쓴 외주비 여유분). 음수면 빨강.
+                                ['남은 차액 (예상−사용)', revenueSummary.diff, revenueSummary.diff < 0 ? '#dc2626' : '#7c3aed'],
                             ] as [string, number, string][]
                         ).map(([label, val, color]) => (
                             <div
