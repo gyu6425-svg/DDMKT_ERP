@@ -137,6 +137,18 @@ export async function getReporters() {
     return { data: data ?? [], error };
 }
 
+// 고객(viewer) 계정 목록 — 고객 ERP 검색 드롭다운에 로그인 아이디 표시용. RLS: 내부만 viewer 행 조회.
+export type ViewerProfile = { id: string; name: string | null; email: string; client_id: string | null };
+export async function getViewers() {
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('id,name,email,client_id')
+        .eq('role', 'viewer')
+        .eq('is_active', true)
+        .returns<ViewerProfile[]>();
+    return { data: data ?? [], error };
+}
+
 // 기자단 계정 삭제(admin) — Edge Function이 auth 유저+profiles 삭제 → 로그인 불가 + 담당 블로그 자동 해제.
 export async function deleteReporter(profileId: string): Promise<{ error: { message: string } | null }> {
     const { data, error } = await supabase.functions.invoke('clever-processor', {

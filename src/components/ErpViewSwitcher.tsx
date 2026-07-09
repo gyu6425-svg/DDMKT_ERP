@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { getClients, type ErpClient } from '../api/erp';
-import { getReporters, type ReporterProfile } from '../api/blogRank';
+import { getReporters, getViewers, type ReporterProfile, type ViewerProfile } from '../api/blogRank';
 
 // 회사 / 고객 / 기자단 ERP 토글 — 김종인·송민경(전부), 김다영(회사·기자단).
 //   회사 = 로그인한 본인 뷰. 고객/기자단 = 검색으로 대상 선택(내부 관리자 미리보기, RLS로 이미 접근 가능한 데이터).
@@ -40,7 +40,15 @@ function SearchPicker({
     }, []);
     const filtered = useMemo(() => {
         const s = q.trim().toLowerCase();
-        return (s ? items.filter((i) => i.label.toLowerCase().includes(s)) : items).slice(0, 30);
+        // 업체명 + 계정 아이디(sub) 둘 다 검색. 전체 스크롤로 보이게 상한 넉넉히.
+        return (
+            s
+                ? items.filter(
+                      (i) =>
+                          i.label.toLowerCase().includes(s) || (i.sub || '').toLowerCase().includes(s),
+                  )
+                : items
+        ).slice(0, 300);
     }, [q, items]);
 
     return (
@@ -118,8 +126,12 @@ export default function ErpViewSwitcher() {
 
     // 고객(업체) 목록(검색용) — 고객 토글 권한자만 직접 로드(ErpDataContext에 의존 X, /portal에서도 확실히 채움).
     const [clients, setClients] = useState<ErpClient[]>([]);
+    const [viewers, setViewers] = useState<ViewerProfile[]>([]);
     useEffect(() => {
-        if (showCustomer) void getClients().then(({ data }) => setClients(data ?? []));
+        if (showCustomer) {
+            void getClients().then(({ data }) => setClients(data ?? []));
+            void getViewers().then(({ data }) => setViewers(data)); // 업체별 로그인 아이디 매핑용
+        }
     }, [showCustomer]);
 
     // 외부 실계정은 기존 표기(토글 없음).
@@ -144,9 +156,18 @@ export default function ErpViewSwitcher() {
         </button>
     );
 
+    // 업체 client_id → 로그인 아이디(ddmkt_xxx) 매핑. 검색 우측 () 안에 계정 표시.
+    const loginByClient = new Map<string, string>();
+    viewers.forEach((v) => {
+        if (v.client_id) loginByClient.set(v.client_id, v.email.split('@')[0]);
+    });
     const clientItems = clients
         .filter((c) => c.company)
-        .map((c) => ({ id: c.id, label: c.company as string, sub: c.manager || undefined }));
+        .map((c) => {
+            const login = loginByClient.get(c.id);
+            return { id: c.id, label: c.company as string, sub: login ? `(${login})` : '(계정없음)' };
+        })
+        .sort((a, b) => a.label.localeCompare(b.label, 'ko'));
     // 기자단 = ddmkt_N 숫자 아이디 순으로 정렬(1,2,3…), 숫자 아닌 계정은 뒤로.
     const reporterNum = (email: string) => {
         const m = /^ddmkt_(\d+)@/.exec(email || '');
