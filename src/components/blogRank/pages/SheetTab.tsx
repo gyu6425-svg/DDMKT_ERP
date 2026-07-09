@@ -33,21 +33,17 @@ export function SheetTab() {
         goCrawl: onGoCrawl,
         goTrackerBlog: onGoTrackerBlog,
         sheetQ: initialQ,
-        setSheetQ,
         customerMode,
         reporterMode,
     } = useBlogRank();
     const { isAdmin } = useAuth(); // 기자단 계정 삭제(관리)는 관리자만
     const [q, setQ] = useState(initialQ);
     // 대시보드 '재계약 임박' 블로그 클릭으로 진입하면 그 업체명으로 검색 채움(마운트 타이밍 무관).
+    //   ※ 키 입력마다 컨텍스트(setSheetQ)를 갱신하면 Provider 전체가 매 키 리렌더돼 한글 IME 조합이
+    //     끊긴다(느린 PC에서 '썼다 지웠다'). 그래서 로컬 q 만 쓰고 컨텍스트 역동기화는 하지 않는다.
     useEffect(() => {
         if (initialQ) setQ(initialQ);
     }, [initialQ]);
-    // 시트 검색어를 컨텍스트에 반영 → 순위 트래커 탭으로 넘어갈 때 그 업체가 유지되게.
-    useEffect(() => {
-        setSheetQ(q);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [q]);
     const [mgr, setMgr] = useState('');
     const [lowOnly, setLowOnly] = useState(false);
     const [sortKey, setSortKey] = useState<'remain' | 'prog' | 'date'>('date'); // 기본=계약일 최신순

@@ -24,14 +24,20 @@ function useCooldownLeft(): number {
     const [, force] = useState(0);
     useEffect(() => {
         const f = () => force((n) => n + 1);
-        _coolSubs.add(f);
-        const iv = setInterval(f, 500);
+        _coolSubs.add(f); // 쿨다운 시작 시 startMeasureCooldown 이 전 행을 한 번 깨움
         return () => {
             _coolSubs.delete(f);
-            clearInterval(iv);
         };
     }, []);
-    return Math.max(0, Math.ceil((_coolUntil - Date.now()) / 1000));
+    const left = Math.max(0, Math.ceil((_coolUntil - Date.now()) / 1000));
+    // 쿨다운이 남아있는 동안에만 500ms 틱(카운트다운). 평소엔 인터벌 없음 →
+    //   행이 많아도 상시 리렌더가 없어 느린 PC에서 타이핑이 막히지 않는다.
+    useEffect(() => {
+        if (left <= 0) return;
+        const iv = setInterval(() => force((n) => n + 1), 500);
+        return () => clearInterval(iv);
+    }, [left <= 0]);
+    return left;
 }
 
 export type ExtraSearchResult = { ti: number; ti_status: string; bl: number; bl_status: string };
