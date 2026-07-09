@@ -5,6 +5,7 @@ import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { categoryByKey, type CategoryKey } from '../components/categoryRank/categories';
 import type { Tab } from '../components/blogRank/lib/helpers';
+import { CustomerPlaceRank } from './CustomerPlaceRank';
 
 // URL ?as=<id> 를 반응형으로 읽음 — 내부(관리자) 미리보기 대상(업체/기자단) 전환 시 재조회.
 export function useAsParam(): string {
@@ -72,6 +73,8 @@ function CustomerCategoryPage() {
                 <BlogRankProvider customerMode previewClientId={as || null}>
                     <BlogCustomerView />
                 </BlogRankProvider>
+            ) : key === 'place' ? (
+                <CustomerPlaceRank previewClientId={as || null} />
             ) : (
                 <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-6 py-16 text-center">
                     <div className="text-base font-semibold text-[#475569]">{def.label} — 준비 중</div>
