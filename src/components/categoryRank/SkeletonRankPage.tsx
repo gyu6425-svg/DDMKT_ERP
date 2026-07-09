@@ -95,7 +95,16 @@ export function CategoryDashPage({
         ) : (
             <Placeholder name={displayLabel} />
         );
-        return <CategoryShell label={displayLabel} tabs={[{ name: '관리 시트', el: sheet, slug: 'sheet' }]} />;
+        // 하위 뷰에도 '순위 트래커' 탭을 함께 노출 → 관리 시트에서 업체 클릭(?tab=tracker) 시 트래커로 이동 가능.
+        return (
+            <CategoryShell
+                label={displayLabel}
+                tabs={[
+                    { name: '관리 시트', el: sheet, slug: 'sheet' },
+                    { name: '순위 트래커', el: tracker ?? <Placeholder name="순위 트래커" />, slug: 'tracker' },
+                ]}
+            />
+        );
     }
 
     return (
