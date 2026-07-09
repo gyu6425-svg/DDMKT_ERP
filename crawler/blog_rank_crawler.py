@@ -970,49 +970,61 @@ def _rank_in_popular(html_text, blog_id, log_no=""):
     if not blocks:
         return OUT_OF_RANK, "fail"      # JSON 없음 = 차단/구조변경 → 권외와 구분
 
+    # 2026-07-09 사용자 재정의: 통합탭 = 맨 위 파워링크 광고·이미지/동영상·플레이스만 빼고, 그 아래
+    #   모든 결과 카드(블로그·카페·웹사이트/문서)를 화면 위에서부터 순차 카운트. blockId 템플릿으로 제외 판정.
+    #   (이전 '외부 웹사이트 제외' 규칙 폐기 — 웹사이트도 순위 칸으로 센다.)
     rank = 0
     for b in blocks:
         try:
             j = json.loads(b)
         except Exception:
             continue
-        # 광고(ader) 블록만 제외 — 단, 콘텐츠 카드(인기글 등)에 ader.naver.com 참조가 섞여 있어도
-        #   그 블록은 제외하지 않는다. (전주 출장뷔페 limebuffet 7위가 권외로 누락되던 버그: 인기글
-        #   ugB_bsR 블록에 ader 참조가 있어 통째로 광고 취급돼 제외됐음.) 진짜 광고는 _is_content_card=False.
-        if "ader.naver.com" in b and not _is_content_card(j, b):
-            continue
         area = _block_area(j)
-        if _block_min_r(j) >= 999:           # 비-결과 블록(AI/이미지/연관검색어) 제외
+        blk = (j.get("refs") or {}).get("blockId", "")
+        if _ti_excluded(area, blk, _block_min_r(j)):
             continue
-        if not _is_content_card(j, b):       # 외부 웹사이트(당근/사이트=관련문서 묶음)·블로그 채널카드 제외
-            continue                         #   = 통합탭(블로그·카페 콘텐츠 목록) 순위 아님. 외부 문서만인 web* 블록도 여기서 제외.
-        # 2026-06-29 변경: 섹션(area)이 바뀌어도 순위를 리셋하지 않는다 — 위/아래 섹션을 합산해
-        #   '위에서부터 연속 순위'로 센다(블로그/카페 인기글만). 이미지/웹/광고는 위에서 이미 제외됨.
-        # 2026-07-09 추가: 모바일 통합검색이 블로그 결과를 web_gen(web_basic) 스마트블록으로 렌더하는
-        #   레이아웃 대응. 과거엔 web* 를 웹사이트탭으로 보고 통째로 뺐으나(위너키친 '평택 주방기기'·'천안
-        #   주방집기' 1위가 권외로 누락됨), 그 블록이 네이버 블로그/카페 콘텐츠 카드면(_is_content_card=True)
-        #   통합탭 순위에 포함한다. 외부 문서만인 web 블록은 위 _is_content_card=False 로 이미 제외됨.
-        # ugB_*·web_gen(한 블록=여러 카드) 은 블록 안 카드를 r 순서로 한 칸씩 — 같은 블록의 다른 카드에
-        #   순위가 1로 뭉개지지 않게. urB_*(블록=카드 1개) 은 블록 등장 순서로 한 칸씩.
-        # log_no 있으면 '그 글'만 매칭(통합탭도 글 단위). 없으면 블로그 단위 매칭.
-        multi_cards = _ugb_cards(j) if (area.startswith("ugB") or _is_web_area(area)) else []
-        if multi_cards:
-            for r, prims in multi_cards:
+        cards = _ugb_cards(j)
+        if cards:
+            # 웹사이트 카드는 blog prims 가 비지만 화면 한 칸을 차지 → 함께 카운트(빈 카드도 rank+1).
+            for r, prims in cards:
                 rank += 1
                 for bid, lno in prims:
                     if (log_no and lno == log_no) or (not log_no and bid == blog_id):
                         return rank, "ok"
         else:
-            rank += 1                        # 위에서부터 보이는 카드 한 칸(섹션 합산)
+            rank += 1                        # r 카드가 없는 단일 결과 블록도 한 칸
             posts, profiles = _block_blog_entries(j)
             if _entry_match(blog_id, log_no, posts, profiles):
                 return rank, "ok"
     return OUT_OF_RANK, "out"
 
 
+# 통합탭에서 제외할 블록(파워링크 광고·이미지/동영상·플레이스·연관검색어) 판정 — blockId 템플릿 기반.
+#   포함(카운트): review(블로그)·web(웹사이트/문서)·ugc/cafe 등 '결과 카드' 블록.
+_TI_EXCLUDE_KEYS = (
+    "qra",                                   # 연관검색어/AI
+    "clip", "video", "vclip", "vod",         # 동영상
+    "image", "imgsr", "imagesearch", "imggrp",  # 이미지
+    "place", "loc_", "plc", "map_", "localbusiness",  # 플레이스/지도
+    "nad", "power", "plink", "brandsearch", "bizsite", "shopping",  # 광고/파워링크/쇼핑
+    "kin", "news",                           # 지식iN·뉴스
+)
+
+
+def _ti_excluded(area, blk, min_r):
+    """이 블록이 통합탭 순위 카운트 대상이 아니면(광고·이미지·플레이스·연관) True."""
+    if min_r >= 999:                         # 연관검색어/AI 등 비-결과
+        return True
+    a = (area or "").lower()
+    if a.startswith(("vdb", "imb")):         # 동영상(vdB)/이미지(imB) 섹션
+        return True
+    k = (blk or "").lower()
+    return any(x in k for x in _TI_EXCLUDE_KEYS)
+
+
 def _website_present(html_text, blog_id, log_no=""):
-    """통합검색 HTML 의 '웹사이트(문서)탭'(web* 섹션)에 우리 글/블로그가 있으면 '있음', 없으면 '없음'.
-    같은 통합탭 HTML 에서 추출(추가 요청 X). 차단/빈응답이면 'fail'."""
+    """(참고 저장용) 통합검색 web* 섹션에 우리 글/블로그가 있으면 '있음'. 트래커 웹사이트탭 컬럼은
+    제거됐지만 하위호환 위해 계산은 유지."""
     blocks = extract_bootstrap_json(html_text)
     if not blocks:
         return "fail"
@@ -1021,11 +1033,7 @@ def _website_present(html_text, blog_id, log_no=""):
             j = json.loads(b)
         except Exception:
             continue
-        if "ader.naver.com" in b:
-            continue
-        if not _is_web_area(_block_area(j)):     # 웹사이트(문서) 섹션만 본다
-            continue
-        if _is_content_card(j, b):               # 블로그/카페 콘텐츠(web_gen 스마트블록=통합탭)는 웹사이트탭 아님
+        if not _is_web_area(_block_area(j)):
             continue
         for bid, lno in _primary_blog_posts(j):
             if (log_no and lno == log_no) or (not log_no and bid == blog_id):

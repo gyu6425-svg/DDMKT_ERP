@@ -247,6 +247,9 @@ function ugbCards(j) {
 //   예) 안산 푸르지오9차: 오늘의집/부동산으로 시작하는 urB_coR=웹사이트/문서 섹션이 위에 있고,
 //   design_do_ 는 아래 urB_boR(블로그) 섹션 첫 카드 → 통합탭 1위. 누적이면 6위로 잘못 나옴.)
 //   섹션 = area 가 같은 연속 블록. area 바뀌면 1부터 다시. web*·ader·비결과(r없음) 제외, 매칭은 대표글로만.
+// 2026-07-09 사용자 재정의: 통합탭 = 맨 위 파워링크 광고·이미지/동영상·플레이스만 빼고, 그 아래 모든
+//   결과 카드(블로그·카페·웹사이트/문서)를 화면 위에서부터 순차 카운트. blockId 템플릿으로 제외 판정.
+//   (이전 '외부 웹사이트 제외' 규칙 폐기 — 웹사이트도 순위 칸으로 센다. 파이썬 _rank_in_popular 1:1)
 export function rankInPopular(html, blogId, logNo = '') {
     const blocks = extractBootstrapJson(html);
     if (!blocks.length) return { rank: OUT_OF_RANK, status: 'fail' };
@@ -258,27 +261,20 @@ export function rankInPopular(html, blogId, logNo = '') {
         } catch {
             continue;
         }
-        // 광고(ader) 블록만 제외 — 콘텐츠 카드(인기글)에 ader.naver.com 참조가 섞여도 제외 안 함
-        //   (전주 출장뷔페 limebuffet 7위가 권외로 누락되던 버그). 진짜 광고는 isContentCard=false.
-        if (b.includes('ader.naver.com') && !isContentCard(j, b)) continue;
         const area = blockArea(j);
-        if (isWebArea(area)) continue; // 웹사이트(문서)탭 섹션 제외 — 통합탭 순위 아님
-        if (blockMinR(j) >= 999) continue; // 비-결과 블록(AI/이미지/연관검색어) 제외
-        if (!isContentCard(j, b)) continue; // 외부 웹사이트(당근/사이트)·블로그 채널카드 제외 = 통합탭 콘텐츠 아님
-        // 2026-06-29 변경: 섹션(area)이 바뀌어도 순위 리셋 안 함 — 위/아래 섹션 합산해 위에서부터
-        //   연속 순위로 센다(블로그/카페 인기글만). 이미지/웹/광고는 위에서 이미 제외됨.
-        // ugB_*(한 블록=여러 카드, 예 ugB_bsR)은 블록 안 카드를 r 순서로 한 칸씩 — 같은 블록의 다른
-        //   카드(예 서천: sd44422 1위 … limebuffet 5위)에 순위가 1로 뭉개지지 않게.
-        // urB_*(블록=카드 1개)은 블록 등장 순서로 한 칸씩(블록 내부 r 무시 — 화면 위치와 1:1).
-        if (area.startsWith('ugB')) {
-            for (const [, prims] of ugbCards(j)) {
+        const blk = (j.refs || {}).blockId || '';
+        if (tiExcluded(area, blk, blockMinR(j))) continue;
+        const cards = ugbCards(j);
+        if (cards.length) {
+            // 웹사이트 카드는 blog prims 가 비지만 화면 한 칸 차지 → 함께 카운트(빈 카드도 rank+1).
+            for (const [, prims] of cards) {
                 rank += 1;
                 for (const [bid, lno] of prims) {
                     if ((logNo && lno === logNo) || (!logNo && bid === blogId)) return { rank, status: 'ok' };
                 }
             }
         } else {
-            rank += 1; // 위에서부터 보이는 카드 한 칸(섹션 합산)
+            rank += 1; // r 카드가 없는 단일 결과 블록도 한 칸
             const { posts, profiles } = blockBlogEntries(j);
             if (entryMatch(blogId, logNo, posts, profiles)) return { rank, status: 'ok' };
         }
@@ -286,8 +282,25 @@ export function rankInPopular(html, blogId, logNo = '') {
     return { rank: OUT_OF_RANK, status: 'out' };
 }
 
-// 웹사이트(문서)탭 존재 여부 — 통합검색 HTML 의 web* 섹션에 우리 글/블로그가 있으면 '있음', 없으면 '없음'.
-//   같은 통합탭 HTML 에서 추출(추가 요청 X). 차단/빈응답이면 'fail'. (파이썬 _website_present 1:1)
+// 통합탭에서 제외할 블록(파워링크 광고·이미지/동영상·플레이스·연관검색어) — blockId 템플릿 기반.
+//   포함(카운트): review(블로그)·web(웹사이트/문서)·ugc/cafe 등 결과 카드. (파이썬 _ti_excluded 1:1)
+const TI_EXCLUDE_KEYS = [
+    'qra',
+    'clip', 'video', 'vclip', 'vod',
+    'image', 'imgsr', 'imagesearch', 'imggrp',
+    'place', 'loc_', 'plc', 'map_', 'localbusiness',
+    'nad', 'power', 'plink', 'brandsearch', 'bizsite', 'shopping',
+    'kin', 'news',
+];
+function tiExcluded(area, blk, minR) {
+    if (minR >= 999) return true; // 연관검색어/AI 등 비-결과
+    const a = (area || '').toLowerCase();
+    if (a.startsWith('vdb') || a.startsWith('imb')) return true; // 동영상/이미지
+    const k = (blk || '').toLowerCase();
+    return TI_EXCLUDE_KEYS.some((x) => k.includes(x));
+}
+
+// (참고 저장용) 통합검색 web* 섹션에 우리 글/블로그가 있으면 '있음'. 트래커 웹사이트탭 컬럼은 제거됐지만 하위호환 유지.
 export function websitePresent(html, blogId, logNo = '') {
     const blocks = extractBootstrapJson(html);
     if (!blocks.length) return 'fail';
@@ -298,8 +311,7 @@ export function websitePresent(html, blogId, logNo = '') {
         } catch {
             continue;
         }
-        if (b.includes('ader.naver.com')) continue;
-        if (!isWebArea(blockArea(j))) continue; // 웹사이트(문서) 섹션만
+        if (!isWebArea(blockArea(j))) continue;
         for (const [bid, lno] of primaryBlogPosts(j)) {
             if ((logNo && lno === logNo) || (!logNo && bid === blogId)) return '있음';
         }
