@@ -1185,6 +1185,73 @@ async function generateBlog(payload) {
     return { body: { prompt, text, usage: result.usage ?? null }, statusCode: 200 };
 }
 
+// ── 카페 원고 자동생성(로컬) — functions/api/generate-cafe.ts 와 동일 로직 ──
+function buildCafePrompt(payload) {
+    const keyword = (payload.keyword || '').trim();
+    const region = (payload.region || '').trim() || keyword.replace(/\s*누수탐지.*$/, '').trim() || keyword;
+    const business = (payload.business || '누수탐지').trim();
+    const brand = (payload.brand || '든든한 누수탐지').trim();
+    return [
+        `너는 한국 지역 서비스업 카드뉴스(카페 홍보글) 카피라이터다.`,
+        `아래 업체의 "${keyword}" 홍보용 9장 카드뉴스 원고를 작성한다. 지역은 "${region}", 업종은 "${business}", 업체명은 "${brand}"이다.`,
+        ``,
+        `반드시 **JSON 객체 하나만** 출력한다(마크다운·코드펜스·설명 금지). 아래 키를 모두 채운다:`,
+        `{`,
+        `  "region": "지역명(예: ${region})",`,
+        `  "coverSub": "상단 소제목(예: 수도권 ${business} 전문)",`,
+        `  "coverTitle": "브랜드 큰제목(예: ${brand}) — 공백 1개로 두 줄 표기됨",`,
+        `  "coverEmphasisPre": "물이 새는", "coverEmphasisHi": "강조 구절(예: 지금이 가장 저렴하게)", "coverEmphasisPost": "해결할 수 있는 순간입니다", "coverCta": "24시간 출동 가능",`,
+        `  "situations": ["고객이 겪는 상황 3개(한 줄, 20자 내외)"] , "situationWarn": "경고 한 줄",`,
+        `  "damages": [{"period":"하루","text":"..."},{"period":"일주일","text":"..."},{"period":"한 달","text":"..."}], "damagePunch1": "지금이", "damagePunch2": "가장 저렴한 순간",`,
+        `  "wayIntroPre": "누수는", "wayIntroHi": "보이지 않는 원인 부위들을 · 로 나열", "wayIntroPost": "처럼 보이지 않는 곳에서 생기는 경우가 훨씬 많습니다. 그래서 저희는,",`,
+        `  "waySteps": ["진단 원칙 3개(한 줄)"] , "wayFooter": "필요한 경우에만 공사를 안내드립니다",`,
+        `  "checklist": ["바로 점검이 필요한 증상 7개(한 줄, 15자 내외)"] ,`,
+        `  "whyIntroPre": "같은 ${business}라도", "whyIntroHi": "언제 발견하느냐", "whyIntroPost": "에 따라 결과가 완전히 달라집니다.", "whyEarlyLabel": "초기에 발견하면", "whyEarly": "간단한 보수로 끝나는 경우가 많습니다", "whyLateLabel": "방치하면", "whyLate": "바닥 철거와 배관 교체까지 이어질 수 있습니다",`,
+        `  "buildingTypes": ["건물 유형 4~5개"] , "leakTypes": ["누수 부위/종류 6~7개"] , "serviceFooter": "건물 유형 · 부위 관계없이 진단 가능",`,
+        `  "faqs": [{"q":"질문?","a":"답변."}] (4개, 공사 강요 없음·최소 범위·아랫집 확인·보험처리),`,
+        `  "promises": ["약속 항목 5개(한 줄)"] , "promiseClose1": "누수는 발견 시기가 가장 중요합니다.", "promiseClose2": "지금 확인하는 것이 가장 비용을 아끼는 방법입니다."`,
+        `}`,
+        ``,
+        `규칙: 과장·허위 금지, 지역명 자연 반영, 담백하고 신뢰감 있게. 값은 순수 텍스트(이모지·마크다운 금지).`,
+    ].join('\n');
+}
+
+function parseCafeJson(text) {
+    const cleaned = String(text || '').replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+    try {
+        return JSON.parse(cleaned.slice(start, end + 1));
+    } catch {
+        return null;
+    }
+}
+
+async function generateCafe(payload) {
+    if (!payload?.keyword || !payload.keyword.trim()) {
+        return { body: { message: '키워드를 입력해주세요.' }, statusCode: 400 };
+    }
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return { body: { message: '.env 의 OPENAI_API_KEY 가 필요합니다.' }, statusCode: 500 };
+    const model = process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
+    const prompt = buildCafePrompt(payload);
+    const apiResponse = await fetch(OPENAI_API_URL, {
+        body: JSON.stringify({ input: prompt, model }),
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        method: 'POST',
+    });
+    const result = await readJsonResponse(apiResponse);
+    rememberRequest({ ok: apiResponse.ok, route: 'generate-cafe', status: apiResponse.status });
+    if (!apiResponse.ok) {
+        return { body: { message: result?.error?.message || '원고 생성에 실패했습니다.' }, statusCode: apiResponse.status };
+    }
+    const raw = extractOutputText(result);
+    const content = parseCafeJson(raw);
+    if (!content) return { body: { message: '생성 결과(JSON)를 해석하지 못했습니다. 다시 시도해 주세요.' }, statusCode: 502 };
+    return { body: { content, prompt, usage: result.usage ?? null }, statusCode: 200 };
+}
+
 loadDotEnv();
 
 const server = createServer(async (request, response) => {
@@ -1220,6 +1287,23 @@ const server = createServer(async (request, response) => {
         try {
             const payload = await readJsonBody(request);
             const result = await generateBlog(payload);
+            sendJson(response, result.statusCode, result.body);
+        } catch (error) {
+            const cause = error?.cause?.code || error?.cause?.message;
+            sendJson(response, 500, {
+                message:
+                    error instanceof Error
+                        ? [error.message, cause].filter(Boolean).join(': ')
+                        : '서버 오류가 발생했습니다.',
+            });
+        }
+        return;
+    }
+
+    if (request.method === 'POST' && request.url === '/api/generate-cafe') {
+        try {
+            const payload = await readJsonBody(request);
+            const result = await generateCafe(payload);
             sendJson(response, result.statusCode, result.body);
         } catch (error) {
             const cause = error?.cause?.code || error?.cause?.message;

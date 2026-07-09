@@ -14,6 +14,7 @@ const navigationItems = [
     { path: '/reports', label: '리포트', disabled: true },
     { path: '/memos', label: '메모', disabled: true },
     { path: '/banner-generator', label: '배너 생성기' },
+    { path: '/cafe', label: '카페 원고 생성기' },
     { path: '/powerlink', label: '파워링크' },
 ];
 
