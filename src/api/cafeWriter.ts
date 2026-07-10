@@ -94,7 +94,7 @@ export type GenerateCafeReviewResult = { title: string; reviewBody: string; usag
 export type CafeReviewTone = 'review' | 'info' | 'story' | 'talk' | 'notice';
 
 export async function generateCafeReview(
-    input: GenerateCafeInput & { content: Partial<CafeContent>; tone?: CafeReviewTone },
+    input: GenerateCafeInput & { content: Partial<CafeContent>; tone?: CafeReviewTone; count?: number },
 ): Promise<GenerateCafeReviewResult> {
     const result = await postCafe(
         {
@@ -102,6 +102,7 @@ export async function generateCafeReview(
             branch: input.branch,
             business: input.business,
             content: input.content,
+            count: input.count,
             keyword: input.keyword,
             mode: 'review',
             phone: input.phone,

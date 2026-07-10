@@ -145,7 +145,7 @@ function CafePage() {
         setReviewBusy(true);
         setMsg('후기 본문 생성 중… (최대 1~2분)');
         try {
-            const r = await generateCafeReview({ brand, branch, business, content: cards, keyword, phone, region, tone });
+            const r = await generateCafeReview({ brand, branch, business, content: cards, count: cardCount, keyword, phone, region, tone });
             setReviewBody(r.reviewBody);
             if (r.title) setTitle(r.title);
             setMsg('후기 본문 생성 완료 — 카페 글쓰기에 복사해 쓰세요.');
@@ -196,7 +196,7 @@ function CafePage() {
             const mergedCards = { ...merged, ...fixed };
 
             setMsg('② 후기 본문 생성 중…');
-            const rv = await generateCafeReview({ brand, branch, business, content: mergedCards, keyword, phone, region, tone });
+            const rv = await generateCafeReview({ brand, branch, business, content: mergedCards, count: cardCount, keyword, phone, region, tone });
             setReviewBody(rv.reviewBody);
             if (rv.title) setTitle(rv.title);
 

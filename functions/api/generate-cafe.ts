@@ -12,6 +12,7 @@ type GenerateCafePayload = {
     mode?: 'cards' | 'review'; // cards=카드용 구조화 JSON / review=후기성 카페 본문
     content?: Record<string, unknown>; // review 모드에서 소재(카드 콘텐츠) 참고
     tone?: string; // review 톤: review(후기)·info(정보)·story(스토리)·talk(대화)·notice(공지)
+    count?: number; // 카드(이미지) 장수 = 본문 「사진 N」 마커 개수
 };
 
 // 후기 본문 톤 5종 — 시작 말투/문체 지시. 기본 review(후기형).
@@ -121,6 +122,7 @@ export function buildReviewPrompt(payload: GenerateCafePayload): string {
         .join('\n');
 
     const tone = REVIEW_TONES[payload.tone || 'review'] || REVIEW_TONES.review;
+    const count = Math.max(1, Math.min(9, Number(payload.count) || 9));
     return [
         `너는 네이버 카페 지역글 전문 카피라이터다. 아래 업체의 "${keyword}" 홍보를 위한 카페 본문을 **[${tone.name}]** 문체로 쓴다.`,
         `업체명 "${brand} ${branch}", 지역 "${region}", 업종 "${business}", 전화 "${phone}".`,
@@ -129,7 +131,7 @@ export function buildReviewPrompt(payload: GenerateCafePayload): string {
         ``,
         `[반드시 지킬 형식]`,
         `- 위 문체를 유지하되 담백하고 자연스럽게. 과장·허위·별점·가짜 이름 금지.`,
-        `- 9장의 카드 이미지가 함께 올라간다. 본문 흐름에 맞춰 「사진 1」 ~ 「사진 9」 마커를 순서대로 각각 한 줄 단독으로 넣어라(누락 없이 9개).`,
+        `- ${count}장의 카드 이미지가 함께 올라간다. 본문 흐름에 맞춰 「사진 1」 ~ 「사진 ${count}」 마커를 순서대로 각각 한 줄 단독으로 넣어라(정확히 ${count}개, 그 이상도 이하도 아님).`,
         `- 업체명과 전화(${phone})는 정확히 표기. 마지막에 상담 유도 한 줄.`,
         `- **분량 2000~2500자(공백 포함)로 충분히 상세하게** 작성. 마크다운·이모지 금지, 순수 텍스트.`,
         ``,

@@ -1254,6 +1254,7 @@ function buildReviewPrompt(payload) {
         Array.isArray(c.faqs) ? `FAQ: ${c.faqs.map((f) => `${f.q}→${f.a}`).join(' / ')}` : '',
     ].filter(Boolean).join('\n');
     const tone = REVIEW_TONES[payload.tone || 'review'] || REVIEW_TONES.review;
+    const count = Math.max(1, Math.min(9, Number(payload.count) || 9));
     return [
         `너는 네이버 카페 지역글 전문 카피라이터다. 아래 업체의 "${keyword}" 홍보를 위한 카페 본문을 **[${tone.name}]** 문체로 쓴다.`,
         `업체명 "${brand} ${branch}", 지역 "${region}", 업종 "${business}", 전화 "${phone}".`,
@@ -1262,7 +1263,7 @@ function buildReviewPrompt(payload) {
         ``,
         `[반드시 지킬 형식]`,
         `- 위 문체를 유지하되 담백하고 자연스럽게. 과장·허위·별점·가짜 이름 금지.`,
-        `- 9장의 카드 이미지가 함께 올라간다. 본문 흐름에 맞춰 「사진 1」 ~ 「사진 9」 마커를 순서대로 각각 한 줄 단독으로 넣어라(누락 없이 9개).`,
+        `- ${count}장의 카드 이미지가 함께 올라간다. 본문 흐름에 맞춰 「사진 1」 ~ 「사진 ${count}」 마커를 순서대로 각각 한 줄 단독으로 넣어라(정확히 ${count}개).`,
         `- 업체명과 전화(${phone})는 정확히 표기. 마지막에 상담 유도 한 줄. **분량 2000~2500자(공백 포함)로 충분히 상세하게**. 마크다운·이모지 금지.`,
         ``,
         `[본문에 자연스럽게 녹일 소재]`,
