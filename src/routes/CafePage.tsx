@@ -69,6 +69,8 @@ function CafePage() {
     const [tone, setTone] = useState<CafeReviewTone>('review'); // 원고 톤(기본 후기형)
     const [bgImage, setBgImage] = useState<string | null>(null); // AI 생성 무드 배경(9장 공유)
     const [bgBusy, setBgBusy] = useState(false);
+    const [allBusy, setAllBusy] = useState(false); // 한번에 생성 진행 중
+    const [includeImage, setIncludeImage] = useState(true); // 한번에 생성 시 AI 이미지 포함(유료)
     const [saved, setSaved] = useState<CafeOutput[]>([]); // 저장 갤러리
     const [saving, setSaving] = useState(false);
 
@@ -178,38 +180,72 @@ function CafePage() {
         }
     };
 
-    // AI 무드 배경 생성 — 텍스트 없는 실사 느낌 배경(9장 공유). 배너 생성기의 backgroundOnly 파이프라인 재사용.
+    // AI 무드 배경 생성(재사용) — 텍스트 없는 실사 느낌 배경 dataURL 반환. 배너 생성기 backgroundOnly 파이프라인.
+    const generateBgImage = async (): Promise<string> => {
+        const bannerSize: BannerSize = { height: 1080, id: 'square', label: '1080 x 1080', name: '정사각형', width: 1080 };
+        const form: BannerForm = {
+            title: '',
+            subtitle: '',
+            emphasis: '',
+            badge: '',
+            cta: '',
+            backgroundColor: '#0f2947',
+            accentColor: '#3b82f6',
+            textColor: '#ffffff',
+            layoutVariant: 'photo',
+        };
+        const r = await generateAiCardImage({
+            backgroundOnly: true,
+            bannerSize,
+            form,
+            imageQuality: 'medium',
+            provider: 'openai',
+            rawText: `${business} 홍보 카드 배경 이미지. 욕실·배관 누수 공사 현장의 사실적인 실사 느낌, 파란 물 튀김(스플래시) 효과와 깊이감, 차분하고 전문적인 무드. 상단과 하단을 어둡게 처리해 흰 텍스트가 잘 얹히도록. 글자·텍스트·로고·워터마크 없음.`,
+        });
+        return r.imageDataUrl;
+    };
+
     const onGenerateBg = async () => {
         if (bgBusy) return;
         setBgBusy(true);
         setMsg('AI 배경 생성 중… (최대 1~2분)');
         try {
-            const bannerSize: BannerSize = { height: 1080, id: 'square', label: '1080 x 1080', name: '정사각형', width: 1080 };
-            const form: BannerForm = {
-                title: '',
-                subtitle: '',
-                emphasis: '',
-                badge: '',
-                cta: '',
-                backgroundColor: '#0f2947',
-                accentColor: '#3b82f6',
-                textColor: '#ffffff',
-                layoutVariant: 'photo',
-            };
-            const r = await generateAiCardImage({
-                backgroundOnly: true,
-                bannerSize,
-                form,
-                imageQuality: 'medium',
-                provider: 'openai',
-                rawText: `${business} 홍보 카드 배경 이미지. 욕실·배관 누수 공사 현장의 사실적인 실사 느낌, 파란 물 튀김(스플래시) 효과와 깊이감, 차분하고 전문적인 무드. 상단과 하단을 어둡게 처리해 흰 텍스트가 잘 얹히도록. 글자·텍스트·로고·워터마크 없음.`,
-            });
-            setBgImage(r.imageDataUrl);
+            setBgImage(await generateBgImage());
             setMsg('AI 배경 생성 완료 — 9장 카드에 적용됐습니다. 마음에 안 들면 다시 생성하세요.');
         } catch (e) {
             setMsg(e instanceof Error ? e.message : 'AI 배경 생성 실패 (로컬은 api:dev 필요)');
         } finally {
             setBgBusy(false);
+        }
+    };
+
+    // 한번에 생성 — 원고(카드) → 후기 본문 → (선택)AI 배경 을 순차로.
+    const onGenerateAll = async () => {
+        if (!keyword.trim() || allBusy) return;
+        setAllBusy(true);
+        try {
+            setMsg('① 원고(카드) 생성 중…');
+            const { content: gen } = await generateCafe({ brand, branch, business, keyword, phone, region });
+            const merged = mergeCafeContent({ ...gen, ...fixed });
+            setContent(merged);
+            setTitle(defaultCafeTitle(merged));
+            if (gen.region && !region) setRegion(gen.region);
+            const mergedCards = { ...merged, ...fixed };
+
+            setMsg('② 후기 본문 생성 중…');
+            const rv = await generateCafeReview({ brand, branch, business, content: mergedCards, keyword, phone, region, tone });
+            setReviewBody(rv.reviewBody);
+            if (rv.title) setTitle(rv.title);
+
+            if (includeImage) {
+                setMsg('③ AI 배경 생성 중… (이미지 1장)');
+                setBgImage(await generateBgImage());
+            }
+            setMsg('완료! “전체 9장 다운로드” + “본문 전체 복사”로 사용하세요.');
+        } catch (e) {
+            setMsg(e instanceof Error ? e.message : '생성 실패 (로컬은 api:dev 필요)');
+        } finally {
+            setAllBusy(false);
         }
     };
 
@@ -264,17 +300,22 @@ function CafePage() {
                     <Field label="지점(푸터 표기)" value={branch} onChange={setBranch} />
                     <Field label="전화번호" value={phone} onChange={setPhone} />
                 </div>
+                {/* 주 실행: 한번에 생성(원고+후기본문+이미지) */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
-                        className="h-10 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
-                        disabled={busy || !keyword.trim()}
-                        onClick={() => void onGenerate()}
+                        className="h-11 rounded-md bg-[#4338ca] px-6 text-[15px] font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
+                        disabled={allBusy || busy || reviewBusy || bgBusy || !keyword.trim()}
+                        onClick={() => void onGenerateAll()}
                         type="button"
                     >
-                        {busy ? '생성 중…' : '원고 생성'}
+                        {allBusy ? '생성 중…' : '한번에 생성 (원고+후기+이미지)'}
                     </button>
+                    <label className="flex items-center gap-1.5 text-[13px] font-semibold text-[#475569]">
+                        <input checked={includeImage} onChange={(e) => setIncludeImage(e.target.checked)} type="checkbox" />
+                        AI 이미지 포함 <span className="font-normal text-[#94a3b8]">(유료·1장)</span>
+                    </label>
                     <button
-                        className="h-10 rounded-md border border-[#4338ca] px-5 text-sm font-bold text-[#4338ca] hover:bg-[#eef2ff] disabled:opacity-50"
+                        className="h-11 rounded-md border border-[#4338ca] px-5 text-sm font-bold text-[#4338ca] hover:bg-[#eef2ff] disabled:opacity-50"
                         disabled={downloading}
                         onClick={() => void downloadAll()}
                         type="button"
@@ -282,38 +323,28 @@ function CafePage() {
                         {downloading ? '이미지 생성 중…' : '전체 9장 다운로드'}
                     </button>
                     <button
-                        className="h-10 rounded-md bg-[#0f2947] px-4 text-sm font-bold text-white hover:bg-[#0b1f38] disabled:opacity-50"
-                        disabled={bgBusy}
-                        onClick={() => void onGenerateBg()}
-                        type="button"
-                    >
-                        {bgBusy ? 'AI 배경 생성 중…' : bgImage ? 'AI 배경 다시 생성' : 'AI 배경 생성(고퀄)'}
-                    </button>
-                    {bgImage ? (
-                        <button
-                            className="h-10 rounded-md border border-[#cbd5e1] px-4 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
-                            onClick={() => setBgImage(null)}
-                            type="button"
-                        >
-                            배경 제거
-                        </button>
-                    ) : null}
-                    <button
-                        className="h-10 rounded-md bg-[#0f766e] px-5 text-sm font-bold text-white hover:bg-[#115e59] disabled:opacity-50"
+                        className="h-11 rounded-md bg-[#0f766e] px-5 text-sm font-bold text-white hover:bg-[#115e59] disabled:opacity-50"
                         disabled={saving}
                         onClick={() => void onSave()}
                         type="button"
                     >
                         {saving ? '저장 중…' : '저장'}
                     </button>
-                    <button
-                        className="h-10 rounded-md border border-[#cbd5e1] px-4 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
-                        onClick={() => setContent(DEFAULT_CAFE_CONTENT)}
-                        type="button"
-                    >
-                        예시로 초기화
-                    </button>
                     {msg ? <span className="text-[13px] text-[#6366f1]">{msg}</span> : null}
+                </div>
+                {/* 개별 재생성(부분만 다시 뽑을 때) */}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px]">
+                    <span className="text-[#94a3b8]">개별:</span>
+                    <button className="rounded border border-[#cbd5e1] px-2.5 py-1 font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50" disabled={busy} onClick={() => void onGenerate()} type="button">
+                        {busy ? '원고…' : '원고만'}
+                    </button>
+                    <button className="rounded border border-[#cbd5e1] px-2.5 py-1 font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-50" disabled={bgBusy} onClick={() => void onGenerateBg()} type="button">
+                        {bgBusy ? 'AI 배경…' : bgImage ? 'AI 배경 다시' : 'AI 배경만'}
+                    </button>
+                    {bgImage ? (
+                        <button className="rounded border border-[#cbd5e1] px-2.5 py-1 font-semibold text-[#475569] hover:bg-[#f1f5f9]" onClick={() => setBgImage(null)} type="button">배경 제거</button>
+                    ) : null}
+                    <button className="rounded border border-[#cbd5e1] px-2.5 py-1 font-semibold text-[#475569] hover:bg-[#f1f5f9]" onClick={() => setContent(DEFAULT_CAFE_CONTENT)} type="button">예시 초기화</button>
                 </div>
             </div>
 
