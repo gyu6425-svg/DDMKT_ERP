@@ -12,6 +12,7 @@ export type CafeContent = {
     region: string; // 과천 (수도권 등 상위 지역은 areaWide)
     areaWide: string; // 수도권
     phone: string; // 010-4614-4424
+    business: string; // 업종(누수탐지) — 히어로 카드 큰 제목용
 
     // 1) 커버
     coverBadge: string; // 24H LEAK DETECTION
@@ -71,6 +72,7 @@ export const DEFAULT_CAFE_CONTENT: CafeContent = {
     region: '과천',
     areaWide: '수도권',
     phone: '010-4614-4424',
+    business: '누수탐지',
 
     coverBadge: '24H LEAK DETECTION',
     coverSub: '수도권 누수탐지 전문',
@@ -240,6 +242,7 @@ export function mergeCafeContent(partial: Partial<CafeContent> | null | undefine
         region: pick('region'),
         areaWide: pick('areaWide'),
         phone: pick('phone'),
+        business: pick('business'),
         coverBadge: pick('coverBadge'),
         coverSub: pick('coverSub'),
         coverTitle: pick('coverTitle'),

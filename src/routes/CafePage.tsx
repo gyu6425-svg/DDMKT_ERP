@@ -10,8 +10,6 @@ import {
     DEFAULT_CAFE_CONTENT,
     mergeCafeContent,
     type CafeContent,
-    type CafeDamage,
-    type CafeFaq,
 } from '../components/cafe/cafeContent';
 import { CafeCard, CAFE_CARD_LABELS, CARD_H, CARD_W } from '../components/cafe/CafeCards';
 
@@ -29,22 +27,6 @@ function Field({ label, value, onChange, wide }: { label: string; value: string;
                 className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
                 onChange={(e) => onChange(e.target.value)}
                 value={value}
-            />
-        </label>
-    );
-}
-
-// 여러 줄(줄바꿈 = 항목) 배열 편집
-function ListArea({ label, items, onChange, hint }: { label: string; items: string[]; onChange: (v: string[]) => void; hint?: string }) {
-    return (
-        <label className="grid gap-1 sm:col-span-2">
-            <span className="text-[12px] font-semibold text-[#475569]">
-                {label} {hint ? <span className="font-normal text-[#94a3b8]">— {hint}</span> : null}
-            </span>
-            <textarea
-                className="min-h-[92px] rounded-md border border-[#cbd5e1] bg-white px-2.5 py-2 text-sm leading-6"
-                onChange={(e) => onChange(e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))}
-                value={items.join('\n')}
             />
         </label>
     );
@@ -134,12 +116,11 @@ function CafePage() {
 
     const cardRefs = useRef<Array<HTMLDivElement | null>>([]);
 
-    const set = <K extends keyof CafeContent>(k: K, v: CafeContent[K]) => setContent((c) => ({ ...c, [k]: v }));
 
     // 고정 정보(브랜드/지점/전화/지역)를 콘텐츠에 항상 주입 — 생성 결과에 관계없이 정확.
     const fixed = useMemo(
-        () => ({ brand, branch, phone, region }),
-        [brand, branch, phone, region],
+        () => ({ brand, branch, phone, region, business }),
+        [brand, branch, phone, region, business],
     );
     const cards = useMemo<CafeContent>(() => ({ ...content, ...fixed }), [content, fixed]);
     // 카드 문구로 기본 조립한 본문(후기 미생성 시 폴백).
@@ -461,60 +442,9 @@ function CafePage() {
                 </p>
             </div>
 
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto]">
-                {/* 원고 수정 */}
-                <div className="grid content-start gap-4 rounded-xl border border-[#e2e8f0] bg-white p-4">
-                    <div className="text-[13px] font-bold text-[#334155]">원고 수정 — 카드에 즉시 반영됩니다</div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <Field label="커버 소제목" value={cards.coverSub} onChange={(v) => set('coverSub', v)} wide />
-                        <Field label="커버 큰제목(공백=줄바꿈)" value={cards.coverTitle} onChange={(v) => set('coverTitle', v)} />
-                        <Field label="커버 강조문구" value={cards.coverEmphasisHi} onChange={(v) => set('coverEmphasisHi', v)} />
-                        <ListArea label="① 이런 상황(3개)" items={cards.situations} onChange={(v) => set('situations', v)} hint="한 줄에 하나" />
-                        <Field label="상황 경고문" value={cards.situationWarn} onChange={(v) => set('situationWarn', v)} wide />
-                        <ListArea
-                            label="② 피해(기간 || 내용, 3줄)"
-                            items={cards.damages.map((d) => `${d.period} || ${d.text}`)}
-                            onChange={(v) =>
-                                set(
-                                    'damages',
-                                    v.map((line): CafeDamage => {
-                                        const [period, text] = line.split('||').map((s) => s.trim());
-                                        return { period: period || '', text: text || '' };
-                                    }),
-                                )
-                            }
-                            hint="예: 하루 || 피해 범위가 커집니다"
-                        />
-                        <Field label="② 강조1" value={cards.damagePunch1} onChange={(v) => set('damagePunch1', v)} />
-                        <Field label="② 강조2" value={cards.damagePunch2} onChange={(v) => set('damagePunch2', v)} />
-                        <ListArea label="③ 진단 원칙(3개)" items={cards.waySteps} onChange={(v) => set('waySteps', v)} hint="한 줄에 하나" />
-                        <ListArea label="④ 자가점검(7개)" items={cards.checklist} onChange={(v) => set('checklist', v)} hint="한 줄에 하나" />
-                        <Field label="⑤ 초기 발견 결과" value={cards.whyEarly} onChange={(v) => set('whyEarly', v)} wide />
-                        <Field label="⑤ 방치 결과" value={cards.whyLate} onChange={(v) => set('whyLate', v)} wide />
-                        <ListArea label="⑥ 건물 유형" items={cards.buildingTypes} onChange={(v) => set('buildingTypes', v)} hint="한 줄에 하나" />
-                        <ListArea label="⑥ 누수 종류" items={cards.leakTypes} onChange={(v) => set('leakTypes', v)} hint="한 줄에 하나" />
-                        <ListArea
-                            label="⑦ FAQ(질문 || 답변, 4줄)"
-                            items={cards.faqs.map((f) => `${f.q} || ${f.a}`)}
-                            onChange={(v) =>
-                                set(
-                                    'faqs',
-                                    v.map((line): CafeFaq => {
-                                        const idx = line.indexOf('||');
-                                        return idx < 0
-                                            ? { q: line.trim(), a: '' }
-                                            : { q: line.slice(0, idx).trim(), a: line.slice(idx + 2).trim() };
-                                    }),
-                                )
-                            }
-                            hint="예: 공사를 꼭 해야 하나요? || 아닙니다. 필요한 경우에만…"
-                        />
-                        <ListArea label="⑨ 약속(5개)" items={cards.promises} onChange={(v) => set('promises', v)} hint="한 줄에 하나" />
-                    </div>
-                </div>
-
+            <div>
                 {/* 미리보기 (스케일 축소, 캡처는 원본 800×1000) */}
-                <div className="grid gap-4">
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
                     {CAFE_CARD_LABELS.map((label, i) => (
                         <div key={i} className="grid gap-1.5">
                             <div className="flex items-center justify-between">
