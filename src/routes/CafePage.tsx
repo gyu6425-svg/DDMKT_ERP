@@ -16,7 +16,7 @@ import { CafeCard, CAFE_CARD_LABELS, CARD_H, CARD_W } from '../components/cafe/C
 // 카페 원고 자동생성기 — 키워드 → Claude(OpenAI) 원고 생성 → 9장 카드 템플릿 렌더 → PNG 다운로드.
 //   AI 이미지가 아니라 HTML/CSS 템플릿 캡처라 한글·전화번호·FAQ가 100% 정확.
 
-const PREVIEW_SCALE = 0.36;
+const PREVIEW_SCALE = 0.27;
 
 // 공통 입력 필드
 function Field({ label, value, onChange, wide }: { label: string; value: string; onChange: (v: string) => void; wide?: boolean }) {
@@ -66,6 +66,7 @@ function CafePage() {
     };
     const removePhoto = (i: number) => setPhotos((prev) => prev.filter((_, idx) => idx !== i));
     const [includeImage, setIncludeImage] = useState(true); // 한번에 생성 시 AI 이미지 포함(유료)
+    const [cardCount, setCardCount] = useState(9); // 뽑을 카드 장수(1~9)
     const [saved, setSaved] = useState<CafeOutput[]>([]); // 저장 갤러리
     const [saving, setSaving] = useState(false);
 
@@ -240,7 +241,7 @@ function CafePage() {
             // 2) 카드 이미지 9장 png (폰트 임베드 CSS는 한 번만 계산해 재사용)
             const first = cardRefs.current.find(Boolean);
             const fontEmbedCSS = first ? await getFontEmbedCSS(first) : undefined;
-            for (let i = 0; i < CAFE_CARD_LABELS.length; i += 1) {
+            for (let i = 0; i < cardCount; i += 1) {
                 await downloadOne(i, fontEmbedCSS);
                 await new Promise((r) => setTimeout(r, 250)); // 브라우저 다운로드 큐 여유
             }
@@ -325,6 +326,18 @@ function CafePage() {
                             {label}
                         </button>
                     ))}
+                    <span className="ml-4 mr-1 text-[12px] font-semibold text-[#475569]">장수</span>
+                    <select
+                        className="h-8 rounded-md border border-[#cbd5e1] bg-white px-2 text-[13px] font-semibold text-[#334155]"
+                        onChange={(e) => setCardCount(Number(e.target.value))}
+                        value={cardCount}
+                    >
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+                            <option key={n} value={n}>
+                                {n}장
+                            </option>
+                        ))}
+                    </select>
                 </div>
 
                 {/* 버튼 3개: 한번에 생성 · 다운받기 · 저장 */}
@@ -445,7 +458,7 @@ function CafePage() {
             <div>
                 {/* 미리보기 (스케일 축소, 캡처는 원본 800×1000) */}
                 <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-                    {CAFE_CARD_LABELS.map((label, i) => (
+                    {CAFE_CARD_LABELS.slice(0, cardCount).map((label, i) => (
                         <div key={i} className="grid gap-1.5">
                             <div className="flex items-center justify-between">
                                 <span className="text-[12px] font-semibold text-[#475569]">
@@ -465,13 +478,8 @@ function CafePage() {
                             >
                                 <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: 'top left' }}>
                                     <div ref={(el) => { cardRefs.current[i] = el; }}>
-                                        {/* 사진 분산: 카드마다 다른 업로드 사진(부족하면 순환), 없으면 AI 배경 — 전체 동일 무드 */}
-                                        <CafeCard
-                                            bgImage={photos.length ? photos[i % photos.length] : bgImage}
-                                            content={cards}
-                                            index={i}
-                                            photos={photos}
-                                        />
+                                        {/* 업로드 사진은 카드가 index별 콜라주로 사용, 없으면 AI 배경 폴백 */}
+                                        <CafeCard bgImage={bgImage} content={cards} index={i} photos={photos} />
                                     </div>
                                 </div>
                             </div>
