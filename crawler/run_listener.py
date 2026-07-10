@@ -69,11 +69,20 @@ def main():
             if _age_min(r.get("created_at", "")) > STALE_MIN:
                 c.sb_patch("measure_requests", {"id": f"eq.{rid}"}, {"status": "fail"})
                 continue
-            # 선점(processing) — 중복 처리 방지.
+            # 선점(processing) — 중복 처리 방지. processing 이면 크롤(_pause)이 양보한다.
             c.sb_patch("measure_requests", {"id": f"eq.{rid}"}, {"status": "processing"})
             try:
+                # 크롤과 겹쳐 빈응답(fail) 나면 잠깐 쉬고 재시도 — 크롤 요청 간격 사이 창을 노림(최대 3회).
                 ti, ti_s, ws = c.measure_integrated_popular(kw, bid, lno)
                 bl, bl_s = c.measure_blogtab_real(kw, bid, lno)
+                for _try in range(2):
+                    if ti_s != "fail" and bl_s != "fail":
+                        break
+                    time.sleep(5 + _try * 4)
+                    if ti_s == "fail":
+                        ti, ti_s, ws = c.measure_integrated_popular(kw, bid, lno)
+                    if bl_s == "fail":
+                        bl, bl_s = c.measure_blogtab_real(kw, bid, lno)
                 c.sb_patch("measure_requests", {"id": f"eq.{rid}"}, {
                     "status": "done", "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s,
                     "ws": ws, "done_at": _now().isoformat(),
