@@ -1,5 +1,8 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { createContext, useContext, type CSSProperties, type ReactNode } from 'react';
 import type { CafeContent } from './cafeContent';
+
+// AI로 생성한 '무드 배경' 이미지(dataURL) — 있으면 9장 카드가 공유해 고퀄리티 배경으로 사용(카드색은 틴트로 유지).
+const BgCtx = createContext<string | null>(null);
 
 // 카페 카드 9종 템플릿 — 예시(엘르홈 스타일)와 동일 구조. 800×1000 고정, 인라인 스타일로 렌더(html-to-image 캡처 안정).
 //   AI 이미지가 아니라 코드 렌더라 한글·전화번호·FAQ가 100% 정확. Pretendard 폰트 사용.
@@ -135,6 +138,7 @@ function Frame({
     bracket: string;
     children: ReactNode;
 }) {
+    const bgImage = useContext(BgCtx);
     return (
         <div
             style={{
@@ -142,12 +146,30 @@ function Frame({
                 width: CARD_W,
                 height: CARD_H,
                 background: bg,
-                ...(grid ? gridBg(grid) : {}),
+                ...(grid && !bgImage ? gridBg(grid) : {}),
                 fontFamily: FONT,
                 overflow: 'hidden',
                 boxSizing: 'border-box',
             }}
         >
+            {/* AI 무드 배경(있을 때) — 사진 + 카드색 틴트 오버레이로 텍스트 가독성 유지. 텍스트/브래킷은 이 위에 렌더. */}
+            {bgImage ? (
+                <>
+                    <img
+                        alt=""
+                        src={bgImage}
+                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                    <div style={{ position: 'absolute', inset: 0, background: bg, opacity: 0.8 }} />
+                    <div
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            background: `linear-gradient(180deg, ${bg}cc 0%, transparent 30%, transparent 70%, ${bg}cc 100%)`,
+                        }}
+                    />
+                </>
+            ) : null}
             <Brackets color={bracket} />
             {children}
         </div>
@@ -156,67 +178,72 @@ function Frame({
 
 const body = (top: number): CSSProperties => ({ position: 'absolute', left: 64, right: 64, top });
 
-// ── 1) 커버 ────────────────────────────────────────────────
+// 굵은 아웃라인(외곽선) 히어로 텍스트 — 예시의 흰 글자+진한 테두리+그림자.
+const hero = (size: number, strokeW: number): CSSProperties => ({
+    fontSize: size,
+    fontWeight: 900,
+    color: '#ffffff',
+    lineHeight: 1.02,
+    letterSpacing: -2,
+    whiteSpace: 'pre-line',
+    WebkitTextStroke: `${strokeW}px #0a1f3c`,
+    paintOrder: 'stroke' as CSSProperties['paintOrder'],
+    textShadow: '0 6px 16px rgba(0,0,0,0.55)',
+});
+
+// ── 1) 커버(히어로 홍보) — AI 실사 배경 위 굵은 텍스트·지역뱃지·전화바·서비스태그 ──
 function Cover({ c }: { c: CafeContent }) {
+    const bgImage = useContext(BgCtx);
+    const tags = [c.leakTypes[0] || '욕실누수', '누수탐지', '배관교체'];
     return (
-        <Frame bg={NAVY} grid="rgba(255,255,255,0.045)" bracket="#ffffff">
-            <div style={{ position: 'absolute', left: 64, right: 64, top: 128, textAlign: 'center' }}>
-                <div
-                    style={{
-                        display: 'inline-block',
-                        background: '#fff',
-                        color: NAVY,
-                        fontSize: 20,
-                        fontWeight: 800,
-                        letterSpacing: 6,
-                        padding: '10px 24px',
-                    }}
-                >
+        <div style={{ position: 'relative', width: CARD_W, height: CARD_H, background: NAVY, fontFamily: FONT, overflow: 'hidden' }}>
+            {/* 배경 — AI 실사 이미지(있으면 크게), 없으면 청사진 그리드 */}
+            {bgImage ? (
+                <img alt="" src={bgImage} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+                <div style={{ position: 'absolute', inset: 0, ...gridBg('rgba(255,255,255,0.06)') }} />
+            )}
+            {/* 가독성 그라디언트 — 좌측·하단을 진하게 */}
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(9,20,35,0.55) 0%, rgba(9,20,35,0.12) 34%, rgba(9,20,35,0.30) 58%, rgba(9,20,35,0.94) 100%)' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(9,20,35,0.72) 0%, rgba(9,20,35,0.15) 52%, transparent 78%)' }} />
+            <Brackets color="#ffffff" />
+
+            {/* 지역 뱃지 + 배지 */}
+            <div style={{ position: 'absolute', top: 66, left: 64, right: 64, display: 'flex', gap: 10, alignItems: 'center' }}>
+                <span style={{ background: '#1d4ed8', color: '#fff', fontSize: 24, fontWeight: 800, padding: '10px 18px', borderRadius: 6 }}>
+                    ◉ {c.region}
+                </span>
+                <span style={{ background: 'rgba(255,255,255,0.16)', color: '#dbeafe', fontSize: 18, fontWeight: 700, padding: '10px 16px', borderRadius: 6, letterSpacing: 3 }}>
                     {c.coverBadge}
+                </span>
+            </div>
+
+            {/* 히어로 타이틀 */}
+            <div style={{ position: 'absolute', left: 60, right: 60, top: 372 }}>
+                <div style={hero(94, 9)}>{c.coverTitle.replace(/\s+/, '\n')}</div>
+                <div style={{ display: 'inline-block', marginTop: 26, background: '#1d4ed8', color: '#fff', fontSize: 34, fontWeight: 800, padding: '14px 24px', boxShadow: '0 6px 14px rgba(0,0,0,0.35)' }}>
+                    {c.coverEmphasisHi}
                 </div>
-                <div style={{ color: SKY, fontSize: 26, fontWeight: 700, letterSpacing: 8, marginTop: 54 }}>
-                    {c.coverSub}
-                </div>
-                <div style={{ color: '#fff', fontSize: 92, fontWeight: 800, lineHeight: 1.15, marginTop: 26, letterSpacing: -2, whiteSpace: 'pre-line' }}>
-                    {c.coverTitle.replace(/\s+/, '\n')}
-                </div>
-                <div style={{ color: '#e7edf5', fontSize: 30, fontWeight: 500, lineHeight: 1.7, marginTop: 40 }}>
-                    {c.coverEmphasisPre}{' '}
-                    <span style={{ background: '#31506f', color: '#fff', fontWeight: 800, padding: '2px 8px' }}>
-                        {c.coverEmphasisHi}
-                    </span>
-                    <br />
-                    {c.coverEmphasisPost}
-                </div>
-                <div
-                    style={{
-                        display: 'inline-block',
-                        background: RED,
-                        color: '#fff',
-                        fontSize: 34,
-                        fontWeight: 800,
-                        letterSpacing: 2,
-                        padding: '20px 54px',
-                        marginTop: 48,
-                    }}
-                >
-                    {c.coverCta}
-                </div>
-                <div
-                    style={{
-                        background: '#fff',
-                        color: NAVY,
-                        fontSize: 30,
-                        fontWeight: 800,
-                        letterSpacing: 1,
-                        padding: '20px 0',
-                        marginTop: 40,
-                    }}
-                >
-                    상담문의 {c.phone}
+                <div style={{ marginTop: 22, display: 'flex', alignItems: 'center', gap: 10, color: '#eaf1f8', fontSize: 26, fontWeight: 700, textShadow: '0 2px 6px rgba(0,0,0,0.6)' }}>
+                    <span style={{ color: '#38bdf8', fontSize: 30 }}>✓</span> 정확한 장비 탐지로 원인 해결
                 </div>
             </div>
-        </Frame>
+
+            {/* 전화 바 */}
+            <div style={{ position: 'absolute', left: 54, right: 54, bottom: 148, display: 'flex', alignItems: 'center', gap: 18, background: '#0b1f38', border: '2px solid rgba(255,255,255,0.16)', borderRadius: 16, padding: '16px 26px', boxShadow: '0 10px 24px rgba(0,0,0,0.4)' }}>
+                <span style={{ width: 58, height: 58, borderRadius: '50%', background: '#1d4ed8', color: '#fff', fontSize: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>☎</span>
+                <span style={{ color: '#ffd60a', fontSize: 54, fontWeight: 900, letterSpacing: 1 }}>{c.phone}</span>
+            </div>
+
+            {/* 서비스 태그 */}
+            <div style={{ position: 'absolute', left: 54, right: 54, bottom: 72, display: 'flex', gap: 12, justifyContent: 'center' }}>
+                {tags.map((t, i) => (
+                    <span key={i} style={{ background: 'rgba(255,255,255,0.94)', color: INK, fontSize: 24, fontWeight: 800, padding: '12px 22px', borderRadius: 30 }}>
+                        ◆ {t}
+                    </span>
+                ))}
+            </div>
+        </div>
     );
 }
 
@@ -555,26 +582,29 @@ function Promise({ c }: { c: CafeContent }) {
     );
 }
 
-// index(0~8)로 카드 하나 렌더.
-export function CafeCard({ content, index }: { content: CafeContent; index: number }) {
-    switch (index) {
-        case 0:
-            return <Cover c={content} />;
-        case 1:
-            return <Card01 c={content} />;
-        case 2:
-            return <Card02 c={content} />;
-        case 3:
-            return <Card03 c={content} />;
-        case 4:
-            return <Card04 c={content} />;
-        case 5:
-            return <Card05 c={content} />;
-        case 6:
-            return <Card06 c={content} />;
-        case 7:
-            return <Card07 c={content} />;
-        default:
-            return <Promise c={content} />;
-    }
+// index(0~8)로 카드 하나 렌더. bgImage 주면 9장 공유 무드 배경 적용.
+export function CafeCard({ content, index, bgImage }: { content: CafeContent; index: number; bgImage?: string | null }) {
+    const one = () => {
+        switch (index) {
+            case 0:
+                return <Cover c={content} />;
+            case 1:
+                return <Card01 c={content} />;
+            case 2:
+                return <Card02 c={content} />;
+            case 3:
+                return <Card03 c={content} />;
+            case 4:
+                return <Card04 c={content} />;
+            case 5:
+                return <Card05 c={content} />;
+            case 6:
+                return <Card06 c={content} />;
+            case 7:
+                return <Card07 c={content} />;
+            default:
+                return <Promise c={content} />;
+        }
+    };
+    return <BgCtx.Provider value={bgImage ?? null}>{one()}</BgCtx.Provider>;
 }

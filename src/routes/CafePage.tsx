@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { getFontEmbedCSS, toPng } from 'html-to-image';
 import { generateCafe, generateCafeReview } from '../api/cafeWriter';
+import { generateAiCardImage } from '../api/aiCardImage';
+import type { BannerForm, BannerSize } from '../routes/BannerGeneratorPage';
 import {
     buildCafePost,
     defaultCafeTitle,
@@ -63,6 +65,8 @@ function CafePage() {
     const [copied, setCopied] = useState(false);
     const [reviewBody, setReviewBody] = useState(''); // AI 후기 본문(있으면 이걸 씀, 없으면 기본 조립)
     const [reviewBusy, setReviewBusy] = useState(false);
+    const [bgImage, setBgImage] = useState<string | null>(null); // AI 생성 무드 배경(9장 공유)
+    const [bgBusy, setBgBusy] = useState(false);
 
     const cardRefs = useRef<Array<HTMLDivElement | null>>([]);
 
@@ -122,6 +126,41 @@ function CafePage() {
             setMsg(e instanceof Error ? e.message : '생성 실패');
         } finally {
             setBusy(false);
+        }
+    };
+
+    // AI 무드 배경 생성 — 텍스트 없는 실사 느낌 배경(9장 공유). 배너 생성기의 backgroundOnly 파이프라인 재사용.
+    const onGenerateBg = async () => {
+        if (bgBusy) return;
+        setBgBusy(true);
+        setMsg('AI 배경 생성 중… (최대 1~2분)');
+        try {
+            const bannerSize: BannerSize = { height: 1080, id: 'square', label: '1080 x 1080', name: '정사각형', width: 1080 };
+            const form: BannerForm = {
+                title: '',
+                subtitle: '',
+                emphasis: '',
+                badge: '',
+                cta: '',
+                backgroundColor: '#0f2947',
+                accentColor: '#3b82f6',
+                textColor: '#ffffff',
+                layoutVariant: 'photo',
+            };
+            const r = await generateAiCardImage({
+                backgroundOnly: true,
+                bannerSize,
+                form,
+                imageQuality: 'medium',
+                provider: 'openai',
+                rawText: `${business} 홍보 카드 배경 이미지. 욕실·배관 누수 공사 현장의 사실적인 실사 느낌, 파란 물 튀김(스플래시) 효과와 깊이감, 차분하고 전문적인 무드. 상단과 하단을 어둡게 처리해 흰 텍스트가 잘 얹히도록. 글자·텍스트·로고·워터마크 없음.`,
+            });
+            setBgImage(r.imageDataUrl);
+            setMsg('AI 배경 생성 완료 — 9장 카드에 적용됐습니다. 마음에 안 들면 다시 생성하세요.');
+        } catch (e) {
+            setMsg(e instanceof Error ? e.message : 'AI 배경 생성 실패 (로컬은 api:dev 필요)');
+        } finally {
+            setBgBusy(false);
         }
     };
 
@@ -193,6 +232,23 @@ function CafePage() {
                     >
                         {downloading ? '이미지 생성 중…' : '전체 9장 다운로드'}
                     </button>
+                    <button
+                        className="h-10 rounded-md bg-[#0f2947] px-4 text-sm font-bold text-white hover:bg-[#0b1f38] disabled:opacity-50"
+                        disabled={bgBusy}
+                        onClick={() => void onGenerateBg()}
+                        type="button"
+                    >
+                        {bgBusy ? 'AI 배경 생성 중…' : bgImage ? 'AI 배경 다시 생성' : 'AI 배경 생성(고퀄)'}
+                    </button>
+                    {bgImage ? (
+                        <button
+                            className="h-10 rounded-md border border-[#cbd5e1] px-4 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                            onClick={() => setBgImage(null)}
+                            type="button"
+                        >
+                            배경 제거
+                        </button>
+                    ) : null}
                     <button
                         className="h-10 rounded-md border border-[#cbd5e1] px-4 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
                         onClick={() => setContent(DEFAULT_CAFE_CONTENT)}
@@ -329,7 +385,7 @@ function CafePage() {
                             >
                                 <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: 'top left' }}>
                                     <div ref={(el) => { cardRefs.current[i] = el; }}>
-                                        <CafeCard content={cards} index={i} />
+                                        <CafeCard content={cards} index={i} bgImage={bgImage} />
                                     </div>
                                 </div>
                             </div>
