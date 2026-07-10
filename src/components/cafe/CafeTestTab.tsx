@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { generateCafe, generateCafeCard, generateCafeReview, type CafeReviewTone } from '../../api/cafeWriter';
-import { buildCafePost, defaultCafeTitle, DEFAULT_CAFE_CONTENT, mergeCafeContent, type CafeContent } from './cafeContent';
+import { defaultCafeTitle, DEFAULT_CAFE_CONTENT, mergeCafeContent, type CafeContent } from './cafeContent';
 
 // 카페 원고 생성기 [테스트] 탭 — 비용 절감형.
 //   · 첫 장만 지역 반영해 GPT로 1회 생성(그 지역용으로 고정 재사용).
@@ -67,6 +67,20 @@ const TONES: [CafeReviewTone, string][] = [
     ['notice', '공지형'],
 ];
 
+// 입력 필드 — 모듈 최상위에 둬야 함(컴포넌트 내부에 두면 매 렌더 리마운트 → 타이핑 시 포커스 풀림).
+function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+    return (
+        <label className="grid gap-1">
+            <span className="text-[12px] font-semibold text-[#475569]">{label}</span>
+            <input
+                className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
+                onChange={(e) => onChange(e.target.value)}
+                value={value}
+            />
+        </label>
+    );
+}
+
 export function CafeTestTab() {
     const [keyword, setKeyword] = useState('과천 누수탐지');
     const [region, setRegion] = useState('과천');
@@ -75,7 +89,21 @@ export function CafeTestTab() {
     const [tone, setTone] = useState<CafeReviewTone>('review');
 
     const [firstCard, setFirstCard] = useState<string | null>(null); // 지역 반영 첫 장(GPT 생성 or 업로드)
-    const [fixedImages, setFixedImages] = useState<string[]>([]); // 이후 고정 이미지(폴더 업로드)
+    const [fixedImages, setFixedImages] = useState<string[]>([]); // 이후 고정 이미지(기본 내장 세트 + 업로드)
+
+    // 기본 고정 세트(2~8번) — public/images/cafe-fixed/manifest.json 을 로드. 없으면 빈 채로 시작.
+    useEffect(() => {
+        let alive = true;
+        void fetch('/images/cafe-fixed/manifest.json')
+            .then((r) => (r.ok ? r.json() : []))
+            .then((list) => {
+                if (alive && Array.isArray(list) && list.length) setFixedImages(list as string[]);
+            })
+            .catch(() => undefined);
+        return () => {
+            alive = false;
+        };
+    }, []);
 
     const [content, setContent] = useState<CafeContent>(DEFAULT_CAFE_CONTENT);
     const [title, setTitle] = useState(defaultCafeTitle(DEFAULT_CAFE_CONTENT));
@@ -86,9 +114,11 @@ export function CafeTestTab() {
     const [copied, setCopied] = useState(false);
     const [msg, setMsg] = useState('');
 
-    const cards = { ...content, region, phone, business, brand: content.brand };
-    const bodyText = reviewBody || buildCafePost(cards, title);
-    const allImages = [...(firstCard ? [firstCard] : []), ...fixedImages];
+    // 본문 = 생성된 후기형 원고만(구조형 fallback 제거 — 생성 전엔 빈칸/안내).
+    const bodyText = reviewBody;
+    // 순서: 1번 = 첫 카드(지역), 2~8번 = 고정 이미지, 9번 = 첫 카드 다시(하단 북엔드).
+    //   1·9는 같은 첫 카드지만 다운로드 시 서로 다른 미세 변형 → 같은 글 내 중복 회피.
+    const allImages = firstCard ? [firstCard, ...fixedImages, firstCard] : [...fixedImages];
     const totalCount = Math.max(1, allImages.length || 1);
 
     const readFiles = (files: FileList | null): Promise<string[]> =>
@@ -187,18 +217,11 @@ export function CafeTestTab() {
         }
     };
 
-    const Field = ({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) => (
-        <label className="grid gap-1">
-            <span className="text-[12px] font-semibold text-[#475569]">{label}</span>
-            <input className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm" onChange={(e) => onChange(e.target.value)} value={value} />
-        </label>
-    );
-
     return (
         <div className="grid gap-5">
             <p className="m-0 text-sm text-[#64748b]">
-                비용 절감형 — <b>첫 장만 지역 반영해 1회 생성(고정 재사용)</b>, 이후 사진은 업로드한 <b>고정 이미지</b> 재사용. 매 글은 <b>원고만 생성</b>.
-                다운로드 시 모든 이미지에 <b>육안 무변 미세 변형</b>을 적용해 <b>네이버 중복 업로드 차단</b>을 회피합니다.
+                비용 절감형 — <b>1·9번(상·하단)만 지역 반영해 GPT 생성</b>, <b>2~8번은 기본 내장 고정 세트</b> 재사용(비용 0). 매 글은 <b>원고만 생성</b>.
+                다운로드 시 모든 이미지에 <b>육안 무변 미세 변형</b>을 적용해 <b>네이버 중복 업로드 차단</b>을 회피합니다(1·9번도 서로 다르게).
             </p>
 
             {/* 입력 */}
@@ -247,7 +270,7 @@ export function CafeTestTab() {
             <div className="grid gap-3 rounded-xl border border-[#e2e8f0] bg-white p-4 lg:grid-cols-2">
                 {/* 첫 장(지역 반영) */}
                 <div>
-                    <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">첫 장 (지역 반영 · 고정 재사용)</div>
+                    <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">첫 장 = 1·9번 (지역 반영 · 상단·하단 북엔드)</div>
                     <div className="flex items-start gap-2">
                         {firstCard ? (
                             <img alt="" className="h-32 w-32 rounded-md border border-[#e2e8f0] object-cover" src={firstCard} />
@@ -284,7 +307,7 @@ export function CafeTestTab() {
                 {/* 이후 고정 이미지 */}
                 <div>
                     <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">
-                        이후 고정 이미지 <span className="font-normal text-[#94a3b8]">— 폴더의 사진들을 올리면 계속 재사용</span>
+                        2~8번 고정 세트 <span className="font-normal text-[#94a3b8]">— 기본 내장(자동 로드). 필요시 추가/삭제</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         {fixedImages.map((p, i) => (
@@ -327,6 +350,7 @@ export function CafeTestTab() {
                 <textarea
                     className="h-[320px] w-full rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-[13px] leading-6 text-[#0f172a]"
                     onChange={(e) => setReviewBody(e.target.value)}
+                    placeholder="위 “원고 생성” 버튼을 누르면 선택한 문체(기본: 후기형)의 본문이 여기에 표시됩니다."
                     value={bodyText}
                 />
                 <p className="mt-1.5 text-[12px] text-[#64748b]">

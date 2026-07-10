@@ -42,3 +42,8 @@ crawler/*.log
 # 임시 크롤/로그 스크립트
 crawler/_*.py
 crawler/_*.log
+
+# 카페 고정 카드 소스 원본(대용량, 런타임 불필요 — 생성된 card-*.png만 커밋)
+public/images/cafe-fixed/src/
+public/images/고정 사진/
+public/images/123/

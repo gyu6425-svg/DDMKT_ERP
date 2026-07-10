@@ -3,7 +3,7 @@
 //   이전 배너 프롬프트와 무관한 '깨끗한' 전용 프롬프트.
 
 type FunctionContext = { request: Request; env: Record<string, string | undefined> };
-type Payload = { region?: string; topic?: string; phone?: string; services?: string; refs?: string[]; quality?: string };
+type Payload = { region?: string; topic?: string; phone?: string; services?: string; refs?: string[]; quality?: string; mode?: string };
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
 
@@ -16,6 +16,22 @@ export function buildCafeCardPrompt(p: Payload): string {
     const topic = (p.topic || '누수탐지').trim();
     const phone = (p.phone || '').trim();
     const services = (p.services || '누수탐지 · 공압검사 · 배관교체').trim();
+    // 고정 카드(2~8번용): 같은 브랜드 무드지만 지역·전화번호 없이, 현장 사진 위주.
+    if (p.mode === 'fixed') {
+        return [
+            `Create a 1024x1024 square Korean local "leak detection / plumbing repair" photo card (누수탐지·배관공사 현장 카드).`,
+            `Follow this EXACT fixed layout (top to bottom), professional Korean local-service thumbnail mood:`,
+            `1) TOP HEADER on a deep navy blue bar: the main title in HUGE bold WHITE text "누수탐지 · 배관공사", and directly under it a smaller yellow line "탐지부터 공사까지".`,
+            `2) A yellow starburst seal badge reading "신속출동" placed at the TOP-RIGHT corner.`,
+            `3) MIDDLE: one wide horizontal collage strip made of exactly 2 realistic on-site work photos side by side, based on the reference image(s): demolition rubble in a bathroom, gray PVC pipes, a technician using a leak-detection device, a water-stained ceiling, pressure-test gauges, etc.`,
+            `4) BOTTOM: a single white rounded pill bar with service tags "${services}" in navy text.`,
+            ``,
+            `The exact arrangement MAY vary slightly between cards, but the TEXT SIZE, TEXT COLORS, fonts, and overall brand mood MUST stay identical across all cards: HUGE bold white title, yellow accent line, yellow starburst "신속출동" badge, white pill tags, on deep navy + bright blue + yellow accents.`,
+            `CRITICAL: Do NOT include any location/region text. Do NOT include any phone number. Do NOT invent an address.`,
+            `Render all Korean text crisply and 100% correctly (exact characters, no garbling, no typos, no fake/English letters).`,
+            `No English words, no watermark, no logo lettering. Bold, high-contrast, trustworthy Korean marketing look.`,
+        ].join('\n');
+    }
     return [
         `Create a 1024x1024 square Korean local "leak detection" promotional card (누수탐지 홍보 카드).`,
         `Match this EXACT visual style (professional Korean local-service thumbnail):`,
