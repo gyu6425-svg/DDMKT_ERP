@@ -152,7 +152,8 @@ function Frame({
                 boxSizing: 'border-box',
             }}
         >
-            {/* AI 무드 배경(있을 때) — 사진 + 카드색 틴트 오버레이로 텍스트 가독성 유지. 텍스트/브래킷은 이 위에 렌더. */}
+            {/* AI 무드 배경(있을 때) — 9장 전부 '사진이 보이는' 동일 무드. 신뢰 위해 사진을 크게 두고,
+                텍스트 영역(상·하단)만 어둡게 스크림 처리. 카드색은 20%만 살짝 얹어 정체성 유지(사진은 그대로 보임). */}
             {bgImage ? (
                 <>
                     <img
@@ -160,14 +161,15 @@ function Frame({
                         src={bgImage}
                         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                     />
-                    <div style={{ position: 'absolute', inset: 0, background: bg, opacity: 0.8 }} />
                     <div
                         style={{
                             position: 'absolute',
                             inset: 0,
-                            background: `linear-gradient(180deg, ${bg}cc 0%, transparent 30%, transparent 70%, ${bg}cc 100%)`,
+                            background:
+                                'linear-gradient(180deg, rgba(7,16,30,0.88) 0%, rgba(7,16,30,0.42) 34%, rgba(7,16,30,0.5) 64%, rgba(7,16,30,0.92) 100%)',
                         }}
                     />
+                    <div style={{ position: 'absolute', inset: 0, background: `${bg}33` }} />
                 </>
             ) : null}
             <Brackets color={bracket} />
