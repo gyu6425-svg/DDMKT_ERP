@@ -91,8 +91,10 @@ export async function generateCafe(input: GenerateCafeInput): Promise<GenerateCa
 export type GenerateCafeReviewResult = { title: string; reviewBody: string; usage?: CafeTokenUsage | null };
 
 // 후기성 카페 본문 생성 — 현재 카드 콘텐츠(content)를 소재로 후기/경험 형식 글 + 「사진 N」 마커.
+export type CafeReviewTone = 'review' | 'info' | 'story' | 'talk' | 'notice';
+
 export async function generateCafeReview(
-    input: GenerateCafeInput & { content: Partial<CafeContent> },
+    input: GenerateCafeInput & { content: Partial<CafeContent>; tone?: CafeReviewTone },
 ): Promise<GenerateCafeReviewResult> {
     const result = await postCafe(
         {
@@ -104,6 +106,7 @@ export async function generateCafeReview(
             mode: 'review',
             phone: input.phone,
             region: input.region,
+            tone: input.tone || 'review',
         },
         input.signal,
     );

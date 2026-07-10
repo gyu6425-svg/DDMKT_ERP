@@ -1228,6 +1228,14 @@ function parseCafeJson(text) {
     }
 }
 
+const REVIEW_TONES = {
+    review: { name: '후기형', guide: '직접 경험한 사람이 후기를 공유하는 말투. 시작 예: "안녕하세요 :) 얼마 전 누수 때문에 든든한 누수탐지 불러봤는데, 정리해서 공유해야겠다 싶어 글 남깁니다."' },
+    info: { name: '정보형', guide: '업체가 정보를 정리해 안내하는 말투. 시작 예: "안녕하세요, 든든한 누수탐지입니다. 상담을 진행하며 자주 받는 질문들을 중심으로 안내드립니다."' },
+    story: { name: '스토리형', guide: '이야기를 풀어가는 말투. 시작 예: "처음엔 별것 아닌 것처럼 보입니다. 그런데 시간이 지나면 이야기가 달라지죠."' },
+    talk: { name: '대화형', guide: '독자에게 질문을 던지며 대화하듯 이끄는 말투. 시작 예: "혹시 지금 이런 고민 하고 계신가요?"' },
+    notice: { name: '공지형', guide: '간결한 브리핑/공지 말투. 핵심만 짧게, 군더더기 없이 항목 위주로.' },
+};
+
 function buildReviewPrompt(payload) {
     const keyword = (payload.keyword || '').trim();
     const region = (payload.region || '').trim() || keyword.replace(/\s*누수탐지.*$/, '').trim() || keyword;
@@ -1245,12 +1253,15 @@ function buildReviewPrompt(payload) {
         `약속: ${arr('promises').join(' / ')}`,
         Array.isArray(c.faqs) ? `FAQ: ${c.faqs.map((f) => `${f.q}→${f.a}`).join(' / ')}` : '',
     ].filter(Boolean).join('\n');
+    const tone = REVIEW_TONES[payload.tone || 'review'] || REVIEW_TONES.review;
     return [
-        `너는 네이버 카페 지역글 전문 카피라이터다. 아래 업체의 "${keyword}" 홍보를 위한 **후기·경험 공유 형식의 카페 본문**을 쓴다.`,
+        `너는 네이버 카페 지역글 전문 카피라이터다. 아래 업체의 "${keyword}" 홍보를 위한 카페 본문을 **[${tone.name}]** 문체로 쓴다.`,
         `업체명 "${brand} ${branch}", 지역 "${region}", 업종 "${business}", 전화 "${phone}".`,
         ``,
+        `[문체 지시 · ${tone.name}] ${tone.guide}`,
+        ``,
         `[반드시 지킬 형식]`,
-        `- 실제 경험/후기처럼 담백하고 자연스러운 톤. 과장·허위·별점·가짜 이름 금지.`,
+        `- 위 문체를 유지하되 담백하고 자연스럽게. 과장·허위·별점·가짜 이름 금지.`,
         `- 9장의 카드 이미지가 함께 올라간다. 본문 흐름에 맞춰 「사진 1」 ~ 「사진 9」 마커를 순서대로 각각 한 줄 단독으로 넣어라(누락 없이 9개).`,
         `- 업체명과 전화(${phone})는 정확히 표기. 마지막에 상담 유도 한 줄. 분량 900~1400자. 마크다운·이모지 금지.`,
         ``,

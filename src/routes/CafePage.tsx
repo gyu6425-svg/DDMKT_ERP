@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getFontEmbedCSS, toPng } from 'html-to-image';
-import { generateCafe, generateCafeReview } from '../api/cafeWriter';
+import { generateCafe, generateCafeReview, type CafeReviewTone } from '../api/cafeWriter';
 import { generateAiCardImage } from '../api/aiCardImage';
 import type { BannerForm, BannerSize } from '../routes/BannerGeneratorPage';
+import { deleteCafeOutput, getCafeOutputs, saveCafeOutput, type CafeOutput } from '../api/cafeOutputs';
 import {
     buildCafePost,
     defaultCafeTitle,
@@ -65,8 +66,56 @@ function CafePage() {
     const [copied, setCopied] = useState(false);
     const [reviewBody, setReviewBody] = useState(''); // AI 후기 본문(있으면 이걸 씀, 없으면 기본 조립)
     const [reviewBusy, setReviewBusy] = useState(false);
+    const [tone, setTone] = useState<CafeReviewTone>('review'); // 원고 톤(기본 후기형)
     const [bgImage, setBgImage] = useState<string | null>(null); // AI 생성 무드 배경(9장 공유)
     const [bgBusy, setBgBusy] = useState(false);
+    const [saved, setSaved] = useState<CafeOutput[]>([]); // 저장 갤러리
+    const [saving, setSaving] = useState(false);
+
+    const loadSaved = () => void getCafeOutputs(30).then(({ data }) => setSaved(data));
+    useEffect(() => {
+        loadSaved();
+    }, []);
+
+    const onSave = async () => {
+        if (saving) return;
+        setSaving(true);
+        setMsg('저장 중…');
+        const operator = window.localStorage.getItem('operator_name');
+        const { error } = await saveCafeOutput({
+            bg_image: bgImage,
+            content: { ...content, brand, branch, phone, region },
+            keyword,
+            operator_name: operator,
+            region,
+            review_body: reviewBody || null,
+            title,
+            tone,
+        });
+        setSaving(false);
+        if (error) {
+            setMsg('저장 실패 — cafe_outputs 테이블이 필요합니다(docs/cafe-outputs-table.sql 실행).');
+            return;
+        }
+        setMsg('저장됨 — 아래 갤러리에서 다시 불러올 수 있습니다.');
+        loadSaved();
+    };
+
+    const restore = (o: CafeOutput) => {
+        if (o.content) setContent(o.content);
+        if (o.title) setTitle(o.title);
+        setReviewBody(o.review_body || '');
+        setBgImage(o.bg_image || null);
+        if (o.region) setRegion(o.region);
+        if (o.keyword) setKeyword(o.keyword);
+        if (o.tone) setTone(o.tone as CafeReviewTone);
+        setMsg('불러왔습니다.');
+    };
+
+    const remove = async (id: string) => {
+        await deleteCafeOutput(id);
+        loadSaved();
+    };
 
     const cardRefs = useRef<Array<HTMLDivElement | null>>([]);
 
@@ -99,7 +148,7 @@ function CafePage() {
         setReviewBusy(true);
         setMsg('후기 본문 생성 중… (최대 1~2분)');
         try {
-            const r = await generateCafeReview({ brand, branch, business, content: cards, keyword, phone, region });
+            const r = await generateCafeReview({ brand, branch, business, content: cards, keyword, phone, region, tone });
             setReviewBody(r.reviewBody);
             if (r.title) setTitle(r.title);
             setMsg('후기 본문 생성 완료 — 카페 글쓰기에 복사해 쓰세요.');
@@ -250,6 +299,14 @@ function CafePage() {
                         </button>
                     ) : null}
                     <button
+                        className="h-10 rounded-md bg-[#0f766e] px-5 text-sm font-bold text-white hover:bg-[#115e59] disabled:opacity-50"
+                        disabled={saving}
+                        onClick={() => void onSave()}
+                        type="button"
+                    >
+                        {saving ? '저장 중…' : '저장'}
+                    </button>
+                    <button
                         className="h-10 rounded-md border border-[#cbd5e1] px-4 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
                         onClick={() => setContent(DEFAULT_CAFE_CONTENT)}
                         type="button"
@@ -259,6 +316,36 @@ function CafePage() {
                     {msg ? <span className="text-[13px] text-[#6366f1]">{msg}</span> : null}
                 </div>
             </div>
+
+            {/* 저장 갤러리 — 저장한 작업을 다시 불러오기 */}
+            {saved.length ? (
+                <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                    <div className="mb-2 text-[13px] font-bold text-[#334155]">저장한 작업 ({saved.length})</div>
+                    <div className="flex flex-wrap gap-2">
+                        {saved.map((o) => (
+                            <div key={o.id} className="flex items-center gap-1.5 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] py-1 pl-2.5 pr-1.5">
+                                <button
+                                    className="text-left text-[12px] font-semibold text-[#0f172a] hover:text-[#4338ca]"
+                                    onClick={() => restore(o)}
+                                    title="이 작업 불러오기"
+                                    type="button"
+                                >
+                                    {o.region || o.keyword || '작업'}
+                                    <span className="ml-1 font-normal text-[#94a3b8]">{(o.created_at || '').slice(5, 10)}</span>
+                                </button>
+                                <button
+                                    className="rounded px-1 text-[12px] text-[#cbd5e1] hover:text-[#dc2626]"
+                                    onClick={() => void remove(o.id)}
+                                    title="삭제"
+                                    type="button"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ) : null}
 
             {/* 카페 본문 (복사용) — 카페 글쓰기에 붙여넣고 「사진 N」 위치에 해당 PNG를 넣으면 됨 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
@@ -292,6 +379,28 @@ function CafePage() {
                             {copied ? '복사됨 ✓' : '본문 전체 복사'}
                         </button>
                     </div>
+                </div>
+                {/* 원고 톤 선택 (기본 후기형) — 'AI 후기 본문 생성'에 반영 */}
+                <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                    <span className="mr-1 text-[12px] font-semibold text-[#475569]">문체</span>
+                    {([
+                        ['review', '후기형'],
+                        ['info', '정보형'],
+                        ['story', '스토리형'],
+                        ['talk', '대화형'],
+                        ['notice', '공지형'],
+                    ] as [CafeReviewTone, string][]).map(([k, label]) => (
+                        <button
+                            key={k}
+                            className={`rounded-full px-3 py-1 text-[12px] font-semibold ${
+                                tone === k ? 'bg-[#7c3aed] text-white' : 'border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]'
+                            }`}
+                            onClick={() => setTone(k)}
+                            type="button"
+                        >
+                            {label}
+                        </button>
+                    ))}
                 </div>
                 <label className="mb-2 grid gap-1">
                     <span className="text-[12px] font-semibold text-[#475569]">제목</span>
