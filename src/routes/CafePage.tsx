@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getFontEmbedCSS, toPng } from 'html-to-image';
-import { generateCafe, generateCafeReview, type CafeReviewTone } from '../api/cafeWriter';
+import { editCafeImage, generateCafe, generateCafeReview, type CafeReviewTone } from '../api/cafeWriter';
 import { generateAiCardImage } from '../api/aiCardImage';
 import type { BannerForm, BannerSize } from '../routes/BannerGeneratorPage';
 import { deleteCafeOutput, getCafeOutputs, saveCafeOutput, type CafeOutput } from '../api/cafeOutputs';
@@ -65,6 +65,45 @@ function CafePage() {
         setPhotos((prev) => [...prev, ...arr].slice(0, 6));
     };
     const removePhoto = (i: number) => setPhotos((prev) => prev.filter((_, idx) => idx !== i));
+
+    // 원본 글자 교체(실험) — 완성 카드 이미지 업로드 → 텍스트만 AI 교체
+    const [editImage, setEditImage] = useState<string | null>(null);
+    const [editResult, setEditResult] = useState<string | null>(null);
+    const [editServices, setEditServices] = useState('욕실누수 · 누수탐지 · 배관교체');
+    const [editBusy, setEditBusy] = useState(false);
+    const readFile = (f: File) =>
+        new Promise<string>((res, rej) => {
+            const r = new FileReader();
+            r.onload = () => res(String(r.result));
+            r.onerror = rej;
+            r.readAsDataURL(f);
+        });
+    const onPickEditImage = async (files: FileList | null) => {
+        if (!files || !files[0]) return;
+        setEditImage(await readFile(files[0]));
+        setEditResult(null);
+    };
+    const onEdit = async () => {
+        if (!editImage || editBusy) return;
+        setEditBusy(true);
+        setMsg('원본 이미지 글자 교체 중… (최대 1~2분)');
+        try {
+            const out = await editCafeImage({ image: editImage, keyword, phone, region, services: editServices });
+            setEditResult(out);
+            setMsg('글자 교체 완료 — 한글이 깨졌으면 다시 시도하거나 문구를 조정하세요.');
+        } catch (e) {
+            setMsg(e instanceof Error ? e.message : '편집 실패');
+        } finally {
+            setEditBusy(false);
+        }
+    };
+    const downloadEdit = () => {
+        if (!editResult) return;
+        const a = document.createElement('a');
+        a.href = editResult;
+        a.download = `${region || '카페'}_글자교체.png`;
+        a.click();
+    };
     const [includeImage, setIncludeImage] = useState(true); // 한번에 생성 시 AI 이미지 포함(유료)
     const [cardCount, setCardCount] = useState(9); // 뽑을 카드 장수(1~9)
     const [saved, setSaved] = useState<CafeOutput[]>([]); // 저장 갤러리
@@ -371,6 +410,78 @@ function CafePage() {
                         AI 이미지 포함 <span className="font-normal text-[#94a3b8]">(유료·1장)</span>
                     </label>
                     {msg ? <span className="text-[13px] text-[#6366f1]">{msg}</span> : null}
+                </div>
+            </div>
+
+            {/* 원본 이미지 글자 교체 (실험) — 완성 카드 업로드 → 텍스트만 AI 교체 */}
+            <div className="rounded-xl border border-[#fde68a] bg-[#fffbeb] p-4">
+                <div className="mb-2 text-[13px] font-bold text-[#92400e]">
+                    원본 이미지 글자 교체 (실험) <span className="font-normal text-[#b45309]">— 완성된 카드 이미지를 올리면 위 “지역·키워드·전화·서비스”로 글자만 바꿔줍니다 (한글이 깨질 수 있음)</span>
+                </div>
+                <div className="flex flex-wrap items-start gap-3">
+                    {/* 원본 업로드/미리보기 */}
+                    <div>
+                        {editImage ? (
+                            <img alt="" className="h-40 w-40 rounded-md border border-[#e2e8f0] object-cover" src={editImage} />
+                        ) : (
+                            <label className="flex h-40 w-40 cursor-pointer items-center justify-center rounded-md border-2 border-dashed border-[#fcd34d] text-[12px] font-semibold text-[#b45309] hover:bg-[#fef3c7]">
+                                + 원본 카드
+                                <input accept="image/*" className="hidden" onChange={(e) => void onPickEditImage(e.target.files)} type="file" />
+                            </label>
+                        )}
+                    </div>
+                    {/* 결과 */}
+                    {editResult ? (
+                        <div>
+                            <img alt="" className="h-40 w-40 rounded-md border-2 border-[#16a34a] object-cover" src={editResult} />
+                            <div className="mt-1 text-[10px] font-semibold text-[#15803d]">교체 결과</div>
+                        </div>
+                    ) : null}
+                    {/* 컨트롤 */}
+                    <div className="grid min-w-[240px] flex-1 content-start gap-2">
+                        <label className="grid gap-1">
+                            <span className="text-[12px] font-semibold text-[#475569]">서비스 태그(하단)</span>
+                            <input
+                                className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
+                                onChange={(e) => setEditServices(e.target.value)}
+                                value={editServices}
+                            />
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                className="h-10 rounded-md bg-[#b45309] px-5 text-sm font-bold text-white hover:bg-[#92400e] disabled:opacity-50"
+                                disabled={!editImage || editBusy}
+                                onClick={() => void onEdit()}
+                                type="button"
+                            >
+                                {editBusy ? '교체 중…' : 'AI로 글자 교체'}
+                            </button>
+                            {editImage ? (
+                                <button
+                                    className="h-10 rounded-md border border-[#cbd5e1] px-4 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                                    onClick={() => {
+                                        setEditImage(null);
+                                        setEditResult(null);
+                                    }}
+                                    type="button"
+                                >
+                                    원본 지우기
+                                </button>
+                            ) : null}
+                            {editResult ? (
+                                <button
+                                    className="h-10 rounded-md bg-[#16a34a] px-5 text-sm font-bold text-white hover:bg-[#15803d]"
+                                    onClick={downloadEdit}
+                                    type="button"
+                                >
+                                    결과 다운로드
+                                </button>
+                            ) : null}
+                        </div>
+                        <p className="text-[11px] text-[#b45309]">
+                            위 입력칸의 <b>지역({region})·키워드({keyword})·전화({phone})</b> 로 교체합니다. 결과가 마음에 안 들면 다시 시도하세요.
+                        </p>
+                    </div>
                 </div>
             </div>
 

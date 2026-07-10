@@ -1300,6 +1300,64 @@ async function generateCafe(payload) {
     return { body: { content: parsed, prompt, usage: result.usage ?? null }, statusCode: 200 };
 }
 
+// ── 카페 원본 이미지 글자 교체(로컬) — functions/api/generate-cafe-edit.ts 와 동일 ──
+function splitCafeDataUrl(u) {
+    const m = /^data:([^;]+);base64,(.+)$/.exec(u || '');
+    return m ? { mimeType: m[1], data: m[2] } : null;
+}
+function buildCafeEditPrompt(p) {
+    const lines = [
+        '첨부된 한국 지역 홍보 카드 이미지를 편집한다. 아래 지정한 "텍스트만" 교체하고,',
+        '나머지(사진·배경·색·레이아웃·물방울/뱃지/바 등 그래픽 효과·다른 텍스트·요소 위치와 크기)는 100% 그대로 유지한다.',
+        '',
+        '[교체할 텍스트]',
+    ];
+    if (p.region) lines.push(`- 지역/동 이름 텍스트를 정확히 "${p.region}" 로 바꾼다.`);
+    if (p.keyword) lines.push(`- 중앙의 가장 큰 제목 텍스트를 정확히 "${p.keyword}" 로 바꾼다.`);
+    if (p.phone) lines.push(`- 전화번호를 정확히 "${p.phone}" 로 바꾼다.`);
+    if (p.services) lines.push(`- 하단 서비스 태그 텍스트를 "${p.services}" 로 바꾼다.`);
+    lines.push(
+        '',
+        '[규칙]',
+        '- 모든 한글을 또렷하고 정확하게 렌더한다(오타·깨짐·영어 변환 금지).',
+        '- 요소를 이동·재배치·재디자인하지 않는다. 사진을 바꾸지 않는다.',
+        '- 워터마크·영어 캡션·설명 텍스트를 추가하지 않는다.',
+        '- 지정한 텍스트만 바뀐, 원본과 동일한 이미지를 1장 출력한다.',
+    );
+    return lines.join('\n');
+}
+async function generateCafeEdit(p) {
+    if (!p?.image) return { statusCode: 400, body: { message: '원본 이미지가 필요합니다.' } };
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return { statusCode: 500, body: { message: '.env 의 GEMINI_API_KEY 가 필요합니다.' } };
+    const img = splitCafeDataUrl(p.image);
+    if (!img) return { statusCode: 400, body: { message: '이미지 형식 오류(dataURL 필요).' } };
+    const model = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.0-flash';
+    const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: buildCafeEditPrompt(p) }, { inlineData: { data: img.data, mimeType: img.mimeType } }] }],
+                generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+            }),
+        },
+    );
+    const result = await readJsonResponse(res);
+    rememberRequest({ ok: res.ok, route: 'generate-cafe-edit', status: res.status });
+    if (!res.ok) {
+        const m = res.status === 429 ? '무료 티어 요청 제한. 잠시 후 재시도.' : result?.error?.message || '이미지 편집 실패';
+        return { statusCode: res.status, body: { message: m } };
+    }
+    const parts = result?.candidates?.[0]?.content?.parts || [];
+    const ip = parts.find((pt) => pt?.inlineData?.data || pt?.inline_data?.data);
+    const inline = ip?.inlineData || ip?.inline_data;
+    if (!inline?.data) return { statusCode: 502, body: { message: 'Gemini 응답에 편집 이미지가 없습니다. 다시 시도해 주세요.' } };
+    const mime = inline.mimeType || inline.mime_type || 'image/png';
+    return { statusCode: 200, body: { imageDataUrl: `data:${mime};base64,${inline.data}` } };
+}
+
 loadDotEnv();
 
 const server = createServer(async (request, response) => {
@@ -1361,6 +1419,17 @@ const server = createServer(async (request, response) => {
                         ? [error.message, cause].filter(Boolean).join(': ')
                         : '서버 오류가 발생했습니다.',
             });
+        }
+        return;
+    }
+
+    if (request.method === 'POST' && request.url === '/api/generate-cafe-edit') {
+        try {
+            const payload = await readJsonBody(request);
+            const result = await generateCafeEdit(payload);
+            sendJson(response, result.statusCode, result.body);
+        } catch (error) {
+            sendJson(response, 500, { message: error instanceof Error ? error.message : '서버 오류가 발생했습니다.' });
         }
         return;
     }

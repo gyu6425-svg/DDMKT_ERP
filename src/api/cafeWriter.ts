@@ -29,6 +29,60 @@ function getUrl() {
     return import.meta.env.DEV ? 'http://127.0.0.1:8787/api/generate-cafe' : '/api/generate-cafe';
 }
 
+function getEditUrl() {
+    return import.meta.env.DEV ? 'http://127.0.0.1:8787/api/generate-cafe-edit' : '/api/generate-cafe-edit';
+}
+
+// 원본 이미지 글자 교체(실험) — 업로드한 완성 카드 이미지에서 텍스트만 Gemini로 교체.
+export async function editCafeImage(input: {
+    image: string;
+    region?: string;
+    keyword?: string;
+    phone?: string;
+    services?: string;
+    signal?: AbortSignal;
+}): Promise<string> {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 120000);
+    if (input.signal) {
+        if (input.signal.aborted) controller.abort();
+        else input.signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+    try {
+        const res = await fetch(getEditUrl(), {
+            body: JSON.stringify({
+                image: input.image,
+                keyword: input.keyword,
+                phone: input.phone,
+                region: input.region,
+                services: input.services,
+            }),
+            headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            signal: controller.signal,
+        });
+        const text = await res.text();
+        let data: { imageDataUrl?: string; message?: string } = {};
+        if (text) {
+            try {
+                data = JSON.parse(text);
+            } catch {
+                throw new Error('편집 응답을 해석하지 못했습니다(로컬은 api:dev 실행 확인).');
+            }
+        }
+        if (!res.ok) throw new Error(data.message || '이미지 편집에 실패했습니다.');
+        if (!data.imageDataUrl) throw new Error('편집된 이미지가 없습니다.');
+        return data.imageDataUrl;
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+            throw new Error('이미지 편집이 중단되었습니다(최대 2분 초과 또는 취소).', { cause: error });
+        }
+        throw error;
+    } finally {
+        window.clearTimeout(timeoutId);
+    }
+}
+
 // 공통 POST — mode/content 에 따라 카드 원고 또는 후기 본문 생성.
 async function postCafe(
     body: Record<string, unknown>,

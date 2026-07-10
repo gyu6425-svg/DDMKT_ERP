@@ -127,22 +127,6 @@ function HeroCard({ c, index }: { c: CafeContent; index: number }) {
                 {/* 업종(크게) */}
                 <div style={{ ...outlined(headlineSize(spec.big), YELLOW, 10), marginTop: 8 }}>{spec.big}</div>
 
-                {/* 서비스 알약 */}
-                <div style={{ marginTop: 26 }}>
-                    <span style={{ display: 'inline-block', background: '#12294c', border: '3px solid rgba(255,255,255,0.28)', color: '#fff', fontSize: 34, fontWeight: 800, padding: '16px 30px', borderRadius: 50 }}>
-                        {spec.pill}
-                    </span>
-                </div>
-
-                {/* 태그라인(양옆 라인) */}
-                <div style={{ marginTop: 26, display: 'flex', alignItems: 'center', gap: 18 }}>
-                    <span style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.3)' }} />
-                    <span style={{ color: '#fff', fontSize: 32, fontWeight: 900 }}>
-                        탐지<span style={{ color: YELLOW }}>부터</span> 공사<span style={{ color: YELLOW }}>까지</span>
-                    </span>
-                    <span style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.3)' }} />
-                </div>
-
                 {/* 전화 */}
                 <div style={{ position: 'absolute', left: 56, right: 56, bottom: 64, display: 'flex', alignItems: 'center', gap: 20 }}>
                     <span style={{ width: 74, height: 74, borderRadius: '50%', background: BLUE, color: '#fff', fontSize: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>

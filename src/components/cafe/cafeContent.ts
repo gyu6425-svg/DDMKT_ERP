@@ -13,6 +13,7 @@ export type CafeContent = {
     areaWide: string; // 수도권
     phone: string; // 010-4614-4424
     business: string; // 업종(누수탐지) — 히어로 카드 큰 제목용
+    keyword?: string; // 입력 키워드 — 카드 중앙 타이틀(욕실 누수공사 자리)에 그대로 표기
 
     // 1) 커버
     coverBadge: string; // 24H LEAK DETECTION
