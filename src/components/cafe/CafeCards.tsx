@@ -51,43 +51,20 @@ function headlineSize(text: string): number {
     return 72;
 }
 
-// 카드별 헤드라인/서브 — 지역/업종/전화는 공통, 카드마다 헤드라인·서비스·태그라인만 다름.
-const HEADLINES: (string | null)[] = [
-    null, // 커버: 업종을 헤드라인으로
-    '이런 누수\n아니신가요?',
-    '미룰수록\n커집니다',
-    '저희는\n다릅니다',
-    '지금\n점검하세요',
-    '빠를수록\n저렴합니다',
-    '모든 누수\n다 잡습니다',
-    '무엇이든\n물어보세요',
-    '믿고\n맡기세요',
-];
-
-function heroSpec(c: CafeContent, index: number) {
-    const svc = c.leakTypes && c.leakTypes.length ? c.leakTypes : ['외부 누수', '욕실 배관 누수', '천장 누수', '배관 교체'];
-    const taglines = [
-        '탐지부터 공사까지',
-        c.coverEmphasisHi,
-        '정확한 장비 탐지로 원인 해결',
-        c.damagePunch1 && c.damagePunch2 ? `${c.damagePunch1} ${c.damagePunch2}` : '',
-        c.wayFooter,
-        c.serviceFooter,
-        c.promiseClose1,
-    ].filter(Boolean);
-    const isCover = index === 0;
-    // 커버: 지역(작게) + 업종(크게). 그 외: "지역 업종"(작게) + 헤드라인(크게).
-    const topLine = isCover ? c.region : `${c.region} ${c.business}`;
-    const big = isCover ? c.business : (HEADLINES[index] || c.business);
-    const pill = `${svc[index % svc.length]} · ${svc[(index + 1) % svc.length]}`;
-    const tagline = taglines[index % taglines.length] || '탐지부터 공사까지';
-    return { topLine, big, pill, tagline };
+// 카드 공통 텍스트 — 모든 카드가 레퍼런스와 동일: 지역 + 업종 + 서비스. 사진만 카드마다 다름.
+function heroSpec(c: CafeContent) {
+    const svc = c.leakTypes && c.leakTypes.length ? c.leakTypes : ['외부 누수', '욕실 배관 누수'];
+    return {
+        topLine: c.region, // 과천
+        big: c.business, // 누수탐지
+        pill: svc.slice(0, 2).join(' · '), // 외부 누수 · 욕실 배관 누수
+    };
 }
 
 function HeroCard({ c, index }: { c: CafeContent; index: number }) {
     const photos = useContext(PhotoCtx);
     const bg = useContext(BgCtx);
-    const spec = heroSpec(c, index);
+    const spec = heroSpec(c);
     // 콜라주 — 업로드 사진을 카드 index만큼 회전해 최대 3장(카드마다 다른 조합).
     const n = photos.length;
     const collage = n
@@ -146,9 +123,9 @@ function HeroCard({ c, index }: { c: CafeContent; index: number }) {
                 </div>
 
                 {/* 지역(작게) */}
-                <div style={{ ...outlined(52, '#ffffff', 6), marginTop: 78 }}>{spec.topLine}</div>
-                {/* 업종/헤드라인(크게) */}
-                <div style={{ ...outlined(headlineSize(spec.big), YELLOW, 9), marginTop: 6 }}>{spec.big}</div>
+                <div style={{ ...outlined(spec.topLine.length > 5 ? 60 : 72, '#ffffff', 7), marginTop: 78 }}>{spec.topLine}</div>
+                {/* 업종(크게) */}
+                <div style={{ ...outlined(headlineSize(spec.big), YELLOW, 10), marginTop: 8 }}>{spec.big}</div>
 
                 {/* 서비스 알약 */}
                 <div style={{ marginTop: 26 }}>
