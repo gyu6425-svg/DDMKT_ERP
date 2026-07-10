@@ -142,7 +142,58 @@ export async function generateCafe(input: GenerateCafeInput): Promise<GenerateCa
     return result as GenerateCafeResult;
 }
 
-export type GenerateCafeReviewResult = { title: string; reviewBody: string; usage?: CafeTokenUsage | null };
+export type GenerateCafeReviewResult = { title: string; reviewBody: string; topics?: string[]; usage?: CafeTokenUsage | null };
+
+// GPT 카드 이미지 1장 생성 — 지역/제목/전화/서비스 + 참고사진(refs). 레퍼런스 무드로 렌더.
+export async function generateCafeCard(input: {
+    region?: string;
+    topic?: string;
+    phone?: string;
+    services?: string;
+    refs?: string[];
+    signal?: AbortSignal;
+}): Promise<string> {
+    const url = import.meta.env.DEV ? 'http://127.0.0.1:8787/api/generate-cafe-card' : '/api/generate-cafe-card';
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 240000); // 이미지 생성은 오래 걸림
+    if (input.signal) {
+        if (input.signal.aborted) controller.abort();
+        else input.signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+    try {
+        const res = await fetch(url, {
+            body: JSON.stringify({
+                phone: input.phone,
+                refs: input.refs,
+                region: input.region,
+                services: input.services,
+                topic: input.topic,
+            }),
+            headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            signal: controller.signal,
+        });
+        const text = await res.text();
+        let data: { imageDataUrl?: string; message?: string } = {};
+        if (text) {
+            try {
+                data = JSON.parse(text);
+            } catch {
+                throw new Error('카드 응답을 해석하지 못했습니다(로컬은 api:dev 실행 확인).');
+            }
+        }
+        if (!res.ok) throw new Error(data.message || '카드 생성에 실패했습니다.');
+        if (!data.imageDataUrl) throw new Error('생성된 카드가 없습니다.');
+        return data.imageDataUrl;
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+            throw new Error('카드 생성이 중단되었습니다(최대 4분 초과 또는 취소).', { cause: error });
+        }
+        throw error;
+    } finally {
+        window.clearTimeout(timeoutId);
+    }
+}
 
 // 후기성 카페 본문 생성 — 현재 카드 콘텐츠(content)를 소재로 후기/경험 형식 글 + 「사진 N」 마커.
 export type CafeReviewTone = 'review' | 'info' | 'story' | 'talk' | 'notice';

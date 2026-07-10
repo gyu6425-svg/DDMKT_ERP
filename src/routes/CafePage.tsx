@@ -1,8 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { getFontEmbedCSS, toPng } from 'html-to-image';
-import { editCafeImage, generateCafe, generateCafeReview, type CafeReviewTone } from '../api/cafeWriter';
-import { generateAiCardImage } from '../api/aiCardImage';
-import type { BannerForm, BannerSize } from '../routes/BannerGeneratorPage';
+import { useEffect, useMemo, useState } from 'react';
+import { editCafeImage, generateCafe, generateCafeCard, generateCafeReview, type CafeReviewTone } from '../api/cafeWriter';
 import { deleteCafeOutput, getCafeOutputs, saveCafeOutput, type CafeOutput } from '../api/cafeOutputs';
 import {
     buildCafePost,
@@ -11,12 +8,8 @@ import {
     mergeCafeContent,
     type CafeContent,
 } from '../components/cafe/cafeContent';
-import { CafeCard, CAFE_CARD_LABELS, CARD_H, CARD_W } from '../components/cafe/CafeCards';
 
-// 카페 원고 자동생성기 — 키워드 → Claude(OpenAI) 원고 생성 → 9장 카드 템플릿 렌더 → PNG 다운로드.
-//   AI 이미지가 아니라 HTML/CSS 템플릿 캡처라 한글·전화번호·FAQ가 100% 정확.
-
-const PREVIEW_SCALE = 0.27;
+// 카페 원고 자동생성기 — 키워드 → OpenAI 원고 생성 + 원고의 「사진 N」 주제로 GPT 카드 이미지 생성.
 
 // 공통 입력 필드
 function Field({ label, value, onChange, wide }: { label: string; value: string; onChange: (v: string) => void; wide?: boolean }) {
@@ -104,8 +97,8 @@ function CafePage() {
         a.download = `${region || '카페'}_글자교체.png`;
         a.click();
     };
-    const [includeImage, setIncludeImage] = useState(true); // 한번에 생성 시 AI 이미지 포함(유료)
-    const [cardCount, setCardCount] = useState(9); // 뽑을 카드 장수(1~9)
+    const [cardCount, setCardCount] = useState(3); // 뽑을 카드 장수(1~9)
+    const [genImages, setGenImages] = useState<string[]>([]); // GPT로 생성된 카드 이미지들
     const [saved, setSaved] = useState<CafeOutput[]>([]); // 저장 갤러리
     const [saving, setSaving] = useState(false);
 
@@ -154,9 +147,6 @@ function CafePage() {
         loadSaved();
     };
 
-    const cardRefs = useRef<Array<HTMLDivElement | null>>([]);
-
-
     // 고정 정보(브랜드/지점/전화/지역)를 콘텐츠에 항상 주입 — 생성 결과에 관계없이 정확.
     const fixed = useMemo(
         () => ({ brand, branch, phone, region, business }),
@@ -196,54 +186,35 @@ function CafePage() {
     };
 
 
-    // AI 무드 배경 생성(재사용) — 텍스트 없는 실사 느낌 배경 dataURL 반환. 배너 생성기 backgroundOnly 파이프라인.
-    const generateBgImage = async (): Promise<string> => {
-        const bannerSize: BannerSize = { height: 1080, id: 'square', label: '1080 x 1080', name: '정사각형', width: 1080 };
-        const form: BannerForm = {
-            title: '',
-            subtitle: '',
-            emphasis: '',
-            badge: '',
-            cta: '',
-            backgroundColor: '#0f2947',
-            accentColor: '#3b82f6',
-            textColor: '#ffffff',
-            layoutVariant: 'photo',
-        };
-        const r = await generateAiCardImage({
-            backgroundOnly: true,
-            bannerSize,
-            form,
-            imageQuality: 'medium',
-            provider: 'openai',
-            rawText: `한국 ${business} 실제 현장 홍보 카드의 사진 배경. 욕실/주택 배관 누수 탐지·수리 현장을 다큐멘터리 실사 사진처럼: 회색 PVC 배관, 벽·바닥 타일, 노후 배관 교체 장면, 전문 누수탐지 장비 느낌, 은은한 파란 물방울·물 튀김. 어둡고 묵직한 남색(네이비) 톤에 선명한 파란 포인트, 현장감·신뢰감. 상단과 하단은 어둡게 비워 흰 텍스트가 얹히도록 여백 확보. 글자·문자·숫자·로고·워터마크 절대 없음.`,
-        });
-        return r.imageDataUrl;
-    };
-
-    // 한번에 생성 — 원고(카드) → 후기 본문 → (선택)AI 배경 을 순차로.
+    // 한번에 생성 — 원고(소재)+후기 원고(그대로) 생성 후, 원고의 「사진 N」 주제로 GPT 카드 이미지를 장수만큼 생성.
     const onGenerateAll = async () => {
         if (!keyword.trim() || allBusy) return;
         setAllBusy(true);
+        setGenImages([]);
         try {
-            setMsg('① 원고(카드) 생성 중…');
+            setMsg('① 원고 소재 생성 중…');
             const { content: gen } = await generateCafe({ brand, branch, business, keyword, phone, region });
             const merged = mergeCafeContent({ ...gen, ...fixed });
             setContent(merged);
             setTitle(defaultCafeTitle(merged));
-            if (gen.region && !region) setRegion(gen.region);
             const mergedCards = { ...merged, ...fixed };
 
-            setMsg('② 후기 본문 생성 중…');
+            setMsg('② 후기 원고 생성 중…');
             const rv = await generateCafeReview({ brand, branch, business, content: mergedCards, count: cardCount, keyword, phone, region, tone });
             setReviewBody(rv.reviewBody);
             if (rv.title) setTitle(rv.title);
+            const topics = rv.topics && rv.topics.length ? rv.topics : [];
 
-            if (includeImage) {
-                setMsg('③ AI 배경 생성 중… (이미지 1장)');
-                setBgImage(await generateBgImage());
+            const services = (merged.leakTypes || []).slice(0, 3).join(' · ') || '누수탐지 · 공압검사 · 배관교체';
+            const imgs: string[] = [];
+            for (let i = 0; i < cardCount; i += 1) {
+                setMsg(`③ 카드 이미지 생성 중… (${i + 1}/${cardCount}) — 장당 1~2분`);
+                const topic = topics[i] || business;
+                const img = await generateCafeCard({ phone, refs: photos, region, services, topic });
+                imgs.push(img);
+                setGenImages([...imgs]); // 한 장씩 화면에 표시
             }
-            setMsg('완료! “전체 9장 다운로드” + “본문 전체 복사”로 사용하세요.');
+            setMsg(`완료! 카드 ${cardCount}장 + 원고. “다운받기”로 저장하세요.`);
         } catch (e) {
             setMsg(e instanceof Error ? e.message : '생성 실패 (로컬은 api:dev 필요)');
         } finally {
@@ -251,23 +222,21 @@ function CafePage() {
         }
     };
 
-    const downloadOne = async (i: number, fontEmbedCSS?: string) => {
-        const node = cardRefs.current[i];
-        if (!node) return;
-        const dataUrl = await toPng(node, { pixelRatio: 2, cacheBust: true, fontEmbedCSS, width: CARD_W, height: CARD_H });
+    const downloadImg = (i: number) => {
+        const src = genImages[i];
+        if (!src) return;
         const a = document.createElement('a');
-        a.href = dataUrl;
+        a.href = src;
         a.download = `${region || '카페'}_${String(i + 1).padStart(2, '0')}.png`;
         a.click();
     };
 
-    // 원고(txt) 1개 + 카드 이미지(png) 9개 = 총 10개 파일 다운로드.
+    // 원고(txt) + 생성된 카드 이미지(png) 다운로드.
     const downloadAll = async () => {
         if (downloading) return;
         setDownloading(true);
-        setMsg('원고 + 이미지 9장 다운로드 중…');
+        setMsg('원고 + 카드 이미지 다운로드 중…');
         try {
-            // 1) 원고 txt (제목 + 카페 본문)
             const txt = `${title}\n\n${bodyText}`;
             const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
             const turl = URL.createObjectURL(blob);
@@ -277,14 +246,11 @@ function CafePage() {
             ta.click();
             URL.revokeObjectURL(turl);
             await new Promise((r) => setTimeout(r, 200));
-            // 2) 카드 이미지 9장 png (폰트 임베드 CSS는 한 번만 계산해 재사용)
-            const first = cardRefs.current.find(Boolean);
-            const fontEmbedCSS = first ? await getFontEmbedCSS(first) : undefined;
-            for (let i = 0; i < cardCount; i += 1) {
-                await downloadOne(i, fontEmbedCSS);
-                await new Promise((r) => setTimeout(r, 250)); // 브라우저 다운로드 큐 여유
+            for (let i = 0; i < genImages.length; i += 1) {
+                downloadImg(i);
+                await new Promise((r) => setTimeout(r, 250));
             }
-            setMsg('다운로드 완료 — 원고 txt 1개 + 이미지 9장(총 10개).');
+            setMsg(`다운로드 완료 — 원고 txt 1개 + 카드 ${genImages.length}장.`);
         } catch (e) {
             setMsg(e instanceof Error ? e.message : '다운로드 실패');
         } finally {
@@ -405,10 +371,6 @@ function CafePage() {
                     >
                         {saving ? '저장 중…' : '저장'}
                     </button>
-                    <label className="flex items-center gap-1.5 text-[13px] font-semibold text-[#475569]">
-                        <input checked={includeImage} onChange={(e) => setIncludeImage(e.target.checked)} type="checkbox" />
-                        AI 이미지 포함 <span className="font-normal text-[#94a3b8]">(유료·1장)</span>
-                    </label>
                     {msg ? <span className="text-[13px] text-[#6366f1]">{msg}</span> : null}
                 </div>
             </div>
@@ -566,37 +528,35 @@ function CafePage() {
                 </p>
             </div>
 
+            {/* 생성된 카드 이미지 */}
             <div>
-                {/* 미리보기 (스케일 축소, 캡처는 원본 800×1000) */}
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-                    {CAFE_CARD_LABELS.slice(0, cardCount).map((label, i) => (
-                        <div key={i} className="grid gap-1.5">
-                            <div className="flex items-center justify-between">
-                                <span className="text-[12px] font-semibold text-[#475569]">
-                                    {String(i + 1).padStart(2, '0')}. {label}
-                                </span>
-                                <button
-                                    className="rounded border border-[#cbd5e1] px-2 py-0.5 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
-                                    onClick={() => void downloadOne(i)}
-                                    type="button"
-                                >
-                                    PNG
-                                </button>
-                            </div>
-                            <div
-                                className="overflow-hidden rounded-lg border border-[#e2e8f0] shadow-sm"
-                                style={{ width: CARD_W * PREVIEW_SCALE, height: CARD_H * PREVIEW_SCALE }}
-                            >
-                                <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: 'top left' }}>
-                                    <div ref={(el) => { cardRefs.current[i] = el; }}>
-                                        {/* 업로드 사진은 카드가 index별 콜라주로 사용, 없으면 AI 배경 폴백 */}
-                                        <CafeCard bgImage={bgImage} content={cards} index={i} photos={photos} />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
+                <div className="mb-2 text-[13px] font-bold text-[#334155]">
+                    카드 이미지 {genImages.length ? `(${genImages.length}장)` : ''}
+                    {allBusy ? <span className="ml-2 font-normal text-[#7c3aed]">생성 중…</span> : null}
                 </div>
+                {genImages.length ? (
+                    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+                        {genImages.map((src, i) => (
+                            <div className="grid gap-1.5" key={i}>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[12px] font-semibold text-[#475569]">사진 {i + 1}</span>
+                                    <button
+                                        className="rounded border border-[#cbd5e1] px-2 py-0.5 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                                        onClick={() => downloadImg(i)}
+                                        type="button"
+                                    >
+                                        PNG
+                                    </button>
+                                </div>
+                                <img alt="" className="w-full rounded-lg border border-[#e2e8f0] shadow-sm" src={src} />
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-6 py-12 text-center text-sm text-[#94a3b8]">
+                        “한번에 생성”을 누르면 원고의 「사진 N」에 맞춰 카드 이미지가 여기에 한 장씩 나타납니다.
+                    </div>
+                )}
             </div>
         </section>
     );

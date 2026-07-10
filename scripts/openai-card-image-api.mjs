@@ -1269,7 +1269,8 @@ function buildReviewPrompt(payload) {
         `[본문에 자연스럽게 녹일 소재]`,
         material,
         ``,
-        `반드시 **JSON 객체 하나만** 출력한다(코드펜스·설명 금지): {"title":"제목 1개","body":"본문 전체(줄바꿈·「사진 N」 마커 포함)"}`,
+        `- 추가로 topics 배열(정확히 ${count}개, 순서 일치): topics[0]=업종("${business}"), 나머지는 각 사진 자리 핵심 주제 6~10자.`,
+        `반드시 **JSON 객체 하나만** 출력(코드펜스·설명 금지): {"title":"제목 1개","body":"본문 전체(줄바꿈·「사진 N」 마커 포함)","topics":["${count}개"]}`,
     ].join('\n');
 }
 
@@ -1295,7 +1296,7 @@ async function generateCafe(payload) {
     const parsed = parseCafeJson(extractOutputText(result));
     if (!parsed) return { body: { message: '생성 결과(JSON)를 해석하지 못했습니다. 다시 시도해 주세요.' }, statusCode: 502 };
     if (isReview) {
-        return { body: { title: parsed.title ?? '', reviewBody: parsed.body ?? '', prompt, usage: result.usage ?? null }, statusCode: 200 };
+        return { body: { title: parsed.title ?? '', reviewBody: parsed.body ?? '', topics: Array.isArray(parsed.topics) ? parsed.topics : [], prompt, usage: result.usage ?? null }, statusCode: 200 };
     }
     return { body: { content: parsed, prompt, usage: result.usage ?? null }, statusCode: 200 };
 }
@@ -1356,6 +1357,50 @@ async function generateCafeEdit(p) {
     if (!inline?.data) return { statusCode: 502, body: { message: 'Gemini 응답에 편집 이미지가 없습니다. 다시 시도해 주세요.' } };
     const mime = inline.mimeType || inline.mime_type || 'image/png';
     return { statusCode: 200, body: { imageDataUrl: `data:${mime};base64,${inline.data}` } };
+}
+
+// ── 카페 카드 이미지 생성(OpenAI, 레퍼런스 무드) — 새 프롬프트(이전 기록과 무관, 깨끗이) ──
+function buildCafeCardPrompt(p) {
+    const region = (p.region || '').trim();
+    const topic = (p.topic || '누수탐지').trim();
+    const phone = (p.phone || '').trim();
+    const services = (p.services || '누수탐지 · 공압검사 · 배관교체').trim();
+    return [
+        `Create a 1024x1024 square Korean local "leak detection" promotional card (누수탐지 홍보 카드).`,
+        `Match this EXACT visual style (like a professional Korean local-service thumbnail):`,
+        `- Deep navy blue background with a bright blue rounded panel.`,
+        `- TOP: a collage of 2~3 realistic on-site plumbing/leak-repair job photos (bathroom under repair, gray PVC pipes, a detection device with a small screen).`,
+        `- A small yellow starburst seal badge reading "신속출동" at the upper-left of the panel.`,
+        `- Location line in bold WHITE outlined text: "${region}".`,
+        `- Main title in HUGE bold YELLOW outlined text (thick dark stroke, drop shadow): "${topic}".`,
+        `- A rounded pill bar with the services.`,
+        `- A yellow accent line "탐지부터 공사까지".`,
+        `- BOTTOM: a phone bar with a blue circle phone icon and a big YELLOW phone number "${phone}".`,
+        `- A bottom white pill row of service tags: "${services}".`,
+        ``,
+        `CRITICAL: Render ALL Korean text crisply and 100% correctly (exact characters, no garbling, no typos, no fake/English letters). The phone number must be exactly "${phone}".`,
+        `No English words, no watermark, no logo lettering. Bold, high-contrast, trustworthy Korean marketing look.`,
+    ].join('\n');
+}
+async function generateCafeCard(p) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return { statusCode: 500, body: { message: '.env 의 OPENAI_API_KEY 가 필요합니다.' } };
+    const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
+    const content = [{ type: 'input_text', text: buildCafeCardPrompt(p) }];
+    for (const u of (Array.isArray(p.refs) ? p.refs : []).slice(0, 2)) {
+        if (typeof u === 'string' && u.startsWith('data:')) content.push({ type: 'input_image', image_url: u });
+    }
+    const res = await fetch(OPENAI_API_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: [{ role: 'user', content }], model, tools: [{ type: 'image_generation', size: '1024x1024', quality: p.quality || 'high' }] }),
+    });
+    const result = await readJsonResponse(res);
+    rememberRequest({ ok: res.ok, route: 'generate-cafe-card', status: res.status });
+    if (!res.ok) return { statusCode: res.status, body: { message: result?.error?.message || 'OpenAI 카드 생성 실패' } };
+    const out = (result.output || []).find((it) => it.type === 'image_generation_call');
+    if (!out?.result) return { statusCode: 502, body: { message: 'OpenAI 응답에 이미지가 없습니다.' } };
+    return { statusCode: 200, body: { imageDataUrl: `data:image/png;base64,${out.result}` } };
 }
 
 loadDotEnv();
@@ -1427,6 +1472,17 @@ const server = createServer(async (request, response) => {
         try {
             const payload = await readJsonBody(request);
             const result = await generateCafeEdit(payload);
+            sendJson(response, result.statusCode, result.body);
+        } catch (error) {
+            sendJson(response, 500, { message: error instanceof Error ? error.message : '서버 오류가 발생했습니다.' });
+        }
+        return;
+    }
+
+    if (request.method === 'POST' && request.url === '/api/generate-cafe-card') {
+        try {
+            const payload = await readJsonBody(request);
+            const result = await generateCafeCard(payload);
             sendJson(response, result.statusCode, result.body);
         } catch (error) {
             sendJson(response, 500, { message: error instanceof Error ? error.message : '서버 오류가 발생했습니다.' });

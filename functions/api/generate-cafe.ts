@@ -138,7 +138,8 @@ export function buildReviewPrompt(payload: GenerateCafePayload): string {
         `[본문에 자연스럽게 녹일 소재]`,
         material,
         ``,
-        `반드시 **JSON 객체 하나만** 출력한다(코드펜스·설명 금지): {"title":"클릭을 부르는 제목 1개","body":"본문 전체(줄바꿈 포함, 「사진 N」 마커 포함)"}`,
+        `- 추가로, 위 「사진 1」~「사진 ${count}」 각 자리에 들어갈 카드 이미지의 큰 제목을 "topics" 배열로 준다(정확히 ${count}개, 순서 일치). topics[0]은 커버라 업종("${business}"), 나머지는 각 사진 자리의 핵심 주제를 6~10자로 짧게(예: "이런 누수 아니신가요", "빠를수록 저렴").`,
+        `반드시 **JSON 객체 하나만** 출력한다(코드펜스·설명 금지): {"title":"클릭을 부르는 제목 1개","body":"본문 전체(줄바꿈 포함, 「사진 N」 마커 포함)","topics":["${count}개"]}`,
     ].join('\n');
 }
 
@@ -205,7 +206,13 @@ export async function generateCafe(payload: GenerateCafePayload, env: FunctionCo
     }
     const usage = (result as { usage?: unknown }).usage ?? null;
     if (isReview) {
-        return jsonResponse({ title: parsed.title ?? '', reviewBody: parsed.body ?? '', prompt, usage });
+        return jsonResponse({
+            title: parsed.title ?? '',
+            reviewBody: parsed.body ?? '',
+            topics: Array.isArray(parsed.topics) ? parsed.topics : [],
+            prompt,
+            usage,
+        });
     }
     return jsonResponse({ content: parsed, prompt, usage });
 }
