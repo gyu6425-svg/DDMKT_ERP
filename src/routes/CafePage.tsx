@@ -323,6 +323,29 @@ function CafePage() {
                     </div>
                 </div>
 
+                {/* 원고 문체 — 생성 전에 선택(한번에 생성에 반영) */}
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    <span className="mr-1 text-[12px] font-semibold text-[#475569]">문체</span>
+                    {([
+                        ['review', '후기형'],
+                        ['info', '정보형'],
+                        ['story', '스토리형'],
+                        ['talk', '대화형'],
+                        ['notice', '공지형'],
+                    ] as [CafeReviewTone, string][]).map(([k, label]) => (
+                        <button
+                            className={`rounded-full px-3 py-1 text-[12px] font-semibold ${
+                                tone === k ? 'bg-[#7c3aed] text-white' : 'border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]'
+                            }`}
+                            key={k}
+                            onClick={() => setTone(k)}
+                            type="button"
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
+
                 {/* 버튼 3개: 한번에 생성 · 다운받기 · 저장 */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
@@ -420,28 +443,6 @@ function CafePage() {
                         </button>
                     </div>
                 </div>
-                {/* 원고 톤 선택 (기본 후기형) — 'AI 후기 본문 생성'에 반영 */}
-                <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                    <span className="mr-1 text-[12px] font-semibold text-[#475569]">문체</span>
-                    {([
-                        ['review', '후기형'],
-                        ['info', '정보형'],
-                        ['story', '스토리형'],
-                        ['talk', '대화형'],
-                        ['notice', '공지형'],
-                    ] as [CafeReviewTone, string][]).map(([k, label]) => (
-                        <button
-                            key={k}
-                            className={`rounded-full px-3 py-1 text-[12px] font-semibold ${
-                                tone === k ? 'bg-[#7c3aed] text-white' : 'border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]'
-                            }`}
-                            onClick={() => setTone(k)}
-                            type="button"
-                        >
-                            {label}
-                        </button>
-                    ))}
-                </div>
                 <label className="mb-2 grid gap-1">
                     <span className="text-[12px] font-semibold text-[#475569]">제목</span>
                     <input
@@ -534,7 +535,13 @@ function CafePage() {
                             >
                                 <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: 'top left' }}>
                                     <div ref={(el) => { cardRefs.current[i] = el; }}>
-                                        <CafeCard content={cards} index={i} bgImage={photos[0] || bgImage} photos={photos} />
+                                        {/* 사진 분산: 카드마다 다른 업로드 사진(부족하면 순환), 없으면 AI 배경 — 전체 동일 무드 */}
+                                        <CafeCard
+                                            bgImage={photos.length ? photos[i % photos.length] : bgImage}
+                                            content={cards}
+                                            index={i}
+                                            photos={photos}
+                                        />
                                     </div>
                                 </div>
                             </div>

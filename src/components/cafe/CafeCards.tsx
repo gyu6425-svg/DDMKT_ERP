@@ -98,7 +98,17 @@ function CheckLabel({ n, color, line }: { n: string; color: string; line: string
 // 큰 제목(2줄까지)
 function Title({ text, color }: { text: string; color: string }) {
     return (
-        <div style={{ color, fontSize: 52, fontWeight: 800, lineHeight: 1.25, whiteSpace: 'pre-line', letterSpacing: -1 }}>
+        <div
+            style={{
+                color,
+                fontSize: 52,
+                fontWeight: 800,
+                lineHeight: 1.25,
+                whiteSpace: 'pre-line',
+                letterSpacing: -1,
+                textShadow: color === '#ffffff' || color === '#fff' ? '0 3px 12px rgba(0,0,0,0.6)' : 'none',
+            }}
+        >
             {text}
         </div>
     );
@@ -168,10 +178,10 @@ function Frame({
                             position: 'absolute',
                             inset: 0,
                             background:
-                                'linear-gradient(180deg, rgba(7,16,30,0.88) 0%, rgba(7,16,30,0.42) 34%, rgba(7,16,30,0.5) 64%, rgba(7,16,30,0.92) 100%)',
+                                'linear-gradient(180deg, rgba(7,16,30,0.72) 0%, rgba(7,16,30,0.3) 30%, rgba(7,16,30,0.42) 62%, rgba(7,16,30,0.9) 100%)',
                         }}
                     />
-                    <div style={{ position: 'absolute', inset: 0, background: `${bg}33` }} />
+                    <div style={{ position: 'absolute', inset: 0, background: `${bg}26` }} />
                 </>
             ) : null}
             <Brackets color={bracket} />
