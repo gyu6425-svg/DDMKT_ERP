@@ -260,8 +260,8 @@ function CafePage() {
                 <span className="rounded-full bg-[#e0e7ff] px-2.5 py-1 text-xs font-bold text-[#4338ca]">9장 카드뉴스</span>
             </div>
             <p className="m-0 text-sm text-[#64748b]">
-                키워드를 넣으면 원고를 생성하고, 예시와 동일한 9장 카드(커버·CHECK 01~07·약속)로 만들어 PNG로 저장합니다.
-                텍스트는 템플릿에 정확히 렌더됩니다(전화·FAQ 깨짐 없음).
+                키워드와 현장 사진을 넣으면 레퍼런스와 동일한 홍보 카드(사진 콜라주 + 지역·업종·서비스·전화)를 원하는 장수만큼 만들고,
+                카페용 후기 원고(2000~2500자)도 함께 뽑아 다운로드합니다. 텍스트는 정확히 렌더돼 한글·전화가 깨지지 않습니다.
             </p>
 
             {/* 입력 */}
@@ -278,7 +278,7 @@ function CafePage() {
                 {/* 현장 사진 업로드 — 레퍼런스처럼 합성(첫 사진=메인, 2·3번째=01/02 인서트) */}
                 <div className="mt-3">
                     <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">
-                        현장 사진 <span className="font-normal text-[#94a3b8]">— 첫 사진=커버 메인, 2·3번째=01/02 인서트 (없으면 AI 배경 사용)</span>
+                        현장 사진 <span className="font-normal text-[#94a3b8]">— 카드 상단에 콜라주로 들어갑니다(3장이면 3분할, 1장이면 1장). 없으면 AI 배경 사용.</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         {photos.map((p, i) => (
