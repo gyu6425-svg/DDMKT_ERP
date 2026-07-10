@@ -3,6 +3,8 @@ import type { CafeContent } from './cafeContent';
 
 // AI로 생성한 '무드 배경' 이미지(dataURL) — 있으면 9장 카드가 공유해 고퀄리티 배경으로 사용(카드색은 틴트로 유지).
 const BgCtx = createContext<string | null>(null);
+// 사용자가 업로드한 실제 현장 사진(dataURL[]) — 커버(히어로)가 레퍼런스처럼 메인+인서트로 합성.
+const PhotoCtx = createContext<string[]>([]);
 
 // 카페 카드 9종 템플릿 — 예시(엘르홈 스타일)와 동일 구조. 800×1000 고정, 인라인 스타일로 렌더(html-to-image 캡처 안정).
 //   AI 이미지가 아니라 코드 렌더라 한글·전화번호·FAQ가 100% 정확. Pretendard 폰트 사용.
@@ -193,58 +195,74 @@ const hero = (size: number, strokeW: number): CSSProperties => ({
     textShadow: '0 6px 16px rgba(0,0,0,0.55)',
 });
 
-// ── 1) 커버(히어로 홍보) — AI 실사 배경 위 굵은 텍스트·지역뱃지·전화바·서비스태그 ──
+// ── 1) 커버(히어로 홍보) — 레퍼런스처럼 실제 사진(메인+01/02 인서트) + 굵은 텍스트·지역뱃지·전화바·서비스태그 ──
 function Cover({ c }: { c: CafeContent }) {
     const bgImage = useContext(BgCtx);
+    const photos = useContext(PhotoCtx);
+    const main = photos[0] || bgImage || null;
+    const insets = photos.slice(1, 3);
+    const hasInset = insets.length > 0;
+    const mainH = hasInset ? 452 : 636;
+    const insetLabels = ['01  탐지', '02  교체완료'];
     const tags = [c.leakTypes[0] || '욕실누수', '누수탐지', '배관교체'];
     return (
         <div style={{ position: 'relative', width: CARD_W, height: CARD_H, background: NAVY, fontFamily: FONT, overflow: 'hidden' }}>
-            {/* 배경 — AI 실사 이미지(있으면 크게), 없으면 청사진 그리드 */}
-            {bgImage ? (
-                <img alt="" src={bgImage} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-                <div style={{ position: 'absolute', inset: 0, ...gridBg('rgba(255,255,255,0.06)') }} />
-            )}
-            {/* 가독성 그라디언트 — 좌측·하단을 진하게 */}
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(9,20,35,0.55) 0%, rgba(9,20,35,0.12) 34%, rgba(9,20,35,0.30) 58%, rgba(9,20,35,0.94) 100%)' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(9,20,35,0.72) 0%, rgba(9,20,35,0.15) 52%, transparent 78%)' }} />
-            <Brackets color="#ffffff" />
-
-            {/* 지역 뱃지 + 배지 */}
-            <div style={{ position: 'absolute', top: 66, left: 64, right: 64, display: 'flex', gap: 10, alignItems: 'center' }}>
-                <span style={{ background: '#1d4ed8', color: '#fff', fontSize: 24, fontWeight: 800, padding: '10px 18px', borderRadius: 6 }}>
-                    ◉ {c.region}
-                </span>
-                <span style={{ background: 'rgba(255,255,255,0.16)', color: '#dbeafe', fontSize: 18, fontWeight: 700, padding: '10px 16px', borderRadius: 6, letterSpacing: 3 }}>
-                    {c.coverBadge}
-                </span>
+            {/* 메인 사진 + 지역뱃지 + 아웃라인 제목 */}
+            <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: mainH, overflow: 'hidden' }}>
+                {main ? (
+                    <img alt="" src={main} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                    <div style={{ width: '100%', height: '100%', background: NAVY, ...gridBg('rgba(255,255,255,0.06)') }} />
+                )}
+                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(9,20,35,0.4) 0%, transparent 28%, rgba(9,20,35,0.2) 55%, rgba(9,20,35,0.96) 100%)' }} />
+                <div style={{ position: 'absolute', top: 32, left: 34, display: 'flex', gap: 8 }}>
+                    <span style={{ background: '#1d4ed8', color: '#fff', fontSize: 24, fontWeight: 800, padding: '10px 18px', borderRadius: 6, boxShadow: '0 4px 10px rgba(0,0,0,0.45)' }}>
+                        ◉ {c.region}
+                    </span>
+                </div>
+                <div style={{ position: 'absolute', left: 44, right: 44, bottom: 30 }}>
+                    <div style={hero(86, 8)}>{c.coverTitle.replace(/\s+/, '\n')}</div>
+                </div>
             </div>
 
-            {/* 히어로 타이틀 */}
-            <div style={{ position: 'absolute', left: 60, right: 60, top: 372 }}>
-                <div style={hero(94, 9)}>{c.coverTitle.replace(/\s+/, '\n')}</div>
-                <div style={{ display: 'inline-block', marginTop: 26, background: '#1d4ed8', color: '#fff', fontSize: 34, fontWeight: 800, padding: '14px 24px', boxShadow: '0 6px 14px rgba(0,0,0,0.35)' }}>
+            {/* 강조 배지 + 체크 라인 */}
+            <div style={{ position: 'absolute', left: 44, right: 44, top: mainH + 20 }}>
+                <div style={{ display: 'inline-block', background: '#1d4ed8', color: '#fff', fontSize: 32, fontWeight: 800, padding: '12px 22px' }}>
                     {c.coverEmphasisHi}
                 </div>
-                <div style={{ marginTop: 22, display: 'flex', alignItems: 'center', gap: 10, color: '#eaf1f8', fontSize: 26, fontWeight: 700, textShadow: '0 2px 6px rgba(0,0,0,0.6)' }}>
-                    <span style={{ color: '#38bdf8', fontSize: 30 }}>✓</span> 정확한 장비 탐지로 원인 해결
+                <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 10, color: '#dbe6f2', fontSize: 24, fontWeight: 700 }}>
+                    <span style={{ color: '#38bdf8', fontSize: 28 }}>✓</span> 정확한 장비 탐지로 원인 해결
                 </div>
             </div>
 
-            {/* 전화 바 */}
-            <div style={{ position: 'absolute', left: 54, right: 54, bottom: 148, display: 'flex', alignItems: 'center', gap: 18, background: '#0b1f38', border: '2px solid rgba(255,255,255,0.16)', borderRadius: 16, padding: '16px 26px', boxShadow: '0 10px 24px rgba(0,0,0,0.4)' }}>
-                <span style={{ width: 58, height: 58, borderRadius: '50%', background: '#1d4ed8', color: '#fff', fontSize: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>☎</span>
-                <span style={{ color: '#ffd60a', fontSize: 54, fontWeight: 900, letterSpacing: 1 }}>{c.phone}</span>
-            </div>
+            {/* 인서트 사진(01/02) */}
+            {hasInset ? (
+                <div style={{ position: 'absolute', left: 44, right: 44, top: mainH + 150, display: 'flex', gap: 14, height: 176 }}>
+                    {insets.map((p, i) => (
+                        <div key={i} style={{ position: 'relative', flex: 1, borderRadius: 8, overflow: 'hidden', border: '3px solid rgba(255,255,255,0.18)' }}>
+                            <img alt="" src={p} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            <span style={{ position: 'absolute', top: 8, left: 8, background: '#0b1f38', color: '#ffd60a', fontSize: 18, fontWeight: 800, padding: '6px 12px', borderRadius: 5 }}>
+                                {insetLabels[i]}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            ) : null}
 
+            {/* 전화 바 */}
+            <div style={{ position: 'absolute', left: 40, right: 40, bottom: 130, display: 'flex', alignItems: 'center', gap: 16, background: '#0b1f38', border: '2px solid rgba(255,255,255,0.16)', borderRadius: 16, padding: '14px 24px', boxShadow: '0 10px 24px rgba(0,0,0,0.4)' }}>
+                <span style={{ width: 54, height: 54, borderRadius: '50%', background: '#1d4ed8', color: '#fff', fontSize: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>☎</span>
+                <span style={{ color: '#ffd60a', fontSize: 50, fontWeight: 900, letterSpacing: 1 }}>{c.phone}</span>
+            </div>
             {/* 서비스 태그 */}
-            <div style={{ position: 'absolute', left: 54, right: 54, bottom: 72, display: 'flex', gap: 12, justifyContent: 'center' }}>
+            <div style={{ position: 'absolute', left: 40, right: 40, bottom: 58, display: 'flex', gap: 10, justifyContent: 'center' }}>
                 {tags.map((t, i) => (
-                    <span key={i} style={{ background: 'rgba(255,255,255,0.94)', color: INK, fontSize: 24, fontWeight: 800, padding: '12px 22px', borderRadius: 30 }}>
+                    <span key={i} style={{ background: 'rgba(255,255,255,0.94)', color: INK, fontSize: 22, fontWeight: 800, padding: '11px 20px', borderRadius: 28 }}>
                         ◆ {t}
                     </span>
                 ))}
             </div>
+            <Brackets color="#ffffff" />
         </div>
     );
 }
@@ -584,8 +602,18 @@ function Promise({ c }: { c: CafeContent }) {
     );
 }
 
-// index(0~8)로 카드 하나 렌더. bgImage 주면 9장 공유 무드 배경 적용.
-export function CafeCard({ content, index, bgImage }: { content: CafeContent; index: number; bgImage?: string | null }) {
+// index(0~8)로 카드 하나 렌더. bgImage=9장 공유 무드 배경, photos=업로드 사진(커버 합성용).
+export function CafeCard({
+    content,
+    index,
+    bgImage,
+    photos = [],
+}: {
+    content: CafeContent;
+    index: number;
+    bgImage?: string | null;
+    photos?: string[];
+}) {
     const one = () => {
         switch (index) {
             case 0:
@@ -608,5 +636,9 @@ export function CafeCard({ content, index, bgImage }: { content: CafeContent; in
                 return <Promise c={content} />;
         }
     };
-    return <BgCtx.Provider value={bgImage ?? null}>{one()}</BgCtx.Provider>;
+    return (
+        <BgCtx.Provider value={bgImage ?? null}>
+            <PhotoCtx.Provider value={photos}>{one()}</PhotoCtx.Provider>
+        </BgCtx.Provider>
+    );
 }

@@ -67,7 +67,22 @@ function CafePage() {
     const [reviewBusy, setReviewBusy] = useState(false);
     const [tone, setTone] = useState<CafeReviewTone>('review'); // 원고 톤(기본 후기형)
     const [bgImage, setBgImage] = useState<string | null>(null); // AI 생성 무드 배경(9장 공유)
+    const [photos, setPhotos] = useState<string[]>([]); // 업로드한 현장 사진(커버 메인+01/02 인서트)
     const [allBusy, setAllBusy] = useState(false); // 한번에 생성 진행 중
+
+    const addPhotos = async (files: FileList | null) => {
+        if (!files) return;
+        const read = (f: File) =>
+            new Promise<string>((res, rej) => {
+                const r = new FileReader();
+                r.onload = () => res(String(r.result));
+                r.onerror = rej;
+                r.readAsDataURL(f);
+            });
+        const arr = await Promise.all(Array.from(files).slice(0, 6).map(read));
+        setPhotos((prev) => [...prev, ...arr].slice(0, 6));
+    };
+    const removePhoto = (i: number) => setPhotos((prev) => prev.filter((_, idx) => idx !== i));
     const [includeImage, setIncludeImage] = useState(true); // 한번에 생성 시 AI 이미지 포함(유료)
     const [saved, setSaved] = useState<CafeOutput[]>([]); // 저장 갤러리
     const [saving, setSaving] = useState(false);
@@ -277,6 +292,37 @@ function CafePage() {
                     <Field label="지점(푸터 표기)" value={branch} onChange={setBranch} />
                     <Field label="전화번호" value={phone} onChange={setPhone} />
                 </div>
+
+                {/* 현장 사진 업로드 — 레퍼런스처럼 합성(첫 사진=메인, 2·3번째=01/02 인서트) */}
+                <div className="mt-3">
+                    <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">
+                        현장 사진 <span className="font-normal text-[#94a3b8]">— 첫 사진=커버 메인, 2·3번째=01/02 인서트 (없으면 AI 배경 사용)</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {photos.map((p, i) => (
+                            <div className="relative" key={i}>
+                                <img alt="" className="h-16 w-16 rounded-md border border-[#e2e8f0] object-cover" src={p} />
+                                <span className="absolute bottom-0 left-0 rounded-tr bg-black/60 px-1 text-[9px] font-bold text-white">
+                                    {i === 0 ? '메인' : `0${i}`}
+                                </span>
+                                <button
+                                    className="absolute -right-1.5 -top-1.5 rounded-full bg-[#dc2626] px-1.5 text-[11px] font-bold text-white"
+                                    onClick={() => removePhoto(i)}
+                                    type="button"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        ))}
+                        {photos.length < 6 ? (
+                            <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-md border-2 border-dashed border-[#cbd5e1] text-[11px] font-semibold text-[#94a3b8] hover:bg-[#f8fafc]">
+                                + 사진
+                                <input accept="image/*" className="hidden" multiple onChange={(e) => void addPhotos(e.target.files)} type="file" />
+                            </label>
+                        ) : null}
+                    </div>
+                </div>
+
                 {/* 버튼 3개: 한번에 생성 · 다운받기 · 저장 */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
@@ -488,7 +534,7 @@ function CafePage() {
                             >
                                 <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: 'top left' }}>
                                     <div ref={(el) => { cardRefs.current[i] = el; }}>
-                                        <CafeCard content={cards} index={i} bgImage={bgImage} />
+                                        <CafeCard content={cards} index={i} bgImage={photos[0] || bgImage} photos={photos} />
                                     </div>
                                 </div>
                             </div>
