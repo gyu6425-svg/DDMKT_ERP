@@ -8,6 +8,7 @@ import {
     mergeCafeContent,
     type CafeContent,
 } from '../components/cafe/cafeContent';
+import { CafeTestTab } from '../components/cafe/CafeTestTab';
 
 // 카페 원고 자동생성기 — 키워드 → OpenAI 원고 생성 + 원고의 「사진 N」 주제로 GPT 카드 이미지 생성.
 
@@ -99,6 +100,7 @@ function CafePage() {
     };
     const [cardCount, setCardCount] = useState(3); // 뽑을 카드 장수(1~9)
     const [genImages, setGenImages] = useState<string[]>([]); // GPT로 생성된 카드 이미지들
+    const [activeTab, setActiveTab] = useState<'draft' | 'test'>('draft'); // 초판/테스트 탭
     const [saved, setSaved] = useState<CafeOutput[]>([]); // 저장 갤러리
     const [saving, setSaving] = useState(false);
 
@@ -262,8 +264,29 @@ function CafePage() {
         <section className="grid gap-5">
             <div className="flex flex-wrap items-center gap-2">
                 <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">카페 원고 자동생성기</h2>
-                <span className="rounded-full bg-[#e0e7ff] px-2.5 py-1 text-xs font-bold text-[#4338ca]">9장 카드뉴스</span>
             </div>
+
+            {/* 탭: 초판(현재 GPT 카드 생성) / 테스트(고정 이미지 재사용·원고만) */}
+            <div className="flex gap-1 border-b border-[#e2e8f0]">
+                {([
+                    ['draft', '초판'],
+                    ['test', '테스트'],
+                ] as [typeof activeTab, string][]).map(([k, label]) => (
+                    <button
+                        className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
+                            activeTab === k ? 'border-[#4338ca] text-[#4338ca]' : 'border-transparent text-[#94a3b8]'
+                        }`}
+                        key={k}
+                        onClick={() => setActiveTab(k)}
+                        type="button"
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+
+            {activeTab === 'test' ? <CafeTestTab /> : (
+            <>
             <p className="m-0 text-sm text-[#64748b]">
                 키워드와 현장 사진을 넣으면 레퍼런스와 동일한 홍보 카드(사진 콜라주 + 지역·업종·서비스·전화)를 원하는 장수만큼 만들고,
                 카페용 후기 원고(2000~2500자)도 함께 뽑아 다운로드합니다. 텍스트는 정확히 렌더돼 한글·전화가 깨지지 않습니다.
@@ -558,6 +581,8 @@ function CafePage() {
                     </div>
                 )}
             </div>
+            </>
+            )}
         </section>
     );
 }
