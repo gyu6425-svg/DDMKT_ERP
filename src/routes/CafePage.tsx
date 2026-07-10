@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { getFontEmbedCSS, toPng } from 'html-to-image';
-import { generateCafe } from '../api/cafeWriter';
+import { generateCafe, generateCafeReview } from '../api/cafeWriter';
 import {
     buildCafePost,
     defaultCafeTitle,
@@ -61,6 +61,8 @@ function CafePage() {
     const [msg, setMsg] = useState('');
     const [downloading, setDownloading] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [reviewBody, setReviewBody] = useState(''); // AI 후기 본문(있으면 이걸 씀, 없으면 기본 조립)
+    const [reviewBusy, setReviewBusy] = useState(false);
 
     const cardRefs = useRef<Array<HTMLDivElement | null>>([]);
 
@@ -72,16 +74,35 @@ function CafePage() {
         [brand, branch, phone, region],
     );
     const cards = useMemo<CafeContent>(() => ({ ...content, ...fixed }), [content, fixed]);
-    // 카페 글쓰기용 본문(제목 + 「사진 N」 위치 + 설명글) — 카드와 같은 문구로 조립.
+    // 카드 문구로 기본 조립한 본문(후기 미생성 시 폴백).
     const postText = useMemo(() => buildCafePost(cards, title), [cards, title]);
+    // 실제 표시/복사 본문 = AI 후기(있으면) 우선, 없으면 기본 조립.
+    const bodyText = reviewBody || postText;
 
     const copyBody = async () => {
         try {
-            await navigator.clipboard.writeText(postText);
+            await navigator.clipboard.writeText(bodyText);
             setCopied(true);
             window.setTimeout(() => setCopied(false), 1500);
         } catch {
             setMsg('복사 실패 — 본문 영역을 직접 선택해 복사하세요.');
+        }
+    };
+
+    // AI 후기성 본문 생성 — 현재 카드 콘텐츠를 소재로 후기/경험 형식 글 작성.
+    const onGenerateReview = async () => {
+        if (reviewBusy) return;
+        setReviewBusy(true);
+        setMsg('후기 본문 생성 중… (최대 1~2분)');
+        try {
+            const r = await generateCafeReview({ brand, branch, business, content: cards, keyword, phone, region });
+            setReviewBody(r.reviewBody);
+            if (r.title) setTitle(r.title);
+            setMsg('후기 본문 생성 완료 — 카페 글쓰기에 복사해 쓰세요.');
+        } catch (e) {
+            setMsg(e instanceof Error ? e.message : '후기 생성 실패');
+        } finally {
+            setReviewBusy(false);
         }
     };
 
@@ -94,8 +115,9 @@ function CafePage() {
             const merged = mergeCafeContent({ ...gen, ...fixed });
             setContent(merged);
             setTitle(defaultCafeTitle(merged));
+            setReviewBody(''); // 카드 내용이 바뀌었으니 후기 본문은 다시 생성하도록 초기화
             if (gen.region && !region) setRegion(gen.region);
-            setMsg('원고 생성 완료 — 아래에서 문구를 수정하고 카드를 다운로드하세요.');
+            setMsg('원고 생성 완료 — 문구 수정 후 “AI 후기 본문 생성”으로 카페 글을, “전체 9장”으로 카드를 받으세요.');
         } catch (e) {
             setMsg(e instanceof Error ? e.message : '생성 실패');
         } finally {
@@ -185,14 +207,35 @@ function CafePage() {
             {/* 카페 본문 (복사용) — 카페 글쓰기에 붙여넣고 「사진 N」 위치에 해당 PNG를 넣으면 됨 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-[13px] font-bold text-[#334155]">카페 본문 (복사용)</div>
-                    <button
-                        className="h-9 rounded-md bg-[#0f766e] px-4 text-sm font-bold text-white hover:bg-[#115e59]"
-                        onClick={() => void copyBody()}
-                        type="button"
-                    >
-                        {copied ? '복사됨 ✓' : '본문 전체 복사'}
-                    </button>
+                    <div className="text-[13px] font-bold text-[#334155]">
+                        카페 본문 (복사용) {reviewBody ? <span className="ml-1 rounded bg-[#dcfce7] px-1.5 py-0.5 text-[10px] font-bold text-[#15803d]">AI 후기</span> : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            className="h-9 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50"
+                            disabled={reviewBusy}
+                            onClick={() => void onGenerateReview()}
+                            type="button"
+                        >
+                            {reviewBusy ? '후기 작성 중…' : 'AI 후기 본문 생성'}
+                        </button>
+                        {reviewBody ? (
+                            <button
+                                className="h-9 rounded-md border border-[#cbd5e1] px-3 text-sm font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                                onClick={() => setReviewBody('')}
+                                type="button"
+                            >
+                                기본 조립으로
+                            </button>
+                        ) : null}
+                        <button
+                            className="h-9 rounded-md bg-[#0f766e] px-4 text-sm font-bold text-white hover:bg-[#115e59]"
+                            onClick={() => void copyBody()}
+                            type="button"
+                        >
+                            {copied ? '복사됨 ✓' : '본문 전체 복사'}
+                        </button>
+                    </div>
                 </div>
                 <label className="mb-2 grid gap-1">
                     <span className="text-[12px] font-semibold text-[#475569]">제목</span>
@@ -203,12 +246,12 @@ function CafePage() {
                     />
                 </label>
                 <textarea
-                    className="h-[300px] w-full rounded-md border border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 text-[13px] leading-6 text-[#0f172a]"
-                    readOnly
-                    value={postText}
+                    className="h-[340px] w-full rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-[13px] leading-6 text-[#0f172a]"
+                    onChange={(e) => setReviewBody(e.target.value)}
+                    value={bodyText}
                 />
                 <p className="mt-1.5 text-[12px] text-[#64748b]">
-                    카페 글쓰기에 붙여넣은 뒤, 본문의 <b>「사진 N」</b> 위치에 아래 <b>N번 PNG</b>를 순서대로 삽입하면 됩니다. (문구는 위 “원고 수정”을 고치면 본문·카드에 자동 반영)
+                    <b>AI 후기 본문 생성</b>을 누르면 카드 내용을 바탕으로 후기·경험 형식 글이 작성됩니다(직접 수정 가능). 카페 글쓰기에 붙여넣은 뒤 본문의 <b>「사진 N」</b> 위치에 <b>N번 PNG</b>를 순서대로 삽입하세요.
                 </p>
             </div>
 

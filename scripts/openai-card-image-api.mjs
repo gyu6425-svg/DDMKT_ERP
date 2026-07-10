@@ -1228,6 +1228,39 @@ function parseCafeJson(text) {
     }
 }
 
+function buildReviewPrompt(payload) {
+    const keyword = (payload.keyword || '').trim();
+    const region = (payload.region || '').trim() || keyword.replace(/\s*누수탐지.*$/, '').trim() || keyword;
+    const business = (payload.business || '누수탐지').trim();
+    const brand = (payload.brand || '든든한 누수탐지').trim();
+    const branch = (payload.branch || '').trim();
+    const phone = (payload.phone || '').trim();
+    const c = payload.content || {};
+    const arr = (k) => (Array.isArray(c[k]) ? c[k].map(String) : []);
+    const material = [
+        `상황: ${arr('situations').join(' / ')}`,
+        `자가점검: ${arr('checklist').join(' / ')}`,
+        `진단원칙: ${arr('waySteps').join(' / ')}`,
+        `서비스: ${arr('buildingTypes').join(' ')} / ${arr('leakTypes').join(' ')}`,
+        `약속: ${arr('promises').join(' / ')}`,
+        Array.isArray(c.faqs) ? `FAQ: ${c.faqs.map((f) => `${f.q}→${f.a}`).join(' / ')}` : '',
+    ].filter(Boolean).join('\n');
+    return [
+        `너는 네이버 카페 지역글 전문 카피라이터다. 아래 업체의 "${keyword}" 홍보를 위한 **후기·경험 공유 형식의 카페 본문**을 쓴다.`,
+        `업체명 "${brand} ${branch}", 지역 "${region}", 업종 "${business}", 전화 "${phone}".`,
+        ``,
+        `[반드시 지킬 형식]`,
+        `- 실제 경험/후기처럼 담백하고 자연스러운 톤. 과장·허위·별점·가짜 이름 금지.`,
+        `- 9장의 카드 이미지가 함께 올라간다. 본문 흐름에 맞춰 「사진 1」 ~ 「사진 9」 마커를 순서대로 각각 한 줄 단독으로 넣어라(누락 없이 9개).`,
+        `- 업체명과 전화(${phone})는 정확히 표기. 마지막에 상담 유도 한 줄. 분량 900~1400자. 마크다운·이모지 금지.`,
+        ``,
+        `[본문에 자연스럽게 녹일 소재]`,
+        material,
+        ``,
+        `반드시 **JSON 객체 하나만** 출력한다(코드펜스·설명 금지): {"title":"제목 1개","body":"본문 전체(줄바꿈·「사진 N」 마커 포함)"}`,
+    ].join('\n');
+}
+
 async function generateCafe(payload) {
     if (!payload?.keyword || !payload.keyword.trim()) {
         return { body: { message: '키워드를 입력해주세요.' }, statusCode: 400 };
@@ -1235,7 +1268,8 @@ async function generateCafe(payload) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) return { body: { message: '.env 의 OPENAI_API_KEY 가 필요합니다.' }, statusCode: 500 };
     const model = process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
-    const prompt = buildCafePrompt(payload);
+    const isReview = payload.mode === 'review';
+    const prompt = isReview ? buildReviewPrompt(payload) : buildCafePrompt(payload);
     const apiResponse = await fetch(OPENAI_API_URL, {
         body: JSON.stringify({ input: prompt, model }),
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -1246,10 +1280,12 @@ async function generateCafe(payload) {
     if (!apiResponse.ok) {
         return { body: { message: result?.error?.message || '원고 생성에 실패했습니다.' }, statusCode: apiResponse.status };
     }
-    const raw = extractOutputText(result);
-    const content = parseCafeJson(raw);
-    if (!content) return { body: { message: '생성 결과(JSON)를 해석하지 못했습니다. 다시 시도해 주세요.' }, statusCode: 502 };
-    return { body: { content, prompt, usage: result.usage ?? null }, statusCode: 200 };
+    const parsed = parseCafeJson(extractOutputText(result));
+    if (!parsed) return { body: { message: '생성 결과(JSON)를 해석하지 못했습니다. 다시 시도해 주세요.' }, statusCode: 502 };
+    if (isReview) {
+        return { body: { title: parsed.title ?? '', reviewBody: parsed.body ?? '', prompt, usage: result.usage ?? null }, statusCode: 200 };
+    }
+    return { body: { content: parsed, prompt, usage: result.usage ?? null }, statusCode: 200 };
 }
 
 loadDotEnv();
