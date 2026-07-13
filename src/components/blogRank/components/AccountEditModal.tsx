@@ -79,6 +79,25 @@ export function AccountEditModal({
         onClose();
     };
 
+    // 보류 — note 마커 '[보류]' 토글로 '보류' 탭으로 빼거나 되돌림(별도 컬럼 없이). 다른 편집값은 저장 안 함.
+    const HOLD = '[보류]';
+    const isHeld = note.includes(HOLD);
+    const toggleHold = async () => {
+        setSaving(true);
+        const next = isHeld
+            ? note.replace(HOLD, '').replace(/\s{2,}/g, ' ').trim()
+            : `${HOLD} ${note}`.trim();
+        const { error } = await updateBlogAccount(account.id, { note: next || null });
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        await onReload();
+        onToast(isHeld ? '보류 해제 — 계약 중으로 복귀' : '보류로 이동됨');
+        onClose();
+    };
+
     // blog_posts 는 ON DELETE CASCADE 로 함께 삭제됨(측정 이력 포함).
     const remove = async () => {
         setDeleting(true);
@@ -267,6 +286,17 @@ export function AccountEditModal({
                             type="button"
                         >
                             업체 삭제
+                        </button>
+                    )}
+                    {!confirmDel && (
+                        <button
+                            className="rounded-md border border-[#fcd34d] px-3 py-2 text-sm font-semibold text-[#b45309] hover:bg-[#fffbeb] disabled:opacity-60"
+                            disabled={saving}
+                            onClick={() => void toggleHold()}
+                            title={isHeld ? '보류 해제하고 계약 중으로 복귀' : '이 업체를 보류 탭으로 이동'}
+                            type="button"
+                        >
+                            {isHeld ? '보류 해제' : '보류'}
                         </button>
                     )}
                     <button

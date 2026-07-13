@@ -10,7 +10,7 @@ import {
 import CustomerAccountModal from '../../CustomerAccountModal';
 import { ReporterManageModal } from '../components/ReporterManageModal';
 import { crawlBlog } from '../../../api/crawlBlog';
-import { amountTotal, currentField, fmtWon, isRenewalImminent, latestContractDate, lastM, progOf, PER_SHEET, renewLevel } from '../lib/helpers';
+import { amountTotal, currentField, fmtWon, isRenewalImminent, lastM, progOf, PER_SHEET, renewLevel } from '../lib/helpers';
 import { NEW_CONTRACT_CUTOFF_MS, NEW_CONTRACT_TTL_MS } from '../../../lib/erpUtils';
 import { Pager, Tag } from '../lib/ui';
 import { useBlogRank } from '../lib/BlogRankContext';
@@ -23,6 +23,7 @@ import { ProgressModal } from '../components/ProgressModal';
 import { openBlogReport } from '../lib/report';
 import { ReportSelectModal } from '../components/ReportSelectModal';
 import { useAuth } from '../../../hooks/useAuth';
+import { getClients } from '../../../api/erp';
 
 export function SheetTab() {
     const {
@@ -49,7 +50,7 @@ export function SheetTab() {
     const [sortKey, setSortKey] = useState<'remain' | 'prog' | 'date'>('date'); // 기본=계약일 최신순
     const [sortDir, setSortDir] = useState(1);
     const [monthFilter, setMonthFilter] = useState(0); // 0=전체, 1~12=해당 월(계약일 기준)
-    const [tab, setTab] = useState<'active' | 'new' | 'ended'>('active'); // 계약 중 / 신규 등록 건 / 계약 종료
+    const [tab, setTab] = useState<'active' | 'new' | 'nourl' | 'hold' | 'ended'>('active'); // 계약 중 / 신규 등록 건 / URL미입력 건 / 보류 / 계약 종료
     const [page, setPage] = useState(1);
     const [importOpen, setImportOpen] = useState(false);
     const [editAcc, setEditAcc] = useState<BlogAccount | null>(null);
@@ -72,6 +73,16 @@ export function SheetTab() {
         if (customerMode) return; // 외부(고객/기자단)는 발급/지정 없음
         void getReporters().then(({ data }) => setReporters(data));
     }, [customerMode]);
+    // 거래처명(client_partner) 표시용 — 블로그 client_id → 고객사 거래처명 매핑.
+    const [partnerById, setPartnerById] = useState<Record<string, string>>({});
+    useEffect(() => {
+        if (customerMode || reporterMode) return; // 내부 뷰에서만 거래처명 컬럼 노출
+        void getClients().then(({ data }) => {
+            const m: Record<string, string> = {};
+            for (const c of data) if (c.client_partner) m[c.id] = c.client_partner;
+            setPartnerById(m);
+        });
+    }, [customerMode, reporterMode]);
     // 담당 기자단(계정) 지정 → blog_accounts.reporter_id. 이 블로그가 그 기자단 ERP에 보이게 됨.
     const assignReporter = async (a: BlogAccount, reporterId: string) => {
         const rid = reporterId || null;
@@ -140,15 +151,22 @@ export function SheetTab() {
 
     const postCountOf = (id: string) => posts.filter((p) => p.blog_account_id === id);
 
-    // 실제 네이버 블로그 URL(http로 시작)이 아직 없는 계정 = 등록 전(발행 URL 미입력·placeholder).
-    //   계약 관리에서 등록 → 발행 URL 입력 전까지 '신규 등록 건'에 유지 → URL 넣으면 계약 중으로 이동.
+    // 실제 네이버 블로그 URL(http로 시작)이 아직 없는 계정 = 발행 URL 미입력 → 'URL미입력 건' 탭.
     const isUrlPending = (a: BlogAccount) => !/^https?:\/\//.test((a.blog_url || '').trim());
-    // 신규 등록 건 = (컷오프 이후 생성 + 24h 이내) 또는 (발행 URL 미등록). 계약 종료 아닌 것만.
-    const isNewAcc = (a: BlogAccount) => {
-        if (a.contract_ended_at) return false;
-        if (isUrlPending(a)) return true; // 아직 등록(URL 입력) 전 → 계속 신규 등록 건
+    // 보류 — note 마커 '[보류]'로 표시(별도 컬럼 없이, '자사 관리' 배지와 동일 패턴). 계약 편집에서 토글.
+    const isHold = (a: BlogAccount) => (a.note || '').includes('[보류]');
+    // 최근 처음 등록 = 컷오프 이후 생성 + 24h 이내(방금 계약 관리에서 등록). 계약 종료 아닌 것만.
+    const isRecent = (a: BlogAccount) => {
         const t = a.created_at ? Date.parse(a.created_at) : NaN;
         return !Number.isNaN(t) && t > NEW_CONTRACT_CUTOFF_MS && Date.now() - t < NEW_CONTRACT_TTL_MS;
+    };
+    // 각 탭 소속 판정(계약 종료·보류 우선 → URL미입력 → 신규(최근 처음 등록·URL 있음) → 계약 중). 상호 배타.
+    const tabOf = (a: BlogAccount): 'ended' | 'hold' | 'nourl' | 'new' | 'active' => {
+        if (a.contract_ended_at) return 'ended';
+        if (isHold(a)) return 'hold';
+        if (isUrlPending(a)) return 'nourl';
+        if (isRecent(a)) return 'new';
+        return 'active';
     };
 
     // 계약일 월 옵션 — 전체 + 계약일에 존재하는 월(내림차순).
@@ -168,11 +186,7 @@ export function SheetTab() {
                 (!mgr || a.manager === mgr) &&
                 (!lowOnly || (a.remain_count != null && a.remain_count <= 5)) &&
                 (!monthFilter || Number((a.contract_date || '').slice(5, 7)) === monthFilter) &&
-                (tab === 'ended'
-                    ? !!a.contract_ended_at
-                    : tab === 'new'
-                      ? isNewAcc(a)
-                      : !a.contract_ended_at && !isNewAcc(a)),
+                tabOf(a) === tab,
         );
         list = [...list].sort((x, y) => {
             if (sortKey === 'prog') {
@@ -187,19 +201,16 @@ export function SheetTab() {
         return list;
     }, [accounts, q, mgr, lowOnly, monthFilter, sortKey, sortDir, tab]);
 
-    // 계약 중 / 신규 등록 건 / 계약 종료 개수(현재 업체명·담당 검색 범위 기준).
+    // 탭별 개수(현재 업체명·담당 검색 범위 기준). 계약 중 / 신규 / URL미입력 / 보류 / 계약 종료.
     const tabCounts = useMemo(() => {
-        let active = 0;
-        let neu = 0;
-        let ended = 0;
+        const c = { active: 0, new: 0, nourl: 0, hold: 0, ended: 0 };
         for (const a of accounts) {
             if (q && !a.name.includes(q)) continue;
             if (mgr && a.manager !== mgr) continue;
-            if (a.contract_ended_at) ended += 1;
-            else if (isNewAcc(a)) neu += 1;
-            else active += 1;
+            c[tabOf(a)] += 1;
         }
-        return { active, new: neu, ended };
+        return c;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [accounts, q, mgr]);
 
     const pages = Math.max(1, Math.ceil(filtered.length / PER_SHEET));
@@ -307,10 +318,12 @@ export function SheetTab() {
             <div className={`flex gap-1 border-b border-[#e2e8f0] ${customerMode ? 'hidden' : ''}`}>
                 {([
                     ['new', '신규 등록 건', tabCounts.new],
+                    ['nourl', 'URL미입력 건', tabCounts.nourl],
                     ['active', '계약 중', tabCounts.active],
+                    ['hold', '보류', tabCounts.hold],
                     ['ended', '계약 종료', tabCounts.ended],
                 ] as const).map(([key, label, n]) => {
-                    const hot = key === 'new' && n > 0;
+                    const hot = (key === 'new' || key === 'nourl') && n > 0;
                     return (
                         <button
                             key={key}
@@ -396,8 +409,8 @@ export function SheetTab() {
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">업체</th>
-                            {/* 기자단 뷰: 계약일·담당·주 발행 컬럼 숨김 */}
-                            {!reporterMode && <th className="px-3 py-2 font-semibold">계약일</th>}
+                            {/* 거래처명(client_partner) — 내부 뷰에서만. 계약일은 시트에서 숨김(계약 편집에서만 표시). */}
+                            {!customerMode && !reporterMode && <th className="px-3 py-2 font-semibold">거래처명</th>}
                             {!customerMode && <th className="px-3 py-2 font-semibold">계약금액</th>}
                             {!reporterMode && <th className="px-3 py-2 font-semibold">담당</th>}
                             {!customerMode && <th className="px-3 py-2 font-semibold">기자단</th>}
@@ -472,18 +485,13 @@ export function SheetTab() {
                                                 </span>
                                             ) : null}
                                         </td>
-                                        {!reporterMode && (
+                                        {!customerMode && !reporterMode && (
                                             <td className="px-2 py-2">
                                                 <span
-                                                    className={`inline-block min-w-[82px] px-1.5 py-1 text-left text-xs ${latestContractDate(a) ? 'text-[#475569]' : 'text-[#cbd5e1]'}`}
-                                                    title="계약 수정은 계약 관리에서"
+                                                    className={`inline-block min-w-[82px] px-1.5 py-1 text-left text-xs ${partnerById[a.client_id || ''] ? 'font-semibold text-[#475569]' : 'text-[#cbd5e1]'}`}
+                                                    title="거래처명(계약 관리에서 수정)"
                                                 >
-                                                    {latestContractDate(a) || '-'}
-                                                    {a.contracts && a.contracts.length > 1 ? (
-                                                        <span className="ml-1 rounded bg-[#ede9fe] px-1 text-[9px] font-semibold text-[#6d28d9]">
-                                                            갱신{a.contracts.length - 1}
-                                                        </span>
-                                                    ) : null}
+                                                    {partnerById[a.client_id || ''] || '-'}
                                                 </span>
                                             </td>
                                         )}
@@ -762,7 +770,7 @@ export function SheetTab() {
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={customerMode ? 8 : 14}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={customerMode ? 7 : reporterMode ? 11 : 14}>
                                     등록된 블로그가 없습니다 · '시트 붙여넣기 등록'으로 추가하세요
                                 </td>
                             </tr>
