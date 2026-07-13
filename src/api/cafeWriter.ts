@@ -147,6 +147,7 @@ export type GenerateCafeReviewResult = { title: string; reviewBody: string; topi
 // GPT 카드 이미지 1장 생성 — 지역/제목/전화/서비스 + 참고사진(refs). 레퍼런스 무드로 렌더.
 export async function generateCafeCard(input: {
     region?: string;
+    district?: string;
     topic?: string;
     phone?: string;
     services?: string;
@@ -164,6 +165,7 @@ export async function generateCafeCard(input: {
     try {
         const res = await fetch(url, {
             body: JSON.stringify({
+                district: input.district,
                 mode: input.mode,
                 phone: input.phone,
                 refs: input.refs,

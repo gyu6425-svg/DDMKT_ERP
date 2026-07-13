@@ -1362,6 +1362,7 @@ async function generateCafeEdit(p) {
 // ── 카페 카드 이미지 생성(OpenAI, 레퍼런스 무드) — 새 프롬프트(이전 기록과 무관, 깨끗이) ──
 function buildCafeCardPrompt(p) {
     const region = (p.region || '').trim();
+    const district = (p.district || '').trim(); // 구/시 (예: 송파구) — 상단 작은 배지
     const topic = (p.topic || '누수탐지').trim();
     const phone = (p.phone || '').trim();
     const services = (p.services || '누수탐지 · 공압검사 · 배관교체').trim();
@@ -1382,20 +1383,18 @@ function buildCafeCardPrompt(p) {
         ].join('\n');
     }
     return [
-        `Create a 1024x1024 square Korean local "leak detection" promotional card (누수탐지 홍보 카드).`,
-        `Match this EXACT visual style (like a professional Korean local-service thumbnail):`,
-        `- Deep navy blue background with a bright blue rounded panel.`,
-        `- TOP: a collage of 2~3 realistic on-site plumbing/leak-repair job photos (bathroom under repair, gray PVC pipes, a detection device with a small screen).`,
-        `- A small yellow starburst seal badge reading "신속출동" at the upper-left of the panel.`,
-        `- Location line in bold WHITE outlined text: "${region}".`,
-        `- Main title in HUGE bold YELLOW outlined text (thick dark stroke, drop shadow): "${topic}".`,
-        `- A rounded pill bar with the services.`,
-        `- A yellow accent line "탐지부터 공사까지".`,
-        `- BOTTOM: a phone bar with a blue circle phone icon and a big YELLOW phone number "${phone}".`,
-        `- A bottom white pill row of service tags: "${services}".`,
+        `Create a 1024x1024 square Korean local leak-detection (누수탐지) promotional thumbnail card. Reproduce this EXACT professional layout and style:`,
+        `- Bright, clean white/light background with subtle blue geometric accents; modern high-trust local-service look. Palette: vivid blue (#1e5bd8), white, dark navy.`,
+        `- TOP-LEFT: a small round badge (circle) containing a water-drop + magnifier icon and two short lines of blue text "누수" / "전문".`,
+        `- RIGHT COLUMN: two stacked rounded-corner real on-site photos. Top photo = a pipe endoscope/borescope inspection with a small handheld screen showing inside a pipe, and a small dark-navy label pill under it reading "배관 내시경 검사". Bottom photo = gloved hands working on exposed ceiling/pipes, with a label pill reading "누수 원인 정확 진단".`,
+        `- LEFT/CENTER: one large photo of a masked technician kneeling on an apartment floor using a leak-detection device.`,
+        `- A small dark-navy rounded pill with white text showing the district: "${district}".`,
+        `- The MAIN TITLE in VERY large bold WHITE Korean text with a thick blue outline and subtle 3D drop-shadow, on two lines: first line "${region}", second line "${topic}".`,
+        `- Just under the title, a thin rounded pill: "정밀 점검 · 신속 출동".`,
+        `- Near the bottom, a big rounded BLUE phone bar with a white phone icon in a rounded square on the left and a HUGE phone number "${phone}".`,
+        `- BOTTOM white strip with three trust items each with a small blue line icon: "정확한 누수탐지", "최소한의 보수", "신속한 출동".`,
         ``,
-        `CRITICAL: Render ALL Korean text crisply and 100% correctly (exact characters, no garbling, no typos, no fake/English letters). The phone number must be exactly "${phone}".`,
-        `No English words, no watermark, no logo lettering. Bold, high-contrast, trustworthy Korean marketing look.`,
+        `CRITICAL: Render ALL Korean text 100% correctly (exact characters, no garbling, no typos, no fake or English letters). The phone number must be exactly "${phone}". Only change the region words "${district}"/"${region}" — keep everything else identical in style. High-contrast, trustworthy Korean marketing look.`,
     ].join('\n');
 }
 async function generateCafeCard(p) {
