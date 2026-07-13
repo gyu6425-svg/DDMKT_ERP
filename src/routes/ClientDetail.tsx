@@ -942,7 +942,9 @@ function ContractEditModal({
             onToast(`오류: ${error.message}`);
             return;
         }
-        onToast('계약 정보 수정됨');
+        // 브랜드 블로그 계약이면 관리 시트(blog_accounts)·블로그 대시보드에도 건수·잔여·금액 연동.
+        await syncBlog({ amount: patch.amount, goal_count: patch.goal_count, remain_count: patch.remain_count });
+        onToast('계약 정보 수정됨 · 카테고리 연동 완료');
         await onReload();
     };
 
