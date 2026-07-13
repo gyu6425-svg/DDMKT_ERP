@@ -3,6 +3,7 @@ import Header from './Header'
 import Sidebar from './Sidebar'
 import DevRoleSwitcher from './DevRoleSwitcher'
 import ForcePasswordChangeGate from './ForcePasswordChangeGate'
+import ReportPublishAlert from './ReportPublishAlert'
 
 type LayoutProps = {
   children: ReactNode
@@ -15,6 +16,7 @@ function Layout({ children }: LayoutProps) {
 
       <main className="min-h-0 min-w-0 overflow-y-auto p-8 max-[800px]:overflow-visible">
         <Header />
+        <ReportPublishAlert />
         {children}
       </main>
       <DevRoleSwitcher />
