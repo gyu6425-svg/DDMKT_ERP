@@ -34,26 +34,44 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     });
 }
 
-// 육안 무변 미세 변형 — 무작위 픽셀 소량 ±1 + JPEG 품질 미세 랜덤 재인코딩. 매 호출 시드가 달라 고유 파일.
+// 육안 무변 '모든 속성' 미세 변형 — 매 호출 시드가 달라 완전히 고유한 파일.
+//   ① 해상도(미세 크롭+리사이즈) ② 구도(크롭 오프셋) ③ 전역 밝기·대비·채도(→ 모든 픽셀값이 조금씩)
+//   ④ 희소 픽셀 노이즈 ⑤ JPEG 품질/바이트. → 콘텐츠 해시·지각 해시·해상도·메타가 전부 달라짐.
 async function varyImage(dataUrl: string, seed: number): Promise<string> {
     const img = await loadImage(dataUrl);
+    const r = rng(seed);
+    const sw = img.naturalWidth || img.width;
+    const sh = img.naturalHeight || img.height;
+    // ① 각 변 0~3px 미세 크롭 + 출력 크기 ±0~6px → 해상도·구도·지각해시 변경(육안 무변)
+    const crop = Math.floor(r() * 4);
+    const outW = Math.max(16, sw - crop * 2 + Math.round((r() - 0.5) * 6));
+    const outH = Math.max(16, sh - crop * 2 + Math.round((r() - 0.5) * 6));
     const c = document.createElement('canvas');
-    c.width = img.naturalWidth || img.width;
-    c.height = img.naturalHeight || img.height;
+    c.width = outW;
+    c.height = outH;
     const ctx = c.getContext('2d');
     if (!ctx) return dataUrl;
-    ctx.drawImage(img, 0, 0, c.width, c.height);
-    const r = rng(seed);
-    // 무작위 픽셀 ~48개를 ±1 밝기(사실상 안 보임) → 콘텐츠 해시 변경
-    for (let k = 0; k < 48; k += 1) {
-        const x = Math.floor(r() * c.width);
-        const y = Math.floor(r() * c.height);
+    // ② 전역 밝기·대비·채도 미세 조정(±1% 내) → 모든 픽셀값이 조금씩 달라짐
+    const b = (100 + (r() - 0.5) * 2).toFixed(2);
+    const ctr = (100 + (r() - 0.5) * 2).toFixed(2);
+    const sat = (100 + (r() - 0.5) * 2).toFixed(2);
+    try {
+        ctx.filter = `brightness(${b}%) contrast(${ctr}%) saturate(${sat}%)`;
+    } catch {
+        /* filter 미지원 브라우저면 무시(나머지 변형은 그대로 적용) */
+    }
+    ctx.drawImage(img, crop, crop, sw - crop * 2, sh - crop * 2, 0, 0, outW, outH);
+    ctx.filter = 'none';
+    // ③ 희소 픽셀 노이즈 ~60개 ±1(추가 교란)
+    for (let k = 0; k < 60; k += 1) {
+        const x = Math.floor(r() * outW);
+        const y = Math.floor(r() * outH);
         const px = ctx.getImageData(x, y, 1, 1);
         const ch = Math.floor(r() * 3);
         px.data[ch] = Math.max(0, Math.min(255, px.data[ch] + (r() < 0.5 ? -1 : 1)));
         ctx.putImageData(px, x, y);
     }
-    // JPEG 품질 미세 랜덤(0.90~0.97) 재인코딩 → 바이트/메타 매번 다름
+    // ④ 랜덤 JPEG 품질(0.90~0.97) 재인코딩 → 바이트·메타 매번 다름
     return c.toDataURL('image/jpeg', 0.9 + r() * 0.07);
 }
 
