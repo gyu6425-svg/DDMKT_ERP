@@ -93,31 +93,45 @@ export async function confirmReport(report: BlogPostReport, reviewerProfileId: s
 //   ① 그 블로그의 '브랜드 블로그' 계약 잔여 -1(카운트) ② 진행처리 히스토리에 1건 · 외주비(대박종합주방=10,000/그외 8,000) 추가.
 //   되돌리기 방지: 이미 published면 계약 처리 없이 통과. (계약은 client_contracts 단일 출처, 진행 이력=weekly_logs)
 export async function publishReport(report: BlogPostReport, reviewerProfileId: string | null) {
-    if (report.status === 'published') return { error: null, processed: false, outUnit: 0 };
-    // 1) 블로그 계정 → client_id, 이름(다중 블로그 매칭용).
+    // 1) 원자적 클레임 — confirmed → published (동시/중복 클릭 방지). 이 update가 1행을 실제로 바꾼 '이긴' 호출만 계약을 처리.
+    //    .eq('status','confirmed')로 조건부 갱신하므로 두 번째 호출은 0행 → 중복 계상 없음.
+    const { data: claimed, error: claimErr } = await supabase
+        .from('blog_post_reports')
+        .update({ reviewed_at: new Date().toISOString(), reviewed_by: reviewerProfileId, status: 'published' })
+        .eq('id', report.id)
+        .eq('status', 'confirmed')
+        .select('id');
+    if (claimErr) return { error: claimErr, processed: false, outUnit: 0 };
+    if (!claimed || claimed.length === 0) return { error: null, processed: false, outUnit: 0 }; // 이미 처리됨/상태 아님
+
+    // 2) 블로그 계정 → client_id, 이름(다중 블로그 매칭용).
     const { data: accs } = await supabase
         .from('blog_accounts')
         .select('id,client_id,name')
         .eq('id', report.blog_account_id);
     const acc = (accs ?? [])[0] as { client_id?: string | null; name?: string | null } | undefined;
     const clientId = acc?.client_id ?? null;
-    // 2) 업체명 → 외주단가 판정.
+    // 3) 업체명 → 외주단가 판정(대박종합주방=10,000 / 그외 8,000).
     let company = '';
     if (clientId) {
         const { data: cl } = await supabase.from('clients').select('company').eq('id', clientId);
         company = ((cl ?? [])[0] as { company?: string } | undefined)?.company ?? '';
     }
     const outUnit = publishOutUnit(company);
-    // 3) 브랜드 블로그 계약 찾기 → 잔여 -1 + 진행처리 1건.
+    // 4) 브랜드 블로그 계약 찾기 → 잔여 -1 + 진행처리 1건 + 외주단가를 outUnit으로 정렬(진행률/소진율 일치).
     let processed = false;
+    let bookErr: { message: string } | null = null;
     if (clientId) {
-        const { data: contracts } = await getClientContracts(clientId);
+        const { data: contracts, error: cErr } = await getClientContracts(clientId);
+        if (cErr) bookErr = cErr;
+        // 부스트 접두(상위노출 보장형 · )가 붙어도 브랜드블로그로 판정되게 접두 제거 후 매칭.
+        const sub = (ct: { subtype: string }) => ct.subtype.replace(/^상위노출 보장형 · /, '');
         const blogs = contracts.filter((ct) => ct.category === '블로그');
         const target =
             (acc?.name ? blogs.find((ct) => (ct.blog_name || '') === acc.name) : undefined) ||
-            blogs.find((ct) => ct.subtype === '브랜드 블로그') ||
-            blogs.find((ct) => ct.subtype === '블로그') ||
-            null;
+            blogs.find((ct) => sub(ct) === '브랜드 블로그') ||
+            blogs.find((ct) => sub(ct) === '블로그') ||
+            (blogs.length === 1 ? blogs[0] : null); // 블로그 계약이 하나뿐이면 그걸로(단일 블로그 안전판)
         if (target) {
             const goal = target.goal_count ?? 0;
             const nextRemain = Math.max(0, (target.remain_count ?? goal) - 1);
@@ -129,19 +143,20 @@ export async function publishReport(report: BlogPostReport, reviewerProfileId: s
                 paid: false,
                 tax: true,
                 vendor: '기자단',
-                week: `pub-${report.id}`, // 보고별 고유 키(중복 방지)
+                week: `pub-${report.id}`, // 보고별 고유 키
             };
             const logs = [...(target.weekly_logs ?? []), log];
-            await updateClientContract(target.id, { remain_count: nextRemain, weekly_logs: logs });
-            processed = true;
+            const { error: uErr } = await updateClientContract(target.id, {
+                remain_count: nextRemain,
+                unit_outsource: outUnit, // 계약 외주단가를 8,000/10,000으로 정렬 → totalOutsource·소진율 일치
+                weekly_logs: logs,
+            });
+            if (uErr) bookErr = uErr;
+            else processed = true;
         }
     }
-    // 4) 보고 상태 published.
-    const { error } = await supabase
-        .from('blog_post_reports')
-        .update({ status: 'published', reviewed_at: new Date().toISOString(), reviewed_by: reviewerProfileId })
-        .eq('id', report.id);
-    return { error, processed, outUnit };
+    // 오류가 있으면 표면화(조용한 미기록 방지). 상태는 이미 published라, 실패 시 계약 상세에서 수동 보정 필요.
+    return { error: bookErr, processed, outUnit };
 }
 
 // 재보고(기자단) — 반려된 본인 보고를 수정해 다시 검토중(pending)으로. RLS가 자기확인 방지.
