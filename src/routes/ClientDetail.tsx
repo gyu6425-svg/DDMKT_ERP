@@ -1924,6 +1924,8 @@ function ContractEditModal({
                                         className="mb-2 h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
                                         onChange={(e) => setReStart(e.target.value)}
                                         placeholder="계약 시작일 (예: 2026-01-15)"
+                                        title="이 날짜의 '월'로 재계약 매출·외주가 귀속됩니다"
+                                        type="date"
                                         value={reStart}
                                     />
                                     {isBrandContract ? (

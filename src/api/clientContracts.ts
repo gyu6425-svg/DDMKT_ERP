@@ -109,6 +109,36 @@ const inYM = (d: string | null | undefined, year: number, month: number): boolea
 export const hasProcessInPeriod = (ct: ClientContract, year: number, month: number): boolean =>
     isMonthlyGuarantee(ct) && (ct.weekly_logs ?? []).some((l) => inYM(l.at, year, month));
 
+// 재계약 회차별 '실제 계약분'(누적 스냅샷 → 델타)과 그 회차 계약월. history는 누적 금액이라 회차분 = 이번−직전.
+//   재계약하면 amount/outsource가 누적되고 contract_date가 재계약일로 바뀌는데, 월별 귀속은 회차별 계약월로 쪼개야
+//   원래 달 매출/외주가 재계약월로 통째로 이동하지 않는다. (공급가·외주 모두 각 회차 계약월에 귀속)
+export type ContractPeriodDelta = { amount: number; outsource: number; contract_date: string | null };
+export const contractPeriodDeltas = (ct: ClientContract): ContractPeriodDelta[] => {
+    const snaps = [
+        ...(ct.history ?? []).map((h) => ({
+            amount: h.amount ?? 0,
+            contract_date: h.contract_date ?? null,
+            outsource: h.outsource ?? 0,
+        })),
+        { amount: ct.amount ?? 0, contract_date: ct.contract_date ?? null, outsource: ct.outsource ?? 0 },
+    ];
+    return snaps.map((s, i) => {
+        const prev = i > 0 ? snaps[i - 1] : null;
+        return {
+            amount: s.amount - (prev?.amount ?? 0),
+            contract_date: s.contract_date,
+            outsource: s.outsource - (prev?.outsource ?? 0),
+        };
+    });
+};
+
+// 특정 연/월에 귀속되는 공급가(매출) — 재계약 회차별 계약월로 쪼개 합산. year·month 0 = 전체(=ct.amount).
+//   외주비는 outsourceInPeriod, 매출은 이 헬퍼. 둘 다 회차별 계약월 기준(전체 이동 방지).
+export const supplyInPeriod = (ct: ClientContract, year: number, month: number): number => {
+    if (!year && !month) return ct.amount || 0;
+    return contractPeriodDeltas(ct).reduce((s, p) => (inYM(p.contract_date, year, month) ? s + p.amount : s), 0);
+};
+
 // 특정 연/월에 귀속되는 (예상/받은) 외주비 = 매출요약 '외주비' 카드의 월별 값.
 //   · 월보장: 주간 로그(처리일 at) 외주비는 그 달에, 아직 처리 안 한 잔여 외주비는 계약월에 귀속
 //     → 달마다 합치면 항상 총(받은) 외주비와 같음(사라짐 없음). · 그 외: 계약월(contract_date) 전액.
@@ -116,7 +146,9 @@ export const hasProcessInPeriod = (ct: ClientContract, year: number, month: numb
 export const outsourceInPeriod = (ct: ClientContract, year: number, month: number): number => {
     const total = ct.outsource || 0; // 예상/받은 외주비(카드 값)
     if (!year && !month) return total;
-    if (!isMonthlyGuarantee(ct)) return inYM(ct.contract_date, year, month) ? total : 0;
+    // 월보장 아님(브랜드 블로그 등) = 계약월 귀속. 단, 재계약 회차별로 각 회차 계약월에 쪼개 귀속(전체 이동 방지).
+    if (!isMonthlyGuarantee(ct))
+        return contractPeriodDeltas(ct).reduce((s, p) => (inYM(p.contract_date, year, month) ? s + p.outsource : s), 0);
     const logs = ct.weekly_logs ?? [];
     const unit = ct.unit_outsource ?? 0;
     const amt = (l: RewardWeeklyLog) => (l.count || 0) * (l.outUnit || unit);

@@ -13,6 +13,7 @@ import {
     hasProcessInPeriod,
     insertClientContracts,
     outsourceInPeriod,
+    supplyInPeriod,
     totalOutsource,
     updateClientContract,
     usedOutsourceInPeriod,
@@ -529,17 +530,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         let total = 0; // 실매출 — 계약별 부가세(현금이면 VAT 미포함) 합산
         for (const ct of clientContracts) {
             if (!shown.has(ct.client_id)) continue;
-            // 판매(공급가·부가세·실매출) = 계약일(contract_date) 월에만 귀속. 계약일 없으면 월 매출 제외
-            //   (화면·이카운트 전표일자와 일치). 월보장이라도 매출은 계약월 한 번만 잡힌다.
-            const saleInMonth =
-                !(yearFilter || monthFilter) ||
-                (!!ct.contract_date &&
-                    (!yearFilter || Number(ct.contract_date.slice(0, 4)) === yearFilter) &&
-                    (!monthFilter || Number(ct.contract_date.slice(5, 7)) === monthFilter));
-            if (saleInMonth) {
-                supply += ct.amount || 0;
-                total += saleVat(ct.amount, ct.no_vat); // 계약별 VAT
-            }
+            // 판매(공급가·부가세·실매출) = 계약일(contract_date) 월에 귀속. 재계약은 회차별 계약월로 쪼개
+            //   각 회차가 그 달에만 잡히게(전체 amount가 재계약월로 통째로 이동하지 않음). 계약일 없으면 월 매출 제외.
+            const s = supplyInPeriod(ct, yearFilter, monthFilter);
+            supply += s;
+            total += saleVat(s, ct.no_vat); // 계약별 VAT(그 달 공급가에 대해)
             // 외주비 = 월보장이면 처리월(주간 로그)로 귀속, 그 외 상품은 계약월. (계약월≠처리월 분리 정산)
             outs += outsourceInPeriod(ct, yearFilter, monthFilter);
             used += usedOutsourceInPeriod(ct, yearFilter, monthFilter); // 실제 사용(그 달 소진)
