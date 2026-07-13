@@ -3,8 +3,8 @@ import { useAuth } from '../hooks/useAuth'
 import { getReports } from '../api/blogPostReports'
 
 // 기자단 발행 보고 알림 — 벨(우측 상단) 안이 아니라 화면 상단에 '크게' 상시 표시.
-//   대상: 김종인·김다영·송민경 3개 계정만. 승인 대기(pending)+발행 대기(confirmed) 합계.
-const REPORT_ALERT_EMAILS = ['rlawhddls@ddmkt.com', 'cleokim77@ddmkt.com', 'ming99@ddmkt.com'] // 김종인·김다영·송민경
+//   대상: 김종인·김다영·송민경·장규진 계정만. 승인 대기(pending)+발행 대기(confirmed) 합계.
+const REPORT_ALERT_EMAILS = ['rlawhddls@ddmkt.com', 'cleokim77@ddmkt.com', 'ming99@ddmkt.com', 'gyu6425@gmail.com'] // 김종인·김다영·송민경·장규진
 
 export default function ReportPublishAlert() {
   const { profile } = useAuth()
