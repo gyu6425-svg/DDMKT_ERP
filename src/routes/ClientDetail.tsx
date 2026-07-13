@@ -730,6 +730,7 @@ function ContractEditModal({
     onReload,
     onToast,
     onEnd,
+    initialRenew = false,
 }: {
     contract: ClientContract;
     companyName: string; // 현재 계약 업체명 — 외주 시트 붙여넣기 업체 대조용
@@ -737,6 +738,7 @@ function ContractEditModal({
     onReload: () => Promise<void>;
     onToast: (m: string) => void;
     onEnd: () => void; // 계약 종료 → 업체를 '계약 종료' 탭으로(상태 변경, 삭제 아님)
+    initialRenew?: boolean; // true면 열릴 때 바로 '재계약' 모드(카드의 재계약 버튼) — 단가=이전값·시작일=오늘 기본
 }) {
     const [goal, setGoal] = useState(contract.goal_count?.toString() ?? '');
     const [remain, setRemain] = useState(contract.remain_count?.toString() ?? '');
@@ -830,6 +832,17 @@ function ContractEditModal({
         : Number(onlyDigits(reCount)) || 0;
     const reSales = (Number(onlyDigits(reUnit)) || 0) * reQty;
     const reOutAmt = (Number(onlyDigits(reOutUnit)) || 0) * reQty;
+
+    // 카드의 '재계약' 버튼으로 열렸으면 바로 재계약 모드 + 기본값(단가=이전값·외주단가=이전값·시작일=오늘).
+    useEffect(() => {
+        if (!initialRenew) return;
+        setRenewMode(true);
+        setReStart(new Date().toISOString().slice(0, 10)); // 재계약일 = 재계약 누른 시점(오늘)
+        const defUnit = contract.unit_price ?? (goalN > 0 && contract.amount ? Math.round(contract.amount / goalN) : 0);
+        setReUnit(defUnit ? String(defUnit) : '');
+        setReOutUnit(contract.unit_outsource ? String(contract.unit_outsource) : '');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialRenew]);
 
     // 계약 이력 표시용: 과거(history) + 현재 계약. 0번=최초, 나머지=재N, 마지막=현재.
     const periods = [
@@ -1877,8 +1890,8 @@ function ContractEditModal({
                     </div>
                 ) : null}
 
-                {imminent ? (
-                    /* 잔여 5건 이하 — 편집 필드 숨김. 재계약/계약 종료 + 계약 이력. */
+                {imminent || renewMode ? (
+                    /* 잔여 5건 이하 또는 재계약 버튼 — 재계약/계약 종료 + 계약 이력. */
                     <div className="mb-1 flex flex-col gap-2 border-t border-[#e2e8f0] pt-3">
                         {renewMode ? (
                             <>
@@ -2296,6 +2309,7 @@ export function ClientDetail({
     const [boostSheetText, setBoostSheetText] = useState(OUT_SHEET_HEADER + '\n');
     const [boostSaving, setBoostSaving] = useState(false);
     const [editContract, setEditContract] = useState<ClientContract | null>(null);
+    const [renewIntent, setRenewIntent] = useState(false); // 카드 '재계약' 버튼으로 열었는지 → 모달 재계약 모드
     const [endOpen, setEndOpen] = useState(false); // 상단 계약 종료 모달(히스토리 입력)
     const [endNote, setEndNote] = useState('');
     const [custAcctOpen, setCustAcctOpen] = useState(false); // 고객 ERP 계정 발급 모달
@@ -3055,14 +3069,33 @@ export function ClientDetail({
                                                 </div>
                                             );
                                         }
+                                        const isDone = prog != null && prog >= 100; // 완료(만료) 계약 → 블러 + 재계약
                                         return (
                                             <div
-                                                className="flex h-full cursor-pointer flex-col rounded-lg border-2 border-[#e2e8f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#1e40af] hover:shadow-md"
+                                                className={`relative flex h-full cursor-pointer flex-col rounded-lg border-2 px-4 py-3 text-left shadow-sm transition hover:shadow-md ${
+                                                    isDone ? 'border-[#a7f3d0]' : 'border-[#e2e8f0] hover:border-[#1e40af]'
+                                                } bg-white`}
                                                 key={ct.id}
                                                 onClick={() => setEditContract(ct)}
                                                 role="button"
                                                 tabIndex={0}
                                             >
+                                                {isDone ? (
+                                                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-lg bg-white/45 backdrop-blur-[1.5px]">
+                                                        <span className="rounded-full bg-[#059669] px-2 py-0.5 text-[11px] font-bold text-white">계약 완료</span>
+                                                        <button
+                                                            className="rounded-lg bg-[#1e40af] px-4 py-2 text-sm font-extrabold text-white shadow hover:bg-[#1e3a8a]"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setEditContract(ct);
+                                                                setRenewIntent(true);
+                                                            }}
+                                                            type="button"
+                                                        >
+                                                            🔄 재계약
+                                                        </button>
+                                                    </div>
+                                                ) : null}
                                                 <div className="flex items-start justify-between gap-1.5">
                                                     <div className="truncate text-xs font-bold text-[#334155]">
                                                         {isBoostChild ? childCat || '기타' : ct.subtype}
@@ -3311,7 +3344,11 @@ export function ClientDetail({
                     // 재조회로 갱신된 최신 계약을 넘김(스냅샷 X) → 진행 이력 토글이 재진입 시 유지됨.
                     contract={contracts.find((c) => c.id === editContract.id) ?? editContract}
                     companyName={client.company || ''}
-                    onClose={() => setEditContract(null)}
+                    initialRenew={renewIntent}
+                    onClose={() => {
+                        setEditContract(null);
+                        setRenewIntent(false);
+                    }}
                     onEnd={endClient}
                     onReload={onReloadContracts}
                     onToast={onToast}
