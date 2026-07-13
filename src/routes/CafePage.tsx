@@ -100,7 +100,7 @@ function CafePage() {
     };
     const [cardCount, setCardCount] = useState(3); // 뽑을 카드 장수(1~9)
     const [genImages, setGenImages] = useState<string[]>([]); // GPT로 생성된 카드 이미지들
-    const [activeTab, setActiveTab] = useState<'draft' | 'test'>('draft'); // 초판/테스트 탭
+    const [activeTab, setActiveTab] = useState<'draft' | 'test' | 'test2'>('draft'); // 초판/테스트/테스트2 탭
     const [saved, setSaved] = useState<CafeOutput[]>([]); // 저장 갤러리
     const [saving, setSaving] = useState(false);
 
@@ -273,6 +273,7 @@ function CafePage() {
                 {([
                     ['draft', '초판'],
                     ['test', '테스트'],
+                    ['test2', '테스트2'],
                 ] as [typeof activeTab, string][]).map(([k, label]) => (
                     <button
                         className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
@@ -287,7 +288,7 @@ function CafePage() {
                 ))}
             </div>
 
-            {activeTab === 'test' ? <CafeTestTab /> : (
+            {activeTab === 'test' ? <CafeTestTab /> : activeTab === 'test2' ? <CafeTestTab cardMode="hero" /> : (
             <>
             <p className="m-0 text-sm text-[#64748b]">
                 키워드와 현장 사진을 넣으면 레퍼런스와 동일한 홍보 카드(사진 콜라주 + 지역·업종·서비스·전화)를 원하는 장수만큼 만들고,

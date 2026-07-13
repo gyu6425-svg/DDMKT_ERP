@@ -93,7 +93,8 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
     );
 }
 
-export function CafeTestTab() {
+// cardMode: 'default' = 구/동 썸네일 템플릿(테스트), 'hero' = 큰 인물+전화번호 템플릿(테스트2).
+export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | 'hero' } = {}) {
     const [keyword, setKeyword] = useState('잠실동 누수탐지');
     const [region, setRegion] = useState('잠실동'); // 동 — 큰 타이틀
     const [district, setDistrict] = useState('송파구'); // 구/시 — 상단 작은 배지
@@ -174,7 +175,13 @@ export function CafeTestTab() {
                 })(),
                 // ② 첫 장(지역 반영) GPT 카드 — 1·9번에 재사용
                 (async () => {
-                    const img = await generateCafeCard({ region, district, topic: business, phone });
+                    const img = await generateCafeCard({
+                        region,
+                        district: cardMode === 'default' ? district : undefined,
+                        topic: business,
+                        phone,
+                        mode: cardMode === 'hero' ? 'hero' : undefined,
+                    });
                     setFirstCard(img);
                 })(),
             ]);
@@ -231,8 +238,8 @@ export function CafeTestTab() {
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <Field label="키워드(주제)" value={keyword} onChange={setKeyword} />
-                    <Field label="구/시 (예: 송파구)" value={district} onChange={setDistrict} />
-                    <Field label="동/지역 (예: 잠실동)" value={region} onChange={setRegion} />
+                    {cardMode === 'default' ? <Field label="구/시 (예: 송파구)" value={district} onChange={setDistrict} /> : null}
+                    <Field label={cardMode === 'hero' ? '지역명 (예: 김포)' : '동/지역 (예: 잠실동)'} value={region} onChange={setRegion} />
                     <Field label="업종" value={business} onChange={setBusiness} />
                     <Field label="전화번호" value={phone} onChange={setPhone} />
                 </div>

@@ -33,6 +33,21 @@ export function buildCafeCardPrompt(p: Payload): string {
             `No English words, no watermark, no logo lettering. Bold, high-contrast, trustworthy Korean marketing look.`,
         ].join('\n');
     }
+    // 'hero' 템플릿(테스트2): 큰 인물 사진 + 대형 구/동 타이틀 + 신뢰 3항목 + 하단 문구 + 전화번호.
+    if (p.mode === 'hero') {
+        return [
+            `Create a 1024x1024 square Korean local leak-detection (누수탐지) promotional card. Reproduce this EXACT layout and style:`,
+            `- Bright clean white/light background with subtle blue tech accents. Palette: dark navy (#0a2a66), vivid blue (#1e6fff), white, small yellow highlight.`,
+            `- RIGHT SIDE (fills right ~45%): one large realistic photo of a masked technician in a navy work uniform looking UP and holding a handheld endoscope/leak-detection wand against a water-stained apartment ceiling near a bright window; he also holds a device with a small screen.`,
+            `- TOP-LEFT: the MAIN TITLE in VERY large bold Korean text on two lines with a thick 3D outline and drop shadow — first line the region "${region}" in dark navy, second line "${topic}" in vivid blue. A glossy blue water-drop icon next to the title.`,
+            `- Under the title: a blue rounded pill with a stopwatch icon reading "빠른 출동 · 정확한 원인 진단".`,
+            `- Below that, one line in dark navy: "아파트 · 빌라 · 상가 누수 해결".`,
+            `- A white rounded panel with THREE trust items side by side, each = a blue line icon + bold navy title + small gray subtitle: "빠른 출동 / 신속한 현장 대응", "정확한 진단 / 첨단 장비 분석", "확실한 해결 / 꼼꼼한 복구 지원".`,
+            `- BOTTOM blue band: on the left a small photo of a leaking pipe joint spraying water; center text "보이지 않는 누수, 정확한 탐지가 해답입니다!" (the word 탐지 highlighted yellow); and a phone row with a white phone icon and a big phone number "${phone}".`,
+            ``,
+            `CRITICAL: Render ALL Korean text 100% correctly (exact characters, no garbling, no typos, no fake or English letters). The phone number must be exactly "${phone}". Only change the region word "${region}" — keep everything else identical in style. High-contrast, trustworthy Korean marketing look.`,
+        ].join('\n');
+    }
     return [
         `Create a 1024x1024 square Korean local leak-detection (누수탐지) promotional thumbnail card. Reproduce this EXACT professional layout and style:`,
         `- Bright, clean white/light background with subtle blue geometric accents; modern high-trust local-service look. Palette: vivid blue (#1e5bd8), white, dark navy.`,

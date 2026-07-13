@@ -152,7 +152,7 @@ export async function generateCafeCard(input: {
     phone?: string;
     services?: string;
     refs?: string[];
-    mode?: 'fixed';
+    mode?: 'fixed' | 'hero';
     signal?: AbortSignal;
 }): Promise<string> {
     const url = import.meta.env.DEV ? 'http://127.0.0.1:8787/api/generate-cafe-card' : '/api/generate-cafe-card';
