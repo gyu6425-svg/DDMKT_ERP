@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
+import { zipSync, strToU8 } from 'fflate';
 import { generateCafe, generateCafeCard, generateCafeReview, type CafeReviewTone } from '../../api/cafeWriter';
 import { defaultCafeTitle, DEFAULT_CAFE_CONTENT, mergeCafeContent, type CafeContent } from './cafeContent';
 
 // 카페 원고 생성기 [테스트] 탭 — 비용 절감형.
-//   · 첫 장만 지역 반영해 GPT로 1회 생성(그 지역용으로 고정 재사용).
-//   · 이후 사진들은 사용자가 업로드한 '고정 이미지'를 계속 재사용(비용 0).
-//   · 매 글마다 원고(텍스트)만 생성.
+//   · "생성" 버튼 하나로 원고(후기형) + 첫 장(지역 반영 GPT 카드)를 함께 생성.
+//   · 2~8번은 기본 내장 고정 세트 재사용(비용 0). 첫 장은 1번(상단)·마지막(하단)에 재사용.
+//   · "다운받기"는 생성 완료 후 활성화 → ZIP(원고.txt + 사진1~N)으로 한 번에 저장.
 //   · 다운로드 시 모든 이미지에 '육안 무변 미세 변형'을 적용 → 매번 고유 해시 → 네이버 중복 업로드 차단 회피.
 
 // mulberry32 시드 난수(변형 재현/독립성).
@@ -52,11 +53,22 @@ async function varyImage(dataUrl: string, seed: number): Promise<string> {
     return c.toDataURL('image/jpeg', 0.9 + r() * 0.07);
 }
 
-function download(dataUrl: string, name: string) {
+// data:...;base64,xxxx → Uint8Array (zip 바이트).
+function dataUrlToU8(dataUrl: string): Uint8Array {
+    const b64 = dataUrl.split(',')[1] || '';
+    const bin = atob(b64);
+    const u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) u[i] = bin.charCodeAt(i);
+    return u;
+}
+
+function downloadBlob(blob: Blob, name: string) {
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = dataUrl;
+    a.href = url;
     a.download = name;
     a.click();
+    URL.revokeObjectURL(url);
 }
 
 const TONES: [CafeReviewTone, string][] = [
@@ -88,8 +100,8 @@ export function CafeTestTab() {
     const [business, setBusiness] = useState('누수탐지');
     const [tone, setTone] = useState<CafeReviewTone>('review');
 
-    const [firstCard, setFirstCard] = useState<string | null>(null); // 지역 반영 첫 장(GPT 생성 or 업로드)
-    const [fixedImages, setFixedImages] = useState<string[]>([]); // 이후 고정 이미지(기본 내장 세트 + 업로드)
+    const [firstCard, setFirstCard] = useState<string | null>(null); // 지역 반영 첫 장(GPT 생성) — 1·9번 재사용
+    const [fixedImages, setFixedImages] = useState<string[]>([]); // 2~8번 고정 이미지(기본 내장 세트 + 업로드)
 
     // 기본 고정 세트(2~8번) — public/images/cafe-fixed/manifest.json 을 로드. 없으면 빈 채로 시작.
     useEffect(() => {
@@ -108,20 +120,19 @@ export function CafeTestTab() {
     const [content, setContent] = useState<CafeContent>(DEFAULT_CAFE_CONTENT);
     const [title, setTitle] = useState(defaultCafeTitle(DEFAULT_CAFE_CONTENT));
     const [reviewBody, setReviewBody] = useState('');
-    const [firstBusy, setFirstBusy] = useState(false);
-    const [reviewBusy, setReviewBusy] = useState(false);
+    const [generating, setGenerating] = useState(false);
     const [downloading, setDownloading] = useState(false);
     const [copied, setCopied] = useState(false);
     const [msg, setMsg] = useState('');
 
-    // 본문 = 생성된 후기형 원고만(구조형 fallback 제거 — 생성 전엔 빈칸/안내).
     const bodyText = reviewBody;
     // 글자 수 = 문단바꿈(줄바꿈)과 「사진 N」 마커 제외한 순수 글자.
     const charCount = bodyText.replace(/「사진\s*\d+」/g, '').replace(/[\r\n]/g, '').length;
-    // 순서: 1번 = 첫 카드(지역), 2~8번 = 고정 이미지, 9번 = 첫 카드 다시(하단 북엔드).
-    //   1·9는 같은 첫 카드지만 다운로드 시 서로 다른 미세 변형 → 같은 글 내 중복 회피.
+    // 순서: 1번 = 첫 카드(지역), 2~8번 = 고정 이미지, 마지막 = 첫 카드 다시(하단 북엔드).
     const allImages = firstCard ? [firstCard, ...fixedImages, firstCard] : [...fixedImages];
-    const totalCount = Math.max(1, allImages.length || 1);
+    // 「사진 N」 마커 개수 = 최종 이미지 수(첫장 상·하단 + 고정). 첫장은 생성 시 항상 만들어지므로 +2.
+    const imageCount = fixedImages.length + 2;
+    const ready = !!firstCard && !!reviewBody; // 다운로드 활성 조건
 
     const readFiles = (files: FileList | null): Promise<string[]> =>
         Promise.all(
@@ -136,47 +147,41 @@ export function CafeTestTab() {
             ),
         );
 
-    // 첫 장(지역 반영) GPT 1회 생성 — 그 지역용으로 고정 재사용.
-    const genFirstCard = async () => {
-        if (firstBusy) return;
-        setFirstBusy(true);
-        setMsg('첫 장(지역 반영) 생성 중… (1~2분)');
+    // 통합 생성 — 원고(후기형) + 첫 장(지역 반영 GPT 카드)를 함께 생성.
+    const generate = async () => {
+        if (!keyword.trim() || generating) return;
+        setGenerating(true);
+        setMsg('원고 + 첫 장 이미지 생성 중… (1~2분)');
         try {
-            const img = await generateCafeCard({ region, topic: business, phone, services: '정밀탐지 · 신속공사 · 책임시공' });
-            setFirstCard(img);
-            setMsg('첫 장 생성 완료 — 이 지역용으로 고정 재사용됩니다.');
+            await Promise.all([
+                // ① 원고(소재 → 후기형 본문)
+                (async () => {
+                    const { content: gen } = await generateCafe({ brand: content.brand, business, keyword, phone, region });
+                    const merged = mergeCafeContent({ ...gen, region, phone, business });
+                    setContent(merged);
+                    const rv = await generateCafeReview({
+                        business,
+                        content: { ...merged, region, phone, business },
+                        count: imageCount,
+                        keyword,
+                        phone,
+                        region,
+                        tone,
+                    });
+                    setReviewBody(rv.reviewBody);
+                    setTitle(rv.title || defaultCafeTitle(merged));
+                })(),
+                // ② 첫 장(지역 반영) GPT 카드 — 1·9번에 재사용
+                (async () => {
+                    const img = await generateCafeCard({ region, topic: business, phone, services: '정밀탐지 · 신속공사 · 책임시공' });
+                    setFirstCard(img);
+                })(),
+            ]);
+            setMsg('생성 완료 — “다운받기(ZIP)”로 원고 + 사진을 한 번에 저장하세요.');
         } catch (e) {
-            setMsg(e instanceof Error ? e.message : '첫 장 생성 실패');
+            setMsg(e instanceof Error ? e.message : '생성 실패');
         } finally {
-            setFirstBusy(false);
-        }
-    };
-
-    // 원고만 생성(저렴) — 이미지 개수만큼 「사진 N」 마커.
-    const genReview = async () => {
-        if (!keyword.trim() || reviewBusy) return;
-        setReviewBusy(true);
-        setMsg('원고 생성 중… (1~2분)');
-        try {
-            const { content: gen } = await generateCafe({ brand: content.brand, business, keyword, phone, region });
-            const merged = mergeCafeContent({ ...gen, region, phone, business });
-            setContent(merged);
-            const rv = await generateCafeReview({
-                business,
-                content: { ...merged, region, phone, business },
-                count: totalCount,
-                keyword,
-                phone,
-                region,
-                tone,
-            });
-            setReviewBody(rv.reviewBody);
-            setTitle(rv.title || defaultCafeTitle(merged));
-            setMsg('원고 생성 완료 — “다운받기”로 원고 + 이미지(미세 변형)를 저장하세요.');
-        } catch (e) {
-            setMsg(e instanceof Error ? e.message : '원고 생성 실패');
-        } finally {
-            setReviewBusy(false);
+            setGenerating(false);
         }
     };
 
@@ -190,28 +195,23 @@ export function CafeTestTab() {
         }
     };
 
-    // 다운로드 — 원고 txt + 각 이미지에 미세 변형(고유 해시) 적용해 저장.
-    const downloadAll = async () => {
-        if (downloading) return;
-        if (!allImages.length) {
-            setMsg('이미지가 없습니다. 첫 장 생성 + 고정 이미지 업로드 후 다운로드하세요.');
-            return;
-        }
+    // 다운로드 — 원고.txt + 사진1~N(각 미세 변형)을 ZIP 하나로 저장.
+    const downloadZip = async () => {
+        if (downloading || !ready) return;
         setDownloading(true);
-        setMsg('원고 + 이미지(미세 변형) 다운로드 중…');
+        setMsg('ZIP 생성 중… (원고 + 사진)');
         try {
-            const blob = new Blob([`${title}\n\n${bodyText}`], { type: 'text/plain;charset=utf-8' });
-            const turl = URL.createObjectURL(blob);
-            download(turl, `${region || '카페'}_원고.txt`);
-            URL.revokeObjectURL(turl);
-            await new Promise((r) => setTimeout(r, 200));
+            const files: Record<string, Uint8Array> = {};
+            files['원고.txt'] = strToU8(`${title}\n\n${bodyText}`);
             const base = Math.floor(Math.random() * 1e9); // 이번 다운로드 고유 시드
             for (let i = 0; i < allImages.length; i += 1) {
                 const varied = await varyImage(allImages[i], base + i * 7919 + 1);
-                download(varied, `${region || '카페'}_${String(i + 1).padStart(2, '0')}.jpg`);
-                await new Promise((r) => setTimeout(r, 250));
+                files[`사진${i + 1}.jpg`] = dataUrlToU8(varied);
             }
-            setMsg(`다운로드 완료 — 원고 txt + 이미지 ${allImages.length}장(각각 미세 변형됨, 매번 고유).`);
+            // 이미 압축된 jpg → 무압축(STORE, level 0)로 빠르게 묶음.
+            const zipped = zipSync(files, { level: 0 });
+            downloadBlob(new Blob([zipped], { type: 'application/zip' }), `${region || '카페'}_카페세트.zip`);
+            setMsg(`ZIP 다운로드 완료 — 원고.txt + 사진 ${allImages.length}장(각각 미세 변형).`);
         } catch (e) {
             setMsg(e instanceof Error ? e.message : '다운로드 실패');
         } finally {
@@ -222,8 +222,8 @@ export function CafeTestTab() {
     return (
         <div className="grid gap-5">
             <p className="m-0 text-sm text-[#64748b]">
-                비용 절감형 — <b>1·9번(상·하단)만 지역 반영해 GPT 생성</b>, <b>2~8번은 기본 내장 고정 세트</b> 재사용(비용 0). 매 글은 <b>원고만 생성</b>.
-                다운로드 시 모든 이미지에 <b>육안 무변 미세 변형</b>을 적용해 <b>네이버 중복 업로드 차단</b>을 회피합니다(1·9번도 서로 다르게).
+                <b>“생성”</b> 한 번으로 <b>원고(후기형)</b> + <b>첫 장(지역 반영 AI 카드)</b>를 함께 만듭니다. 2~8번은 <b>기본 내장 고정 세트</b> 재사용(비용 0).
+                다 나오면 <b>“다운받기(ZIP)”</b>가 활성화 → <b>원고.txt + 사진1~{imageCount}</b>을 ZIP 하나로 저장(모든 이미지 <b>미세 변형</b>으로 중복 차단 회피).
             </p>
 
             {/* 입력 */}
@@ -249,20 +249,20 @@ export function CafeTestTab() {
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
-                        className="h-10 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
-                        disabled={reviewBusy || !keyword.trim()}
-                        onClick={() => void genReview()}
+                        className="h-10 rounded-md bg-[#4338ca] px-6 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
+                        disabled={generating || !keyword.trim()}
+                        onClick={() => void generate()}
                         type="button"
                     >
-                        {reviewBusy ? '원고 생성 중…' : '원고 생성'}
+                        {generating ? '생성 중… (원고 + 첫 장)' : '생성'}
                     </button>
                     <button
-                        className="h-10 rounded-md border border-[#4338ca] px-5 text-sm font-bold text-[#4338ca] hover:bg-[#eef2ff] disabled:opacity-50"
-                        disabled={downloading}
-                        onClick={() => void downloadAll()}
+                        className="h-10 rounded-md border border-[#4338ca] px-5 text-sm font-bold text-[#4338ca] hover:bg-[#eef2ff] disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={downloading || !ready}
+                        onClick={() => void downloadZip()}
                         type="button"
                     >
-                        {downloading ? '다운로드 중…' : '다운받기 (원고 txt + 이미지)'}
+                        {downloading ? 'ZIP 생성 중…' : '다운받기 (ZIP)'}
                     </button>
                     {msg ? <span className="text-[13px] text-[#6366f1]">{msg}</span> : null}
                 </div>
@@ -270,40 +270,16 @@ export function CafeTestTab() {
 
             {/* 이미지 세트 */}
             <div className="grid gap-3 rounded-xl border border-[#e2e8f0] bg-white p-4 lg:grid-cols-2">
-                {/* 첫 장(지역 반영) */}
+                {/* 첫 장(지역 반영) — 미리보기(생성 결과) */}
                 <div>
-                    <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">첫 장 = 1·9번 (지역 반영 · 상단·하단 북엔드)</div>
-                    <div className="flex items-start gap-2">
-                        {firstCard ? (
-                            <img alt="" className="h-32 w-32 rounded-md border border-[#e2e8f0] object-cover" src={firstCard} />
-                        ) : (
-                            <div className="flex h-32 w-32 items-center justify-center rounded-md border-2 border-dashed border-[#cbd5e1] text-[11px] text-[#94a3b8]">
-                                첫 장 없음
-                            </div>
-                        )}
-                        <div className="grid gap-1.5">
-                            <button
-                                className="h-9 rounded-md bg-[#0f766e] px-4 text-[13px] font-bold text-white hover:bg-[#115e59] disabled:opacity-50"
-                                disabled={firstBusy}
-                                onClick={() => void genFirstCard()}
-                                type="button"
-                            >
-                                {firstBusy ? '생성 중…' : firstCard ? '첫 장 다시 생성' : '첫 장 생성(지역 반영)'}
-                            </button>
-                            <label className="cursor-pointer rounded-md border border-[#cbd5e1] px-3 py-1.5 text-center text-[12px] font-semibold text-[#475569] hover:bg-[#f1f5f9]">
-                                첫 장 직접 업로드
-                                <input
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={async (e) => {
-                                        const arr = await readFiles(e.target.files);
-                                        if (arr[0]) setFirstCard(arr[0]);
-                                    }}
-                                    type="file"
-                                />
-                            </label>
+                    <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">첫 장 = 1·마지막 (지역 반영 · 상단·하단 북엔드)</div>
+                    {firstCard ? (
+                        <img alt="" className="h-32 w-32 rounded-md border border-[#e2e8f0] object-cover" src={firstCard} />
+                    ) : (
+                        <div className="flex h-32 w-32 items-center justify-center rounded-md border-2 border-dashed border-[#cbd5e1] text-[11px] text-[#94a3b8]">
+                            “생성” 시 자동 생성
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 {/* 이후 고정 이미지 */}
@@ -354,11 +330,11 @@ export function CafeTestTab() {
                 <textarea
                     className="h-[320px] w-full rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-[13px] leading-6 text-[#0f172a]"
                     onChange={(e) => setReviewBody(e.target.value)}
-                    placeholder="위 “원고 생성” 버튼을 누르면 선택한 문체(기본: 후기형)의 본문이 여기에 표시됩니다."
+                    placeholder="위 “생성” 버튼을 누르면 선택한 문체(기본: 후기형)의 본문이 여기에 표시됩니다."
                     value={bodyText}
                 />
                 <p className="mt-1.5 text-[12px] text-[#64748b]">
-                    본문의 <b>「사진 N」</b> 위치에 위 이미지들을 순서대로 넣으세요. 다운로드된 이미지는 매번 <b>미세 변형</b>돼 있어 같은 사진을 여러 글에 올려도 차단 위험이 낮습니다.
+                    ZIP 안의 <b>원고.txt</b>를 카페 글쓰기에 붙여넣고, 본문의 <b>「사진 N」</b> 위치에 <b>사진N</b>을 순서대로 넣으세요. 다운로드 이미지는 매번 <b>미세 변형</b>돼 중복 차단 위험이 낮습니다.
                 </p>
             </div>
         </div>
