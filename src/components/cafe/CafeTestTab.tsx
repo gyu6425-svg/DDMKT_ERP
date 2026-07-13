@@ -1,97 +1,17 @@
 import { useEffect, useState } from 'react';
-import { zipSync, strToU8 } from 'fflate';
 import { generateCafeCard, generateCafeReview, type CafeReviewTone } from '../../api/cafeWriter';
 import { defaultCafeTitle, DEFAULT_CAFE_CONTENT, mergeCafeContent } from './cafeContent';
 import { logApiUsage } from '../../api/apiUsage';
 import { computeRecordCostUsd } from '../../lib/apiPricing';
 import { useAuth } from '../../hooks/useAuth';
 import { getCachedCard, setCachedCard, delCachedCard } from './cardCache';
+import { downloadCafeZip } from './cafeExport';
+import { saveHistory } from './cafeHistory';
 
 // 카페 원고 생성기 [테스트] 탭 — 비용 절감형.
-//   · "생성" 버튼 하나로 원고(후기형) + 첫 장(지역 반영 GPT 카드)를 함께 생성.
-//   · 2~8번은 기본 내장 고정 세트 재사용(비용 0). 첫 장은 1번(상단)·마지막(하단)에 재사용.
-//   · "다운받기"는 생성 완료 후 활성화 → ZIP(원고.txt + 사진1~N)으로 한 번에 저장.
-//   · 다운로드 시 모든 이미지에 '육안 무변 미세 변형'을 적용 → 매번 고유 해시 → 네이버 중복 업로드 차단 회피.
-
-// mulberry32 시드 난수(변형 재현/독립성).
-function rng(seed: number) {
-    let a = seed >>> 0;
-    return () => {
-        a |= 0;
-        a = (a + 0x6d2b79f5) | 0;
-        let t = Math.imul(a ^ (a >>> 15), 1 | a);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-    return new Promise((res, rej) => {
-        const im = new Image();
-        im.onload = () => res(im);
-        im.onerror = rej;
-        im.src = src;
-    });
-}
-
-// 육안 무변 '모든 속성' 미세 변형 — 매 호출 시드가 달라 완전히 고유한 파일.
-//   ① 해상도(미세 크롭+리사이즈) ② 구도(크롭 오프셋) ③ 전역 밝기·대비·채도(→ 모든 픽셀값이 조금씩)
-//   ④ 희소 픽셀 노이즈 ⑤ JPEG 품질/바이트. → 콘텐츠 해시·지각 해시·해상도·메타가 전부 달라짐.
-async function varyImage(dataUrl: string, seed: number): Promise<string> {
-    const img = await loadImage(dataUrl);
-    const r = rng(seed);
-    const sw = img.naturalWidth || img.width;
-    const sh = img.naturalHeight || img.height;
-    // ① 각 변 0~3px 미세 크롭 + 출력 크기 ±0~6px → 해상도·구도·지각해시 변경(육안 무변)
-    const crop = Math.floor(r() * 4);
-    const outW = Math.max(16, sw - crop * 2 + Math.round((r() - 0.5) * 6));
-    const outH = Math.max(16, sh - crop * 2 + Math.round((r() - 0.5) * 6));
-    const c = document.createElement('canvas');
-    c.width = outW;
-    c.height = outH;
-    const ctx = c.getContext('2d');
-    if (!ctx) return dataUrl;
-    // ② 전역 밝기·대비·채도 미세 조정(±1% 내) → 모든 픽셀값이 조금씩 달라짐
-    const b = (100 + (r() - 0.5) * 2).toFixed(2);
-    const ctr = (100 + (r() - 0.5) * 2).toFixed(2);
-    const sat = (100 + (r() - 0.5) * 2).toFixed(2);
-    try {
-        ctx.filter = `brightness(${b}%) contrast(${ctr}%) saturate(${sat}%)`;
-    } catch {
-        /* filter 미지원 브라우저면 무시(나머지 변형은 그대로 적용) */
-    }
-    ctx.drawImage(img, crop, crop, sw - crop * 2, sh - crop * 2, 0, 0, outW, outH);
-    ctx.filter = 'none';
-    // ③ 희소 픽셀 노이즈 ~60개 ±1(추가 교란)
-    for (let k = 0; k < 60; k += 1) {
-        const x = Math.floor(r() * outW);
-        const y = Math.floor(r() * outH);
-        const px = ctx.getImageData(x, y, 1, 1);
-        const ch = Math.floor(r() * 3);
-        px.data[ch] = Math.max(0, Math.min(255, px.data[ch] + (r() < 0.5 ? -1 : 1)));
-        ctx.putImageData(px, x, y);
-    }
-    // ④ 랜덤 JPEG 품질(0.90~0.97) 재인코딩 → 바이트·메타 매번 다름
-    return c.toDataURL('image/jpeg', 0.9 + r() * 0.07);
-}
-
-// data:...;base64,xxxx → Uint8Array (zip 바이트).
-function dataUrlToU8(dataUrl: string): Uint8Array {
-    const b64 = dataUrl.split(',')[1] || '';
-    const bin = atob(b64);
-    const u = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i += 1) u[i] = bin.charCodeAt(i);
-    return u;
-}
-
-function downloadBlob(blob: Blob, name: string) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-}
+//   · "생성" 하나로 원고(후기형) + 첫 장(지역 반영 GPT 카드)를 함께 생성. 2~N은 기본 고정 세트 재사용(비용 0).
+//   · "다운받기(ZIP)"는 생성 완료 후 활성화. 미세변형·ZIP은 cafeExport, 캐시는 cardCache, 히스토리는 cafeHistory.
+//   · 생성할 때마다 '저장' 탭 히스토리에 기록.
 
 const TONES: [CafeReviewTone, string][] = [
     ['review', '후기형'],
@@ -215,6 +135,10 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
             setFirstCard(cached);
             setFromCache(true);
         }
+        // 저장 탭 히스토리에 남길 최종 값 캡처.
+        let capReview = '';
+        let capTitle = title;
+        let capFirst: string | null = cached ?? null;
         try {
             await Promise.all([
                 // ① 후기 원고 — 비용 절감: 별도 '소재' 생성 API 호출 없이 기본 소재(정적)로 후기 본문만 1회 생성.
@@ -231,6 +155,8 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                         tone,
                     });
                     logText(rv.usage, Date.now() - t, true);
+                    capReview = rv.reviewBody;
+                    capTitle = rv.title || defaultCafeTitle(merged);
                     setReviewBody(rv.reviewBody);
                     setTitle(rv.title || defaultCafeTitle(merged));
                 })(),
@@ -246,6 +172,7 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                                   phone,
                                   mode: cardMode === 'hero' ? 'hero' : undefined,
                               });
+                              capFirst = img;
                               setFirstCard(img);
                               setFromCache(false);
                               await setCachedCard(cardKey, img);
@@ -264,10 +191,26 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                       ]
                     : []),
             ]);
+            // '저장' 탭 히스토리에 기록(생성할 때마다 누적, 새로고침해도 유지).
+            void saveHistory({
+                at: Date.now(),
+                business,
+                cardMode,
+                district,
+                firstCard: capFirst,
+                fixedImages,
+                id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                keyword,
+                phone,
+                region,
+                reviewBody: capReview,
+                title: capTitle,
+                tone,
+            });
             setMsg(
                 needFirstCard
-                    ? '생성 완료 — “다운받기(ZIP)”로 원고 + 사진을 한 번에 저장하세요.'
-                    : '원고만 새로 생성(첫 장은 같은 지역이라 재사용 · 이미지 비용 0). “다운받기(ZIP)”로 저장하세요.',
+                    ? '생성 완료 · 저장됨 — “다운받기(ZIP)”로 원고 + 사진을 저장하세요.'
+                    : '원고만 새로 생성(첫 장 재사용 · 이미지 0원) · 저장됨. “다운받기(ZIP)”로 저장하세요.',
             );
         } catch (e) {
             setMsg(e instanceof Error ? e.message : '생성 실패');
@@ -292,17 +235,8 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
         setDownloading(true);
         setMsg('ZIP 생성 중… (원고 + 사진)');
         try {
-            const files: Record<string, Uint8Array> = {};
-            files['원고.txt'] = strToU8(`${title}\n\n${bodyText}`);
-            const base = Math.floor(Math.random() * 1e9); // 이번 다운로드 고유 시드
-            for (let i = 0; i < allImages.length; i += 1) {
-                const varied = await varyImage(allImages[i], base + i * 7919 + 1);
-                files[`사진${i + 1}.jpg`] = dataUrlToU8(varied);
-            }
-            // 이미 압축된 jpg → 무압축(STORE, level 0)로 빠르게 묶음.
-            const zipped = zipSync(files, { level: 0 });
-            downloadBlob(new Blob([zipped], { type: 'application/zip' }), `${region || '카페'}_카페세트.zip`);
-            setMsg(`ZIP 다운로드 완료 — 원고.txt + 사진 ${allImages.length}장(각각 미세 변형).`);
+            const n = await downloadCafeZip({ bodyText, images: allImages, region, title });
+            setMsg(`ZIP 다운로드 완료 — 원고.txt + 사진 ${n}장(각각 미세 변형).`);
         } catch (e) {
             setMsg(e instanceof Error ? e.message : '다운로드 실패');
         } finally {

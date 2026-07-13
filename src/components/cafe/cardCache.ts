@@ -5,9 +5,12 @@ const STORE = 'first-cards';
 
 function openDb(): Promise<IDBDatabase> {
     return new Promise((res, rej) => {
-        const req = indexedDB.open(DB_NAME, 1);
+        // 버전 2: 'first-cards'(캐시) + 'history'(생성 히스토리) 두 스토어. cafeHistory.ts와 동일.
+        const req = indexedDB.open(DB_NAME, 2);
         req.onupgradeneeded = () => {
-            if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
+            const db = req.result;
+            if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+            if (!db.objectStoreNames.contains('history')) db.createObjectStore('history', { keyPath: 'id' });
         };
         req.onsuccess = () => res(req.result);
         req.onerror = () => rej(req.error);

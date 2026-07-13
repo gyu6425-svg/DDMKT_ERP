@@ -9,6 +9,7 @@ import {
     type CafeContent,
 } from '../components/cafe/cafeContent';
 import { CafeTestTab } from '../components/cafe/CafeTestTab';
+import { CafeSavedTab } from '../components/cafe/CafeSavedTab';
 
 // 카페 원고 자동생성기 — 키워드 → OpenAI 원고 생성 + 원고의 「사진 N」 주제로 GPT 카드 이미지 생성.
 
@@ -100,7 +101,8 @@ function CafePage() {
     };
     const [cardCount, setCardCount] = useState(3); // 뽑을 카드 장수(1~9)
     const [genImages, setGenImages] = useState<string[]>([]); // GPT로 생성된 카드 이미지들
-    const [activeTab, setActiveTab] = useState<'draft' | 'test' | 'test2'>('draft'); // 초판/테스트/테스트2 탭
+    // 초판·테스트는 비활성(유지만), 기본은 테스트2. 저장=생성 히스토리.
+    const [activeTab, setActiveTab] = useState<'draft' | 'test' | 'test2' | 'saved'>('test2');
     const [saved, setSaved] = useState<CafeOutput[]>([]); // 저장 갤러리
     const [saving, setSaving] = useState(false);
 
@@ -268,27 +270,35 @@ function CafePage() {
                 <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">카페 원고 자동생성기</h2>
             </div>
 
-            {/* 탭: 초판(현재 GPT 카드 생성) / 테스트(고정 이미지 재사용·원고만) */}
+            {/* 탭: 초판·테스트는 비활성(유지만) · 테스트2(진행) · 저장(생성 히스토리) */}
             <div className="flex gap-1 border-b border-[#e2e8f0]">
                 {([
-                    ['draft', '초판'],
-                    ['test', '테스트'],
-                    ['test2', '테스트2'],
-                ] as [typeof activeTab, string][]).map(([k, label]) => (
+                    ['draft', '초판', true],
+                    ['test', '테스트', true],
+                    ['test2', '테스트2', false],
+                    ['saved', '저장', false],
+                ] as [typeof activeTab, string, boolean][]).map(([k, label, disabled]) => (
                     <button
                         className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
-                            activeTab === k ? 'border-[#4338ca] text-[#4338ca]' : 'border-transparent text-[#94a3b8]'
+                            disabled
+                                ? 'cursor-not-allowed border-transparent text-[#cbd5e1]'
+                                : activeTab === k
+                                  ? 'border-[#4338ca] text-[#4338ca]'
+                                  : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
                         }`}
+                        disabled={disabled}
                         key={k}
-                        onClick={() => setActiveTab(k)}
+                        onClick={() => !disabled && setActiveTab(k)}
+                        title={disabled ? '비활성화됨(유지만)' : undefined}
                         type="button"
                     >
                         {label}
+                        {disabled ? ' (비활성)' : ''}
                     </button>
                 ))}
             </div>
 
-            {activeTab === 'test' ? <CafeTestTab /> : activeTab === 'test2' ? <CafeTestTab cardMode="hero" /> : (
+            {activeTab === 'saved' ? <CafeSavedTab /> : activeTab === 'test' ? <CafeTestTab /> : activeTab === 'test2' ? <CafeTestTab cardMode="hero" /> : (
             <>
             <p className="m-0 text-sm text-[#64748b]">
                 키워드와 현장 사진을 넣으면 레퍼런스와 동일한 홍보 카드(사진 콜라주 + 지역·업종·서비스·전화)를 원하는 장수만큼 만들고,
