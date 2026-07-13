@@ -116,6 +116,8 @@ export function CafeTestTab() {
 
     // 본문 = 생성된 후기형 원고만(구조형 fallback 제거 — 생성 전엔 빈칸/안내).
     const bodyText = reviewBody;
+    // 글자 수 = 문단바꿈(줄바꿈)과 「사진 N」 마커 제외한 순수 글자.
+    const charCount = bodyText.replace(/「사진\s*\d+」/g, '').replace(/[\r\n]/g, '').length;
     // 순서: 1번 = 첫 카드(지역), 2~8번 = 고정 이미지, 9번 = 첫 카드 다시(하단 북엔드).
     //   1·9는 같은 첫 카드지만 다운로드 시 서로 다른 미세 변형 → 같은 글 내 중복 회피.
     const allImages = firstCard ? [firstCard, ...fixedImages, firstCard] : [...fixedImages];
@@ -342,7 +344,9 @@ export function CafeTestTab() {
             {/* 원고(복사용) */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                 <div className="mb-2 flex items-center justify-between">
-                    <div className="text-[13px] font-bold text-[#334155]">카페 본문 (복사용)</div>
+                    <div className="text-[13px] font-bold text-[#334155]">
+                        카페 본문 (복사용) <span className="font-semibold text-[#7c3aed]">({charCount.toLocaleString()}자)</span>
+                    </div>
                     <button className="h-9 rounded-md bg-[#0f766e] px-4 text-sm font-bold text-white hover:bg-[#115e59]" onClick={() => void copyBody()} type="button">
                         {copied ? '복사됨 ✓' : '본문 전체 복사'}
                     </button>
