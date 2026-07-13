@@ -106,6 +106,7 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
     const [tone, setTone] = useState<CafeReviewTone>('review');
 
     const [firstCard, setFirstCard] = useState<string | null>(null); // 지역 반영 첫 장(GPT 생성) — 1·9번 재사용
+    const [firstCardKey, setFirstCardKey] = useState(''); // 첫 장이 생성된 조건(지역·전화 등) — 같으면 재사용(비용 0)
     const [fixedImages, setFixedImages] = useState<string[]>([]); // 2~8번 고정 이미지(기본 내장 세트 + 업로드)
 
     // 기본 고정 세트(2~8번) — public/images/cafe-fixed/manifest.json 을 로드. 없으면 빈 채로 시작.
@@ -173,6 +174,9 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                 usage_raw: (usage as never) ?? null,
                 user_email: email,
             });
+        // 첫 장은 지역/전화 등이 같으면 재생성 안 함(같은 카드 → 비용 절감). 조건이 바뀌었거나 없을 때만 생성.
+        const cardKey = `${cardMode}|${region}|${district}|${business}|${phone}`;
+        const needFirstCard = !firstCard || firstCardKey !== cardKey;
         try {
             await Promise.all([
                 // ① 후기 원고 — 비용 절감: 별도 '소재' 생성 API 호출 없이 기본 소재(정적)로 후기 본문만 1회 생성.
@@ -192,31 +196,40 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                     setReviewBody(rv.reviewBody);
                     setTitle(rv.title || defaultCafeTitle(merged));
                 })(),
-                // ② 첫 장(지역 반영) GPT 카드 — 1·마지막에 재사용. 이미지 1장(square·high) 비용.
-                (async () => {
-                    const t = Date.now();
-                    const img = await generateCafeCard({
-                        region,
-                        district: cardMode === 'default' ? district : undefined,
-                        topic: business,
-                        phone,
-                        mode: cardMode === 'hero' ? 'hero' : undefined,
-                    });
-                    setFirstCard(img);
-                    void logApiUsage({
-                        banner_size: 'square',
-                        cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: 'high', provider: 'openai' }),
-                        elapsed_ms: Date.now() - t,
-                        image_quality: 'high',
-                        model: 'cafe-card',
-                        operator_name: operatorName,
-                        provider: 'openai',
-                        status: 'success',
-                        user_email: email,
-                    });
-                })(),
+                // ② 첫 장(지역 반영) GPT 카드 — 1·마지막에 재사용. 지역 등 조건 같으면 재생성 안 함(비용 0).
+                ...(needFirstCard
+                    ? [
+                          (async () => {
+                              const t = Date.now();
+                              const img = await generateCafeCard({
+                                  region,
+                                  district: cardMode === 'default' ? district : undefined,
+                                  topic: business,
+                                  phone,
+                                  mode: cardMode === 'hero' ? 'hero' : undefined,
+                              });
+                              setFirstCard(img);
+                              setFirstCardKey(cardKey);
+                              void logApiUsage({
+                                  banner_size: 'square',
+                                  cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: 'high', provider: 'openai' }),
+                                  elapsed_ms: Date.now() - t,
+                                  image_quality: 'high',
+                                  model: 'cafe-card',
+                                  operator_name: operatorName,
+                                  provider: 'openai',
+                                  status: 'success',
+                                  user_email: email,
+                              });
+                          })(),
+                      ]
+                    : []),
             ]);
-            setMsg('생성 완료 — “다운받기(ZIP)”로 원고 + 사진을 한 번에 저장하세요.');
+            setMsg(
+                needFirstCard
+                    ? '생성 완료 — “다운받기(ZIP)”로 원고 + 사진을 한 번에 저장하세요.'
+                    : '원고만 새로 생성(첫 장은 같은 지역이라 재사용 · 이미지 비용 0). “다운받기(ZIP)”로 저장하세요.',
+            );
         } catch (e) {
             setMsg(e instanceof Error ? e.message : '생성 실패');
         } finally {
@@ -313,13 +326,32 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                 {/* 첫 장(지역 반영) — 미리보기(생성 결과) */}
                 <div>
                     <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">첫 장 = 1·마지막 (지역 반영 · 상단·하단 북엔드)</div>
-                    {firstCard ? (
-                        <img alt="" className="h-32 w-32 rounded-md border border-[#e2e8f0] object-cover" src={firstCard} />
-                    ) : (
-                        <div className="flex h-32 w-32 items-center justify-center rounded-md border-2 border-dashed border-[#cbd5e1] text-[11px] text-[#94a3b8]">
-                            “생성” 시 자동 생성
-                        </div>
-                    )}
+                    <div className="flex items-start gap-2">
+                        {firstCard ? (
+                            <img alt="" className="h-32 w-32 rounded-md border border-[#e2e8f0] object-cover" src={firstCard} />
+                        ) : (
+                            <div className="flex h-32 w-32 items-center justify-center rounded-md border-2 border-dashed border-[#cbd5e1] text-[11px] text-[#94a3b8]">
+                                “생성” 시 자동 생성
+                            </div>
+                        )}
+                        {firstCard ? (
+                            <button
+                                className="rounded-md border border-[#cbd5e1] px-2.5 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                                onClick={() => {
+                                    setFirstCard(null);
+                                    setFirstCardKey('');
+                                    setMsg('다음 “생성” 때 첫 장을 새로 뽑습니다(이미지 비용 발생).');
+                                }}
+                                title="같은 지역이라도 첫 장을 새 이미지로 다시 생성"
+                                type="button"
+                            >
+                                첫 장 새로
+                            </button>
+                        ) : null}
+                    </div>
+                    <p className="mt-1 text-[11px] text-[#94a3b8]">
+                        같은 지역·전화면 <b>재사용</b>(이미지 비용 0). 지역/전화 바꾸면 자동으로 새로 생성됩니다.
+                    </p>
                 </div>
 
                 {/* 이후 고정 이미지 */}
