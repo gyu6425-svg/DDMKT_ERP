@@ -884,6 +884,8 @@ function ContractEditModal({
         contract_date?: string | null;
         amount?: number | null;
     }) => {
+        // 만료([만료]) 계약에서의 편집은 블로그 계정을 덮어쓰지 않음 — 활성(재계약) 계약 값 보존.
+        if ((contract.note || '').includes('[만료]')) return;
         // 부스트 접두(상위노출 보장형 · )가 붙어도 브랜드블로그면 동기화되게 접두 제거 후 판정.
         if (!isBrandBlogSub(contract.subtype.replace(/^상위노출 보장형 · /, ''))) return;
         await syncBlogAccountFromContract(contract.client_id, fields, contract.blog_name);
@@ -1198,54 +1200,58 @@ function ContractEditModal({
     };
 
     // 재계약 = 현재 계약을 이력으로 넣고, 진행분 유지한 채 수량·매출·외주비 누적(2/5 + 5 → 2/10).
+    // 재계약 = 별도 계약(카드) 신설. 기존(완료) 계약은 누적하지 않고 '만료' 표시로 남겨 블러 유지.
+    //   → 재계약 시작일의 '월'로 새 계약 매출·외주가 귀속(회차별 카드라 자동으로 그 달에만 잡힘).
     const addRenewal = async () => {
         const s = reStart.trim();
         if (!s || reQty <= 0) {
             onToast('계약 시작일과 수량을 입력하세요');
             return;
         }
-        const newHistory: ContractHistoryItem[] = [
-            ...history,
-            {
-                amount: Number(amount) || 0,
-                at: new Date().toISOString().slice(0, 10),
-                contract_date: date || null,
-                goal_count: hasGoal ? goalN : null,
-                note: note || null,
-                outsource: contract.outsource ?? null,
-                remain_count: remainN,
-                unit_outsource: contract.unit_outsource ?? null,
-                unit_price: contract.unit_price ?? null,
-            },
-        ];
-        const nextGoal = goalN + reQty;
-        const nextRemain = remainN + reQty;
-        const nextAmount = (Number(amount) || 0) + reSales;
-        const nextOutsource = (contract.outsource || 0) + reOutAmt;
         setSaving(true);
-        const { error } = await updateClientContract(contract.id, {
-            amount: nextAmount,
-            contract_date: s,
-            goal_count: nextGoal,
-            history: newHistory,
-            outsource: nextOutsource,
-            // 리워드 재계약: 일일 타수가 바뀌면 갱신(추천치 정확도 유지)
-            ...(reDaily && Number(onlyDigits(rePerDay)) > 0
-                ? { per_day: Number(onlyDigits(rePerDay)) }
-                : {}),
-            remain_count: nextRemain,
-        });
-        setSaving(false);
-        if (error) {
-            onToast(`오류: ${error.message}`);
+        // ① 새 계약(재계약분) 한 건 신설 — 아래에 동일한 상품 카드가 생김.
+        const { error: insErr } = await insertClientContracts([
+            {
+                amount: reSales,
+                category: contract.category,
+                client_id: contract.client_id,
+                contract_date: s,
+                goal_count: reQty,
+                remain_count: reQty,
+                outsource: reOutAmt || null,
+                outsource_company: contract.outsource_company ?? null,
+                per_day: reDaily ? Number(onlyDigits(rePerDay)) || null : null,
+                subtype: contract.subtype,
+                unit_outsource: Number(onlyDigits(reOutUnit)) || null,
+                unit_price: Number(onlyDigits(reUnit)) || null,
+                blog_name: contract.blog_name ?? null,
+                note: null,
+                no_vat: contract.no_vat ?? false,
+                // 재계약은 이미 승인된 계약의 연장 → 신규 등록(미승인)으로 오인되지 않게 승인 상태 상속.
+                sheet_approved: contract.sheet_approved ?? true,
+            },
+        ]);
+        if (insErr) {
+            setSaving(false);
+            onToast(`오류: ${insErr.message}`);
             return;
         }
-        onToast(`재계약 — ${reQty.toLocaleString('ko-KR')}건 추가 (총 ${nextGoal.toLocaleString('ko-KR')}건 · 매출 ${fmtWon(nextAmount)}원)`);
+        // ② 기존 계약을 '만료'로 표시([만료] 마커) — 카드 블러 유지 + '계약 만료'(재계약 버튼 제거).
+        const EXPIRED = '[만료]';
+        const expiredNote = (note || '').includes(EXPIRED) ? note || null : `${EXPIRED} ${note || ''}`.trim();
+        const { error } = await updateClientContract(contract.id, { note: expiredNote });
+        setSaving(false);
+        if (error) {
+            onToast(`오류(만료 표시): ${error.message}`);
+            return;
+        }
+        onToast(`재계약 — 새 계약 카드 생성(${reQty.toLocaleString('ko-KR')}건 · 매출 ${fmtWon(reSales)}원). 기존 계약은 만료 처리.`);
+        // ③ 브랜드 블로그: 새(활성) 계약의 건수/잔여로 블로그 관리시트 동기화.
         await syncBlog({
-            amount: nextAmount,
+            amount: reSales,
             contract_date: s,
-            goal_count: nextGoal,
-            remain_count: nextRemain,
+            goal_count: reQty,
+            remain_count: reQty,
         });
         // 재계약 화면에서 블로그 주소를 수정했으면 블로그 계정에도 반영(그대로 두면 변화 없음).
         if (isBrandContract && blogAccId && blogUrl) {
@@ -3093,11 +3099,18 @@ export function ClientDetail({
                                                 </div>
                                             );
                                         }
-                                        const isDone = prog != null && prog >= 100; // 완료(만료) 계약 → 블러 + 재계약
+                                        // 재계약으로 만료된 기존 계약([만료] 마커) → 블러 유지 + '계약 만료'만(재계약 버튼 없음).
+                                        const isExpired = (ct.note || '').includes('[만료]');
+                                        // 완료(100%) 계약 → 블러 + 재계약 버튼. 만료 계약도 블러(둘 다 흐리게).
+                                        const isDone = isExpired || (prog != null && prog >= 100);
                                         return (
                                             <div
                                                 className={`relative flex h-full cursor-pointer flex-col rounded-lg border-2 px-4 py-3 text-left shadow-sm transition hover:shadow-md ${
-                                                    isDone ? 'border-[#a7f3d0]' : 'border-[#e2e8f0] hover:border-[#1e40af]'
+                                                    isExpired
+                                                        ? 'border-[#e2e8f0]'
+                                                        : isDone
+                                                          ? 'border-[#a7f3d0]'
+                                                          : 'border-[#e2e8f0] hover:border-[#1e40af]'
                                                 } bg-white`}
                                                 key={ct.id}
                                                 onClick={() => setEditContract(ct)}
@@ -3106,18 +3119,24 @@ export function ClientDetail({
                                             >
                                                 {isDone ? (
                                                     <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-lg bg-white/45 backdrop-blur-[1.5px]">
-                                                        <span className="rounded-full bg-[#059669] px-2 py-0.5 text-[11px] font-bold text-white">계약 완료</span>
-                                                        <button
-                                                            className="rounded-lg bg-[#1e40af] px-4 py-2 text-sm font-extrabold text-white shadow hover:bg-[#1e3a8a]"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setEditContract(ct);
-                                                                setRenewIntent(true);
-                                                            }}
-                                                            type="button"
-                                                        >
-                                                            🔄 재계약
-                                                        </button>
+                                                        {isExpired ? (
+                                                            <span className="rounded-full bg-[#94a3b8] px-2.5 py-0.5 text-[11px] font-bold text-white">계약 만료</span>
+                                                        ) : (
+                                                            <>
+                                                                <span className="rounded-full bg-[#059669] px-2 py-0.5 text-[11px] font-bold text-white">계약 완료</span>
+                                                                <button
+                                                                    className="rounded-lg bg-[#1e40af] px-4 py-2 text-sm font-extrabold text-white shadow hover:bg-[#1e3a8a]"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setEditContract(ct);
+                                                                        setRenewIntent(true);
+                                                                    }}
+                                                                    type="button"
+                                                                >
+                                                                    🔄 재계약
+                                                                </button>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 ) : null}
                                                 <div className="flex items-start justify-between gap-1.5">
