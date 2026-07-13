@@ -1226,7 +1226,7 @@ function ContractEditModal({
                 unit_outsource: Number(onlyDigits(reOutUnit)) || null,
                 unit_price: Number(onlyDigits(reUnit)) || null,
                 blog_name: contract.blog_name ?? null,
-                note: null,
+                note: '[재계약]', // 계약 이력에서 '재계약'으로 표시(별도 카드라 history가 없어 라벨 구분용)
                 no_vat: contract.no_vat ?? false,
                 // 재계약은 이미 승인된 계약의 연장 → 신규 등록(미승인)으로 오인되지 않게 승인 상태 상속.
                 sheet_approved: contract.sheet_approved ?? true,
@@ -2045,7 +2045,9 @@ function ContractEditModal({
                             {periods.map((p, i) => {
                                 const isCurrent = i === periods.length - 1;
                                 const isFirst = i === 0;
-                                const pLabel = isFirst ? '최초 계약' : `재계약 ${i}`;
+                                // 별도 카드 재계약(history 없음)은 '[재계약]' 마커로 '최초 계약' 대신 '재계약' 표시.
+                                const isRenewalContract = periods.length === 1 && (note || '').includes('[재계약]');
+                                const pLabel = isFirst ? (isRenewalContract ? '재계약' : '최초 계약') : `재계약 ${i}`;
                                 const d = deltaOf(i); // 그 회차 실제 계약분(누적 아님)
                                 return (
                                     <div

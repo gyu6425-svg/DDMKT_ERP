@@ -275,7 +275,7 @@ function CafePage() {
                 {([
                     ['draft', '초판', true],
                     ['test', '테스트', true],
-                    ['test2', '테스트2', false],
+                    ['test2', '누수탐지', false],
                     ['saved', '저장', false],
                 ] as [typeof activeTab, string, boolean][]).map(([k, label, disabled]) => (
                     <button
