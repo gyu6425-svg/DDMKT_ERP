@@ -159,6 +159,8 @@ function CafePage() {
     const postText = useMemo(() => buildCafePost(cards, title), [cards, title]);
     // 실제 표시/복사 본문 = AI 후기(있으면) 우선, 없으면 기본 조립.
     const bodyText = reviewBody || postText;
+    // 글자 수 = 문단바꿈(줄바꿈)과 「사진 N」 마커 제외한 순수 글자.
+    const charCount = bodyText.replace(/「사진\s*\d+」/g, '').replace(/[\r\n]/g, '').length;
 
     const copyBody = async () => {
         try {
@@ -504,7 +506,8 @@ function CafePage() {
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <div className="text-[13px] font-bold text-[#334155]">
-                        카페 본문 (복사용) {reviewBody ? <span className="ml-1 rounded bg-[#dcfce7] px-1.5 py-0.5 text-[10px] font-bold text-[#15803d]">AI 후기</span> : null}
+                        카페 본문 (복사용) <span className="font-semibold text-[#7c3aed]">({charCount.toLocaleString()}자)</span>
+                        {reviewBody ? <span className="ml-1 rounded bg-[#dcfce7] px-1.5 py-0.5 text-[10px] font-bold text-[#15803d]">AI 후기</span> : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
                         <button
