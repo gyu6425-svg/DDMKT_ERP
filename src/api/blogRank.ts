@@ -239,6 +239,7 @@ export async function syncBlogAccountFromContract(
         name?: string | null;
         manager?: string | null;
         contact?: string | null;
+        markRenewal?: boolean; // 재계약 → note '[연장]' 마커 부착 → 블로그 시트 '연장 건' 탭 대기(승인 필요)
     },
     blogName?: string | null,
 ) {
@@ -252,6 +253,9 @@ export async function syncBlogAccountFromContract(
     if (fields.remain_count !== undefined) payload.remain_count = fields.remain_count;
     if (fields.contract_date !== undefined) payload.contract_date = fields.contract_date;
     if (fields.amount != null) payload.amounts = [{ amount: fields.amount }];
+    if (fields.markRenewal && !(acc.note || '').includes('[연장]')) {
+        payload.note = `[연장] ${acc.note || ''}`.trim();
+    }
     if (fields.name) payload.name = fields.name;
     if (fields.manager !== undefined) payload.manager = fields.manager ?? null;
     if (fields.contact !== undefined) payload.contact = fields.contact ?? null;

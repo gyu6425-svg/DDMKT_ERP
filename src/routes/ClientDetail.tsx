@@ -883,6 +883,7 @@ function ContractEditModal({
         remain_count?: number | null;
         contract_date?: string | null;
         amount?: number | null;
+        markRenewal?: boolean; // 재계약 → 블로그 '연장 건' 탭 대기(note '[연장]')
     }) => {
         // 만료([만료]) 계약에서의 편집은 블로그 계정을 덮어쓰지 않음 — 활성(재계약) 계약 값 보존.
         if ((contract.note || '').includes('[만료]')) return;
@@ -1246,11 +1247,12 @@ function ContractEditModal({
             return;
         }
         onToast(`재계약 — 새 계약 카드 생성(${reQty.toLocaleString('ko-KR')}건 · 매출 ${fmtWon(reSales)}원). 기존 계약은 만료 처리.`);
-        // ③ 브랜드 블로그: 새(활성) 계약의 건수/잔여로 블로그 관리시트 동기화.
+        // ③ 브랜드 블로그: 새(활성) 계약의 건수/잔여로 동기화 + '연장 건' 탭 대기(승인해야 계약 중).
         await syncBlog({
             amount: reSales,
             contract_date: s,
             goal_count: reQty,
+            markRenewal: true,
             remain_count: reQty,
         });
         // 재계약 화면에서 블로그 주소를 수정했으면 블로그 계정에도 반영(그대로 두면 변화 없음).
@@ -2980,11 +2982,16 @@ export function ClientDetail({
                                 return groups.map((g) => {
                                     const st = g.title;
                                     const isContainerGroup = g.isContainer;
-                                    const cards = g.members
+                                    // 만료([만료]) 계약은 뒤로 — 활성(재계약) 카드 위, 만료 카드는 아래 한 줄로 분리.
+                                    const isExp = (ct: ClientContract) => (ct.note || '').includes('[만료]');
+                                    const allCards = g.members
                                         .slice()
-                                        .sort((a, b) =>
-                                            (a.contract_date || '').localeCompare(b.contract_date || ''),
-                                        )
+                                        .sort((a, b) => {
+                                            const ea = isExp(a) ? 1 : 0;
+                                            const eb = isExp(b) ? 1 : 0;
+                                            if (ea !== eb) return ea - eb;
+                                            return (a.contract_date || '').localeCompare(b.contract_date || '');
+                                        })
                                         .map((ct) => {
                                         const prog = progOf(ct);
                                         const done = (ct.goal_count || 0) - (ct.remain_count || 0);
@@ -3230,6 +3237,20 @@ export function ClientDetail({
                                             </div>
                                         );
                                         });
+                                    // 활성(재계약 포함) 카드는 위, 만료 카드는 아래 한 줄로 분리.
+                                    const activeCount = g.members.filter((ct) => !isExp(ct)).length;
+                                    const cards = allCards.slice(0, activeCount);
+                                    const expiredCards = allCards.slice(activeCount);
+                                    const expiredRow = expiredCards.length ? (
+                                        <div className="mt-3 border-t border-dashed border-[#e2e8f0] pt-2">
+                                            <div className="mb-1.5 text-[11px] font-semibold text-[#94a3b8]">
+                                                계약 만료 ({expiredCards.length})
+                                            </div>
+                                            <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                                                {expiredCards}
+                                            </div>
+                                        </div>
+                                    ) : null;
                                     // 컨테이너(상위노출 보장형·종합광고) 그룹은 보라색 박스로 감싸 하위 상품을 안에 표시.
                                     // 상위노출 보장형 헤더 우측에 회차+시작~종료일 표시(이 박스의 부모 계약 값).
                                     const boostParent =
@@ -3253,13 +3274,14 @@ export function ClientDetail({
                                             <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                                                 {cards}
                                             </div>
+                                            {expiredRow}
                                         </div>
                                     ) : (
-                                        <div
-                                            className="mb-3 grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
-                                            key={g.key}
-                                        >
-                                            {cards}
+                                        <div className="mb-3" key={g.key}>
+                                            <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                                                {cards}
+                                            </div>
+                                            {expiredRow}
                                         </div>
                                     );
                                 });

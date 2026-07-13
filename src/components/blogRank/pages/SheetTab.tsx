@@ -50,7 +50,7 @@ export function SheetTab() {
     const [sortKey, setSortKey] = useState<'remain' | 'prog' | 'date'>('date'); // 기본=계약일 최신순
     const [sortDir, setSortDir] = useState(1);
     const [monthFilter, setMonthFilter] = useState(0); // 0=전체, 1~12=해당 월(계약일 기준)
-    const [tab, setTab] = useState<'active' | 'new' | 'nourl' | 'hold' | 'ended'>('active'); // 계약 중 / 신규 등록 건 / URL미입력 건 / 보류 / 계약 종료
+    const [tab, setTab] = useState<'active' | 'new' | 'nourl' | 'ext' | 'hold' | 'ended'>('active'); // 계약 중 / 신규 / URL미입력 / 연장 건 / 보류 / 계약 종료
     const [page, setPage] = useState(1);
     const [importOpen, setImportOpen] = useState(false);
     const [editAcc, setEditAcc] = useState<BlogAccount | null>(null);
@@ -155,15 +155,18 @@ export function SheetTab() {
     const isUrlPending = (a: BlogAccount) => !/^https?:\/\//.test((a.blog_url || '').trim());
     // 보류 — note 마커 '[보류]'로 표시(별도 컬럼 없이, '자사 관리' 배지와 동일 패턴). 계약 편집에서 토글.
     const isHold = (a: BlogAccount) => (a.note || '').includes('[보류]');
+    // 연장 건 — 재계약 시 note '[연장]' 마커. 승인해야 계약 중으로 이동(계약 관리 재계약 → 여기 대기).
+    const isExt = (a: BlogAccount) => (a.note || '').includes('[연장]');
     // 최근 처음 등록 = 컷오프 이후 생성 + 24h 이내(방금 계약 관리에서 등록). 계약 종료 아닌 것만.
     const isRecent = (a: BlogAccount) => {
         const t = a.created_at ? Date.parse(a.created_at) : NaN;
         return !Number.isNaN(t) && t > NEW_CONTRACT_CUTOFF_MS && Date.now() - t < NEW_CONTRACT_TTL_MS;
     };
-    // 각 탭 소속 판정(계약 종료·보류 우선 → URL미입력 → 신규(최근 처음 등록·URL 있음) → 계약 중). 상호 배타.
-    const tabOf = (a: BlogAccount): 'ended' | 'hold' | 'nourl' | 'new' | 'active' => {
+    // 각 탭 소속 판정(종료·보류·연장 우선 → URL미입력 → 신규(최근 처음 등록·URL 있음) → 계약 중). 상호 배타.
+    const tabOf = (a: BlogAccount): 'ended' | 'hold' | 'ext' | 'nourl' | 'new' | 'active' => {
         if (a.contract_ended_at) return 'ended';
         if (isHold(a)) return 'hold';
+        if (isExt(a)) return 'ext';
         if (isUrlPending(a)) return 'nourl';
         if (isRecent(a)) return 'new';
         return 'active';
@@ -203,7 +206,7 @@ export function SheetTab() {
 
     // 탭별 개수(현재 업체명·담당 검색 범위 기준). 계약 중 / 신규 / URL미입력 / 보류 / 계약 종료.
     const tabCounts = useMemo(() => {
-        const c = { active: 0, new: 0, nourl: 0, hold: 0, ended: 0 };
+        const c = { active: 0, new: 0, nourl: 0, ext: 0, hold: 0, ended: 0 };
         for (const a of accounts) {
             if (q && !a.name.includes(q)) continue;
             if (mgr && a.manager !== mgr) continue;
@@ -319,11 +322,12 @@ export function SheetTab() {
                 {([
                     ['new', '신규 등록 건', tabCounts.new],
                     ['nourl', 'URL미입력 건', tabCounts.nourl],
+                    ['ext', '연장 건', tabCounts.ext],
                     ['active', '계약 중', tabCounts.active],
                     ['hold', '보류', tabCounts.hold],
                     ['ended', '계약 종료', tabCounts.ended],
                 ] as const).map(([key, label, n]) => {
-                    const hot = (key === 'new' || key === 'nourl') && n > 0;
+                    const hot = (key === 'new' || key === 'nourl' || key === 'ext') && n > 0;
                     return (
                         <button
                             key={key}
@@ -482,6 +486,14 @@ export function SheetTab() {
                                                     title="우리 회사가 직접 관리하는 블로그"
                                                 >
                                                     자사 관리
+                                                </span>
+                                            ) : null}
+                                            {isExt(a) ? (
+                                                <span
+                                                    className="ml-1.5 inline-block rounded bg-[#fef3c7] px-1.5 py-0.5 text-[10px] font-bold text-[#b45309] align-middle"
+                                                    title="재계약(연장) 건 — 계약 관리에서 재계약된 블로그"
+                                                >
+                                                    연장
                                                 </span>
                                             ) : null}
                                         </td>
