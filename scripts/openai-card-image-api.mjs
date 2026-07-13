@@ -1284,7 +1284,8 @@ async function generateCafe(payload) {
     const isReview = payload.mode === 'review';
     const prompt = isReview ? buildReviewPrompt(payload) : buildCafePrompt(payload);
     const apiResponse = await fetch(OPENAI_API_URL, {
-        body: JSON.stringify({ input: prompt, model }),
+        // reasoning effort 'low' — 후기 원고는 깊은 추론 불필요 → 추론 토큰(=출력가) 크게 절감.
+        body: JSON.stringify({ input: prompt, model, reasoning: { effort: 'low' } }),
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         method: 'POST',
     });
