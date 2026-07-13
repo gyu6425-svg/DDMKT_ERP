@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { zipSync, strToU8 } from 'fflate';
-import { generateCafe, generateCafeCard, generateCafeReview, type CafeReviewTone } from '../../api/cafeWriter';
-import { defaultCafeTitle, DEFAULT_CAFE_CONTENT, mergeCafeContent, type CafeContent } from './cafeContent';
+import { generateCafeCard, generateCafeReview, type CafeReviewTone } from '../../api/cafeWriter';
+import { defaultCafeTitle, DEFAULT_CAFE_CONTENT, mergeCafeContent } from './cafeContent';
 import { logApiUsage } from '../../api/apiUsage';
 import { computeRecordCostUsd } from '../../lib/apiPricing';
 import { useAuth } from '../../hooks/useAuth';
@@ -122,7 +122,6 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
         };
     }, []);
 
-    const [content, setContent] = useState<CafeContent>(DEFAULT_CAFE_CONTENT);
     const [title, setTitle] = useState(defaultCafeTitle(DEFAULT_CAFE_CONTENT));
     const [reviewBody, setReviewBody] = useState('');
     const [generating, setGenerating] = useState(false);
@@ -176,17 +175,13 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
             });
         try {
             await Promise.all([
-                // ① 원고(소재 → 후기형 본문) — 텍스트 2회
+                // ① 후기 원고 — 비용 절감: 별도 '소재' 생성 API 호출 없이 기본 소재(정적)로 후기 본문만 1회 생성.
                 (async () => {
-                    let t = Date.now();
-                    const { content: gen, usage: postUsage } = await generateCafe({ brand: content.brand, business, keyword, phone, region });
-                    logText(postUsage, Date.now() - t, true);
-                    const merged = mergeCafeContent({ ...gen, region, phone, business });
-                    setContent(merged);
-                    t = Date.now();
+                    const merged = mergeCafeContent({ region, phone, business });
+                    const t = Date.now();
                     const rv = await generateCafeReview({
                         business,
-                        content: { ...merged, region, phone, business },
+                        content: merged,
                         count: imageCount,
                         keyword,
                         phone,
