@@ -18,7 +18,17 @@ export function CafeSavedTab() {
     const [msg, setMsg] = useState('');
 
     const reload = () => void listHistory().then(setItems);
-    useEffect(reload, []);
+    useEffect(() => {
+        reload();
+        // 다른 탭(테스트2)에서 생성·저장하면 즉시 목록 갱신 + 탭 재진입/포커스 시에도 갱신.
+        const onSaved = () => reload();
+        window.addEventListener('cafe:history-saved', onSaved);
+        window.addEventListener('focus', onSaved);
+        return () => {
+            window.removeEventListener('cafe:history-saved', onSaved);
+            window.removeEventListener('focus', onSaved);
+        };
+    }, []);
 
     const download = async (e: CafeHistoryEntry) => {
         setBusy(e.id);

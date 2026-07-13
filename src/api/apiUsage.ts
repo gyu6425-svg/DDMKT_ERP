@@ -44,29 +44,44 @@ export type ApiUsageStats = {
     gemini: number;
 };
 
-// 생성 1건의 사용량을 기록. 실패해도 생성 흐름에 영향을 주지 않도록 조용히 무시한다.
+// 생성 1건의 사용량을 기록. 실패해도 생성 흐름은 막지 않되, 조용히 삼키지 않고 원인을 콘솔에 남긴다.
+//   스키마 드리프트 대응: 특정 컬럼이 테이블에 없어(PGRST204/42703) insert가 400 나면
+//   그 컬럼만 빼고 재시도한다 → operator_name 등 미추가 컬럼이 있어도 나머지는 정상 기록되고,
+//   나중에 컬럼을 추가하면 그 값까지 자동으로 함께 저장된다(자가치유).
 export async function logApiUsage(input: ApiUsageInput) {
     if (!hasSupabaseConfig) {
         return;
     }
-
+    const row: Record<string, unknown> = {
+        banner_size: input.banner_size ?? null,
+        cost_usd: input.cost_usd ?? null,
+        elapsed_ms: input.elapsed_ms ?? null,
+        error_message: input.error_message ?? null,
+        image_quality: input.image_quality ?? null,
+        model: input.model ?? null,
+        operator_name: input.operator_name ?? null,
+        provider: input.provider,
+        status: input.status,
+        total_tokens: input.total_tokens ?? null,
+        usage_raw: input.usage_raw ?? null,
+        user_email: input.user_email ?? null,
+    };
     try {
-        await supabase.from('api_usage').insert({
-            banner_size: input.banner_size ?? null,
-            cost_usd: input.cost_usd ?? null,
-            elapsed_ms: input.elapsed_ms ?? null,
-            error_message: input.error_message ?? null,
-            image_quality: input.image_quality ?? null,
-            model: input.model ?? null,
-            operator_name: input.operator_name ?? null,
-            provider: input.provider,
-            status: input.status,
-            total_tokens: input.total_tokens ?? null,
-            usage_raw: input.usage_raw ?? null,
-            user_email: input.user_email ?? null,
-        });
-    } catch {
-        // 사용량 로깅 실패는 무시.
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const { error } = await supabase.from('api_usage').insert(row);
+            if (!error) return;
+            // "Could not find the 'X' column ..." / "column api_usage.X does not exist"
+            const miss = /'([a-z_]+)' column|column api_usage\.([a-z_]+)/i.exec(error.message || '');
+            const col = miss?.[1] || miss?.[2];
+            if (col && col in row) {
+                delete row[col]; // 없는 컬럼 제거 후 재시도
+                continue;
+            }
+            console.warn('[api_usage] 사용량 로깅 실패:', error.message);
+            return;
+        }
+    } catch (e) {
+        console.warn('[api_usage] 사용량 로깅 예외:', e);
     }
 }
 

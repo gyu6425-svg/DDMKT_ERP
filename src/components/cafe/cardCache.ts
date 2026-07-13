@@ -1,21 +1,9 @@
 // 지역별 첫 장 카드 캐시(IndexedDB) — 같은 조건(지역·전화 등)은 재생성 없이 재사용 → 이미지 비용 0.
 //   새로고침·재접속해도 유지(브라우저 로컬). 값 = 카드 이미지 dataURL. 키 = 카드 조건 문자열.
-const DB_NAME = 'ddmkt-cafe';
-const STORE = 'first-cards';
+import { openCafeDb } from './cafeDb';
 
-function openDb(): Promise<IDBDatabase> {
-    return new Promise((res, rej) => {
-        // 버전 2: 'first-cards'(캐시) + 'history'(생성 히스토리) 두 스토어. cafeHistory.ts와 동일.
-        const req = indexedDB.open(DB_NAME, 2);
-        req.onupgradeneeded = () => {
-            const db = req.result;
-            if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-            if (!db.objectStoreNames.contains('history')) db.createObjectStore('history', { keyPath: 'id' });
-        };
-        req.onsuccess = () => res(req.result);
-        req.onerror = () => rej(req.error);
-    });
-}
+const STORE = 'first-cards';
+const openDb = openCafeDb;
 
 export async function getCachedCard(key: string): Promise<string | null> {
     try {

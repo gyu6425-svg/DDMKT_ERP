@@ -140,7 +140,8 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
         let capTitle = title;
         let capFirst: string | null = cached ?? null;
         try {
-            await Promise.all([
+            // 원고와 첫 장을 병렬로 — 단, allSettled로 실행해 이미지 실패가 원고 저장을 막지 않게 한다.
+            const [reviewR, imageR] = await Promise.allSettled([
                 // ① 후기 원고 — 비용 절감: 별도 '소재' 생성 API 호출 없이 기본 소재(정적)로 후기 본문만 1회 생성.
                 (async () => {
                     const merged = mergeCafeContent({ region, phone, business });
@@ -161,56 +162,68 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                     setTitle(rv.title || defaultCafeTitle(merged));
                 })(),
                 // ② 첫 장(지역 반영) GPT 카드 — 1·마지막에 재사용. 지역 등 조건 같으면 재생성 안 함(비용 0).
-                ...(needFirstCard
-                    ? [
-                          (async () => {
-                              const t = Date.now();
-                              const img = await generateCafeCard({
-                                  region,
-                                  district: cardMode === 'default' ? district : undefined,
-                                  topic: business,
-                                  phone,
-                                  mode: cardMode === 'hero' ? 'hero' : undefined,
-                              });
-                              capFirst = img;
-                              setFirstCard(img);
-                              setFromCache(false);
-                              await setCachedCard(cardKey, img);
-                              void logApiUsage({
-                                  banner_size: 'square',
-                                  cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: 'high', provider: 'openai' }),
-                                  elapsed_ms: Date.now() - t,
-                                  image_quality: 'high',
-                                  model: 'cafe-card',
-                                  operator_name: operatorName,
-                                  provider: 'openai',
-                                  status: 'success',
-                                  user_email: email,
-                              });
-                          })(),
-                      ]
-                    : []),
-            ]);
-            // '저장' 탭 히스토리에 기록(생성할 때마다 누적, 새로고침해도 유지).
-            void saveHistory({
-                at: Date.now(),
-                business,
-                cardMode,
-                district,
-                firstCard: capFirst,
-                fixedImages,
-                id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                keyword,
-                phone,
-                region,
-                reviewBody: capReview,
-                title: capTitle,
-                tone,
-            });
-            setMsg(
                 needFirstCard
-                    ? '생성 완료 · 저장됨 — “다운받기(ZIP)”로 원고 + 사진을 저장하세요.'
-                    : '원고만 새로 생성(첫 장 재사용 · 이미지 0원) · 저장됨. “다운받기(ZIP)”로 저장하세요.',
+                    ? (async () => {
+                          const t = Date.now();
+                          const img = await generateCafeCard({
+                              region,
+                              district: cardMode === 'default' ? district : undefined,
+                              topic: business,
+                              phone,
+                              mode: cardMode === 'hero' ? 'hero' : undefined,
+                          });
+                          capFirst = img;
+                          setFirstCard(img);
+                          setFromCache(false);
+                          await setCachedCard(cardKey, img);
+                          void logApiUsage({
+                              banner_size: 'square',
+                              cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: 'high', provider: 'openai' }),
+                              elapsed_ms: Date.now() - t,
+                              image_quality: 'high',
+                              model: 'cafe-card',
+                              operator_name: operatorName,
+                              provider: 'openai',
+                              status: 'success',
+                              user_email: email,
+                          });
+                      })()
+                    : Promise.resolve(),
+            ]);
+            // 원고 생성이 실패하면 전체 실패로 취급(저장할 내용 없음).
+            if (reviewR.status === 'rejected') throw reviewR.reason;
+            const imageFailed = imageR.status === 'rejected';
+
+            // '저장' 탭 히스토리에 기록(생성할 때마다 누적, 새로고침해도 유지). 실패 시 사용자에게 알림.
+            let saved = true;
+            try {
+                await saveHistory({
+                    at: Date.now(),
+                    business,
+                    cardMode,
+                    district,
+                    firstCard: capFirst,
+                    fixedImages,
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    keyword,
+                    phone,
+                    region,
+                    reviewBody: capReview,
+                    title: capTitle,
+                    tone,
+                });
+                window.dispatchEvent(new Event('cafe:history-saved')); // '저장' 탭 실시간 갱신
+            } catch (se) {
+                saved = false;
+                console.warn('[cafe] 히스토리 저장 실패', se);
+            }
+            const savedNote = saved ? '· 저장됨' : '· ⚠️ 저장 실패(브라우저 다른 탭 닫고 새로고침)';
+            setMsg(
+                imageFailed
+                    ? `원고 생성 완료 ${savedNote} — 첫 장 이미지 실패(다시 시도). “다운받기(ZIP)”로 원고 저장.`
+                    : needFirstCard
+                      ? `생성 완료 ${savedNote} — “다운받기(ZIP)”로 원고 + 사진을 저장하세요.`
+                      : `원고만 새로 생성(첫 장 재사용 · 이미지 0원) ${savedNote}. “다운받기(ZIP)”로 저장하세요.`,
             );
         } catch (e) {
             setMsg(e instanceof Error ? e.message : '생성 실패');
