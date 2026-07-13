@@ -7,7 +7,7 @@ import { canManagePermissions } from '../lib/permissions'
 function AdminPage() {
     const { isAdmin, profile } = useAuth()
     const canUsers = canManagePermissions(profile?.email) // 사원 관리 = 김종인(대표)만
-    const [tab, setTab] = useState<'users' | 'api'>(canUsers ? 'users' : 'api')
+    const [tab, setTab] = useState<'users' | 'api' | 'cafe'>(canUsers ? 'users' : 'api')
 
     if (!isAdmin) {
         return (
@@ -20,7 +20,7 @@ function AdminPage() {
         )
     }
 
-    const active = tab === 'users' && canUsers ? 'users' : 'api'
+    const active = tab === 'users' && canUsers ? 'users' : tab === 'cafe' ? 'cafe' : 'api'
 
     return (
         <section className="min-h-[320px] rounded-[8px] border border-[#e5e7eb] bg-white p-8">
@@ -50,9 +50,26 @@ function AdminPage() {
                 >
                     API 사용량
                 </button>
+                <button
+                    className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
+                        active === 'cafe'
+                            ? 'border-[#1e40af] text-[#1e40af]'
+                            : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
+                    }`}
+                    onClick={() => setTab('cafe')}
+                    type="button"
+                >
+                    카페 원고 생성기
+                </button>
             </div>
 
-            {active === 'users' ? <AdminUsersPanel /> : <ApiUsagePanel />}
+            {active === 'users' ? (
+                <AdminUsersPanel />
+            ) : active === 'cafe' ? (
+                <ApiUsagePanel scope="cafe" />
+            ) : (
+                <ApiUsagePanel />
+            )}
         </section>
     )
 }

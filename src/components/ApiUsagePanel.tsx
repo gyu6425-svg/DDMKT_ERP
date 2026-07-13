@@ -24,27 +24,44 @@ function formatDateTime(value: string) {
     });
 }
 
-type UsageKind = 'all' | 'banner' | 'blog';
+type UsageKind = 'all' | 'banner' | 'blog' | 'post' | 'image';
 
 // 배너(이미지) = banner_size 있음, 블로그(텍스트) = model 'blog'.
+// 카페: 원고 = model 'cafe-post'(텍스트), 이미지 = model 'cafe-card'.
 function isBanner(record: ApiUsageRecord) {
     return Boolean(record.banner_size);
 }
 function isBlog(record: ApiUsageRecord) {
     return record.model === 'blog';
 }
+function isCafePost(record: ApiUsageRecord) {
+    return record.model === 'cafe-post';
+}
+function isCafeCard(record: ApiUsageRecord) {
+    return record.model === 'cafe-card';
+}
+function isCafe(record: ApiUsageRecord) {
+    return isCafePost(record) || isCafeCard(record);
+}
 
-const KIND_TABS: Array<{ id: UsageKind; label: string }> = [
+const KIND_TABS_ALL: Array<{ id: UsageKind; label: string }> = [
     { id: 'all', label: '전체' },
     { id: 'banner', label: '배너' },
     { id: 'blog', label: '블로그' },
 ];
+const KIND_TABS_CAFE: Array<{ id: UsageKind; label: string }> = [
+    { id: 'all', label: '전체' },
+    { id: 'post', label: '원고' },
+    { id: 'image', label: '이미지' },
+];
 
-function ApiUsagePanel() {
+// scope='cafe' 면 카페 기록만(원고/이미지) 보여주는 '카페 원고 생성기' 비용 탭.
+function ApiUsagePanel({ scope = 'all' }: { scope?: 'all' | 'cafe' } = {}) {
     const [loading, setLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState('');
     const [records, setRecords] = useState<ApiUsageRecord[]>([]);
     const [kind, setKind] = useState<UsageKind>('all');
+    const KIND_TABS = scope === 'cafe' ? KIND_TABS_CAFE : KIND_TABS_ALL;
 
     const load = async () => {
         setLoading(true);
@@ -72,11 +89,14 @@ function ApiUsagePanel() {
     const filtered = useMemo(
         () =>
             records.filter((record) => {
+                if (scope === 'cafe' && !isCafe(record)) return false;
                 if (kind === 'banner') return isBanner(record);
                 if (kind === 'blog') return isBlog(record);
+                if (kind === 'post') return isCafePost(record);
+                if (kind === 'image') return isCafeCard(record);
                 return true;
             }),
-        [records, kind],
+        [records, kind, scope],
     );
 
     const summary = useMemo(() => {
@@ -109,9 +129,13 @@ function ApiUsagePanel() {
         <div className="grid gap-6">
             <div className="flex items-center justify-between gap-4">
                 <div>
-                    <h3 className="m-0 text-[18px] font-semibold text-[#111111]">API 사용량</h3>
+                    <h3 className="m-0 text-[18px] font-semibold text-[#111111]">
+                        {scope === 'cafe' ? '카페 원고 생성기 — API 비용' : 'API 사용량'}
+                    </h3>
                     <p className="mt-1 mb-0 text-sm text-[#6b7280]">
-                        배너·블로그 생성의 실제 토큰·비용 기록입니다. (최근 500건)
+                        {scope === 'cafe'
+                            ? '카페 원고(텍스트) · 첫 장 이미지 생성의 실제 토큰·비용 기록입니다. (최근 500건 · 2~8 고정이미지는 비용 없음)'
+                            : '배너·블로그 생성의 실제 토큰·비용 기록입니다. (최근 500건)'}
                     </p>
                 </div>
                 <Button
@@ -216,7 +240,15 @@ function ApiUsagePanel() {
                                             {record.operator_name || record.user_email || '-'}
                                         </td>
                                         <td className="px-3 py-2 text-[#374151]">
-                                            {isBanner(record) ? '배너' : isBlog(record) ? '블로그' : '-'}
+                                            {isCafePost(record)
+                                                ? '원고'
+                                                : isCafeCard(record)
+                                                  ? '이미지'
+                                                  : isBanner(record)
+                                                    ? '배너'
+                                                    : isBlog(record)
+                                                      ? '블로그'
+                                                      : '-'}
                                         </td>
                                         <td className="px-3 py-2 text-[#374151]">
                                             {record.banner_size

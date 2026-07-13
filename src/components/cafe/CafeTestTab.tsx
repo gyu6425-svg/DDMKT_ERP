@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { zipSync, strToU8 } from 'fflate';
 import { generateCafe, generateCafeCard, generateCafeReview, type CafeReviewTone } from '../../api/cafeWriter';
 import { defaultCafeTitle, DEFAULT_CAFE_CONTENT, mergeCafeContent, type CafeContent } from './cafeContent';
+import { logApiUsage } from '../../api/apiUsage';
+import { computeRecordCostUsd } from '../../lib/apiPricing';
+import { useAuth } from '../../hooks/useAuth';
 
 // 카페 원고 생성기 [테스트] 탭 — 비용 절감형.
 //   · "생성" 버튼 하나로 원고(후기형) + 첫 장(지역 반영 GPT 카드)를 함께 생성.
@@ -126,6 +129,7 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
     const [downloading, setDownloading] = useState(false);
     const [copied, setCopied] = useState(false);
     const [msg, setMsg] = useState('');
+    const { profile } = useAuth();
 
     const bodyText = reviewBody;
     // 글자 수 = 문단바꿈(줄바꿈)과 「사진 N」 마커 제외한 순수 글자.
@@ -149,18 +153,37 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
             ),
         );
 
-    // 통합 생성 — 원고(후기형) + 첫 장(지역 반영 GPT 카드)를 함께 생성.
+    // 통합 생성 — 원고(후기형) + 첫 장(지역 반영 GPT 카드)를 함께 생성. 각 API 비용을 api_usage에 기록.
     const generate = async () => {
         if (!keyword.trim() || generating) return;
         setGenerating(true);
         setMsg('원고 + 첫 장 이미지 생성 중… (1~2분)');
+        const operatorName = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_operator_name')) || null;
+        const email = profile?.email ?? null;
+        // 카페 텍스트(원고) 사용량 기록 — model 'cafe-post'.
+        const logText = (usage: { total_tokens?: number } | null | undefined, ms: number, ok: boolean, err?: string) =>
+            void logApiUsage({
+                cost_usd: ok ? computeRecordCostUsd({ model: 'gpt-5.5', provider: 'openai', usage_raw: usage ?? null }) : null,
+                elapsed_ms: ms,
+                error_message: err ?? null,
+                model: 'cafe-post',
+                operator_name: operatorName,
+                provider: 'openai',
+                status: ok ? 'success' : 'error',
+                total_tokens: usage?.total_tokens ?? null,
+                usage_raw: (usage as never) ?? null,
+                user_email: email,
+            });
         try {
             await Promise.all([
-                // ① 원고(소재 → 후기형 본문)
+                // ① 원고(소재 → 후기형 본문) — 텍스트 2회
                 (async () => {
-                    const { content: gen } = await generateCafe({ brand: content.brand, business, keyword, phone, region });
+                    let t = Date.now();
+                    const { content: gen, usage: postUsage } = await generateCafe({ brand: content.brand, business, keyword, phone, region });
+                    logText(postUsage, Date.now() - t, true);
                     const merged = mergeCafeContent({ ...gen, region, phone, business });
                     setContent(merged);
+                    t = Date.now();
                     const rv = await generateCafeReview({
                         business,
                         content: { ...merged, region, phone, business },
@@ -170,11 +193,13 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                         region,
                         tone,
                     });
+                    logText(rv.usage, Date.now() - t, true);
                     setReviewBody(rv.reviewBody);
                     setTitle(rv.title || defaultCafeTitle(merged));
                 })(),
-                // ② 첫 장(지역 반영) GPT 카드 — 1·9번에 재사용
+                // ② 첫 장(지역 반영) GPT 카드 — 1·마지막에 재사용. 이미지 1장(square·high) 비용.
                 (async () => {
+                    const t = Date.now();
                     const img = await generateCafeCard({
                         region,
                         district: cardMode === 'default' ? district : undefined,
@@ -183,6 +208,17 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                         mode: cardMode === 'hero' ? 'hero' : undefined,
                     });
                     setFirstCard(img);
+                    void logApiUsage({
+                        banner_size: 'square',
+                        cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: 'high', provider: 'openai' }),
+                        elapsed_ms: Date.now() - t,
+                        image_quality: 'high',
+                        model: 'cafe-card',
+                        operator_name: operatorName,
+                        provider: 'openai',
+                        status: 'success',
+                        user_email: email,
+                    });
                 })(),
             ]);
             setMsg('생성 완료 — “다운받기(ZIP)”로 원고 + 사진을 한 번에 저장하세요.');
