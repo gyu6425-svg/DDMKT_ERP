@@ -738,7 +738,7 @@ function ContractEditModal({
     onToast: (m: string) => void;
     onEnd: () => void; // 계약 종료 → 업체를 '계약 종료' 탭으로(상태 변경, 삭제 아님)
 }) {
-    const [goal] = useState(contract.goal_count?.toString() ?? '');
+    const [goal, setGoal] = useState(contract.goal_count?.toString() ?? '');
     const [remain, setRemain] = useState(contract.remain_count?.toString() ?? '');
     // 브랜드 블로그면 그 블로그 계정의 발행 URL을 찾아 제목 옆에 표시(클릭 시 실제 블로그로 이동).
     const isBrandContract = isBrandBlogSub(contract.subtype.replace(/^상위노출 보장형 · /, ''));
@@ -770,7 +770,8 @@ function ContractEditModal({
     const [weekPaid, setWeekPaid] = useState(false); // 이번 주 입금 처리 여부
     const [weekNoTax, setWeekNoTax] = useState(false); // 세금계산서 미발행 체크(기본=발행)
     const [editLog, setEditLog] = useState<{ idx: number; value: string } | null>(null); // 진행 이력 타수 수정
-    const [amount] = useState(contract.amount?.toString() ?? '');
+    const [amount, setAmount] = useState(contract.amount?.toString() ?? '');
+    const [unitPrice, setUnitPrice] = useState(contract.unit_price?.toString() ?? '');
     const [date, setDate] = useState(contract.contract_date ?? '');
     const [note, setNote] = useState(contract.note ?? '');
     const [saving, setSaving] = useState(false);
@@ -922,6 +923,26 @@ function ContractEditModal({
             onToast(`오류: ${error.message}`);
             return;
         }
+        await onReload();
+    };
+
+    // 계약 상품 상세정보(계약 건수·잔여·공급가·단가) 직접 수정 저장.
+    const saveContractInfo = async () => {
+        if (saving) return;
+        setSaving(true);
+        const patch: Partial<ClientContract> = {
+            amount: amount.trim() === '' ? null : Math.round(evalNum(amount)),
+            goal_count: goal.trim() === '' ? null : Math.round(evalNum(goal)),
+            remain_count: remain.trim() === '' ? null : Math.round(evalNum(remain)),
+            unit_price: unitPrice.trim() === '' ? null : Math.round(evalNum(unitPrice)),
+        };
+        const { error } = await updateClientContract(contract.id, patch);
+        setSaving(false);
+        if (error) {
+            onToast(`오류: ${error.message}`);
+            return;
+        }
+        onToast('계약 정보 수정됨');
         await onReload();
     };
 
@@ -1298,6 +1319,62 @@ function ContractEditModal({
                         value={date}
                     />
                 </label>
+
+                {/* 계약 상품 상세정보 직접 수정 — 계약 건수·잔여·공급가·단가 */}
+                <div className="mt-3 rounded-lg border border-[#e2e8f0] bg-white px-3 py-2.5">
+                    <div className="mb-2 text-xs font-bold text-[#334155]">계약 정보 수정</div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <label className="grid gap-1 text-[11px] font-semibold text-[#64748b]">
+                            계약 건수
+                            <input
+                                className="h-8 rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                inputMode="numeric"
+                                onChange={(e) => setGoal(e.target.value)}
+                                value={goal}
+                            />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-semibold text-[#64748b]">
+                            잔여
+                            <input
+                                className="h-8 rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                inputMode="numeric"
+                                onChange={(e) => setRemain(e.target.value)}
+                                value={remain}
+                            />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-semibold text-[#64748b]">
+                            공급가(원)
+                            <input
+                                className="h-8 rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                inputMode="numeric"
+                                onChange={(e) => setAmount(e.target.value)}
+                                value={amount}
+                            />
+                        </label>
+                        <label className="grid gap-1 text-[11px] font-semibold text-[#64748b]">
+                            단가(원)
+                            <input
+                                className="h-8 rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                inputMode="numeric"
+                                onChange={(e) => setUnitPrice(e.target.value)}
+                                value={unitPrice}
+                            />
+                        </label>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                        <span className="text-[10px] text-[#94a3b8]">
+                            건수·잔여를 바꾸면 진행률·외주비가 자동 재계산됩니다.
+                        </span>
+                        <button
+                            className="h-8 rounded-md bg-[#1e40af] px-4 text-xs font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
+                            disabled={saving}
+                            onClick={() => void saveContractInfo()}
+                            type="button"
+                        >
+                            {saving ? '저장 중…' : '계약 정보 저장'}
+                        </button>
+                    </div>
+                </div>
 
                 {/* 진행률 — 1건 완료로 잔여 감소(자동 반영) */}
                 {hasGoal ? (
