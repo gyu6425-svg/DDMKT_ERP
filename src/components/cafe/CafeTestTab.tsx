@@ -5,6 +5,7 @@ import { defaultCafeTitle, DEFAULT_CAFE_CONTENT, mergeCafeContent } from './cafe
 import { logApiUsage } from '../../api/apiUsage';
 import { computeRecordCostUsd } from '../../lib/apiPricing';
 import { useAuth } from '../../hooks/useAuth';
+import { getCachedCard, setCachedCard, delCachedCard } from './cardCache';
 
 // 카페 원고 생성기 [테스트] 탭 — 비용 절감형.
 //   · "생성" 버튼 하나로 원고(후기형) + 첫 장(지역 반영 GPT 카드)를 함께 생성.
@@ -105,9 +106,9 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
     const [business, setBusiness] = useState('누수탐지');
     const [tone, setTone] = useState<CafeReviewTone>('review');
 
-    const [firstCard, setFirstCard] = useState<string | null>(null); // 지역 반영 첫 장(GPT 생성) — 1·9번 재사용
-    const [firstCardKey, setFirstCardKey] = useState(''); // 첫 장이 생성된 조건(지역·전화 등) — 같으면 재사용(비용 0)
-    const [fixedImages, setFixedImages] = useState<string[]>([]); // 2~8번 고정 이미지(기본 내장 세트 + 업로드)
+    const [firstCard, setFirstCard] = useState<string | null>(null); // 지역 반영 첫 장(GPT 생성) — 1·마지막 재사용
+    const [fromCache, setFromCache] = useState(false); // 현재 첫 장이 캐시(과거 기록)에서 온 것인지
+    const [fixedImages, setFixedImages] = useState<string[]>([]); // 2~7번 고정 이미지(기본 내장 세트 + 업로드)
 
     // 기본 고정 세트(2~8번) — public/images/cafe-fixed/manifest.json 을 로드. 없으면 빈 채로 시작.
     useEffect(() => {
@@ -122,6 +123,21 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
             alive = false;
         };
     }, []);
+
+    // 첫 장 카드 조건(지역·전화 등). 같은 조건이면 캐시(과거 기록)에서 재사용 → 이미지 비용 0.
+    const cardKey = `${cardMode}|${region}|${district}|${business}|${phone}`;
+    // 지역 등이 바뀌면 캐시에서 첫 장을 자동 로드(있으면 미리보기에 뜨고 생성 시 재사용). 새로고침해도 유지(IndexedDB).
+    useEffect(() => {
+        let alive = true;
+        void getCachedCard(cardKey).then((img) => {
+            if (!alive) return;
+            setFirstCard(img);
+            setFromCache(!!img);
+        });
+        return () => {
+            alive = false;
+        };
+    }, [cardKey]);
 
     const [title, setTitle] = useState(defaultCafeTitle(DEFAULT_CAFE_CONTENT));
     const [reviewBody, setReviewBody] = useState('');
@@ -174,9 +190,13 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                 usage_raw: (usage as never) ?? null,
                 user_email: email,
             });
-        // 첫 장은 지역/전화 등이 같으면 재생성 안 함(같은 카드 → 비용 절감). 조건이 바뀌었거나 없을 때만 생성.
-        const cardKey = `${cardMode}|${region}|${district}|${business}|${phone}`;
-        const needFirstCard = !firstCard || firstCardKey !== cardKey;
+        // 첫 장: 캐시(과거 기록)에 있으면 재사용(이미지 0원), 없으면 생성 후 캐시에 저장.
+        const cached = await getCachedCard(cardKey);
+        const needFirstCard = !cached;
+        if (cached) {
+            setFirstCard(cached);
+            setFromCache(true);
+        }
         try {
             await Promise.all([
                 // ① 후기 원고 — 비용 절감: 별도 '소재' 생성 API 호출 없이 기본 소재(정적)로 후기 본문만 1회 생성.
@@ -209,7 +229,8 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                                   mode: cardMode === 'hero' ? 'hero' : undefined,
                               });
                               setFirstCard(img);
-                              setFirstCardKey(cardKey);
+                              setFromCache(false);
+                              await setCachedCard(cardKey, img);
                               void logApiUsage({
                                   banner_size: 'square',
                                   cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: 'high', provider: 'openai' }),
@@ -338,8 +359,9 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                             <button
                                 className="rounded-md border border-[#cbd5e1] px-2.5 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
                                 onClick={() => {
+                                    void delCachedCard(cardKey);
                                     setFirstCard(null);
-                                    setFirstCardKey('');
+                                    setFromCache(false);
                                     setMsg('다음 “생성” 때 첫 장을 새로 뽑습니다(이미지 비용 발생).');
                                 }}
                                 title="같은 지역이라도 첫 장을 새 이미지로 다시 생성"
@@ -350,7 +372,11 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                         ) : null}
                     </div>
                     <p className="mt-1 text-[11px] text-[#94a3b8]">
-                        같은 지역·전화면 <b>재사용</b>(이미지 비용 0). 지역/전화 바꾸면 자동으로 새로 생성됩니다.
+                        {firstCard && fromCache ? (
+                            <b className="text-[#059669]">과거 기록 재사용 — 다음 “생성” 시 이미지 비용 0(원고만)</b>
+                        ) : (
+                            <>같은 지역·전화면 <b>재사용</b>(이미지 0원). 지역/전화 바꾸면 자동으로 새로 생성됩니다.</>
+                        )}
                     </p>
                 </div>
 
