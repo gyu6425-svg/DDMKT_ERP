@@ -1396,6 +1396,8 @@ def _process_blog(acc, kw_by_acc, force=False):
         upserted = sb_insert("blog_posts", rows, on_conflict="blog_account_id,post_url")
         upserted.sort(key=lambda p: p.get("published_date") or "", reverse=True)  # 최신글 먼저 측정
         for post in upserted:
+            if post.get("excluded"):
+                continue  # 순위 트래커에서 삭제한 글 — 측정 안 함(재등록돼도 excluded 유지)
             keyword = post.get("keyword_manual") or post.get("keyword") or ""
             if not keyword:
                 continue

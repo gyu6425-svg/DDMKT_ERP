@@ -38,7 +38,7 @@ for idx, acc in enumerate(accounts):
     by_url = {p["post_url"]: p for p in upserted}
     for e in entries:
         row = by_url.get(e["url"])
-        if row:
+        if row and not row.get("excluded"):  # 트래커에서 삭제한 글은 측정·재등록 대상에서 제외
             items.append({"acc": acc, "blog_id": blog_id, "row": row, "url": e["url"],
                           "title": e["title"], "rss_tags": e["rss_tags"], "pub": e["published_date"]})
     c.set_crawl_status(running=True, phase="rss", done=idx + 1, total=len(accounts), current_blog=acc.get("name", ""))

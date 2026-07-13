@@ -103,6 +103,7 @@ export type BlogPost = {
     report_sent_at: string | null; // 발행보고 자동발송 완료 시각(KST). 카톡 자동발송(auto_report)이 기록 → '발송 리스트'.
     report_send_fail?: string | null; // 자동발송 실패 사유(이름불일치/세션만료 등). 있고 report_sent_at 없으면 '누락 건'. 성공 시 비움.
     rank_sent_at?: string | null; // 전날 '순위 성과보고' 발송 완료 시각(발행보고와 별개) → 전날 모달 '발송 리스트' + KPI.
+    excluded?: boolean; // true = 트래커에서 삭제(우리 기자단이 안 쓴 글 등). 트래커 숨김 + 크롤러 측정·재등록 제외.
     measurements: BlogMeasurement[];
 };
 
@@ -313,6 +314,13 @@ export async function updatePostKeyword(postId: string, keywordManual: string) {
         .from('blog_posts')
         .update({ keyword_manual: value || null })
         .eq('id', postId);
+    return { error };
+}
+
+// 순위 트래커에서 글 삭제(소프트) — excluded=true. 트래커에서 숨기고, 크롤러가 이후 측정·재등록도 안 함.
+//   우리 기자단이 안 쓴 글(다른 업체·블로그 주인이 쓴 글)을 추적에서 제외할 때. 하드 삭제 아님(재등록 방지 위해 행 유지).
+export async function excludeBlogPost(postId: string) {
+    const { error } = await supabase.from('blog_posts').update({ excluded: true }).eq('id', postId);
     return { error };
 }
 
