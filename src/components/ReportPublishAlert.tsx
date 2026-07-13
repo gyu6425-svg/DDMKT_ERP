@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { getReports } from '../api/blogPostReports'
 import { supabase } from '../lib/supabase'
@@ -13,13 +13,14 @@ export default function ReportPublishAlert() {
   const eligible = REPORT_ALERT_EMAILS.includes(email)
 
   const [pending, setPending] = useState(0) // 승인 대기(새 글 보고)
-  const [dismissed, setDismissed] = useState(false)
-  const prevTotal = useRef(0)
 
   useEffect(() => {
     if (!eligible) return
     const load = () => {
-      void getReports('pending').then(({ data }) => setPending(data.length))
+      // 에러 시 이전 값 유지(일시적 네트워크/RLS 실패로 배너가 잘못 사라지지 않게 = 누락 방지).
+      void getReports('pending').then(({ data, error }) => {
+        if (!error) setPending(data.length)
+      })
     }
     load()
     // ① 실시간 — 기자단이 글 보고(insert)하는 즉시 반영. (Supabase Realtime, blog_post_reports 발행 필요: SQL 안내)
@@ -46,13 +47,8 @@ export default function ReportPublishAlert() {
     }
   }, [eligible])
 
-  // 새 항목이 늘면 다시 표시(닫아뒀어도).
-  useEffect(() => {
-    if (pending > prevTotal.current) setDismissed(false)
-    prevTotal.current = pending
-  }, [pending])
-
-  if (!eligible || dismissed || pending === 0) return null
+  // 절대 누락 방지: 닫기(dismiss) 없이 — 승인 대기가 있으면 항상 표시, 다 처리하면 자동으로 사라짐.
+  if (!eligible || pending === 0) return null
 
   const go = () => {
     window.history.pushState(null, '', '/blog-dash?reports=1')
@@ -74,15 +70,6 @@ export default function ReportPublishAlert() {
         type="button"
       >
         확인하러 가기
-      </button>
-      <button
-        aria-label="닫기"
-        className="h-11 w-11 shrink-0 rounded-xl border border-[#bbf7d0] text-xl font-bold text-[#16a34a] hover:bg-[#dcfce7]"
-        onClick={() => setDismissed(true)}
-        title="닫기(새 보고가 오면 다시 표시)"
-        type="button"
-      >
-        ×
       </button>
     </div>
   )
