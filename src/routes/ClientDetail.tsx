@@ -1324,44 +1324,44 @@ function ContractEditModal({
                 <div className="mt-3 rounded-lg border border-[#e2e8f0] bg-white px-3 py-2.5">
                     <div className="mb-2 text-xs font-bold text-[#334155]">계약 정보 수정</div>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        <label className="grid gap-1 text-[11px] font-semibold text-[#64748b]">
+                        <label className="grid min-w-0 gap-1 text-[11px] font-semibold text-[#64748b]">
                             계약 건수
                             <input
-                                className="h-8 rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                className="h-8 w-full rounded-md border border-[#cbd5e1] px-2 text-sm"
                                 inputMode="numeric"
                                 onChange={(e) => setGoal(e.target.value)}
                                 value={goal}
                             />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-semibold text-[#64748b]">
+                        <label className="grid min-w-0 gap-1 text-[11px] font-semibold text-[#64748b]">
                             잔여
                             <input
-                                className="h-8 rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                className="h-8 w-full rounded-md border border-[#cbd5e1] px-2 text-sm"
                                 inputMode="numeric"
                                 onChange={(e) => setRemain(e.target.value)}
                                 value={remain}
                             />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-semibold text-[#64748b]">
+                        <label className="grid min-w-0 gap-1 text-[11px] font-semibold text-[#64748b]">
                             공급가(원)
                             <input
-                                className="h-8 rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                className="h-8 w-full rounded-md border border-[#cbd5e1] px-2 text-sm"
                                 inputMode="numeric"
                                 onChange={(e) => setAmount(e.target.value)}
                                 value={amount}
                             />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-semibold text-[#64748b]">
+                        <label className="grid min-w-0 gap-1 text-[11px] font-semibold text-[#64748b]">
                             단가(원)
                             <input
-                                className="h-8 rounded-md border border-[#cbd5e1] px-2 text-sm"
+                                className="h-8 w-full rounded-md border border-[#cbd5e1] px-2 text-sm"
                                 inputMode="numeric"
                                 onChange={(e) => setUnitPrice(e.target.value)}
                                 value={unitPrice}
                             />
                         </label>
                     </div>
-                    <div className="mt-2 flex items-center justify-between">
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                         <span className="text-[10px] text-[#94a3b8]">
                             건수·잔여를 바꾸면 진행률·외주비가 자동 재계산됩니다.
                         </span>
