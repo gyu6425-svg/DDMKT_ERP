@@ -34,6 +34,27 @@ type BlogRankCtx = {
     scopedClientId: string | null; // 고객 뷰에서 스코프된 업체 id(플레이스 등 타 카테고리 KPI 로드용)
 };
 
+// 새로고침 시 즉시 이전 데이터 표시(스피너 없이) + 백그라운드 갱신용 세션 캐시(탭 세션 동안 유지, 탭 닫으면 사라짐).
+const CACHE_PREFIX = 'blogrank:v1:';
+function readBlogCache(key: string): { accounts: BlogAccount[]; posts: BlogPost[] } | null {
+    try {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) return null;
+        const p = JSON.parse(raw);
+        if (Array.isArray(p?.accounts) && Array.isArray(p?.posts)) return { accounts: p.accounts, posts: p.posts };
+    } catch {
+        /* 무시 */
+    }
+    return null;
+}
+function writeBlogCache(key: string, accounts: BlogAccount[], posts: BlogPost[]) {
+    try {
+        sessionStorage.setItem(key, JSON.stringify({ accounts, posts }));
+    } catch {
+        /* 용량 초과 등 — 캐시 생략(정상 동작) */
+    }
+}
+
 const Ctx = createContext<BlogRankCtx | null>(null);
 
 export function useBlogRank(): BlogRankCtx {
@@ -64,6 +85,10 @@ export function BlogRankProvider({
     // 고객 모드면 본인 업체(client_id)로 데이터 스코프. 미리보기(previewClientId)면 그 업체로 강제.
     //   기자단은 RLS(reporter_id)로 스코프 → 전체 로드해도 본인 블로그만. 미리보기(previewReporterId)면 그 기자단으로 필터.
     const scopedClientId = previewClientId ?? (customerMode ? profile?.client_id ?? null : null);
+    // 캐시 키 = 뷰(고객/기자단/내부) + 스코프 대상. 새로고침 시 이 키로 이전 데이터를 즉시 복원.
+    const cacheKey = `${CACHE_PREFIX}${
+        customerMode ? `c:${scopedClientId || ''}` : reporterMode ? `r:${previewReporterId || ''}` : 'internal'
+    }`;
     const [accounts, setAccounts] = useState<BlogAccount[]>([]);
     const [posts, setPosts] = useState<BlogPost[]>([]);
     const [loading, setLoading] = useState(true);
@@ -159,6 +184,7 @@ export function BlogRankProvider({
             }
             setAccounts(accRes.data);
             setPosts(postRes.data);
+            writeBlogCache(cacheKey, accRes.data, postRes.data);
             setLoading(false);
             return;
         }
@@ -172,8 +198,10 @@ export function BlogRankProvider({
             }
             const mine = accRes.data.filter((a) => a.reporter_id === previewReporterId);
             const ids = new Set(mine.map((a) => a.id));
+            const minePosts = postRes.data.filter((p) => ids.has(p.blog_account_id));
             setAccounts(mine);
-            setPosts(postRes.data.filter((p) => ids.has(p.blog_account_id)));
+            setPosts(minePosts);
+            writeBlogCache(cacheKey, mine, minePosts);
             setLoading(false);
             return;
         }
@@ -185,13 +213,22 @@ export function BlogRankProvider({
         }
         setAccounts(accRes.data);
         setPosts(postRes.data);
+        writeBlogCache(cacheKey, accRes.data, postRes.data);
         setLoading(false);
     };
 
     // 관리자/내부는 전체, 고객은 본인 업체 연결 시, 기자단은 reporter 역할이면 로드 허용(데이터는 RLS로 격리).
     const isAllowed = !authLoading && (canBlog || (customerMode && !!scopedClientId) || reporterMode);
     useEffect(() => {
-        if (isAllowed) {
+        if (!isAllowed) return;
+        // 새로고침/재진입: 세션 캐시가 있으면 즉시 이전 데이터 표시(스피너 없음) + 백그라운드로만 갱신.
+        const cached = readBlogCache(cacheKey);
+        if (cached) {
+            setAccounts(cached.accounts);
+            setPosts(cached.posts);
+            setLoading(false);
+            void reload(true);
+        } else {
             void reload();
         }
         // 미리보기 대상(업체/기자단)이 바뀌면 재조회.
