@@ -63,11 +63,13 @@ export function ReportsListModal({
     };
 
     const chip = (s: BlogPostReport['status']) =>
-        s === 'confirmed'
-            ? { t: '승인됨', c: 'bg-[#dcfce7] text-[#16a34a]' }
-            : s === 'rejected'
-              ? { t: '반려', c: 'bg-[#fee2e2] text-[#dc2626]' }
-              : { t: '검토중', c: 'bg-[#fef3c7] text-[#b45309]' };
+        s === 'published'
+            ? { t: '발행완료', c: 'bg-[#dbeafe] text-[#1e40af]' }
+            : s === 'confirmed'
+              ? { t: '승인됨', c: 'bg-[#dcfce7] text-[#16a34a]' }
+              : s === 'rejected'
+                ? { t: '반려', c: 'bg-[#fee2e2] text-[#dc2626]' }
+                : { t: '검토중', c: 'bg-[#fef3c7] text-[#b45309]' };
 
     return (
         <div
