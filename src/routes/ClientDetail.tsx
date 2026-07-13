@@ -9,7 +9,7 @@ import {
     type ContractHistoryItem,
     type RewardWeeklyLog,
 } from '../api/clientContracts';
-import { ensureClientBlogAccount, getBlogAccounts, syncBlogAccountFromContract } from '../api/blogRank';
+import { ensureClientBlogAccount, getBlogAccounts, syncBlogAccountFromContract, updateBlogAccount } from '../api/blogRank';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import {
     PRODUCT_CATEGORIES,
@@ -745,6 +745,7 @@ function ContractEditModal({
     // 브랜드 블로그면 그 블로그 계정의 발행 URL을 찾아 제목 옆에 표시(클릭 시 실제 블로그로 이동).
     const isBrandContract = isBrandBlogSub(contract.subtype.replace(/^상위노출 보장형 · /, ''));
     const [blogUrl, setBlogUrl] = useState<string | null>(null);
+    const [blogAccId, setBlogAccId] = useState<string | null>(null); // 블로그 주소 수정 저장 대상 계정
     useEffect(() => {
         if (!isBrandContract) return;
         void getBlogAccounts(contract.client_id).then(({ data }) => {
@@ -755,6 +756,7 @@ function ContractEditModal({
                 (data.length === 1 ? data[0] : undefined);
             const url = (acc?.blog_url || '').trim();
             setBlogUrl(/^https?:\/\//.test(url) ? url : null);
+            setBlogAccId(acc?.id ?? null);
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isBrandContract, contract.client_id, contract.blog_name]);
@@ -1245,6 +1247,10 @@ function ContractEditModal({
             goal_count: nextGoal,
             remain_count: nextRemain,
         });
+        // 재계약 화면에서 블로그 주소를 수정했으면 블로그 계정에도 반영(그대로 두면 변화 없음).
+        if (isBrandContract && blogAccId && blogUrl) {
+            await updateBlogAccount(blogAccId, { blog_url: blogUrl });
+        }
         await onReload();
         onClose();
     };
@@ -1335,6 +1341,9 @@ function ContractEditModal({
                     />
                 </label>
 
+                {/* 재계약 모드에서는 기존 정보(계약 정보 수정·진행률·진행 처리)를 숨기고 깨끗한 재계약 화면만 표시 */}
+                {!renewMode && (
+                    <>
                 {/* 계약 상품 상세정보 직접 수정 — 계약 건수·잔여·공급가·단가 */}
                 <div className="mt-3 rounded-lg border border-[#e2e8f0] bg-white px-3 py-2.5">
                     <div className="mb-2 text-xs font-bold text-[#334155]">계약 정보 수정</div>
@@ -1889,6 +1898,8 @@ function ContractEditModal({
                         ) : null}
                     </div>
                 ) : null}
+                    </>
+                )}
 
                 {imminent || renewMode ? (
                     /* 잔여 5건 이하 또는 재계약 버튼 — 재계약/계약 종료 + 계약 이력. */
@@ -1915,6 +1926,17 @@ function ContractEditModal({
                                         placeholder="계약 시작일 (예: 2026-01-15)"
                                         value={reStart}
                                     />
+                                    {isBrandContract ? (
+                                        <label className="mb-2 grid gap-1 text-[11px] font-semibold text-[#64748b]">
+                                            블로그 주소 (그대로 유지 · 필요 시 수정)
+                                            <input
+                                                className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                                onChange={(e) => setBlogUrl(e.target.value.trim() || null)}
+                                                placeholder="https://blog.naver.com/..."
+                                                value={blogUrl ?? ''}
+                                            />
+                                        </label>
+                                    ) : null}
                                     <div className="flex flex-wrap items-center gap-1.5">
                                         {reDaily ? (
                                             <>
