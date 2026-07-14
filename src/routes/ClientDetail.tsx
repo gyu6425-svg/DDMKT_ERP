@@ -2987,7 +2987,7 @@ export function ClientDetail({
                                     const isContainerGroup = g.isContainer;
                                     // 만료([만료]) 계약은 뒤로 — 활성(재계약) 카드 위, 만료 카드는 아래 한 줄로 분리.
                                     const isExp = (ct: ClientContract) => (ct.note || '').includes('[만료]');
-                                    const allCards = g.members
+                                    const sortedMembers = g.members
                                         .slice()
                                         .sort((a, b) => {
                                             // 컨테이너 부모(회차 입구 박스)는 항상 맨 앞.
@@ -3000,8 +3000,8 @@ export function ClientDetail({
                                             if (ea !== eb) return ea - eb;
                                             // 나머지는 월(계약일)순 오름차순.
                                             return (a.contract_date || '').localeCompare(b.contract_date || '');
-                                        })
-                                        .map((ct) => {
+                                        });
+                                    const allCards = sortedMembers.map((ct) => {
                                         const prog = progOf(ct);
                                         const done = (ct.goal_count || 0) - (ct.remain_count || 0);
                                         // 컨테이너 부모/자식 판별(상위노출 보장형·종합광고 공통).
@@ -3260,6 +3260,45 @@ export function ClientDetail({
                                             </div>
                                         </div>
                                     ) : null;
+                                    // 월별 그룹핑(컨테이너) — 부모 입구 박스는 맨 위, 나머지 카드는 계약일 '월'로 묶어 헤더+줄로 분리.
+                                    const ymLabel = (ym: string) => {
+                                        const [y, m] = ym.split('-');
+                                        return y && m ? `${y}년 ${Number(m)}월` : '날짜 미정';
+                                    };
+                                    const headCards = [] as typeof cards;
+                                    const monthOrder: string[] = [];
+                                    const cardsByMonth = new Map<string, typeof cards>();
+                                    sortedMembers.slice(0, activeCount).forEach((ct, i) => {
+                                        if (CONTAINER_SUBS.includes(ct.subtype)) {
+                                            headCards.push(cards[i]);
+                                            return;
+                                        }
+                                        const ym = (ct.contract_date || '').slice(0, 7) || '미정';
+                                        if (!cardsByMonth.has(ym)) {
+                                            cardsByMonth.set(ym, [] as typeof cards);
+                                            monthOrder.push(ym);
+                                        }
+                                        cardsByMonth.get(ym)!.push(cards[i]);
+                                    });
+                                    const monthGrid = (
+                                        <>
+                                            {headCards.length ? (
+                                                <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                                                    {headCards}
+                                                </div>
+                                            ) : null}
+                                            {monthOrder.map((ym) => (
+                                                <div className="mt-3" key={ym}>
+                                                    <div className="mb-1.5 border-t border-dashed border-[#ddd6fe] pt-2 text-[12px] font-bold text-[#7c3aed]">
+                                                        {ymLabel(ym)} · {cardsByMonth.get(ym)!.length}건
+                                                    </div>
+                                                    <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                                                        {cardsByMonth.get(ym)}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </>
+                                    );
                                     // 컨테이너(상위노출 보장형·종합광고) 그룹은 보라색 박스로 감싸 하위 상품을 안에 표시.
                                     // 상위노출 보장형 헤더 우측에 회차+시작~종료일 표시(이 박스의 부모 계약 값).
                                     const boostParent =
@@ -3280,9 +3319,7 @@ export function ClientDetail({
                                                     </span>
                                                 ) : null}
                                             </div>
-                                            <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                                                {cards}
-                                            </div>
+                                            {monthGrid}
                                             {expiredRow}
                                         </div>
                                     ) : (
