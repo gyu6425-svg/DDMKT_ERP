@@ -12,15 +12,15 @@ export default function ReportPublishAlert() {
   const email = (profile?.email || '').toLowerCase()
   const eligible = REPORT_ALERT_EMAILS.includes(email)
 
-  const [pending, setPending] = useState(0) // 승인 대기(새 글 보고)
+  const [saveP, setSaveP] = useState(0) // 저장 승인 대기
+  const [pubP, setPubP] = useState(0)   // 발행 승인 대기
 
   useEffect(() => {
     if (!eligible) return
     const load = () => {
       // 에러 시 이전 값 유지(일시적 네트워크/RLS 실패로 배너가 잘못 사라지지 않게 = 누락 방지).
-      void getReports('pending').then(({ data, error }) => {
-        if (!error) setPending(data.length)
-      })
+      void getReports({ status: 'pending', report_type: 'save' }).then(({ data, error }) => { if (!error) setSaveP(data.length) })
+      void getReports({ status: 'pending', report_type: 'publish' }).then(({ data, error }) => { if (!error) setPubP(data.length) })
     }
     load()
     // ① 실시간 — 기자단이 글 보고(insert)하는 즉시 반영. (Supabase Realtime, blog_post_reports 발행 필요: SQL 안내)
@@ -48,7 +48,7 @@ export default function ReportPublishAlert() {
   }, [eligible])
 
   // 절대 누락 방지: 닫기(dismiss) 없이 — 승인 대기가 있으면 항상 표시, 다 처리하면 자동으로 사라짐.
-  if (!eligible || pending === 0) return null
+  if (!eligible || saveP + pubP === 0) return null
 
   const go = () => {
     window.history.pushState(null, '', '/blog-dash?reports=1')
@@ -59,9 +59,11 @@ export default function ReportPublishAlert() {
     <div className="mb-5 flex items-center gap-3 rounded-2xl border-2 border-[#16a34a] bg-[#f0fdf4] px-5 py-4 shadow-sm">
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#16a34a] text-2xl">🔔</span>
       <div className="min-w-0 flex-1">
-        <div className="text-lg font-extrabold text-[#15803d]">기자단 발행 보고 알림</div>
-        <div className="mt-0.5 text-sm font-semibold text-[#166534]">
-          승인 대기 {pending}건 — 지금 처리해 주세요.
+        <div className="text-lg font-extrabold text-[#15803d]">기자단 글 보고 알림</div>
+        <div className="mt-0.5 flex flex-wrap gap-x-4 text-sm font-semibold text-[#166534]">
+          {saveP > 0 ? <span>📝 저장 승인 대기 <b>{saveP}</b>건</span> : null}
+          {pubP > 0 ? <span>🚀 발행 승인 대기 <b>{pubP}</b>건</span> : null}
+          <span className="text-[#15803d]">— 지금 승인해 주세요.</span>
         </div>
       </div>
       <button

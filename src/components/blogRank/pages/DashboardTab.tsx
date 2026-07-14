@@ -72,7 +72,7 @@ export function DashboardTab() {
             return;
         }
         if (customerMode) return; // 고객 뷰에선 미표시
-        void getReports('pending').then(({ data }) => setReportPending(data.length));
+        void getReports({ status: 'pending' }).then(({ data }) => setReportPending(data.length));
     };
     useEffect(() => {
         loadReportCount();

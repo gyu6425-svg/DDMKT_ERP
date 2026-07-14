@@ -6,7 +6,7 @@ import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { useAuth } from '../hooks/useAuth';
 import { useAsParam } from './CustomerCategoryPage';
-import { createReport, getReports, resubmitReport, type BlogPostReport } from '../api/blogPostReports';
+import { createReport, getReports, markPublished, resubmitReport, type BlogPostReport, type ReportType } from '../api/blogPostReports';
 
 type RTab = 'dashboard' | 'sheet' | 'tracker' | 'report';
 
@@ -18,33 +18,43 @@ function ReportSubmitTab() {
     const [url, setUrl] = useState('');
     const [title, setTitle] = useState('');
     const [keyword, setKeyword] = useState('');
-    const [saving, setSaving] = useState(false);
+    const [saving, setSaving] = useState<ReportType | null>(null);
+    const [publishing, setPublishing] = useState<string | null>(null);
     const [mine, setMine] = useState<BlogPostReport[]>([]);
+    // 내 보고 내역 필터 — 저장/발행 탭 + 블로그별 탭
+    const [histTab, setHistTab] = useState<ReportType>('save');
+    const [blogFilter, setBlogFilter] = useState('all');
     // 재보고(반려 건 다시 보내기)
     const [reId, setReId] = useState<string | null>(null);
     const [reBlogId, setReBlogId] = useState('');
     const [reUrl, setReUrl] = useState('');
+    const [reTitle, setReTitle] = useState('');
     const [reKeyword, setReKeyword] = useState('');
     const [reSaving, setReSaving] = useState(false);
 
     const loadMine = () => void getReports().then(({ data }) => setMine(data));
     useEffect(loadMine, []);
 
+    const typeOf = (r: BlogPostReport): ReportType => r.report_type ?? 'save';
+
     const startRe = (r: BlogPostReport) => {
         setReId(r.id);
         setReBlogId(r.blog_account_id);
         setReUrl(r.post_url);
+        setReTitle(r.title ?? '');
         setReKeyword(r.keyword || '');
     };
     const doRe = async (r: BlogPostReport) => {
         if (!reBlogId) return showToast('블로그를 선택하세요');
         if (!reUrl.trim()) return showToast('글 주소(URL)를 입력하세요');
+        if (!reTitle.trim()) return showToast('제목을 입력하세요(필수)');
         setReSaving(true);
         const { error } = await resubmitReport(r.id, {
             blog_account_id: reBlogId,
             post_url: reUrl.trim(),
             keyword: reKeyword.trim() || null,
-            title: r.title,
+            title: reTitle.trim(),
+            report_type: typeOf(r),
         });
         setReSaving(false);
         if (error) return showToast('재보고 실패: ' + error.message);
@@ -53,34 +63,54 @@ function ReportSubmitTab() {
         loadMine();
     };
 
-    const submit = async () => {
+    const submit = async (type: ReportType) => {
         if (!blogId) return showToast('블로그를 선택하세요');
         if (!url.trim()) return showToast('글 주소(URL)를 입력하세요');
+        if (!title.trim()) return showToast('제목을 입력하세요(필수)');
         if (!profile?.id) return showToast('계정 정보를 확인할 수 없습니다');
-        setSaving(true);
+        setSaving(type);
         const { error } = await createReport({
             blog_account_id: blogId,
             reporter_id: profile.id,
             post_url: url.trim(),
-            title: title.trim() || null,
+            title: title.trim(),
+            report_type: type,
             keyword: keyword.trim() || null,
         });
-        setSaving(false);
+        setSaving(null);
         if (error) return showToast('보고 실패: ' + error.message);
         setUrl('');
         setTitle('');
         setKeyword('');
-        showToast('글 보고 완료 · 담당자에게 전달됩니다');
+        setHistTab(type);
+        showToast(`${type === 'publish' ? '발행' : '저장'} 보고 완료 · 담당자에게 전달됩니다`);
+        loadMine();
+    };
+
+    // 기자단 '발행' 처리 — 저장으로 보고한 글을 발행쪽 히스토리로 이동(재카운트 없음).
+    const doPublish = async (r: BlogPostReport) => {
+        setPublishing(r.id);
+        const { error } = await markPublished(r.id);
+        setPublishing(null);
+        if (error) return showToast('발행 처리 실패: ' + error.message);
+        showToast('발행으로 이동됨 · 발행 히스토리에 표시됩니다');
         loadMine();
     };
 
     const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
     const statusTag = (s: BlogPostReport['status']) =>
-        s === 'confirmed'
-            ? { t: '확인됨', c: 'bg-[#dcfce7] text-[#16a34a]' }
+        s === 'confirmed' || s === 'published'
+            ? { t: '승인됨', c: 'bg-[#dcfce7] text-[#16a34a]' }
             : s === 'rejected'
               ? { t: '반려', c: 'bg-[#fee2e2] text-[#dc2626]' }
               : { t: '검토 중', c: 'bg-[#fef3c7] text-[#b45309]' };
+
+    const countType = (t: ReportType) => mine.filter((r) => typeOf(r) === t).length;
+    const filtered = mine.filter(
+        (r) => typeOf(r) === histTab && (blogFilter === 'all' || r.blog_account_id === blogFilter),
+    );
+
+    const inputCls = 'mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm';
 
     return (
         <div className="grid gap-4">
@@ -102,62 +132,108 @@ function ReportSubmitTab() {
                     </select>
                 </label>
                 <label className="text-xs font-semibold text-[#475569]">
+                    제목(필수)
+                    <input
+                        className={inputCls}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="글 제목 (제목으로 구분됩니다)"
+                        value={title}
+                    />
+                </label>
+                <label className="text-xs font-semibold text-[#475569]">
                     글 주소(URL)
                     <input
-                        className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                        className={inputCls}
                         onChange={(e) => setUrl(e.target.value)}
                         placeholder="https://blog.naver.com/..."
                         value={url}
                     />
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                    <label className="text-xs font-semibold text-[#475569]">
-                        제목(선택)
-                        <input
-                            className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
-                            onChange={(e) => setTitle(e.target.value)}
-                            placeholder="글 제목"
-                            value={title}
-                        />
-                    </label>
-                    <label className="text-xs font-semibold text-[#475569]">
-                        키워드(선택)
-                        <input
-                            className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
-                            onChange={(e) => setKeyword(e.target.value)}
-                            placeholder="노출 키워드"
-                            value={keyword}
-                        />
-                    </label>
-                </div>
-                <div className="flex justify-end">
+                <label className="text-xs font-semibold text-[#475569]">
+                    키워드(선택)
+                    <input
+                        className={inputCls}
+                        onChange={(e) => setKeyword(e.target.value)}
+                        placeholder="노출 키워드"
+                        value={keyword}
+                    />
+                </label>
+                <div className="mt-1 flex justify-end gap-2">
                     <button
-                        className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                        disabled={saving}
-                        onClick={() => void submit()}
+                        className="rounded-md border border-[#1e40af] bg-white px-4 py-2 text-sm font-bold text-[#1e40af] hover:bg-[#eff6ff] disabled:opacity-60"
+                        disabled={!!saving}
+                        onClick={() => void submit('save')}
                         type="button"
                     >
-                        {saving ? '보고 중…' : '글 보고'}
+                        {saving === 'save' ? '보고 중…' : '📝 저장으로 보고'}
+                    </button>
+                    <button
+                        className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-60"
+                        disabled={!!saving}
+                        onClick={() => void submit('publish')}
+                        type="button"
+                    >
+                        {saving === 'publish' ? '보고 중…' : '🚀 발행으로 보고'}
                     </button>
                 </div>
+                <p className="m-0 text-[11px] text-[#94a3b8]">
+                    보통은 <b>저장</b>으로 먼저 보고해 업체가 확인합니다. 담당자가 승인하면 계약 1건 카운트됩니다.
+                </p>
             </div>
 
-            <div className="grid gap-1">
+            <div className="grid gap-2">
                 <div className="text-sm font-bold text-[#0f172a]">내 보고 내역</div>
-                {mine.length === 0 ? (
+                {/* 저장/발행 탭 */}
+                <div className="flex gap-1 border-b border-[#e2e8f0]">
+                    {(
+                        [
+                            ['save', '저장'],
+                            ['publish', '발행'],
+                        ] as [ReportType, string][]
+                    ).map(([k, label]) => (
+                        <button
+                            className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
+                                histTab === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
+                            }`}
+                            key={k}
+                            onClick={() => setHistTab(k)}
+                            type="button"
+                        >
+                            {label} <span className="text-xs">({countType(k)})</span>
+                        </button>
+                    ))}
+                </div>
+                {/* 블로그별 필터(담당 블로그 여러 개면 헷갈리지 않게) */}
+                {accounts.length > 1 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                        {[{ id: 'all', name: '전체' }, ...accounts].map((a) => (
+                            <button
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                                    blogFilter === a.id
+                                        ? 'border-[#1e40af] bg-[#1e40af] text-white'
+                                        : 'border-[#cbd5e1] bg-white text-[#475569]'
+                                }`}
+                                key={a.id}
+                                onClick={() => setBlogFilter(a.id)}
+                                type="button"
+                            >
+                                {a.name}
+                            </button>
+                        ))}
+                    </div>
+                ) : null}
+
+                {filtered.length === 0 ? (
                     <p className="m-0 rounded-md bg-[#f8fafc] px-4 py-6 text-center text-sm text-[#94a3b8]">
-                        아직 보고한 글이 없습니다.
+                        {histTab === 'save' ? '저장 보고 내역이 없습니다.' : '발행 보고 내역이 없습니다.'}
                     </p>
                 ) : (
                     <div className="overflow-hidden rounded-md border border-[#e2e8f0] bg-white">
-                        {mine.map((r) => {
+                        {filtered.map((r) => {
                             const st = statusTag(r.status);
                             const editing = reId === r.id;
                             return (
-                                <div
-                                    className="border-b border-[#f1f5f9] px-3 py-2 text-sm last:border-b-0"
-                                    key={r.id}
-                                >
+                                <div className="border-b border-[#f1f5f9] px-3 py-2 text-sm last:border-b-0" key={r.id}>
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="min-w-0">
                                             <div className="truncate font-semibold text-[#334155]">
@@ -178,11 +254,21 @@ function ReportSubmitTab() {
                                             ) : null}
                                         </div>
                                         <div className="flex shrink-0 items-center gap-1">
-                                            <span
-                                                className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${st.c}`}
-                                            >
+                                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${st.c}`}>
                                                 {st.t}
                                             </span>
+                                            {/* 저장 탭 항목엔 '발행' 버튼 — 눌러 발행 히스토리로 이동(재카운트 없음) */}
+                                            {histTab === 'save' && r.status !== 'rejected' ? (
+                                                <button
+                                                    className="rounded bg-[#059669] px-2 py-0.5 text-[11px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                                                    disabled={publishing === r.id}
+                                                    onClick={() => void doPublish(r)}
+                                                    title="이 글을 발행했다면 눌러 발행 히스토리로 이동"
+                                                    type="button"
+                                                >
+                                                    {publishing === r.id ? '…' : '발행'}
+                                                </button>
+                                            ) : null}
                                             {r.status === 'rejected' && !editing ? (
                                                 <button
                                                     className="rounded border border-[#1e40af] px-2 py-0.5 text-[11px] font-semibold text-[#1e40af] hover:bg-[#eff6ff]"
@@ -210,6 +296,12 @@ function ReportSubmitTab() {
                                             </select>
                                             <input
                                                 className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                                onChange={(e) => setReTitle(e.target.value)}
+                                                placeholder="제목(필수)"
+                                                value={reTitle}
+                                            />
+                                            <input
+                                                className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
                                                 onChange={(e) => setReUrl(e.target.value)}
                                                 placeholder="글 주소(URL)"
                                                 value={reUrl}
@@ -234,7 +326,7 @@ function ReportSubmitTab() {
                                                     onClick={() => void doRe(r)}
                                                     type="button"
                                                 >
-                                                    {reSaving ? '보고 중…' : '글 보고'}
+                                                    {reSaving ? '보고 중…' : '재보고'}
                                                 </button>
                                             </div>
                                         </div>

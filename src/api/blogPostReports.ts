@@ -1,9 +1,12 @@
 import { supabase } from '../lib/supabase';
 import { getClientContracts, updateClientContract, type RewardWeeklyLog } from './clientContracts';
 
-// 기자단 글 보고 — 기자단이 본인 담당 블로그 글 URL을 보고(insert), 내부가 확인 시 추적글(blog_posts) 생성.
-//   상태 흐름: pending(보고) → confirmed(승인) → published(발행 완료) / rejected(반려).
+// 기자단 글 보고 — 기자단이 본인 담당 블로그 글을 '저장(save)' 또는 '발행(publish)'으로 보고.
+//   회사가 '승인'하면 그때 추적글(blog_posts) 생성 + 계약 잔여 -1(카운트) + 외주비 1건이 딱 1회 잡힌다.
+//   report_type = 저장/발행(기자단 히스토리 구분). 저장을 승인해 카운트된 뒤 기자단이 '발행' 버튼을 누르면
+//   report_type만 publish로 바뀌고 재카운트는 없다(중복 방지). status = 대기/승인/반려.
 export type ReportStatus = 'pending' | 'confirmed' | 'rejected' | 'published';
+export type ReportType = 'save' | 'publish';
 export type BlogPostReport = {
     id: string;
     blog_account_id: string;
@@ -12,6 +15,8 @@ export type BlogPostReport = {
     title: string | null;
     keyword: string | null;
     status: ReportStatus;
+    report_type: ReportType; // 저장/발행 — 기자단 히스토리 버킷
+    published_at: string | null; // 기자단이 '발행' 처리한 시각(발행 히스토리)
     note: string | null;
     created_at: string;
     reviewed_at: string | null;
@@ -19,38 +24,105 @@ export type BlogPostReport = {
     blog_post_id: string | null;
 };
 
-// 발행 완료 외주단가 — 대박종합주방만 10,000원, 그 외 8,000원.
+// 발행/저장 승인 외주단가 — 대박종합주방만 10,000원, 그 외 8,000원.
 export function publishOutUnit(company: string): number {
     return (company || '').includes('대박종합주방') ? 10000 : 8000;
 }
 
-// 보고 등록(기자단) — RLS가 본인 reporter_id + 본인 담당 블로그만 허용.
+// 보고 등록(기자단) — report_type(저장/발행) 지정. title 필수(UI에서 검증). RLS: 본인 + 본인 담당 블로그만.
 export async function createReport(payload: {
     blog_account_id: string;
     reporter_id: string;
     post_url: string;
-    title?: string | null;
+    title: string;
+    report_type: ReportType;
     keyword?: string | null;
 }) {
     const { data, error } = await supabase
         .from('blog_post_reports')
-        .insert(payload)
+        .insert({
+            blog_account_id: payload.blog_account_id,
+            reporter_id: payload.reporter_id,
+            post_url: payload.post_url,
+            title: payload.title,
+            keyword: payload.keyword ?? null,
+            report_type: payload.report_type,
+            published_at: payload.report_type === 'publish' ? new Date().toISOString() : null,
+        })
         .select()
         .returns<BlogPostReport[]>();
     return { data: data ?? [], error };
 }
 
-// 보고 목록 — 내부는 전체(status로 필터), 기자단은 RLS로 본인 것만.
-export async function getReports(status?: ReportStatus) {
+// 보고 목록 — 내부는 전체(status/type 필터), 기자단은 RLS로 본인 것만.
+export async function getReports(opts?: { status?: ReportStatus; report_type?: ReportType }) {
     let query = supabase.from('blog_post_reports').select('*').order('created_at', { ascending: false });
-    if (status) query = query.eq('status', status);
+    if (opts?.status) query = query.eq('status', opts.status);
+    if (opts?.report_type) query = query.eq('report_type', opts.report_type);
     const { data, error } = await query.returns<BlogPostReport[]>();
     return { data: data ?? [], error };
 }
 
-// 확인(내부) → 추적글 생성 + 보고 confirmed. 크롤러가 이후 순위를 측정한다.
-//   같은 URL(쿼리 제외 기준)이 이미 추적 중이면 중복 생성하지 않고 기존 글에 연결(크롤 현황 오염 방지).
-export async function confirmReport(report: BlogPostReport, reviewerProfileId: string | null) {
+// (내부) 브랜드 블로그 계약 잔여 -1 + 진행처리 1건 · 외주비. 보고별 고유 week키(rpt-id)로 중복 계상 방지.
+async function bookContractCredit(report: BlogPostReport) {
+    const { data: accs } = await supabase
+        .from('blog_accounts')
+        .select('id,client_id,name')
+        .eq('id', report.blog_account_id);
+    const acc = (accs ?? [])[0] as { client_id?: string | null; name?: string | null } | undefined;
+    const clientId = acc?.client_id ?? null;
+    if (!clientId) return { processed: false, outUnit: 0, err: null as { message: string } | null };
+    let company = '';
+    const { data: cl } = await supabase.from('clients').select('company').eq('id', clientId);
+    company = ((cl ?? [])[0] as { company?: string } | undefined)?.company ?? '';
+    const outUnit = publishOutUnit(company);
+    const { data: contracts, error: cErr } = await getClientContracts(clientId);
+    if (cErr) return { processed: false, outUnit, err: cErr };
+    const sub = (ct: { subtype: string }) => ct.subtype.replace(/^상위노출 보장형 · /, '');
+    const blogs = contracts.filter((ct) => ct.category === '블로그');
+    const target =
+        (acc?.name ? blogs.find((ct) => (ct.blog_name || '') === acc.name) : undefined) ||
+        blogs.find((ct) => sub(ct) === '브랜드 블로그') ||
+        blogs.find((ct) => sub(ct) === '블로그') ||
+        (blogs.length === 1 ? blogs[0] : null);
+    if (!target) return { processed: false, outUnit, err: null };
+    // 이미 이 보고로 계상된 로그가 있으면(안전판) 재계상 금지.
+    const key = `rpt-${report.id}`;
+    if ((target.weekly_logs ?? []).some((l) => l.week === key)) return { processed: true, outUnit, err: null };
+    const goal = target.goal_count ?? 0;
+    const nextRemain = Math.max(0, (target.remain_count ?? goal) - 1);
+    const log: RewardWeeklyLog = {
+        at: new Date().toISOString().slice(0, 10),
+        count: 1,
+        note: `${report.report_type === 'publish' ? '발행' : '저장'} 승인: ${report.title || report.post_url}`,
+        outUnit,
+        paid: false,
+        tax: true,
+        vendor: '기자단',
+        week: key,
+    };
+    const { error: uErr } = await updateClientContract(target.id, {
+        remain_count: nextRemain,
+        unit_outsource: outUnit,
+        weekly_logs: [...(target.weekly_logs ?? []), log],
+    });
+    return { processed: !uErr, outUnit, err: uErr ?? null };
+}
+
+// 승인(회사) — pending 보고를 승인하면서 ① 추적글 생성 ② 계약 잔여 -1 + 외주비 1건을 딱 1회 처리.
+//   원자적 클레임(.eq status pending)으로 중복 승인/동시 클릭 시 카운트 이중 계상 방지. 저장·발행 둘 다 동일.
+export async function approveReport(report: BlogPostReport, reviewerProfileId: string | null) {
+    // 1) 원자적 클레임: pending → confirmed. 실제 1행을 바꾼 '이긴' 호출만 아래 처리.
+    const { data: claimed, error: claimErr } = await supabase
+        .from('blog_post_reports')
+        .update({ status: 'confirmed', reviewed_at: new Date().toISOString(), reviewed_by: reviewerProfileId })
+        .eq('id', report.id)
+        .eq('status', 'pending')
+        .select('id');
+    if (claimErr) return { error: claimErr, processed: false, outUnit: 0 };
+    if (!claimed || claimed.length === 0) return { error: null, processed: false, outUnit: 0 }; // 이미 승인됨
+
+    // 2) 추적글 생성(같은 URL 이미 추적 중이면 재사용) → blog_post_id 연결.
     const base = (report.post_url || '').split('?')[0];
     let postId: string | null = null;
     if (base) {
@@ -59,10 +131,10 @@ export async function confirmReport(report: BlogPostReport, reviewerProfileId: s
             .select('id,post_url')
             .eq('blog_account_id', report.blog_account_id);
         const hit = (existing ?? []).find((p) => (p.post_url || '').split('?')[0] === base);
-        if (hit) postId = (hit as { id: string }).id; // 이미 추적 중 → 재사용
+        if (hit) postId = (hit as { id: string }).id;
     }
     if (!postId) {
-        const { data: post, error: postErr } = await supabase
+        const { data: post } = await supabase
             .from('blog_posts')
             .insert({
                 blog_account_id: report.blog_account_id,
@@ -74,95 +146,32 @@ export async function confirmReport(report: BlogPostReport, reviewerProfileId: s
             })
             .select('id')
             .single();
-        if (postErr) return { error: postErr };
         postId = (post as { id?: string } | null)?.id ?? null;
     }
+    if (postId) {
+        await supabase.from('blog_post_reports').update({ blog_post_id: postId }).eq('id', report.id);
+    }
+
+    // 3) 계약 카운트 +1 · 외주비(중복 방지). 실패해도 승인은 유지 — 오류 표면화.
+    const { processed, outUnit, err } = await bookContractCredit(report);
+    return { error: err, processed, outUnit };
+}
+
+// 기자단 '발행' 처리 — 저장으로 보고한 글을 발행했을 때. report_type만 publish로 + published_at.
+//   계약/카운트는 승인 시 이미 1회 처리되므로 여기서는 재계상하지 않는다(중복 방지). RLS: 본인 보고만.
+export async function markPublished(reportId: string) {
     const { error } = await supabase
         .from('blog_post_reports')
-        .update({
-            status: 'confirmed',
-            reviewed_at: new Date().toISOString(),
-            reviewed_by: reviewerProfileId,
-            blog_post_id: postId,
-        })
-        .eq('id', report.id);
+        .update({ report_type: 'publish', published_at: new Date().toISOString() })
+        .eq('id', reportId)
+        .neq('status', 'rejected'); // 반려 건은 발행 이동 금지(재보고로 처리)
     return { error };
 }
 
-// 발행 완료(내부) — 승인(confirmed)된 보고를 '발행 완료'로 전환하면서:
-//   ① 그 블로그의 '브랜드 블로그' 계약 잔여 -1(카운트) ② 진행처리 히스토리에 1건 · 외주비(대박종합주방=10,000/그외 8,000) 추가.
-//   되돌리기 방지: 이미 published면 계약 처리 없이 통과. (계약은 client_contracts 단일 출처, 진행 이력=weekly_logs)
-export async function publishReport(report: BlogPostReport, reviewerProfileId: string | null) {
-    // 1) 원자적 클레임 — confirmed → published (동시/중복 클릭 방지). 이 update가 1행을 실제로 바꾼 '이긴' 호출만 계약을 처리.
-    //    .eq('status','confirmed')로 조건부 갱신하므로 두 번째 호출은 0행 → 중복 계상 없음.
-    const { data: claimed, error: claimErr } = await supabase
-        .from('blog_post_reports')
-        .update({ reviewed_at: new Date().toISOString(), reviewed_by: reviewerProfileId, status: 'published' })
-        .eq('id', report.id)
-        .eq('status', 'confirmed')
-        .select('id');
-    if (claimErr) return { error: claimErr, processed: false, outUnit: 0 };
-    if (!claimed || claimed.length === 0) return { error: null, processed: false, outUnit: 0 }; // 이미 처리됨/상태 아님
-
-    // 2) 블로그 계정 → client_id, 이름(다중 블로그 매칭용).
-    const { data: accs } = await supabase
-        .from('blog_accounts')
-        .select('id,client_id,name')
-        .eq('id', report.blog_account_id);
-    const acc = (accs ?? [])[0] as { client_id?: string | null; name?: string | null } | undefined;
-    const clientId = acc?.client_id ?? null;
-    // 3) 업체명 → 외주단가 판정(대박종합주방=10,000 / 그외 8,000).
-    let company = '';
-    if (clientId) {
-        const { data: cl } = await supabase.from('clients').select('company').eq('id', clientId);
-        company = ((cl ?? [])[0] as { company?: string } | undefined)?.company ?? '';
-    }
-    const outUnit = publishOutUnit(company);
-    // 4) 브랜드 블로그 계약 찾기 → 잔여 -1 + 진행처리 1건 + 외주단가를 outUnit으로 정렬(진행률/소진율 일치).
-    let processed = false;
-    let bookErr: { message: string } | null = null;
-    if (clientId) {
-        const { data: contracts, error: cErr } = await getClientContracts(clientId);
-        if (cErr) bookErr = cErr;
-        // 부스트 접두(상위노출 보장형 · )가 붙어도 브랜드블로그로 판정되게 접두 제거 후 매칭.
-        const sub = (ct: { subtype: string }) => ct.subtype.replace(/^상위노출 보장형 · /, '');
-        const blogs = contracts.filter((ct) => ct.category === '블로그');
-        const target =
-            (acc?.name ? blogs.find((ct) => (ct.blog_name || '') === acc.name) : undefined) ||
-            blogs.find((ct) => sub(ct) === '브랜드 블로그') ||
-            blogs.find((ct) => sub(ct) === '블로그') ||
-            (blogs.length === 1 ? blogs[0] : null); // 블로그 계약이 하나뿐이면 그걸로(단일 블로그 안전판)
-        if (target) {
-            const goal = target.goal_count ?? 0;
-            const nextRemain = Math.max(0, (target.remain_count ?? goal) - 1);
-            const log: RewardWeeklyLog = {
-                at: new Date().toISOString().slice(0, 10),
-                count: 1,
-                note: `발행완료: ${report.title || report.post_url}`,
-                outUnit,
-                paid: false,
-                tax: true,
-                vendor: '기자단',
-                week: `pub-${report.id}`, // 보고별 고유 키
-            };
-            const logs = [...(target.weekly_logs ?? []), log];
-            const { error: uErr } = await updateClientContract(target.id, {
-                remain_count: nextRemain,
-                unit_outsource: outUnit, // 계약 외주단가를 8,000/10,000으로 정렬 → totalOutsource·소진율 일치
-                weekly_logs: logs,
-            });
-            if (uErr) bookErr = uErr;
-            else processed = true;
-        }
-    }
-    // 오류가 있으면 표면화(조용한 미기록 방지). 상태는 이미 published라, 실패 시 계약 상세에서 수동 보정 필요.
-    return { error: bookErr, processed, outUnit };
-}
-
-// 재보고(기자단) — 반려된 본인 보고를 수정해 다시 검토중(pending)으로. RLS가 자기확인 방지.
+// 재보고(기자단) — 반려된 본인 보고를 수정해 다시 대기(pending)로. type/제목 유지·수정.
 export async function resubmitReport(
     id: string,
-    payload: { blog_account_id: string; post_url: string; keyword?: string | null; title?: string | null },
+    payload: { blog_account_id: string; post_url: string; keyword?: string | null; title: string; report_type: ReportType },
 ) {
     const { error } = await supabase
         .from('blog_post_reports')
@@ -170,7 +179,8 @@ export async function resubmitReport(
             blog_account_id: payload.blog_account_id,
             post_url: payload.post_url,
             keyword: payload.keyword ?? null,
-            title: payload.title ?? null,
+            title: payload.title,
+            report_type: payload.report_type,
             status: 'pending',
             note: null,
             reviewed_at: null,
@@ -181,7 +191,7 @@ export async function resubmitReport(
     return { error };
 }
 
-// 반려(내부).
+// 반려(회사).
 export async function rejectReport(id: string, reviewerProfileId: string | null, note?: string) {
     const { error } = await supabase
         .from('blog_post_reports')

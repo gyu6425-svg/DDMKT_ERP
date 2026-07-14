@@ -49,7 +49,7 @@ export default function NotificationBell() {
     if (!eligible) return
     const load = () => {
       if (myCats.length > 0) void getClientContracts().then(({ data }) => setContracts(data))
-      if (seeReports) void getReports('pending').then(({ data }) => setReportPending(data.length))
+      if (seeReports) void getReports({ status: 'pending' }).then(({ data }) => setReportPending(data.length))
     }
     load()
     window.addEventListener('app:navigate', load)

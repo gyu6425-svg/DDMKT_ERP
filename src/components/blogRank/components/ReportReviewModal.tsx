@@ -1,15 +1,9 @@
 import { useEffect, useState } from 'react';
-import {
-    confirmReport,
-    getReports,
-    publishReport,
-    rejectReport,
-    type BlogPostReport,
-} from '../../../api/blogPostReports';
+import { approveReport, getReports, rejectReport, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
 import { getReporters } from '../../../api/blogRank';
 
-// 기자단 발행 보고 승인 모달 — 기자단 이름 · 발행 주소 컬럼 + 우측 승인 버튼.
-//   승인 시 추적글(blog_posts) 생성 → 크롤러가 순위 측정. 반려도 가능.
+// 기자단 글 보고 승인 모달 — 저장/발행 승인 대기 2탭. 승인하면 추적글 생성 + 계약 잔여 -1(카운트) +
+//   진행처리 1건(외주비 8,000/대박종합주방 10,000)이 딱 1회 잡힌다(저장·발행 동일, 중복 방지).
 export function ReportReviewModal({
     reviewerProfileId,
     blogNameOf,
@@ -21,17 +15,17 @@ export function ReportReviewModal({
     onClose: () => void;
     onChanged?: () => void;
 }) {
-    const [tab, setTab] = useState<'pending' | 'confirmed'>('pending'); // 승인 대기 / 발행 대기
+    const [tab, setTab] = useState<ReportType>('save'); // 저장 승인 대기 / 발행 승인 대기
     const [reports, setReports] = useState<BlogPostReport[]>([]);
     const [names, setNames] = useState<Record<string, string>>({});
     const [busy, setBusy] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
-    const [rejectId, setRejectId] = useState<string | null>(null); // 반려 사유 입력 중인 보고
+    const [rejectId, setRejectId] = useState<string | null>(null);
     const [rejectReason, setRejectReason] = useState('');
 
     const load = () => {
         setLoading(true);
-        void Promise.all([getReports(tab), getReporters()]).then(([rep, reps]) => {
+        void Promise.all([getReports({ status: 'pending', report_type: tab }), getReporters()]).then(([rep, reps]) => {
             setReports(rep.data);
             const m: Record<string, string> = {};
             reps.data.forEach((r) => (m[r.id] = r.name || r.email));
@@ -41,9 +35,10 @@ export function ReportReviewModal({
     };
     useEffect(load, [tab]);
 
+    // 승인 — 추적글 등록 + 계약 카운트(+1/외주비) 딱 1회.
     const approve = async (r: BlogPostReport) => {
         setBusy(r.id);
-        const { error } = await confirmReport(r, reviewerProfileId);
+        const { error, processed, outUnit } = await approveReport(r, reviewerProfileId);
         setBusy(null);
         if (error) {
             alert('승인 실패: ' + error.message);
@@ -51,6 +46,11 @@ export function ReportReviewModal({
         }
         setReports((prev) => prev.filter((x) => x.id !== r.id));
         onChanged?.();
+        alert(
+            processed
+                ? `승인 완료 · 계약 1건 카운트(잔여 -1) + 외주비 ${outUnit.toLocaleString('ko-KR')}원 반영됨`
+                : '승인 완료(추적 등록). 연결된 브랜드 블로그 계약이 없어 카운트는 미반영',
+        );
     };
     const doReject = async (r: BlogPostReport) => {
         setBusy(r.id);
@@ -65,19 +65,6 @@ export function ReportReviewModal({
         setReports((prev) => prev.filter((x) => x.id !== r.id));
         onChanged?.();
     };
-    // 발행 완료 — 그 블로그의 브랜드 블로그 계약에 잔여 -1 + 진행처리 1건(외주비 8,000/대박종합주방 10,000).
-    const publish = async (r: BlogPostReport) => {
-        setBusy(r.id);
-        const { error, processed, outUnit } = await publishReport(r, reviewerProfileId);
-        setBusy(null);
-        if (error) {
-            alert('발행 완료 실패: ' + error.message);
-            return;
-        }
-        setReports((prev) => prev.filter((x) => x.id !== r.id));
-        onChanged?.();
-        alert(processed ? `발행 완료 · 진행처리 1건(외주비 ${outUnit.toLocaleString('ko-KR')}원) 반영됨` : '발행 완료(연결된 브랜드 블로그 계약이 없어 진행처리는 미반영)');
-    };
 
     const reporterName = (r: BlogPostReport) => (r.reporter_id ? names[r.reporter_id] || '기자단' : '기자단');
 
@@ -88,7 +75,7 @@ export function ReportReviewModal({
         >
             <div className="max-h-[88vh] w-[min(680px,96vw)] overflow-y-auto rounded-2xl bg-white p-6">
                 <div className="mb-3 flex items-center justify-between">
-                    <h3 className="m-0 text-lg font-bold text-[#0f172a]">기자단 발행 보고</h3>
+                    <h3 className="m-0 text-lg font-bold text-[#0f172a]">기자단 글 보고 승인</h3>
                     <button
                         className="rounded-md border border-[#cbd5e1] px-3 py-1 text-sm font-semibold text-[#64748b]"
                         onClick={onClose}
@@ -98,13 +85,13 @@ export function ReportReviewModal({
                     </button>
                 </div>
 
-                {/* 탭: 승인 대기(pending) / 발행 대기(confirmed) */}
+                {/* 탭: 저장 승인 대기 / 발행 승인 대기 (둘 다 pending) */}
                 <div className="mb-3 flex gap-1 border-b border-[#e2e8f0]">
                     {(
                         [
-                            ['pending', '승인 대기'],
-                            ['confirmed', '발행 대기'],
-                        ] as ['pending' | 'confirmed', string][]
+                            ['save', '저장 승인 대기'],
+                            ['publish', '발행 승인 대기'],
+                        ] as [ReportType, string][]
                     ).map(([k, label]) => (
                         <button
                             className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
@@ -123,17 +110,15 @@ export function ReportReviewModal({
                     <div className="py-12 text-center text-sm text-[#94a3b8]">불러오는 중...</div>
                 ) : reports.length === 0 ? (
                     <div className="py-12 text-center text-sm text-[#94a3b8]">
-                        {tab === 'pending' ? '승인 대기 중인 보고가 없습니다.' : '발행 대기(승인됨) 보고가 없습니다.'}
+                        {tab === 'save' ? '저장 승인 대기 보고가 없습니다.' : '발행 승인 대기 보고가 없습니다.'}
                     </div>
                 ) : (
                     <table className="w-full border-collapse text-left text-sm">
                         <thead>
                             <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
-                                <th className="px-3 py-2 font-semibold">기자단 이름</th>
-                                <th className="px-3 py-2 font-semibold">발행 주소</th>
-                                <th className="px-3 py-2 text-center font-semibold">
-                                    {tab === 'pending' ? '승인' : '발행 완료'}
-                                </th>
+                                <th className="px-3 py-2 font-semibold">기자단 · 블로그 · 제목</th>
+                                <th className="px-3 py-2 font-semibold">글 주소</th>
+                                <th className="px-3 py-2 text-center font-semibold">승인 / 반려</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -148,7 +133,7 @@ export function ReportReviewModal({
                                     </td>
                                     <td className="px-3 py-2">
                                         <a
-                                            className="block max-w-[280px] truncate text-[13px] text-[#7c3aed] hover:underline"
+                                            className="block max-w-[260px] truncate text-[13px] text-[#7c3aed] hover:underline"
                                             href={r.post_url}
                                             rel="noopener noreferrer"
                                             target="_blank"
@@ -158,18 +143,7 @@ export function ReportReviewModal({
                                         </a>
                                     </td>
                                     <td className="px-3 py-2">
-                                        {tab === 'confirmed' ? (
-                                            <div className="flex items-center justify-center">
-                                                <button
-                                                    className="rounded bg-[#059669] px-3 py-1 text-[12px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
-                                                    disabled={busy === r.id}
-                                                    onClick={() => void publish(r)}
-                                                    type="button"
-                                                >
-                                                    {busy === r.id ? '처리 중…' : '발행 완료'}
-                                                </button>
-                                            </div>
-                                        ) : rejectId === r.id ? (
+                                        {rejectId === r.id ? (
                                             <div className="flex items-center justify-end gap-1">
                                                 <input
                                                     autoFocus
@@ -181,7 +155,7 @@ export function ReportReviewModal({
                                                 />
                                                 <button
                                                     className="rounded bg-[#dc2626] px-2 py-1 text-[12px] font-bold text-white disabled:opacity-50"
-                                                    disabled={busy === r.id}
+                                                    disabled={busy !== null}
                                                     onClick={() => void doReject(r)}
                                                     type="button"
                                                 >
@@ -202,7 +176,7 @@ export function ReportReviewModal({
                                             <div className="flex items-center justify-center gap-1">
                                                 <button
                                                     className="rounded bg-[#1e40af] px-3 py-1 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
-                                                    disabled={busy === r.id}
+                                                    disabled={busy !== null}
                                                     onClick={() => void approve(r)}
                                                     type="button"
                                                 >
@@ -210,7 +184,7 @@ export function ReportReviewModal({
                                                 </button>
                                                 <button
                                                     className="rounded border border-[#fca5a5] px-2 py-1 text-[12px] font-semibold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
-                                                    disabled={busy === r.id}
+                                                    disabled={busy !== null}
                                                     onClick={() => {
                                                         setRejectId(r.id);
                                                         setRejectReason('');
@@ -228,9 +202,9 @@ export function ReportReviewModal({
                     </table>
                 )}
                 <p className="mt-3 mb-0 text-[11px] text-[#94a3b8]">
-                    {tab === 'pending'
-                        ? '승인하면 추적 글로 등록되어 다음 크롤에서 순위가 측정됩니다.'
-                        : '발행 완료하면 그 블로그의 브랜드 블로그 계약에 1건 카운트(잔여 -1) + 진행처리에 외주비 8,000원(대박종합주방 10,000원)이 기록됩니다.'}
+                    승인하면 추적 글로 등록되고, 그 블로그의 브랜드 블로그 계약에 <b>1건 카운트(잔여 -1)</b> + 진행처리 외주비
+                    8,000원(대박종합주방 10,000원)이 <b>1회</b> 기록됩니다. 저장·발행 모두 동일하며, 이미 승인된 건은
+                    다시 발행해도 중복 계상되지 않습니다.
                 </p>
             </div>
         </div>

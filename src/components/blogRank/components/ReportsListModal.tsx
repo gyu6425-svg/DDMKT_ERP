@@ -31,7 +31,7 @@ export function ReportsListModal({
 
     const load = () => {
         setLoading(true);
-        void getReports(status).then(({ data }) => {
+        void getReports({ status }).then(({ data }) => {
             setReports(data);
             setLoading(false);
         });
@@ -52,7 +52,8 @@ export function ReportsListModal({
             blog_account_id: reBlogId,
             post_url: reUrl.trim(),
             keyword: reKeyword.trim() || null,
-            title: r.title,
+            title: r.title ?? r.post_url,
+            report_type: r.report_type ?? 'save',
         });
         setReSaving(false);
         if (error) return onToast?.('재보고 실패: ' + error.message);
