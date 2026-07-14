@@ -11,6 +11,7 @@ import {
 import { useAuth } from '../../hooks/useAuth';
 import { SIDEBAR_CATEGORIES } from './categories';
 import { CONTAINER_SUBS } from '../../lib/products';
+import { downloadCsv, todayTag } from '../../lib/exportCsv';
 
 // 컨테이너 2차 하위 subtype('상위노출 보장형 · 영수증 리뷰' 등)에서 접두를 벗겨 실제 세부유형만 남김.
 //   서브시트 필터는 정확 일치라, 접두를 벗겨야 하위 계약이 해당 세부유형 시트에 노출됨. 일반 subtype은 그대로.
@@ -342,6 +343,28 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
 
     // 매출은 시트에 연동하지 않음(매출은 계약 관리에서만). 외주비만 참고로 표시.
     const totalOut = rows.reduce((s, r) => s + (r.ct.outsource || 0), 0);
+
+    // 현재 필터(년/월·검색·담당·탭)로 보이는 행을 엑셀(CSV)로 내보내기.
+    const exportExcel = () => {
+        const headers = ['업체', '거래처명', '카테고리', '세부유형', '계약일', '계약금액', '계약건수', '잔여', '진행률(%)', '총외주비', '소진외주비', '담당', '특이사항'];
+        const data = rows.map(({ ct, cl }) => [
+            cl.company || '',
+            cl.client_partner || '',
+            ct.category || '',
+            ct.subtype || '',
+            ct.contract_date || '',
+            ct.amount ?? '',
+            ct.goal_count ?? '',
+            ct.remain_count ?? '',
+            amountProgress(ct) ?? '',
+            totalOutsource(ct),
+            completedOutsource(ct),
+            cl.manager || '',
+            (ct.note || '').replace(/\s+/g, ' ').trim(),
+        ]);
+        const catLabel = rows[0]?.ct.category || '관리';
+        downloadCsv(`관리시트_${catLabel}_${todayTag()}`, headers, data);
+    };
     const showSub = !subtype;
     const showApprove = tab === 'new' && canManageSheet(category); // 담당 시트 권한자 + 신규 탭에서만 승인
     const dash = <span className="text-xs text-[#cbd5e1]">—</span>;
@@ -508,6 +531,15 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                 <span className="text-xs text-[#64748b]">
                     외주 <b className="text-[#dc2626]">{won(totalOut)}</b>
                 </span>
+                <button
+                    className="inline-flex h-9 items-center gap-1 rounded-md border border-[#059669] bg-white px-3 text-xs font-bold text-[#059669] hover:bg-[#ecfdf5] disabled:opacity-50"
+                    disabled={!rows.length}
+                    onClick={exportExcel}
+                    title="현재 목록을 엑셀(CSV)로 내려받기"
+                    type="button"
+                >
+                    ⬇ 엑셀
+                </button>
             </div>
 
             {/* 신규 등록 건(24h) / 계약 중 / 계약 종료 — 브랜드블로그 시트와 동일 탭 구성 */}

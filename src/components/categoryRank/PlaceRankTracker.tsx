@@ -14,6 +14,7 @@ import {
     type PlaceKeyword,
     type PlaceMeasurement,
 } from '../../api/placeRank';
+import { downloadCsv, todayTag } from '../../lib/exportCsv';
 
 // 플레이스 순위 트래커 — 업체(플레이스 URL)별 키워드의 날짜별 순위 표(애드로그류).
 //   순위 값은 크롤러(place_rank_crawler.py)가 매일 기록. 여기선 업체·키워드 등록/삭제 + 조회.
@@ -269,6 +270,32 @@ export function PlaceRankTracker() {
         ? accounts.filter((a) => (a.name || '').toLowerCase().includes(q.trim().toLowerCase()))
         : accounts;
 
+    // 업체×키워드별 최근 순위를 엑셀(CSV)로 내보내기.
+    const exportExcel = () => {
+        const headers = ['업체명', '검색 키워드', '최근 순위', '최근 측정일', '플레이스 URL'];
+        const data: (string | number)[][] = [];
+        for (const acc of shownAccounts) {
+            const kws = kwByAccount.get(acc.id) || [];
+            if (!kws.length) {
+                data.push([acc.name || '', '', '', '', acc.place_url || '']);
+                continue;
+            }
+            for (const k of kws) {
+                const ms = [...(k.measurements || [])].sort((a, b) => b.date.localeCompare(a.date));
+                const latest = ms[0];
+                const rank = !latest
+                    ? ''
+                    : latest.status === 'fail'
+                      ? '실패'
+                      : latest.status === 'out' || latest.rank >= 999
+                        ? '권외'
+                        : `${latest.rank}위`;
+                data.push([acc.name || '', k.keyword, rank, latest?.date || '', acc.place_url || '']);
+            }
+        }
+        downloadCsv(`플레이스_관리시트_${todayTag()}`, headers, data);
+    };
+
     if (loading) {
         return <div className="py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
     }
@@ -296,6 +323,15 @@ export function PlaceRankTracker() {
                     ) : null}
                 </div>
                 <div className="flex gap-1.5">
+                    <button
+                        className="rounded-md border border-[#059669] bg-white px-3 py-1.5 text-sm font-bold text-[#059669] hover:bg-[#ecfdf5] disabled:opacity-50"
+                        disabled={!shownAccounts.length}
+                        onClick={exportExcel}
+                        title="현재 목록을 엑셀(CSV)로 내려받기"
+                        type="button"
+                    >
+                        ⬇ 엑셀
+                    </button>
                     <button
                         className="rounded-md border border-[#1e40af] bg-white px-3 py-1.5 text-sm font-semibold text-[#1e40af] hover:bg-[#eef2ff] disabled:opacity-50"
                         disabled={busy}

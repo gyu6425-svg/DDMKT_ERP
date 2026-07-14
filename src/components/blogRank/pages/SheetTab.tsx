@@ -24,6 +24,7 @@ import { openBlogReport } from '../lib/report';
 import { ReportSelectModal } from '../components/ReportSelectModal';
 import { useAuth } from '../../../hooks/useAuth';
 import { getClients } from '../../../api/erp';
+import { downloadCsv, todayTag } from '../../../lib/exportCsv';
 
 export function SheetTab() {
     const {
@@ -229,6 +230,24 @@ export function SheetTab() {
         }
     };
 
+    // 현재 필터(탭·검색·담당·월)로 보이는 블로그를 엑셀(CSV)로 내보내기.
+    const TAB_LABEL: Record<string, string> = { active: '계약 중', new: '신규 등록', nourl: 'URL미입력', ext: '연장', hold: '보류', ended: '계약 종료' };
+    const exportExcel = () => {
+        const headers = ['업체', '거래처명', '발행 블로그 URL', '계약금액', '담당', '진행률(%)', '잔여', '상태', '특이사항'];
+        const data = filtered.map((a) => [
+            a.name || '',
+            partnerById[a.client_id || ''] || '',
+            a.blog_url || '',
+            amountTotal(a) || '',
+            a.manager || '',
+            progOf(a) ?? '',
+            a.remain_count ?? '',
+            TAB_LABEL[tabOf(a)] || '',
+            (a.note || '').replace(/\s+/g, ' ').trim(),
+        ]);
+        downloadCsv(`브랜드블로그_관리시트_${todayTag()}`, headers, data);
+    };
+
     return (
         <div className="grid gap-3">
             {/* 업체 추가 폼 — 고객 ERP에선 숨김(조회 전용) */}
@@ -290,6 +309,15 @@ export function SheetTab() {
                                 기자단 계정 관리
                             </button>
                         ) : null}
+                        <button
+                            className="inline-flex h-9 items-center rounded-md border border-[#059669] bg-white px-3 text-xs font-bold text-[#059669] hover:bg-[#ecfdf5] disabled:opacity-50"
+                            disabled={!filtered.length}
+                            onClick={exportExcel}
+                            title="현재 목록을 엑셀(CSV)로 내려받기"
+                            type="button"
+                        >
+                            ⬇ 엑셀
+                        </button>
                         <button
                             className="inline-flex h-9 items-center rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white"
                             onClick={() => setImportOpen(true)}
