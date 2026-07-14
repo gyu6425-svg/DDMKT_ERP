@@ -73,7 +73,7 @@ export function ReportReviewModal({
             className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4"
             onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
-            <div className="max-h-[88vh] w-[min(680px,96vw)] overflow-y-auto rounded-2xl bg-white p-6">
+            <div className="max-h-[88vh] w-[min(920px,96vw)] overflow-y-auto rounded-2xl bg-white p-6">
                 <div className="mb-3 flex items-center justify-between">
                     <h3 className="m-0 text-lg font-bold text-[#0f172a]">기자단 글 보고 승인</h3>
                     <button
@@ -133,7 +133,7 @@ export function ReportReviewModal({
                                     </td>
                                     <td className="px-3 py-2">
                                         <a
-                                            className="block max-w-[260px] truncate text-[13px] text-[#7c3aed] hover:underline"
+                                            className="block max-w-[420px] truncate text-[13px] text-[#7c3aed] hover:underline"
                                             href={r.post_url}
                                             rel="noopener noreferrer"
                                             target="_blank"
