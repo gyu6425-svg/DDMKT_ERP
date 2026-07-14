@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import ApiUsagePanel from '../components/ApiUsagePanel'
 import AdminUsersPanel from '../components/AdminUsersPanel'
+import PendingSignupsPanel from '../components/PendingSignupsPanel'
 import { useAuth } from '../hooks/useAuth'
 import { canManagePermissions } from '../lib/permissions'
 
 function AdminPage() {
     const { isAdmin, profile } = useAuth()
     const canUsers = canManagePermissions(profile?.email) // 사원 관리 = 김종인(대표)만
-    const [tab, setTab] = useState<'users' | 'api' | 'cafe'>(canUsers ? 'users' : 'api')
+    const [tab, setTab] = useState<'users' | 'signups' | 'api' | 'cafe'>(canUsers ? 'users' : 'api')
 
     if (!isAdmin) {
         return (
@@ -20,7 +21,8 @@ function AdminPage() {
         )
     }
 
-    const active = tab === 'users' && canUsers ? 'users' : tab === 'cafe' ? 'cafe' : 'api'
+    const active =
+        tab === 'users' && canUsers ? 'users' : tab === 'signups' ? 'signups' : tab === 'cafe' ? 'cafe' : 'api'
 
     return (
         <section className="min-h-[320px] rounded-[8px] border border-[#e5e7eb] bg-white p-8">
@@ -39,6 +41,17 @@ function AdminPage() {
                         사원 관리
                     </button>
                 ) : null}
+                <button
+                    className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
+                        active === 'signups'
+                            ? 'border-[#1e40af] text-[#1e40af]'
+                            : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
+                    }`}
+                    onClick={() => setTab('signups')}
+                    type="button"
+                >
+                    가입 승인
+                </button>
                 <button
                     className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
                         active === 'api'
@@ -65,6 +78,8 @@ function AdminPage() {
 
             {active === 'users' ? (
                 <AdminUsersPanel />
+            ) : active === 'signups' ? (
+                <PendingSignupsPanel />
             ) : active === 'cafe' ? (
                 <ApiUsagePanel scope="cafe" />
             ) : (

@@ -63,6 +63,16 @@ function LoginPage() {
                     <p className="text-center text-sm text-[#999999]">
                         초기 비밀번호는 아이디(이메일 앞부분)와 동일합니다. 로그인 후 변경하세요.
                     </p>
+                    <button
+                        className="text-center text-[15px] font-semibold text-[#666666] hover:text-[#ff5a00]"
+                        onClick={() => {
+                            window.history.pushState({}, '', '/signup');
+                            window.dispatchEvent(new PopStateEvent('popstate'));
+                        }}
+                        type="button"
+                    >
+                        고객·기자단 회원가입
+                    </button>
                 </form>
 
                 {!hasSupabaseConfig ? (

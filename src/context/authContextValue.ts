@@ -7,6 +7,7 @@ export type AuthContextValue = {
   isAdmin: boolean
   loading: boolean
   profile: Profile | null
+  pending: boolean // 로그인됐으나 프로필이 비활성(회원가입 후 관리자 승인 대기)
   session: Session | null
   signOut: () => Promise<void>
   user: User | null

@@ -22,6 +22,8 @@ export type Profile = {
     sheet_categories?: string[] | null; // 담당 카테고리 시트(블로그/영상 등)
     must_change_password?: boolean | null; // 첫 로그인 시 비밀번호 변경 강제(초기 비번=아이디)
     client_id: string | null; // 고객 계정 → 본인 업체(clients.id). 내부 직원은 null.
+    signup_company?: string | null; // 회원가입 시 입력한 업체명(관리자 승인 매칭용)
+    signup_biz_no?: string | null; // 회원가입 시 입력한 사업자등록번호
     department: string | null;
     position: string | null;
     phone: string | null;

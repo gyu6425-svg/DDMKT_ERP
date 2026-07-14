@@ -28,6 +28,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [pending, setPending] = useState(false) // 프로필 비활성(회원가입 승인 대기)
   const [session, setSession] = useState<Session | null>(null)
   // 개발용 역할 시뮬레이터 — auth 켜기 전까지 각 역할로 UI 게이팅 테스트.
   const [simKey, setSimKeyState] = useState<string | null>(readRoleSim)
@@ -43,12 +44,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
       user.user_metadata?.role,
     ].filter((role): role is string => typeof role === 'string')
 
-    const { data: profileData } = await supabase
+    // 프로필은 활성 여부와 무관하게 읽는다(RLS 'profiles self read'로 본인 행 열람 가능).
+    //   비활성(is_active=false) = 회원가입 후 승인 대기 → grant/역할엔 쓰지 않고 pending 으로만 표시.
+    const { data: profileRow } = await supabase
       .from('profiles')
       .select('*')
       .eq('user_id', userId)
-      .eq('is_active', true)
       .maybeSingle<Profile>()
+    const profileData = profileRow?.is_active ? profileRow : null
+    setPending(!!profileRow && !profileRow.is_active)
 
     if (profileData?.role) {
       roles.push(profileData.role)
@@ -104,6 +108,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } else {
       setProfile(null)
       setIsAdmin(false)
+      setPending(false)
     }
 
     setLoading(false)
@@ -172,6 +177,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAdmin: grant.role === 'admin',
       loading,
       profile,
+      pending,
       session,
       signOut,
       user: session?.user ?? null,
@@ -183,7 +189,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       simKey,
       setSimKey,
     }),
-    [grant, loading, profile, session, signOut, simKey, setSimKey],
+    [grant, loading, profile, pending, session, signOut, simKey, setSimKey],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -12,6 +12,8 @@ import ClientsPage from './routes/ClientsPage';
 import DashboardPage from './routes/DashboardPage';
 import BannerGeneratorPage from './routes/BannerGeneratorPage';
 import LoginPage from './routes/LoginPage';
+import SignupPage from './routes/SignupPage';
+import PendingApprovalGate from './components/PendingApprovalGate';
 import MemosPage from './routes/MemosPage';
 import MyPage from './routes/MyPage';
 import PowerLinkPage from './routes/PowerLinkPage';
@@ -61,7 +63,7 @@ const routes = [
 
 function App() {
     const [currentPath, setCurrentPath] = useState(window.location.pathname);
-    const { role, loading } = useAuth();
+    const { role, loading, pending } = useAuth();
     // 고객(viewer) = 고객 포털(/portal)만. 기자단(reporter) = 기자단 포털(/reporter)만. 회사 ERP 경로 차단.
     const isCustomer = role === 'viewer';
     const isReporter = role === 'reporter';
@@ -96,6 +98,25 @@ function App() {
             <>
                 <UpdateBanner />
                 <LoginPage />
+            </>
+        );
+    }
+
+    if (currentPath === '/signup') {
+        return (
+            <>
+                <UpdateBanner />
+                <SignupPage />
+            </>
+        );
+    }
+
+    // 회원가입 후 승인 대기(프로필 비활성) — 데이터 접근 차단, 승인 대기 화면만.
+    if (!loading && pending) {
+        return (
+            <>
+                <UpdateBanner />
+                <PendingApprovalGate />
             </>
         );
     }
