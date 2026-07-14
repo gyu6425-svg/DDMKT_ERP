@@ -38,17 +38,28 @@ export async function createReport(payload: {
     report_type: ReportType;
     keyword?: string | null;
 }) {
-    // 같은 블로그+같은 글(URL)을 이미 보고했으면 새 행을 만들지 않고 그 행을 갱신한다.
-    //   → 저장으로 보고한 글을 '발행으로 보고'해도 저장/발행 두 행으로 쌓이지 않고(이중 카운트도 방지)
-    //     한 행이 발행으로 이동한다(승인 시 week키 rpt-<id> 동일 → 재계상 없음).
+    // 같은 블로그에 같은 글(제목 동일 또는 URL 동일)을 이미 보고했는지 확인한다.
+    //   · 같은 구분(저장/발행)으로 또 보고 = 진짜 중복 → 새로 만들지 않고 duplicate 신호(UI: '이미 등록한 글').
+    //   · 구분이 바뀌면(저장→발행) 그 행을 이동시킨다(두 행으로 쌓이지 않게 · 승인 week키 rpt-<id> 동일 → 재계상 없음).
+    //   · 반려됐던 건을 다시 보고하면 검토 대기로 되돌린다(재보고).
     const base = (payload.post_url || '').split('?')[0];
+    const titleKey = (payload.title || '').trim();
     const { data: dupes } = await supabase
         .from('blog_post_reports')
         .select('*')
         .eq('blog_account_id', payload.blog_account_id)
         .returns<BlogPostReport[]>();
-    const dup = (dupes ?? []).find((r) => (r.post_url || '').split('?')[0] === base);
+    const dup = (dupes ?? []).find(
+        (r) =>
+            (!!base && (r.post_url || '').split('?')[0] === base) ||
+            (!!titleKey && (r.title || '').trim() === titleKey),
+    );
     if (dup) {
+        const sameType = (dup.report_type ?? 'save') === payload.report_type;
+        // 같은 구분 + 반려 아님 = 이미 등록된 글(중복). 아무것도 바꾸지 않고 알림만.
+        if (sameType && dup.status !== 'rejected') {
+            return { data: [dup], error: null, duplicate: true };
+        }
         const patch: Record<string, unknown> = {
             report_type: payload.report_type,
             title: payload.title,
@@ -57,7 +68,6 @@ export async function createReport(payload: {
             published_at:
                 payload.report_type === 'publish' ? (dup.published_at ?? new Date().toISOString()) : dup.published_at,
         };
-        // 반려됐던 건을 다시 보고하면 검토 대기로 되돌린다(재보고와 동일).
         if (dup.status === 'rejected') {
             patch.status = 'pending';
             patch.note = null;
@@ -71,7 +81,7 @@ export async function createReport(payload: {
             .eq('id', dup.id)
             .select()
             .returns<BlogPostReport[]>();
-        return { data: data ?? [], error };
+        return { data: data ?? [], error, duplicate: false };
     }
 
     const { data, error } = await supabase
@@ -87,14 +97,16 @@ export async function createReport(payload: {
         })
         .select()
         .returns<BlogPostReport[]>();
-    return { data: data ?? [], error };
+    return { data: data ?? [], error, duplicate: false };
 }
 
-// 보고 목록 — 내부는 전체(status/type 필터), 기자단은 RLS로 본인 것만.
-export async function getReports(opts?: { status?: ReportStatus; report_type?: ReportType }) {
+// 보고 목록 — 내부는 전체(status/type 필터), 기자단은 RLS로 본인 것만, 고객은 RLS로 자기 업체 블로그만.
+//   blog_account_id 지정 시 특정 블로그 보고만(성과 모달의 '저장,발행 성과' 히스토리용).
+export async function getReports(opts?: { status?: ReportStatus; report_type?: ReportType; blog_account_id?: string }) {
     let query = supabase.from('blog_post_reports').select('*').order('created_at', { ascending: false });
     if (opts?.status) query = query.eq('status', opts.status);
     if (opts?.report_type) query = query.eq('report_type', opts.report_type);
+    if (opts?.blog_account_id) query = query.eq('blog_account_id', opts.blog_account_id);
     const { data, error } = await query.returns<BlogPostReport[]>();
     return { data: data ?? [], error };
 }

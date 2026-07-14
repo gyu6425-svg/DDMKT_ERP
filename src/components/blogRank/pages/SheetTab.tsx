@@ -21,7 +21,7 @@ import { ImportModal } from '../components/ImportModal';
 import { NoteModal } from '../components/NoteModal';
 import { ProgressModal } from '../components/ProgressModal';
 import { openBlogReport } from '../lib/report';
-import { ReportSelectModal } from '../components/ReportSelectModal';
+import { BlogPerformanceModal } from '../components/BlogPerformanceModal';
 import { useAuth } from '../../../hooks/useAuth';
 import { getClients } from '../../../api/erp';
 import { downloadCsv, todayTag } from '../../../lib/exportCsv';
@@ -469,6 +469,8 @@ export function SheetTab() {
                                     <th className="px-3 py-2 text-center font-semibold">관리</th>
                                 </>
                             )}
+                            {/* 고객 뷰: 맨 뒤 성과 컬럼(저장,발행 성과 + 순위 성과) */}
+                            {customerMode && <th className="px-3 py-2 text-center font-semibold">성과</th>}
                         </tr>
                     </thead>
                     <tbody>
@@ -805,12 +807,25 @@ export function SheetTab() {
                                         </td>
                                             </>
                                         )}
+                                        {/* 고객 뷰: 맨 뒤 성과 버튼 → 저장,발행 성과 + 순위 성과 모달 */}
+                                        {customerMode && (
+                                            <td className="px-3 py-2 text-center">
+                                                <button
+                                                    className="rounded bg-[#1e40af] px-3 py-1 text-[11px] font-semibold text-white hover:bg-[#1e3a8a]"
+                                                    onClick={() => setReportAcc(a)}
+                                                    title="저장·발행 성과와 순위 성과 보기"
+                                                    type="button"
+                                                >
+                                                    성과
+                                                </button>
+                                            </td>
+                                        )}
                                     </tr>
                                 );
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={customerMode ? 7 : reporterMode ? 11 : 14}>
+                                <td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={customerMode ? 8 : reporterMode ? 11 : 14}>
                                     등록된 블로그가 없습니다 · '시트 붙여넣기 등록'으로 추가하세요
                                 </td>
                             </tr>
@@ -932,7 +947,7 @@ export function SheetTab() {
                 />
             ) : null}
             {reportAcc ? (
-                <ReportSelectModal
+                <BlogPerformanceModal
                     account={reportAcc}
                     posts={postCountOf(reportAcc.id)}
                     onClose={() => setReportAcc(null)}

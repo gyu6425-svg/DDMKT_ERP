@@ -69,7 +69,7 @@ function ReportSubmitTab() {
         if (!title.trim()) return showToast('제목을 입력하세요(필수)');
         if (!profile?.id) return showToast('계정 정보를 확인할 수 없습니다');
         setSaving(type);
-        const { error } = await createReport({
+        const { error, duplicate } = await createReport({
             blog_account_id: blogId,
             reporter_id: profile.id,
             post_url: url.trim(),
@@ -79,6 +79,13 @@ function ReportSubmitTab() {
         });
         setSaving(null);
         if (error) return showToast('보고 실패: ' + error.message);
+        // 같은 제목/URL을 같은 구분으로 이미 보고한 글 → 중복 등록 방지 알림.
+        if (duplicate) {
+            setHistTab(type);
+            showToast('이미 등록한 글입니다 · 제목이 동일한 보고가 있어요');
+            loadMine();
+            return;
+        }
         setUrl('');
         setTitle('');
         setKeyword('');
