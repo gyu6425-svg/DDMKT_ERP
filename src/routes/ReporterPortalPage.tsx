@@ -395,9 +395,6 @@ function SettlementTab() {
                         <b className="text-[#1e40af]">{total.toLocaleString('ko-KR')}원</b> · {rows.length}건
                     </div>
                 </div>
-                <p className="mt-1 mb-0 text-xs text-[#94a3b8]">
-                    회사에서 <b>승인</b>한 글에 대해 건당 외주비(8,000원 · 대박종합주방 10,000원)가 자동으로 쌓입니다.
-                </p>
             </div>
             <div className="overflow-hidden rounded-xl border border-[#e2e8f0] bg-white">
                 <table className="w-full text-left text-sm">
