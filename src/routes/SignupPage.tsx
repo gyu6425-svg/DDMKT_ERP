@@ -31,13 +31,14 @@ function SignupPage() {
         if (!login.trim()) return setError('아이디를 입력하세요.');
         if (password.length < 6) return setError('비밀번호는 6자 이상이어야 합니다.');
         if (password !== password2) return setError('비밀번호가 일치하지 않습니다.');
-        if (!name.trim()) return setError('이름(담당자명)을 입력하세요.');
+        if (role === 'reporter' && !name.trim()) return setError('이름을 입력하세요.');
         if (role === 'viewer' && !company.trim()) return setError('업체명을 입력하세요.');
         setLoading(true);
         const { ok, error: err } = await requestSignup({
             login: login.trim(),
             password,
-            name: name.trim(),
+            // 고객은 담당자명 없이 업체명을 표시 이름으로 사용.
+            name: role === 'viewer' ? company.trim() : name.trim(),
             role,
             company: company.trim() || undefined,
             bizNo: bizNo.trim() || undefined,
@@ -119,12 +120,15 @@ function SignupPage() {
                             type="password"
                             value={password2}
                         />
-                        <input
-                            className={inputClass}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder={role === 'reporter' ? '이름' : '담당자명'}
-                            value={name}
-                        />
+                        {/* 이름 — 기자단만(고객은 업체명을 이름으로 사용) */}
+                        {role === 'reporter' ? (
+                            <input
+                                className={inputClass}
+                                onChange={(e) => setName(e.target.value)}
+                                placeholder="이름"
+                                value={name}
+                            />
+                        ) : null}
                         {role === 'viewer' ? (
                             <>
                                 <input
