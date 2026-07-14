@@ -2668,8 +2668,21 @@ export function ClientDetail({
                         <span className="ml-2 text-xs font-semibold text-[#94a3b8]">업체명 ✎</span>
                     </h2>
                     <div className="mt-0.5 text-sm font-semibold text-[#64748b]">
-                        {client.client_partner || '—'}
-                        <span className="ml-2 text-xs font-normal text-[#94a3b8]">거래처명</span>
+                        <button
+                            className="-mx-1 rounded px-1 text-left hover:bg-[#f1f5f9]"
+                            onClick={() =>
+                                setEditField({
+                                    label: '거래처명',
+                                    patchKey: 'client_partner',
+                                    value: client.client_partner || '',
+                                })
+                            }
+                            title="클릭해서 거래처명 수정"
+                            type="button"
+                        >
+                            {client.client_partner || '—'}
+                        </button>
+                        <span className="ml-2 text-xs font-normal text-[#94a3b8]">거래처명 ✎</span>
                     </div>
                 </div>
                 <div className="flex-1" />
