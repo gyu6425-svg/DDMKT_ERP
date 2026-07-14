@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { getReports, resubmitReport, type BlogPostReport } from '../../../api/blogPostReports';
+import { useEffect, useMemo, useState } from 'react';
+import { getReports, resubmitReport, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
 
 // 기자단 보고 목록 모달(기자단 뷰) — status 없으면 전체(보고한 글), 'rejected'면 반려만.
 //   반려 건은 '재보고' 버튼으로 블로그/주소/키워드 수정 후 다시 검토중으로 전송.
@@ -22,6 +22,10 @@ export function ReportsListModal({
 }) {
     const [reports, setReports] = useState<BlogPostReport[]>([]);
     const [loading, setLoading] = useState(true);
+    // 저장/발행 탭 + 블로그별 필터 — '보고한 글'(status 없음)에서만. 반려 목록은 단순 리스트.
+    const useTabs = !status;
+    const [typeTab, setTypeTab] = useState<ReportType>('save');
+    const [blogFilter, setBlogFilter] = useState('all');
     // 재보고
     const [reId, setReId] = useState<string | null>(null);
     const [reBlogId, setReBlogId] = useState('');
@@ -37,6 +41,19 @@ export function ReportsListModal({
         });
     };
     useEffect(load, [status]);
+
+    const typeOf = (r: BlogPostReport): ReportType => r.report_type ?? 'save';
+    const nSave = reports.filter((r) => typeOf(r) === 'save').length;
+    const nPub = reports.filter((r) => typeOf(r) === 'publish').length;
+    const filtered = useMemo(
+        () =>
+            useTabs
+                ? reports.filter(
+                      (r) => typeOf(r) === typeTab && (blogFilter === 'all' || r.blog_account_id === blogFilter),
+                  )
+                : reports,
+        [reports, useTabs, typeTab, blogFilter],
+    );
 
     const startRe = (r: BlogPostReport) => {
         setReId(r.id);
@@ -88,13 +105,57 @@ export function ReportsListModal({
                         닫기
                     </button>
                 </div>
+                {/* 저장/발행 탭 + 블로그별 필터 — 글 보고 하단(내 보고 내역)과 동일 */}
+                {useTabs ? (
+                    <>
+                        <div className="mb-2 flex gap-1 border-b border-[#e2e8f0]">
+                            {(
+                                [
+                                    ['save', `저장 (${nSave})`],
+                                    ['publish', `발행 (${nPub})`],
+                                ] as [ReportType, string][]
+                            ).map(([k, label]) => (
+                                <button
+                                    className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
+                                        typeTab === k
+                                            ? 'border-[#1e40af] text-[#1e40af]'
+                                            : 'border-transparent text-[#94a3b8]'
+                                    }`}
+                                    key={k}
+                                    onClick={() => setTypeTab(k)}
+                                    type="button"
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                        {accounts.length > 1 ? (
+                            <div className="mb-3 flex flex-wrap gap-1.5">
+                                {[{ id: 'all', name: '전체' }, ...accounts].map((a) => (
+                                    <button
+                                        className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                                            blogFilter === a.id
+                                                ? 'border-[#1e40af] bg-[#1e40af] text-white'
+                                                : 'border-[#cbd5e1] bg-white text-[#475569]'
+                                        }`}
+                                        key={a.id}
+                                        onClick={() => setBlogFilter(a.id)}
+                                        type="button"
+                                    >
+                                        {a.name}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
+                    </>
+                ) : null}
                 {loading ? (
                     <div className="py-12 text-center text-sm text-[#94a3b8]">불러오는 중...</div>
-                ) : reports.length === 0 ? (
+                ) : filtered.length === 0 ? (
                     <div className="py-12 text-center text-sm text-[#94a3b8]">해당하는 글이 없습니다.</div>
                 ) : (
                     <div className="grid gap-2">
-                        {reports.map((r) => {
+                        {filtered.map((r) => {
                             const c = chip(r.status);
                             const editing = reId === r.id;
                             return (

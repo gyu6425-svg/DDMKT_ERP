@@ -6,9 +6,10 @@ import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { useAuth } from '../hooks/useAuth';
 import { useAsParam } from './CustomerCategoryPage';
-import { createReport, getReports, markPublished, resubmitReport, type BlogPostReport, type ReportType } from '../api/blogPostReports';
+import { createReport, getReports, markPublished, publishOutUnit, resubmitReport, type BlogPostReport, type ReportType } from '../api/blogPostReports';
+import { getReporters } from '../api/blogRank';
 
-type RTab = 'dashboard' | 'sheet' | 'tracker' | 'report';
+type RTab = 'dashboard' | 'sheet' | 'tracker' | 'report' | 'settlement';
 
 // 기자단 글 보고 탭 — 본인 담당 블로그에 쓴 글 URL을 보고. 내부(김다영 등)에게 알림이 감.
 function ReportSubmitTab() {
@@ -348,18 +349,114 @@ function ReportSubmitTab() {
     );
 }
 
+// 정산 내역 탭 — 회사가 '승인'해 확정된 보고 = 외주비(건당 8,000원, 대박종합주방 10,000)가 쌓인 내역.
+//   컬럼: 성함 · 업체 · 글 제목 · 금액. (회차 n/n은 진행률 기준으로 추후 반영) 읽기 전용.
+function SettlementTab() {
+    const { accounts } = useBlogRank();
+    const { profile } = useAuth();
+    const [rows, setRows] = useState<BlogPostReport[]>([]);
+    const [names, setNames] = useState<Record<string, string>>({});
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let alive = true;
+        setLoading(true);
+        void Promise.all([getReports(), getReporters()]).then(([rep, reps]) => {
+            if (!alive) return;
+            // 승인 확정(= 외주비 계상됨)만: confirmed(현행) / published(구 데이터).
+            setRows(rep.data.filter((r) => r.status === 'confirmed' || r.status === 'published'));
+            const m: Record<string, string> = {};
+            reps.data.forEach((r) => (m[r.id] = r.name || r.email));
+            setNames(m);
+            setLoading(false);
+        });
+        return () => {
+            alive = false;
+        };
+    }, []);
+
+    const companyOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
+    const reporterName = (r: BlogPostReport) =>
+        (r.reporter_id ? names[r.reporter_id] : null) || profile?.name || '기자단';
+    const amountOf = (r: BlogPostReport) => publishOutUnit(companyOf(r.blog_account_id));
+    const total = rows.reduce((s, r) => s + amountOf(r), 0);
+
+    return (
+        <div className="grid gap-3">
+            <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
+                <div className="flex items-center justify-between">
+                    <div className="text-sm font-bold text-[#0f172a]">정산 내역</div>
+                    <div className="text-sm text-[#64748b]">
+                        누적 외주비{' '}
+                        <b className="text-[#1e40af]">{total.toLocaleString('ko-KR')}원</b> · {rows.length}건
+                    </div>
+                </div>
+                <p className="mt-1 mb-0 text-xs text-[#94a3b8]">
+                    회사에서 <b>승인</b>한 글에 대해 건당 외주비(8,000원 · 대박종합주방 10,000원)가 자동으로 쌓입니다.
+                </p>
+            </div>
+            <div className="overflow-hidden rounded-xl border border-[#e2e8f0] bg-white">
+                <table className="w-full text-left text-sm">
+                    <thead>
+                        <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
+                            <th className="px-4 py-2 font-semibold">성함</th>
+                            <th className="px-4 py-2 font-semibold">업체</th>
+                            <th className="px-4 py-2 font-semibold">글 제목</th>
+                            <th className="px-4 py-2 text-right font-semibold">금액</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading ? (
+                            <tr>
+                                <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={4}>
+                                    불러오는 중…
+                                </td>
+                            </tr>
+                        ) : rows.length ? (
+                            rows.map((r) => (
+                                <tr className="border-b border-[#f1f5f9] last:border-b-0" key={r.id}>
+                                    <td className="px-4 py-2 font-semibold text-[#334155]">{reporterName(r)}</td>
+                                    <td className="px-4 py-2 text-[#475569]">{companyOf(r.blog_account_id)}</td>
+                                    <td className="max-w-[320px] truncate px-4 py-2 text-[#475569]">
+                                        {r.title || '제목 없음'}
+                                    </td>
+                                    <td className="whitespace-nowrap px-4 py-2 text-right font-bold text-[#1e40af]">
+                                        {amountOf(r).toLocaleString('ko-KR')}원
+                                    </td>
+                                </tr>
+                            ))
+                        ) : (
+                            <tr>
+                                <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={4}>
+                                    아직 승인되어 정산된 글이 없습니다.
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
 // 기자단 ERP 포털 — 본인 담당 블로그만(RLS 스코프) 읽기전용 + 글 보고.
 function ReporterShell() {
     const { accounts, posts, loading, error, reload, toastMsg, tab, goTab } = useBlogRank();
-    // 대시보드/내블로그/순위는 context tab 사용(대시보드 KPI 클릭 네비게이션이 먹히도록). 글 보고는 별도 플래그.
-    const [reportMode, setReportMode] = useState(false);
-    const active: RTab = reportMode ? 'report' : tab === 'sheet' ? 'sheet' : tab === 'tracker' ? 'tracker' : 'dashboard';
+    // 대시보드/내블로그/순위는 context tab 사용(대시보드 KPI 클릭 네비게이션이 먹히도록). 글 보고·정산 내역은 별도 플래그.
+    const [extraTab, setExtraTab] = useState<'report' | 'settlement' | null>(null);
+    const active: RTab = extraTab
+        ? extraTab
+        : tab === 'sheet'
+          ? 'sheet'
+          : tab === 'tracker'
+            ? 'tracker'
+            : 'dashboard';
     const select = (key: RTab) => {
-        if (key === 'report') {
-            setReportMode(true);
+        if (key === 'report' || key === 'settlement') {
+            setExtraTab(key);
             return;
         }
-        setReportMode(false);
+        setExtraTab(null);
         goTab(key as Tab);
     };
 
@@ -398,6 +495,7 @@ function ReporterShell() {
                         ['sheet', '내 블로그'],
                         ['tracker', '순위 트래커'],
                         ['report', '글 보고'],
+                        ['settlement', '정산 내역'],
                     ] as const
                 ).map(([key, label]) => (
                     <button
@@ -417,6 +515,7 @@ function ReporterShell() {
             {active === 'sheet' ? <SheetTab /> : null}
             {active === 'tracker' ? <TrackerTab /> : null}
             {active === 'report' ? <ReportSubmitTab /> : null}
+            {active === 'settlement' ? <SettlementTab /> : null}
 
             {toastMsg ? (
                 <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-medium text-white shadow-lg">
