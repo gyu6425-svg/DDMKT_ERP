@@ -11,7 +11,7 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
         subs: ['영수증 리뷰', '플레이스 리워드', '플레이스용 블로그 배포', '상위노출 보장형'],
     },
     { key: 'insta', label: '인스타', path: '/insta-rank', ready: false, subs: ['브랜드 인스타', '인스타 배포'] },
-    { key: 'cafe', label: '카페', path: '/cafe-rank', ready: false, subs: ['맘카페'] },
+    { key: 'cafe', label: '카페', path: '/cafe-rank', ready: false, subs: ['브랜드 카페', '맘카페'] },
     {
         key: 'shopping',
         label: '쇼핑',
