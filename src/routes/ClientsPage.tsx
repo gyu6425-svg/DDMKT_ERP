@@ -36,9 +36,6 @@ import {
     todayStr,
 } from '../lib/erpUtils';
 
-// 문의 추가 '우리 담당자' 드롭다운 — 우선 2명만.
-const OUR_MANAGERS = ['김종인', '송민경'];
-
 const FAVS_KEY = 'erp_favs';
 // 계약완료로 막 넘어온 '신규건' — localStorage에 완료 시각 기록, 24시간 동안 계약 관리에서 강조·상단 고정.
 const NEW_KEY = 'erp_new_contracts';
@@ -309,9 +306,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     // 붙여넣기 → 자동 채우기: 업체명·담당자·연락처·이메일은 칸에, 마케팅상품·광고예산·문의내용은 히스토리로.
     const applyPaste = () => {
         const p = parsePaste(pasteText);
-        // 광고예산·문의내용(긴 글)은 히스토리로. 마케팅상품은 상품 칸으로.
+        // 문의내용(긴 글)은 히스토리로. 마케팅상품→상품 칸, 광고예산→광고예산 칸, 담당자명→업체 담당자.
         const hist: string[] = [];
-        if (p.budget) hist.push(`광고예산: ${p.budget}`);
         if (p.inquiry) hist.push(p.inquiry);
         setForm((f) => ({
             ...f,
@@ -321,6 +317,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             email: p.email || f.email,
             source: p.source || f.source,
             product: p.product || f.product,
+            budget: p.budget || f.budget,
             historyText: hist.join('\n') || f.historyText,
         }));
         setEntryMode('guide'); // 채운 뒤 가이드로 전환해 확인·수정
@@ -1269,7 +1266,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">⭐</th>
-                            <th className="px-3 py-2 font-semibold">담당자</th>
+                            {contractsOnly ? <th className="px-3 py-2 font-semibold">담당자</th> : null}
                             <th className="px-3 py-2 font-semibold">업체명</th>
                             {contractsOnly ? (
                                 <th className="min-w-[280px] px-3 py-2 font-semibold">상품</th>
@@ -1295,6 +1292,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     등록일 {dateSort === 'asc' ? '▲' : dateSort === 'desc' ? '▼' : '↕'}
                                 </button>
                             </th>
+                            {!contractsOnly ? <th className="px-3 py-2 font-semibold">광고 예산</th> : null}
                             <th className="px-3 py-2 font-semibold">액션</th>
                         </tr>
                     </thead>
@@ -1373,7 +1371,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                 {favs.includes(c.id) ? '⭐' : '☆'}
                                             </button>
                                         </td>
-                                        <td className="px-3 py-2 font-semibold">{c.manager}</td>
+                                        {contractsOnly ? (
+                                            <td className="px-3 py-2 font-semibold">{c.manager}</td>
+                                        ) : null}
                                         <td className="px-3 py-2">
                                             {(contractsOnly ? !!c.contract_approved : c.status === DONE_STATUS) ? (
                                                 <button
@@ -1651,6 +1651,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                 value={/^\d{4}-\d{2}-\d{2}$/.test(dt) ? dt : ''}
                                             />
                                         </td>
+                                        {!contractsOnly ? (
+                                            <td className="px-3 py-2 text-xs text-[#64748b]">
+                                                {c.budget || '--'}
+                                            </td>
+                                        ) : null}
                                         <td className="px-3 py-2">
                                             <div className="flex gap-1 whitespace-nowrap">
                                                 {contractsOnly && !c.contract_approved && can(DUTIES.CONTRACT_APPROVE) ? (
@@ -1783,37 +1788,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
 
                         {/* 가이드 입력 — 고정 라벨 옆 칸에 값 입력(블로그 대시보드와 동일 방식) */}
                         <div className={`grid gap-2 ${!editId && entryMode === 'paste' ? 'hidden' : ''}`}>
-                            {/* 담당자(우리 담당자) : 드롭다운 — 김종인·송민경 2명. 기존값이 다르면 그 값도 유지 */}
-                            <div className="flex items-center gap-2">
-                                <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
-                                    담당자 :
-                                </span>
-                                <select
-                                    className="erp-input w-full min-w-0"
-                                    onChange={(event) => updateField('manager', event.target.value)}
-                                    value={form.manager}
-                                >
-                                    <option value="">담당자 선택</option>
-                                    {OUR_MANAGERS.map((m) => (
-                                        <option key={m}>{m}</option>
-                                    ))}
-                                    {form.manager && !OUR_MANAGERS.includes(form.manager) ? (
-                                        <option value={form.manager}>{form.manager}</option>
-                                    ) : null}
-                                </select>
-                            </div>
-                            {/* 문의 경로 : 직접 입력 */}
-                            <div className="flex items-center gap-2">
-                                <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
-                                    문의 경로 :
-                                </span>
-                                <input
-                                    className="erp-input w-full min-w-0"
-                                    onChange={(event) => updateField('source', event.target.value)}
-                                    placeholder="문의 경로 직접 입력 (예: 인스타 DM, 지인 소개)"
-                                    value={form.source}
-                                />
-                            </div>
                             {/* 업체명 (계약 추가만 거래처명·사업자등록번호·사업장 주소 추가) */}
                             {(
                                 (contractsOnly
@@ -1848,27 +1822,22 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     />
                                 </div>
                             ))}
-                            {/* 업종/업태 : 입력+선택(직접 입력 자유) */}
+                            {/* 문의 경로 : 직접 입력 */}
                             <div className="flex items-center gap-2">
                                 <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
-                                    업종/업태 :
+                                    문의 경로 :
                                 </span>
                                 <input
                                     className="erp-input w-full min-w-0"
-                                    list="industry-suggest"
-                                    onChange={(event) => updateField('industry', event.target.value)}
-                                    placeholder="업종/업태 입력 또는 선택"
-                                    value={form.industry}
+                                    onChange={(event) => updateField('source', event.target.value)}
+                                    placeholder="문의 경로 직접 입력 (예: 인스타 DM, 지인 소개)"
+                                    value={form.source}
                                 />
-                                <datalist id="industry-suggest">
-                                    {INDUSTRY_OPTIONS.map((o) => (
-                                        <option key={o} value={o} />
-                                    ))}
-                                </datalist>
                             </div>
-                            {/* 연락처 · 이메일 · url */}
+                            {/* 담당자명(업체 담당자) · 연락처 · 이메일 · url */}
                             {(
                                 [
+                                    { key: 'manager', label: '담당자명', ph: '업체 담당자명' },
                                     { key: 'contact', label: '연락처', ph: '연락처 입력' },
                                     { key: 'email', label: '이메일', ph: '이메일 입력' },
                                     { key: 'url', label: 'url', ph: 'https://...' },
@@ -1893,6 +1862,24 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                     />
                                 </div>
                             ))}
+                            {/* 업종/업태 : 입력+선택(직접 입력 자유) */}
+                            <div className="flex items-center gap-2">
+                                <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
+                                    업종/업태 :
+                                </span>
+                                <input
+                                    className="erp-input w-full min-w-0"
+                                    list="industry-suggest"
+                                    onChange={(event) => updateField('industry', event.target.value)}
+                                    placeholder="업종/업태 입력 또는 선택"
+                                    value={form.industry}
+                                />
+                                <datalist id="industry-suggest">
+                                    {INDUSTRY_OPTIONS.map((o) => (
+                                        <option key={o} value={o} />
+                                    ))}
+                                </datalist>
+                            </div>
                             {/* 마케팅상품 (문의 등록) — 붙여넣기 자동 채움 대상. 브랜드 블로그면 목록에 칩 표시. */}
                             {!contractsOnly ? (
                                 <div className="flex items-center gap-2">
@@ -1904,6 +1891,20 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                         onChange={(event) => updateField('product', event.target.value)}
                                         placeholder="예: 브랜드블로그 마케팅"
                                         value={form.product}
+                                    />
+                                </div>
+                            ) : null}
+                            {/* 광고예산(예정) (문의 등록) */}
+                            {!contractsOnly ? (
+                                <div className="flex items-center gap-2">
+                                    <span className="w-24 shrink-0 text-sm font-semibold text-[#475569]">
+                                        광고예산(예정) :
+                                    </span>
+                                    <input
+                                        className="erp-input w-full min-w-0"
+                                        onChange={(event) => updateField('budget', event.target.value)}
+                                        placeholder="예: 0~100만원"
+                                        value={form.budget}
                                     />
                                 </div>
                             ) : null}
