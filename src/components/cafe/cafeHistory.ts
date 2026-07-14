@@ -2,7 +2,8 @@
 export type CafeHistoryEntry = {
     id: string;
     at: number; // 생성 시각(ms)
-    cardMode: 'default' | 'hero';
+    cardMode: 'default' | 'hero' | 'banner'; // banner = 테스트(배너) 탭(독립)
+    bannerCount?: number; // 테스트(배너) 탭 — 생성한 AI 배너 장수(1~9)
     region: string;
     district: string;
     keyword: string;
