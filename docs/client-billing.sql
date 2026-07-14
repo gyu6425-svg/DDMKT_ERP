@@ -19,9 +19,22 @@ create table if not exists public.client_billing (
 
 alter table public.client_billing enable row level security;
 
--- 내부 직원만 전체 권한. 고객/기자단은 정책 없음 → RLS 로 완전 차단.
+-- 내부 직원만 전체 권한. 고객/기자단은 차단.
+--   ⚠️ is_internal() 구버전은 client_id null 인 기자단을 내부로 오인할 수 있어, 정책에서 role=reporter/viewer 를 명시 배제한다.
 drop policy if exists "client_billing internal" on public.client_billing;
 create policy "client_billing internal" on public.client_billing
   for all to authenticated
-  using (public.is_internal())
-  with check (public.is_internal());
+  using (exists (
+    select 1 from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_active = true
+      and p.client_id is null
+      and lower(coalesce(p.role, '')) not in ('reporter', 'viewer')
+  ))
+  with check (exists (
+    select 1 from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_active = true
+      and p.client_id is null
+      and lower(coalesce(p.role, '')) not in ('reporter', 'viewer')
+  ));

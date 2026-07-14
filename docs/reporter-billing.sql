@@ -20,8 +20,24 @@ create table if not exists public.reporter_billing (
 
 alter table public.reporter_billing enable row level security;
 
+-- ⚠️ 정책은 is_internal() 에 '의존하지 않고' 자체 완결로 판정한다.
+--   이유: is_internal() 구버전(enable-login-rls.sql)은 'client_id is null'만 봐서 기자단(client_id null)을 내부로 오인 →
+--        기자단이 다른 기자단의 계좌/주민번호를 읽을 수 있는 CRITICAL 누수. 여기서 role=reporter/viewer 를 명시 배제한다.
+--   = 활성 프로필 + client_id null(내부 직원) + role 이 reporter/viewer 아님.
 drop policy if exists "reporter_billing internal" on public.reporter_billing;
 create policy "reporter_billing internal" on public.reporter_billing
   for all to authenticated
-  using (public.is_internal())
-  with check (public.is_internal());
+  using (exists (
+    select 1 from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_active = true
+      and p.client_id is null
+      and lower(coalesce(p.role, '')) not in ('reporter', 'viewer')
+  ))
+  with check (exists (
+    select 1 from public.profiles p
+    where p.user_id = auth.uid()
+      and p.is_active = true
+      and p.client_id is null
+      and lower(coalesce(p.role, '')) not in ('reporter', 'viewer')
+  ));
