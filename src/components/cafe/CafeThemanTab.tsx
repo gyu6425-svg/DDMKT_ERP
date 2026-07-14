@@ -21,10 +21,11 @@ type TextEl = {
     ls: number; // 자간
     shadow: boolean;
 };
-type Card = { bg: string | null; texts: TextEl[] };
+type Card = { id: string; bg: string | null; texts: TextEl[] };
 
 let seq = 0;
 const uid = () => `t${(seq += 1)}`;
+const cid = () => `c${(seq += 1)}`; // 카드 안정 key(인덱스 key로 인한 중간 삭제 시 카드 뒤섞임 방지)
 const newText = (over: Partial<TextEl> = {}): TextEl => ({
     id: uid(),
     text: '텍스트',
@@ -97,13 +98,13 @@ function CardCanvas({
 }
 
 export function CafeThemanTab() {
-    const [cards, setCards] = useState<Card[]>([{ bg: null, texts: [newText({ text: '여기에 텍스트' })] }]);
+    const [cards, setCards] = useState<Card[]>([{ id: cid(), bg: null, texts: [newText({ text: '여기에 텍스트' })] }]);
     const [active, setActive] = useState(0);
     const [selId, setSelId] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
     const previewRef = useRef<HTMLDivElement | null>(null);
-    const exportRefs = useRef<(HTMLDivElement | null)[]>([]);
+    const exportRefs = useRef<Record<string, HTMLDivElement | null>>({}); // 카드 id → 숨김 원본 노드
     const dragRef = useRef<{ id: string; offX: number; offY: number } | null>(null);
 
     const card = cards[active];
@@ -137,11 +138,18 @@ export function CafeThemanTab() {
         dragRef.current = null;
     };
 
-    const exportNode = (node: HTMLElement) =>
-        toPng(node, { cacheBust: true, height: CARD, pixelRatio: 1, width: CARD });
+    // dataURL 배경엔 cacheBust 금지(쿼리 붙이면 깨짐). 폰트 임베드 완료 후 캡처(Pretendard 폴백 방지).
+    const exportNode = async (node: HTMLElement) => {
+        try {
+            await document.fonts?.ready;
+        } catch {
+            /* 폰트 API 없으면 무시 */
+        }
+        return toPng(node, { height: CARD, pixelRatio: 1, width: CARD });
+    };
 
     const downloadOne = async (i: number) => {
-        const node = exportRefs.current[i];
+        const node = exportRefs.current[cards[i]?.id];
         if (!node) return;
         setBusy(true);
         try {
@@ -163,7 +171,7 @@ export function CafeThemanTab() {
         try {
             const files: Record<string, Uint8Array> = {};
             for (let i = 0; i < cards.length; i += 1) {
-                const node = exportRefs.current[i];
+                const node = exportRefs.current[cards[i].id];
                 if (!node) continue;
                 const url = await exportNode(node);
                 files[`카드_${String(i + 1).padStart(2, '0')}.png`] = Uint8Array.from(atob(url.split(',')[1]), (ch) => ch.charCodeAt(0));
@@ -214,7 +222,7 @@ export function CafeThemanTab() {
                 <button
                     className="rounded-md border border-dashed border-[#94a3b8] px-3 py-1.5 text-xs font-bold text-[#475569] hover:bg-[#f1f5f9]"
                     onClick={() => {
-                        setCards((cs) => [...cs, { bg: null, texts: [newText()] }]);
+                        setCards((cs) => [...cs, { id: cid(), bg: null, texts: [newText()] }]);
                         setActive(cards.length);
                         setSelId(null);
                     }}
@@ -244,6 +252,7 @@ export function CafeThemanTab() {
                         style={{ width: previewW, height: previewW, overflow: 'hidden', borderRadius: 10, border: '1px solid #e2e8f0', touchAction: 'none' }}
                         onPointerMove={onPointerMove}
                         onPointerUp={onPointerUp}
+                        onPointerCancel={onPointerUp}
                     >
                         <div ref={previewRef} style={{ width: CARD, height: CARD, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
                             <CardCanvas card={card} selId={selId} onPointerDownText={onPointerDownText} />
@@ -318,7 +327,7 @@ export function CafeThemanTab() {
                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                                 <label className={lbl}>
                                     크기(px)
-                                    <input className={num} onChange={(e) => updateText(sel.id, { size: Number(e.target.value) || 0 })} type="number" value={sel.size} />
+                                    <input className={num} onChange={(e) => updateText(sel.id, { size: Math.max(1, Number(e.target.value) || 1) })} type="number" value={sel.size} />
                                 </label>
                                 <label className={lbl}>
                                     굵기
@@ -342,15 +351,15 @@ export function CafeThemanTab() {
                                 </label>
                                 <label className={lbl}>
                                     X(%)
-                                    <input className={num} onChange={(e) => updateText(sel.id, { x: Number(e.target.value) })} type="number" value={Math.round(sel.x)} />
+                                    <input className={num} onChange={(e) => updateText(sel.id, { x: Math.max(-5, Math.min(105, Number(e.target.value) || 0)) })} type="number" value={Math.round(sel.x)} />
                                 </label>
                                 <label className={lbl}>
                                     Y(%)
-                                    <input className={num} onChange={(e) => updateText(sel.id, { y: Number(e.target.value) })} type="number" value={Math.round(sel.y)} />
+                                    <input className={num} onChange={(e) => updateText(sel.id, { y: Math.max(-5, Math.min(105, Number(e.target.value) || 0)) })} type="number" value={Math.round(sel.y)} />
                                 </label>
                                 <label className={lbl}>
                                     폭(%)
-                                    <input className={num} onChange={(e) => updateText(sel.id, { w: Number(e.target.value) })} type="number" value={sel.w} />
+                                    <input className={num} onChange={(e) => updateText(sel.id, { w: Math.max(1, Math.min(200, Number(e.target.value) || 1)) })} type="number" value={sel.w} />
                                 </label>
                                 <label className={lbl}>
                                     줄간격
@@ -400,11 +409,11 @@ export function CafeThemanTab() {
 
             {/* 내보내기용 숨김 원본(1080) — 모든 카드 */}
             <div style={{ position: 'fixed', left: -99999, top: 0, pointerEvents: 'none' }} aria-hidden>
-                {cards.map((c, i) => (
+                {cards.map((c) => (
                     <div
-                        key={i}
+                        key={c.id}
                         ref={(el) => {
-                            exportRefs.current[i] = el;
+                            exportRefs.current[c.id] = el;
                         }}
                         style={{ width: CARD, height: CARD }}
                     >
