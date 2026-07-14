@@ -2453,10 +2453,11 @@ export function ClientDetail({
                 goal_count: qty,
                 // 이 컨테이너(회차)로 명시적 귀속 — 그 회차 박스에만 들어감.
                 parent_id: container.id,
-                // 받은 외주비 = 0(빈값) — 나중에 카드에서 직접 입력. 시트 값은 '쓴(사용) 외주비'.
-                outsource: 0,
+                // 시트 등록분 = 이미 진행 완료된 배치 → 등록 즉시 100%(외주비 전액 소진).
+                //   총 외주비 = 수량×외주단가(소진액과 동일), 잔여 0 → 소진율 100%.
+                outsource: unit ? unit * qty : 0,
                 outsource_company: vendor,
-                remain_count: qty,
+                remain_count: 0,
                 sheet_approved: true,
                 subtype: `${container.subtype} · ${sub}`, // 컨테이너 하위(카드로 표시)
                 unit_outsource: unit || null,
@@ -2989,9 +2990,15 @@ export function ClientDetail({
                                     const allCards = g.members
                                         .slice()
                                         .sort((a, b) => {
+                                            // 컨테이너 부모(회차 입구 박스)는 항상 맨 앞.
+                                            const pa = CONTAINER_SUBS.includes(a.subtype) ? 0 : 1;
+                                            const pb = CONTAINER_SUBS.includes(b.subtype) ? 0 : 1;
+                                            if (pa !== pb) return pa - pb;
+                                            // 만료([만료])는 뒤로.
                                             const ea = isExp(a) ? 1 : 0;
                                             const eb = isExp(b) ? 1 : 0;
                                             if (ea !== eb) return ea - eb;
+                                            // 나머지는 월(계약일)순 오름차순.
                                             return (a.contract_date || '').localeCompare(b.contract_date || '');
                                         })
                                         .map((ct) => {
