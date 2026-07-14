@@ -196,11 +196,9 @@ export async function approveReport(report: BlogPostReport, reviewerProfileId: s
 // 기자단 '발행' 처리 — 저장으로 보고한 글을 발행했을 때. report_type만 publish로 + published_at.
 //   계약/카운트는 승인 시 이미 1회 처리되므로 여기서는 재계상하지 않는다(중복 방지). RLS: 본인 보고만.
 export async function markPublished(reportId: string) {
-    const { error } = await supabase
-        .from('blog_post_reports')
-        .update({ report_type: 'publish', published_at: new Date().toISOString() })
-        .eq('id', reportId)
-        .neq('status', 'rejected'); // 반려 건은 발행 이동 금지(재보고로 처리)
+    // RPC(SECURITY DEFINER)로 발행 이동. 기자단의 직접 UPDATE는 RLS상 status='rejected'만 허용돼
+    //   저장(pending/confirmed)건이 0행 업데이트로 조용히 실패하던 문제를 해결(권한 상승 없이 발행 이동만).
+    const { error } = await supabase.rpc('mark_report_published', { p_report_id: reportId });
     return { error };
 }
 
