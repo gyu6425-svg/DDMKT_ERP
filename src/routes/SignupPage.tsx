@@ -7,8 +7,7 @@ const inputClass =
     'h-[59px] w-[400px] max-w-full rounded-xl border border-[#cfcfcf] bg-white px-[13px] text-[20px] font-medium text-[#333333] outline-none placeholder:text-[20px] placeholder:font-medium placeholder:text-[#999999] focus:border-[#ff5a00]';
 
 const goLogin = () => {
-    window.history.pushState({}, '', '/login');
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    window.location.href = '/login';
 };
 
 // 회원가입 — 고객(viewer)/기자단(reporter) 셀프 가입. 가입=관리자 승인 대기(비활성) → 승인 후 이용.

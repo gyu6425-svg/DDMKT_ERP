@@ -7,5 +7,6 @@
 
 alter table public.profiles add column if not exists signup_company text;  -- 가입 시 입력한 업체명(관리자 매칭용)
 alter table public.profiles add column if not exists signup_biz_no text;   -- 가입 시 입력한 사업자등록번호
+alter table public.profiles add column if not exists phone text;           -- 연락처(가입 시 입력, 관리자 확인용)
 
 -- (참고) Edge Function 재배포 필요: create-customer 에 signup/list_pending/approve_signup/reject_signup 액션 추가됨.

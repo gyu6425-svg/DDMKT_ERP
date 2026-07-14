@@ -66,8 +66,7 @@ function LoginPage() {
                     <button
                         className="text-center text-[15px] font-semibold text-[#666666] hover:text-[#ff5a00]"
                         onClick={() => {
-                            window.history.pushState({}, '', '/signup');
-                            window.dispatchEvent(new PopStateEvent('popstate'));
+                            window.location.href = '/signup';
                         }}
                         type="button"
                     >
