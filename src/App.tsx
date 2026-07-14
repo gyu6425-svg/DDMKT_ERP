@@ -14,6 +14,7 @@ import BannerGeneratorPage from './routes/BannerGeneratorPage';
 import LoginPage from './routes/LoginPage';
 import SignupPage from './routes/SignupPage';
 import PendingApprovalGate from './components/PendingApprovalGate';
+import { SIGNUP_ENABLED } from './lib/authConfig';
 import MemosPage from './routes/MemosPage';
 import MyPage from './routes/MyPage';
 import PowerLinkPage from './routes/PowerLinkPage';
@@ -109,6 +110,11 @@ function App() {
     }
 
     if (currentPath === '/signup') {
+        // 회원가입 비활성화 시 로그인으로 되돌림.
+        if (!SIGNUP_ENABLED) {
+            window.location.replace('/login');
+            return null;
+        }
         return (
             <>
                 <UpdateBanner />

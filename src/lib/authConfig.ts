@@ -5,3 +5,8 @@
 // 전제: Supabase 대시보드 > Authentication > Sign In / Providers > "Anonymous sign-ins" 를 켜야
 //       익명 자동 로그인이 동작한다. (안 켜면 로그인 화면으로 폴백)
 export const AUTH_DISABLED = false;
+
+// 셀프 회원가입(/signup) 기능 on/off. false = 비활성(로그인 링크·라우트·어드민 승인탭 숨김).
+//   계정은 관리자가 업체 상세 '고객 ERP 발급' 버튼으로 발급하는 방식 사용.
+//   다시 켜려면 true 로 바꿔 재배포.
+export const SIGNUP_ENABLED = false;

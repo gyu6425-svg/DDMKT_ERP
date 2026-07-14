@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { signInWithPassword } from '../api/auth';
 import Button from '../components/Button';
 import { hasSupabaseConfig } from '../lib/supabase';
+import { SIGNUP_ENABLED } from '../lib/authConfig';
 
 const inputClass =
     'h-[59px] w-[400px] max-w-full rounded-xl border border-[#cfcfcf] bg-white px-[13px] text-[20px] font-medium text-[#333333] outline-none placeholder:text-[20px] placeholder:font-medium placeholder:text-[#999999] focus:border-[#ff5a00]';
@@ -63,15 +64,17 @@ function LoginPage() {
                     <p className="text-center text-sm text-[#999999]">
                         초기 비밀번호는 아이디(이메일 앞부분)와 동일합니다. 로그인 후 변경하세요.
                     </p>
-                    <button
-                        className="text-center text-[15px] font-semibold text-[#666666] hover:text-[#ff5a00]"
-                        onClick={() => {
-                            window.location.href = '/signup';
-                        }}
-                        type="button"
-                    >
-                        고객·기자단 회원가입
-                    </button>
+                    {SIGNUP_ENABLED ? (
+                        <button
+                            className="text-center text-[15px] font-semibold text-[#666666] hover:text-[#ff5a00]"
+                            onClick={() => {
+                                window.location.href = '/signup';
+                            }}
+                            type="button"
+                        >
+                            고객·기자단 회원가입
+                        </button>
+                    ) : null}
                 </form>
 
                 {!hasSupabaseConfig ? (
