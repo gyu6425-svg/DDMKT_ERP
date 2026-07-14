@@ -253,8 +253,11 @@ export async function syncBlogAccountFromContract(
     if (fields.remain_count !== undefined) payload.remain_count = fields.remain_count;
     if (fields.contract_date !== undefined) payload.contract_date = fields.contract_date;
     if (fields.amount != null) payload.amounts = [{ amount: fields.amount }];
-    if (fields.markRenewal && !(acc.note || '').includes('[연장]')) {
-        payload.note = `[연장] ${acc.note || ''}`.trim();
+    if (fields.markRenewal) {
+        // 연장 마커에 재계약 날짜(KST)를 심는다 → 블로그 시트 '연장 건' 탭은 그날 당일만 노출, 다음날 자동으로 계약 중.
+        //   기존 마커(구형 '[연장]' 포함) 제거 후 오늘 날짜로 새로 부착.
+        const base = (acc.note || '').replace(/\[연장(:\d{4}-\d{2}-\d{2})?\]\s*/g, '').trim();
+        payload.note = `[연장:${todayKST()}] ${base}`.trim();
     }
     if (fields.name) payload.name = fields.name;
     if (fields.manager !== undefined) payload.manager = fields.manager ?? null;

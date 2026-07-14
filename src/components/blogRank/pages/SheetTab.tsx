@@ -156,8 +156,15 @@ export function SheetTab() {
     const isUrlPending = (a: BlogAccount) => !/^https?:\/\//.test((a.blog_url || '').trim());
     // 보류 — note 마커 '[보류]'로 표시(별도 컬럼 없이, '자사 관리' 배지와 동일 패턴). 계약 편집에서 토글.
     const isHold = (a: BlogAccount) => (a.note || '').includes('[보류]');
-    // 연장 건 — 재계약 시 note '[연장]' 마커. 승인해야 계약 중으로 이동(계약 관리 재계약 → 여기 대기).
-    const isExt = (a: BlogAccount) => (a.note || '').includes('[연장]');
+    // 연장 건 — 재계약 시 note '[연장:날짜]' 마커. 그날 당일만 '연장 건' 탭에 노출, 다음날부터 자동으로 계약 중 탭.
+    //   기준일 = 마커에 심긴 날짜(KST). 구형 날짜없는 '[연장]'은 만료로 간주(계약 중).
+    const isExt = (a: BlogAccount) => {
+        const m = (a.note || '').match(/\[연장:(\d{4}-\d{2}-\d{2})\]/);
+        return !!m && m[1] === todayKST();
+    };
+    // 특이사항 표시용 — 연장 마커는 내부용이라 화면에선 숨김(만료 후 노트에 남아 누적되는 것 방지).
+    const displayNote = (note: string | null) =>
+        (note || '').replace(/\[연장(:\d{4}-\d{2}-\d{2})?\]\s*/g, '').trim();
     // 최근 처음 등록 = 컷오프 이후 생성 + 24h 이내(방금 계약 관리에서 등록). 계약 종료 아닌 것만.
     const isRecent = (a: BlogAccount) => {
         const t = a.created_at ? Date.parse(a.created_at) : NaN;
@@ -243,7 +250,7 @@ export function SheetTab() {
             progOf(a) ?? '',
             a.remain_count ?? '',
             TAB_LABEL[tabOf(a)] || '',
-            (a.note || '').replace(/\s+/g, ' ').trim(),
+            displayNote(a.note).replace(/\s+/g, ' ').trim(),
         ]);
         downloadCsv(`브랜드블로그_관리시트_${todayTag()}`, headers, data);
     };
@@ -419,7 +426,7 @@ export function SheetTab() {
                                                 title="특이사항 편집(히스토리)"
                                                 type="button"
                                             >
-                                                {a.note || <span className="text-[#94a3b8]">+ 특이사항 남기기</span>}
+                                                {displayNote(a.note) || <span className="text-[#94a3b8]">+ 특이사항 남기기</span>}
                                             </button>
                                         </td>
                                     </tr>
@@ -739,9 +746,9 @@ export function SheetTab() {
                                             <div className="flex items-center gap-1">
                                                 <span
                                                     className="block max-w-[72px] truncate text-xs text-[#94a3b8]"
-                                                    title={a.note || ''}
+                                                    title={displayNote(a.note)}
                                                 >
-                                                    {a.note || '—'}
+                                                    {displayNote(a.note) || '—'}
                                                 </span>
                                                 <button
                                                     className="shrink-0 rounded border border-[#cbd5e1] px-1.5 py-0.5 text-[10px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
