@@ -14,7 +14,7 @@ const navigationItems = [
     { path: '/reports', label: '리포트', disabled: true },
     { path: '/memos', label: '메모', disabled: true },
     { path: '/banner-generator', label: '배너 생성기' },
-    { path: '/cafe', label: '카페 원고 생성기' },
+    // 카페 원고 생성기는 '카페' 카테고리 하위로 이동(categories.ts subs) — 최상위에서 제거.
     { path: '/powerlink', label: '파워링크' },
 ];
 
