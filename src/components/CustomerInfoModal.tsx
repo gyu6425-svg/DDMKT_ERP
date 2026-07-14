@@ -30,7 +30,9 @@ export default function CustomerInfoModal({
     const supply = contracts.reduce((s, ct) => s + (ct.amount || 0), 0);
     const outsource = contracts.reduce((s, ct) => s + totalOutsource(ct), 0);
     const net = supply - outsource;
-    const withVat = Math.round(supply * 1.1);
+    // 부가세 — 계약별 no_vat(현금 등 부가세 제외) 반영. 그 외 공급가의 10%.
+    const vat = contracts.reduce((s, ct) => s + (ct.no_vat ? 0 : Math.round((ct.amount || 0) * 0.1)), 0);
+    const withVat = supply + vat;
 
     const Row = ({ k, v }: { k: string; v: string }) => (
         <div className="flex justify-between gap-3 border-b border-[#f1f5f9] py-1.5 last:border-b-0">
