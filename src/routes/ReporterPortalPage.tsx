@@ -384,6 +384,7 @@ function SettlementTab() {
     };
     const amountOf = (r: BlogPostReport) => publishOutUnit(companyOf(r.blog_account_id));
     const total = rows.reduce((s, r) => s + amountOf(r), 0);
+    const unpaidTotal = rows.filter((r) => !r.paid).reduce((s, r) => s + amountOf(r), 0);
 
     return (
         <div className="grid gap-3">
@@ -391,8 +392,8 @@ function SettlementTab() {
                 <div className="flex items-center justify-between">
                     <div className="text-sm font-bold text-[#0f172a]">정산 내역</div>
                     <div className="text-sm text-[#64748b]">
-                        누적 외주비{' '}
-                        <b className="text-[#1e40af]">{total.toLocaleString('ko-KR')}원</b> · {rows.length}건
+                        누적 외주비 <b className="text-[#1e40af]">{total.toLocaleString('ko-KR')}원</b> · {rows.length}건
+                        {' · '}미입금 <b className="text-[#b45309]">{unpaidTotal.toLocaleString('ko-KR')}원</b>
                     </div>
                 </div>
             </div>
@@ -400,26 +401,42 @@ function SettlementTab() {
                 <table className="w-full text-left text-sm">
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
+                            <th className="px-4 py-2 font-semibold">입금</th>
                             <th className="px-4 py-2 font-semibold">성함</th>
                             <th className="px-4 py-2 font-semibold">업체</th>
                             <th className="px-4 py-2 font-semibold">글 제목</th>
+                            <th className="whitespace-nowrap px-4 py-2 font-semibold">발행/저장일</th>
                             <th className="px-4 py-2 text-right font-semibold">금액</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={4}>
+                                <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={6}>
                                     불러오는 중…
                                 </td>
                             </tr>
                         ) : rows.length ? (
                             rows.map((r) => (
                                 <tr className="border-b border-[#f1f5f9] last:border-b-0" key={r.id}>
+                                    <td className="px-4 py-2">
+                                        {r.paid ? (
+                                            <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#15803d]">
+                                                입금
+                                            </span>
+                                        ) : (
+                                            <span className="rounded-full bg-[#fef3c7] px-2 py-0.5 text-[11px] font-bold text-[#b45309]">
+                                                미입금
+                                            </span>
+                                        )}
+                                    </td>
                                     <td className="px-4 py-2 font-semibold text-[#334155]">{reporterName(r)}</td>
                                     <td className="px-4 py-2 text-[#475569]">{companyOf(r.blog_account_id)}</td>
-                                    <td className="max-w-[320px] truncate px-4 py-2 text-[#475569]">
+                                    <td className="max-w-[280px] truncate px-4 py-2 text-[#475569]">
                                         {r.title || '제목 없음'}
+                                    </td>
+                                    <td className="whitespace-nowrap px-4 py-2 text-[#64748b]">
+                                        {(r.published_at || r.created_at || '').slice(0, 10) || '-'}
                                     </td>
                                     <td className="whitespace-nowrap px-4 py-2 text-right font-bold text-[#1e40af]">
                                         {amountOf(r).toLocaleString('ko-KR')}원
@@ -428,7 +445,7 @@ function SettlementTab() {
                             ))
                         ) : (
                             <tr>
-                                <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={4}>
+                                <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={6}>
                                     아직 승인되어 정산된 글이 없습니다.
                                 </td>
                             </tr>

@@ -950,6 +950,7 @@ export function SheetTab() {
                 <BlogPerformanceModal
                     account={reportAcc}
                     posts={postCountOf(reportAcc.id)}
+                    internal={!customerMode && !reporterMode}
                     onClose={() => setReportAcc(null)}
                     onReport={(selected) => {
                         setReportAcc(null);

@@ -22,7 +22,22 @@ export type BlogPostReport = {
     reviewed_at: string | null;
     reviewed_by: string | null;
     blog_post_id: string | null;
+    paid: boolean; // 외주비 입금 여부(미입금/입금). 승인=미입금, '외주비 정산' 시 입금.
+    paid_at: string | null; // 정산(입금) 처리 시각
 };
+
+// 외주비 정산(입금 처리, 내부) — 지정한 보고들을 입금(paid=true)으로. 주 단위 일괄 정산에 사용.
+//   RLS: 'bpr 내부 전체'(is_internal)로 내부 직원만 update.
+export async function settleReports(reportIds: string[]) {
+    if (!reportIds.length) return { error: null, count: 0 };
+    const { data, error } = await supabase
+        .from('blog_post_reports')
+        .update({ paid: true, paid_at: new Date().toISOString() })
+        .in('id', reportIds)
+        .in('status', ['confirmed', 'published']) // 승인(카운트)된 건만 정산 대상
+        .select('id');
+    return { error, count: data?.length ?? 0 };
+}
 
 // 발행/저장 승인 외주단가 — 대박종합주방만 10,000원, 그 외 8,000원.
 export function publishOutUnit(company: string): number {

@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { BlogAccount, BlogPost } from '../../../api/blogRank';
-import { getReports, type BlogPostReport, type ReportStatus, type ReportType } from '../../../api/blogPostReports';
+import { getReporters, type BlogAccount, type BlogPost } from '../../../api/blogRank';
+import {
+    getReports,
+    settleReports,
+    type BlogPostReport,
+    type ReportStatus,
+    type ReportType,
+} from '../../../api/blogPostReports';
 import { fmtRank, lastM } from '../lib/helpers';
 
 // 성과 모달 — 2탭.
@@ -9,11 +15,13 @@ import { fmtRank, lastM } from '../lib/helpers';
 export function BlogPerformanceModal({
     account,
     posts,
+    internal = false,
     onClose,
     onReport,
 }: {
     account: BlogAccount;
     posts: BlogPost[];
+    internal?: boolean; // 내부(회사 ERP)면 기자단 이름·입금상태·외주비 정산 노출
     onClose: () => void;
     onReport: (selected: BlogPost[]) => void;
 }) {
@@ -58,7 +66,7 @@ export function BlogPerformanceModal({
                 </div>
 
                 {tab === 'reports' ? (
-                    <ReportsTab blogAccountId={account.id} />
+                    <ReportsTab blogAccountId={account.id} internal={internal} />
                 ) : (
                     <RankTab posts={posts} onClose={onClose} onReport={onReport} />
                 )}
@@ -79,11 +87,20 @@ const STATUS_BADGE: Record<ReportStatus, { t: string; c: string }> = {
     published: { t: '발행완료', c: 'bg-[#dbeafe] text-[#1d4ed8]' },
 };
 
-function ReportsTab({ blogAccountId }: { blogAccountId: string }) {
+function ReportsTab({ blogAccountId, internal }: { blogAccountId: string; internal: boolean }) {
     const [reports, setReports] = useState<BlogPostReport[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<'all' | ReportType>('all');
+    const [names, setNames] = useState<Record<string, string>>({}); // reporter_id → 이름(내부만)
+    const [settling, setSettling] = useState(false);
 
+    const load = () => {
+        setLoading(true);
+        void getReports({ blog_account_id: blogAccountId }).then(({ data }) => {
+            setReports(data);
+            setLoading(false);
+        });
+    };
     useEffect(() => {
         let alive = true;
         setLoading(true);
@@ -96,6 +113,20 @@ function ReportsTab({ blogAccountId }: { blogAccountId: string }) {
             alive = false;
         };
     }, [blogAccountId]);
+    // 내부(회사 ERP)만 기자단 이름 조회.
+    useEffect(() => {
+        if (!internal) return;
+        let alive = true;
+        void getReporters().then(({ data }) => {
+            if (!alive) return;
+            const m: Record<string, string> = {};
+            data.forEach((r) => (m[r.id] = r.name || r.email));
+            setNames(m);
+        });
+        return () => {
+            alive = false;
+        };
+    }, [internal]);
 
     const rows = useMemo(
         () => reports.filter((r) => filter === 'all' || (r.report_type ?? 'save') === filter),
@@ -103,6 +134,23 @@ function ReportsTab({ blogAccountId }: { blogAccountId: string }) {
     );
     const nSave = reports.filter((r) => (r.report_type ?? 'save') === 'save').length;
     const nPub = reports.filter((r) => (r.report_type ?? 'save') === 'publish').length;
+    const reporterName = (r: BlogPostReport) => (r.reporter_id ? names[r.reporter_id] : '') || '기자단';
+    const isApproved = (r: BlogPostReport) => r.status === 'confirmed' || r.status === 'published';
+    // 미입금(승인·미정산) 건 — '외주비 정산' 대상.
+    const unpaid = reports.filter((r) => isApproved(r) && !r.paid);
+    const cols = internal ? 7 : 5;
+
+    const settle = async () => {
+        if (!unpaid.length || settling) return;
+        setSettling(true);
+        const { error } = await settleReports(unpaid.map((r) => r.id));
+        setSettling(false);
+        if (error) {
+            alert('정산 실패: ' + error.message);
+            return;
+        }
+        load(); // 칩(미입금→입금) 갱신
+    };
 
     return (
         <div className="flex min-h-0 flex-col">
@@ -135,6 +183,8 @@ function ReportsTab({ blogAccountId }: { blogAccountId: string }) {
                 <table className="w-full text-left text-sm">
                     <thead>
                         <tr className="border-b border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
+                            {internal ? <th className="px-3 py-2 font-semibold">입금</th> : null}
+                            {internal ? <th className="px-3 py-2 font-semibold">기자단</th> : null}
                             <th className="px-3 py-2 font-semibold">구분</th>
                             <th className="px-3 py-2 font-semibold">상태</th>
                             <th className="px-3 py-2 font-semibold">제목</th>
@@ -145,7 +195,7 @@ function ReportsTab({ blogAccountId }: { blogAccountId: string }) {
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td className="px-3 py-8 text-center text-sm text-[#94a3b8]" colSpan={5}>
+                                <td className="px-3 py-8 text-center text-sm text-[#94a3b8]" colSpan={cols}>
                                     불러오는 중…
                                 </td>
                             </tr>
@@ -155,6 +205,28 @@ function ReportsTab({ blogAccountId }: { blogAccountId: string }) {
                                 const sb = STATUS_BADGE[r.status];
                                 return (
                                     <tr className="border-b border-[#e2e8f0] hover:bg-[#f8fafc]" key={r.id}>
+                                        {internal ? (
+                                            <td className="px-3 py-2">
+                                                {isApproved(r) ? (
+                                                    r.paid ? (
+                                                        <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#15803d]">
+                                                            입금
+                                                        </span>
+                                                    ) : (
+                                                        <span className="rounded-full bg-[#fef3c7] px-2 py-0.5 text-[11px] font-bold text-[#b45309]">
+                                                            미입금
+                                                        </span>
+                                                    )
+                                                ) : (
+                                                    <span className="text-[11px] text-[#cbd5e1]">—</span>
+                                                )}
+                                            </td>
+                                        ) : null}
+                                        {internal ? (
+                                            <td className="whitespace-nowrap px-3 py-2 font-semibold text-[#334155]">
+                                                {reporterName(r)}
+                                            </td>
+                                        ) : null}
                                         <td className="px-3 py-2">
                                             <span className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${tb.c}`}>
                                                 {tb.t}
@@ -165,12 +237,12 @@ function ReportsTab({ blogAccountId }: { blogAccountId: string }) {
                                                 {sb.t}
                                             </span>
                                         </td>
-                                        <td className="max-w-[240px] truncate px-3 py-2 text-[#334155]">
+                                        <td className="max-w-[220px] truncate px-3 py-2 text-[#334155]">
                                             {r.title || '제목 없음'}
                                         </td>
                                         <td className="px-3 py-2">
                                             <a
-                                                className="block max-w-[220px] truncate text-[13px] text-[#7c3aed] hover:underline"
+                                                className="block max-w-[200px] truncate text-[13px] text-[#7c3aed] hover:underline"
                                                 href={r.post_url}
                                                 rel="noopener noreferrer"
                                                 target="_blank"
@@ -187,7 +259,7 @@ function ReportsTab({ blogAccountId }: { blogAccountId: string }) {
                             })
                         ) : (
                             <tr>
-                                <td className="px-3 py-8 text-center text-sm text-[#94a3b8]" colSpan={5}>
+                                <td className="px-3 py-8 text-center text-sm text-[#94a3b8]" colSpan={cols}>
                                     저장/발행으로 보고된 글이 없습니다.
                                 </td>
                             </tr>
@@ -195,6 +267,23 @@ function ReportsTab({ blogAccountId }: { blogAccountId: string }) {
                     </tbody>
                 </table>
             </div>
+
+            {/* 외주비 정산 — 내부만. 미입금(승인·미정산) 건을 이 기자단 이름으로 일괄 입금 처리. */}
+            {internal ? (
+                <div className="mt-3 flex items-center justify-between">
+                    <span className="text-xs text-[#94a3b8]">
+                        미입금 {unpaid.length}건 — 주 단위로 정산하면 미입금이 입금으로 바뀝니다.
+                    </span>
+                    <button
+                        className="rounded-md bg-[#059669] px-4 py-2 text-sm font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                        disabled={!unpaid.length || settling}
+                        onClick={() => void settle()}
+                        type="button"
+                    >
+                        {settling ? '정산 중…' : `외주비 정산 (${unpaid.length}건)`}
+                    </button>
+                </div>
+            ) : null}
         </div>
     );
 }
