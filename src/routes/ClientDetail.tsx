@@ -24,6 +24,7 @@ import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, saleVat, todayStr, withV
 import { useAuth } from '../hooks/useAuth';
 import CustomerAccountModal from '../components/CustomerAccountModal';
 import CustomerInfoModal from '../components/CustomerInfoModal';
+import TaxGuidelineModal, { type ParsedProduct } from '../components/TaxGuidelineModal';
 import { PlaceUrlField } from '../components/PlaceUrlField';
 import { getCustomerAccount } from '../api/profiles';
 import {
@@ -2350,8 +2351,37 @@ export function ClientDetail({
     const [custAcctOpen, setCustAcctOpen] = useState(false); // 고객 ERP 계정 발급 모달
     const [custAcct, setCustAcct] = useState<{ email: string | null; name: string | null } | null>(null); // 발급된 고객 계정
     const [infoOpen, setInfoOpen] = useState(false); // 계정 정보(세금계산서) 모달
+    const [taxOpen, setTaxOpen] = useState(false); // 세금계산서 가이드라인 붙여넣기 모달
     const { isAdmin } = useAuth(); // 고객 계정 발급은 관리자만
-    // 발급 전 필수 정보 검증 — 업종정보 전부 + 기본정보(거래처명·업체명·연락처·이메일). 없으면 발급 차단.
+    // 세금계산서 붙여넣기 적용 — 기본/업종 정보 저장 + (상품 있으면) 계약 생성.
+    const applyTax = async (patch: Partial<ErpClient>, products: ParsedProduct[]) => {
+        if (Object.keys(patch).length) onSave(patch);
+        if (products.length) {
+            const rows = products.map((p) => ({
+                client_id: client.id,
+                category: p.category,
+                subtype: p.subtype,
+                goal_count: p.qty,
+                remain_count: p.qty,
+                unit_price: p.unit,
+                amount: p.amount,
+                unit_outsource: p.outUnit || null,
+                outsource: p.outAmt || 0,
+                sheet_approved: true,
+                history: [],
+                weekly_logs: [],
+            }));
+            const { error } = await insertClientContracts(rows);
+            if (error) {
+                onToast(`계약 생성 오류: ${error.message}`);
+                return;
+            }
+            await onReloadContracts();
+        }
+        onToast(products.length ? `정보 입력 + 계약 ${products.length}건 등록 완료` : '정보 입력 완료');
+    };
+    // 발급 전 필수 검증 — 기본정보(업체명·거래처명·연락처·이메일) + 업종정보(사업자번호·주소·업종/업태) + 계약(상품) 등록.
+    //   여기까지 채워져야 '고객 ERP 발급'이 활성화된다.
     const missingForIssue = (): string[] => {
         const need: [string, string | null][] = [
             ['업체명', client.company],
@@ -2361,14 +2391,16 @@ export function ClientDetail({
             ['사업자등록번호', client.business_number],
             ['사업장 주소', client.address],
             ['업종/업태', client.industry],
-            ['URL', client.url],
         ];
-        return need.filter(([, v]) => !(v && String(v).trim())).map(([k]) => k);
+        const miss = need.filter(([, v]) => !(v && String(v).trim())).map(([k]) => k);
+        if (!contracts.some((ct) => (ct.amount || 0) > 0)) miss.push('계약(상품) 등록');
+        return miss;
     };
+    const issueMiss = missingForIssue();
+    const canIssue = issueMiss.length === 0;
     const tryIssue = () => {
-        const miss = missingForIssue();
-        if (miss.length) {
-            onToast(`발급 전 필수 정보를 입력하세요: ${miss.join(', ')}`);
+        if (!canIssue) {
+            onToast(`발급하려면 먼저 완료하세요: ${issueMiss.join(', ')}`);
             return;
         }
         setCustAcctOpen(true);
@@ -2718,9 +2750,17 @@ export function ClientDetail({
                         </div>
                     ) : (
                         <button
-                            className="rounded-md border border-[#7c3aed] bg-white px-3 py-1.5 text-sm font-semibold text-[#7c3aed] hover:bg-[#f5f3ff]"
+                            className={`rounded-md border px-3 py-1.5 text-sm font-semibold ${
+                                canIssue
+                                    ? 'border-[#7c3aed] bg-white text-[#7c3aed] hover:bg-[#f5f3ff]'
+                                    : 'border-[#e2e8f0] bg-[#f8fafc] text-[#cbd5e1]'
+                            }`}
                             onClick={tryIssue}
-                            title="이 업체 전용 열람 계정(고객 ERP) 발급 — 기본·업종 정보가 모두 있어야 발급됩니다"
+                            title={
+                                canIssue
+                                    ? '이 업체 전용 열람 계정(고객 ERP) 발급'
+                                    : `발급 조건 미충족: ${issueMiss.join(', ')}`
+                            }
                             type="button"
                         >
                             고객 ERP 발급
@@ -2928,6 +2968,14 @@ export function ClientDetail({
                     type="button"
                 >
                     시트 붙여넣기
+                </button>
+                <button
+                    className="rounded-md border border-[#7c3aed] px-3 py-1 text-xs font-semibold text-[#7c3aed] hover:bg-[#f5f3ff]"
+                    onClick={() => setTaxOpen(true)}
+                    title="세금계산서 가이드라인 붙여넣기 — 기본/업종 정보 + (상품 있으면) 계약 자동 등록"
+                    type="button"
+                >
+                    세금계산서 붙여넣기
                 </button>
                 {/* 임시 버튼 — 계약 내역 전체 일괄삭제(되돌릴 수 없음). 임시로 쓰는 버튼. */}
                 {contracts.length ? (
@@ -3549,6 +3597,7 @@ export function ClientDetail({
                     onClose={() => setInfoOpen(false)}
                 />
             ) : null}
+            {taxOpen ? <TaxGuidelineModal onApply={applyTax} onClose={() => setTaxOpen(false)} /> : null}
             {endOpen ? (
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
