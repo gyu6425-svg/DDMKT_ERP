@@ -85,9 +85,15 @@ function App() {
     }, []);
 
     // 외부 사용자(고객/기자단)가 자기 포털 밖 경로로 오면 즉시 자기 홈으로 되돌림(회사 ERP 차단).
+    //   단 공개 페이지(/login·/signup)는 제외 — 미로그인 시 role 기본값(viewer)이라 여기로 튕기면 안 됨.
     useEffect(() => {
         if (loading) return;
-        if (isExternal && currentPath !== '/login' && !currentPath.startsWith(externalHome)) {
+        if (
+            isExternal &&
+            currentPath !== '/login' &&
+            currentPath !== '/signup' &&
+            !currentPath.startsWith(externalHome)
+        ) {
             window.history.replaceState(null, '', externalHome);
             window.dispatchEvent(new Event('app:navigate'));
         }

@@ -27,7 +27,7 @@ function LoginPage() {
 
     return (
         <main className="grid min-h-svh content-center justify-items-center gap-7 bg-[#f3f3f3] p-8">
-            <h1 className="m-0 text-[48px] leading-[1.2] font-semibold text-[#333333] max-[800px]:text-[38px]">
+            <h1 className="m-0 text-[40px] leading-[1.2] font-semibold text-[#333333] max-[800px]:text-[38px]">
                 든든한마케팅
             </h1>
 
