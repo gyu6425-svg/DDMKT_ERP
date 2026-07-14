@@ -376,8 +376,12 @@ function SettlementTab() {
     }, []);
 
     const companyOf = (id: string) => accounts.find((a) => a.id === id)?.name || '블로그';
-    const reporterName = (r: BlogPostReport) =>
-        (r.reporter_id ? names[r.reporter_id] : null) || profile?.name || '기자단';
+    // 성함: 이름맵 우선 → 내 행이면 내 이름 → 그 외(널/미해결)는 '기자단'(미리보기 시 내부 사용자 이름으로 오표기 방지).
+    const reporterName = (r: BlogPostReport) => {
+        if (r.reporter_id && names[r.reporter_id]) return names[r.reporter_id];
+        if (r.reporter_id && r.reporter_id === profile?.id) return profile?.name || '기자단';
+        return '기자단';
+    };
     const amountOf = (r: BlogPostReport) => publishOutUnit(companyOf(r.blog_account_id));
     const total = rows.reduce((s, r) => s + amountOf(r), 0);
 
