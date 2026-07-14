@@ -23,6 +23,13 @@ const TONES: [CafeReviewTone, string][] = [
 
 const MAX_BANNERS = 9;
 
+// 화질별 배너 1장 예상 비용(square, ₩1,500/$ 기준). low=$0.01·medium=$0.04·high=$0.16.
+const QUALITY_OPTS: [('low' | 'medium' | 'high'), string, number][] = [
+    ['low', '저화질', 15],
+    ['medium', '중화질', 60],
+    ['high', '고화질', 240],
+];
+
 // 배너 N장 + 고정 이미지 M장 → 최종 이미지 순서. 첫·마지막은 배너, 중간 배너는 고정 사이 균등 삽입.
 //   N=0 → 고정만. N=1 → [b0, ...고정, b0](북엔드). N≥2 → [b0, ...(고정에 중간배너 삽입)..., b_last].
 function buildImageOrder(banners: string[], fixed: string[]): string[] {
@@ -64,6 +71,7 @@ export function CafeBannerTab() {
     const [business, setBusiness] = useState('누수탐지');
     const [tone, setTone] = useState<CafeReviewTone>('review');
     const [bannerCount, setBannerCount] = useState(1); // 생성할 AI 배너 장수(1~9). 지금 기본 1장.
+    const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('low'); // 이미지 화질(비용). 기본 저화질(50원 밑).
 
     const [banners, setBanners] = useState<string[]>([]); // 생성된 AI 배너들
     const [fixedImages, setFixedImages] = useState<string[]>([]); // 중간 저장 이미지(세트 + 업로드)
@@ -153,13 +161,13 @@ export function CafeBannerTab() {
             const cached = await getCachedCard(bannerKey(i));
             if (cached) return cached;
             const t = Date.now();
-            const img = await generateCafeCard({ region, topic: business, phone, mode: 'hero' });
+            const img = await generateCafeCard({ region, topic: business, phone, mode: 'hero', quality });
             await setCachedCard(bannerKey(i), img);
             void logApiUsage({
                 banner_size: 'square',
-                cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: 'high', provider: 'openai' }),
+                cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: quality, provider: 'openai' }),
                 elapsed_ms: Date.now() - t,
-                image_quality: 'high',
+                image_quality: quality,
                 model: 'cafe-card',
                 operator_name: operatorName,
                 provider: 'openai',
@@ -305,6 +313,24 @@ export function CafeBannerTab() {
                             {label}
                         </button>
                     ))}
+                </div>
+                {/* 화질(비용) — 배너만 해당. 기본 저화질(≈15원/장, 50원 밑). */}
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    <span className="mr-1 text-[12px] font-semibold text-[#475569]">배너 화질</span>
+                    {QUALITY_OPTS.map(([k, label, won]) => (
+                        <button
+                            className={`rounded-full px-3 py-1 text-[12px] font-semibold ${quality === k ? 'bg-[#0f766e] text-white' : 'border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]'}`}
+                            key={k}
+                            onClick={() => setQuality(k)}
+                            type="button"
+                        >
+                            {label} ~{won}원
+                        </button>
+                    ))}
+                    <span className="ml-1 text-[12px] font-semibold text-[#0f766e]">
+                        예상 이미지 비용 ≈ {(bannerCount * (QUALITY_OPTS.find((o) => o[0] === quality)?.[2] ?? 0)).toLocaleString()}원
+                        <span className="font-normal text-[#94a3b8]"> (배너 {bannerCount}장 · 재사용 시 0원)</span>
+                    </span>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button

@@ -153,6 +153,7 @@ export async function generateCafeCard(input: {
     services?: string;
     refs?: string[];
     mode?: 'fixed' | 'hero';
+    quality?: 'low' | 'medium' | 'high'; // 이미지 화질(비용) — 서버 기본 high. low≈$0.01/medium≈$0.04/high≈$0.16.
     signal?: AbortSignal;
 }): Promise<string> {
     const url = import.meta.env.DEV ? 'http://127.0.0.1:8787/api/generate-cafe-card' : '/api/generate-cafe-card';
@@ -168,6 +169,7 @@ export async function generateCafeCard(input: {
                 district: input.district,
                 mode: input.mode,
                 phone: input.phone,
+                quality: input.quality,
                 refs: input.refs,
                 region: input.region,
                 services: input.services,
