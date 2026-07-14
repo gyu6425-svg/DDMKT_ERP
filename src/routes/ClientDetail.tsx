@@ -2367,6 +2367,7 @@ export function ClientDetail({
                 amount: p.amount,
                 unit_outsource: p.outUnit || null,
                 outsource: p.outAmt || 0,
+                contract_date: todayStr(), // 월 필터 뷰·발급 게이팅에서 빠지지 않도록 오늘 날짜 부여
                 sheet_approved: true,
                 history: [],
                 weekly_logs: [],

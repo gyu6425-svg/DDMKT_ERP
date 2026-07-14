@@ -71,6 +71,9 @@ export function parseTaxGuideline(text: string): {
     const clientPatch: Partial<ErpClient> = {};
     const company = g('상호명', '업체명');
     if (company) clientPatch.company = company;
+    // 거래처명 — 별도 값이 있으면 그것, 없으면 상호명으로(발급 조건 충족용).
+    const partner = g('거래처명') || company;
+    if (partner) clientPatch.client_partner = partner;
     const biz = g('사업자등록번호', '사업자번호');
     if (biz) clientPatch.business_number = biz;
     const adv = g('광고주성함', '담당자성함', '담당자명');
