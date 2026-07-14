@@ -1,13 +1,11 @@
 import { useState } from 'react';
-import { deleteReporter, type BlogAccount, type ReporterProfile } from '../../../api/blogRank';
+import { type BlogAccount, type ReporterProfile } from '../../../api/blogRank';
+import { ReporterInfoModal } from './ReporterInfoModal';
 
-// 기자단 계정 관리(내부/관리자) — 발급된 기자단 목록 + 삭제.
-//   삭제 시 Edge Function이 auth 유저+profiles 삭제 → 로그인 불가 + 담당 블로그 자동 미지정.
+// 기자단 계정 관리(내부/관리자) — 발급된 기자단 목록 + 계정 정보(정산 정보) 열람.
 export function ReporterManageModal({
     reporters,
     accounts,
-    onChanged,
-    onToast,
     onClose,
 }: {
     reporters: ReporterProfile[];
@@ -16,31 +14,9 @@ export function ReporterManageModal({
     onToast?: (m: string) => void;
     onClose: () => void;
 }) {
-    const [list, setList] = useState<ReporterProfile[]>(reporters);
-    const [busy, setBusy] = useState<string | null>(null);
+    const [list] = useState<ReporterProfile[]>(reporters);
+    const [infoFor, setInfoFor] = useState<ReporterProfile | null>(null); // 계정 정보 모달 대상
     const blogCount = (id: string) => accounts.filter((a) => a.reporter_id === id).length;
-
-    const del = async (r: ReporterProfile) => {
-        const n = blogCount(r.id);
-        if (
-            !window.confirm(
-                `'${r.name || r.email}' 기자단 계정을 삭제할까요?\n` +
-                    `· 이 계정으로 더는 로그인할 수 없습니다.\n` +
-                    `· 담당 블로그 ${n}개는 '미지정'으로 바뀝니다.\n되돌릴 수 없습니다.`,
-            )
-        )
-            return;
-        setBusy(r.id);
-        const { error } = await deleteReporter(r.id);
-        setBusy(null);
-        if (error) {
-            onToast?.('삭제 실패: ' + error.message);
-            return;
-        }
-        setList((prev) => prev.filter((x) => x.id !== r.id));
-        onChanged?.();
-        onToast?.('기자단 계정 삭제됨 · 접속 차단');
-    };
 
     return (
         <div
@@ -66,7 +42,7 @@ export function ReporterManageModal({
                             <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                                 <th className="px-3 py-2 font-semibold">기자단 (아이디)</th>
                                 <th className="px-3 py-2 text-center font-semibold">담당 블로그</th>
-                                <th className="px-3 py-2 text-center font-semibold">삭제</th>
+                                <th className="px-3 py-2 text-center font-semibold">계정 정보</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -81,12 +57,11 @@ export function ReporterManageModal({
                                     </td>
                                     <td className="px-3 py-2 text-center">
                                         <button
-                                            className="rounded border border-[#dc2626] px-2.5 py-1 text-[12px] font-bold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
-                                            disabled={busy === r.id}
-                                            onClick={() => void del(r)}
+                                            className="rounded border border-[#1e40af] px-2.5 py-1 text-[12px] font-bold text-[#1e40af] hover:bg-[#eef2ff]"
+                                            onClick={() => setInfoFor(r)}
                                             type="button"
                                         >
-                                            {busy === r.id ? '삭제 중…' : '삭제'}
+                                            계정 정보
                                         </button>
                                     </td>
                                 </tr>
@@ -95,9 +70,17 @@ export function ReporterManageModal({
                     </table>
                 )}
                 <p className="mt-3 mb-0 text-[11px] text-[#94a3b8]">
-                    삭제하면 그 계정은 즉시 로그인·데이터 열람이 차단됩니다(관리자만 삭제 가능).
+                    계정 정보(은행·계좌번호·주민번호)는 내부 전용으로만 조회되며, 마스킹 상태로 표시됩니다.
                 </p>
             </div>
+            {infoFor ? (
+                <ReporterInfoModal
+                    onClose={() => setInfoFor(null)}
+                    reporterEmail={infoFor.email}
+                    reporterId={infoFor.id}
+                    reporterName={infoFor.name || ''}
+                />
+            ) : null}
         </div>
     );
 }
