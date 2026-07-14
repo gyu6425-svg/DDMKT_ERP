@@ -128,6 +128,9 @@ export const canSeeAmounts = (email?: string | null) =>
 // 권한(계정 역할·담당) 변경 — 김종인(대표)만.
 export const canManagePermissions = (email?: string | null) =>
     emailIn(email, ['rlawhddls@ddmkt.com']);
+// 고객 ERP 계정 발급/계정 정보/재발급 UI — 관리자 외 추가 허용(조재현).
+export const canIssueClientAccount = (email?: string | null) =>
+    emailIn(email, ['ddmkt1@ddmkt.com']); // 조재현
 // 계약 미완료 알림 대상 — 송민경·김종인·조재현·장규진.
 export const canSeeContractPending = (email?: string | null) =>
     emailIn(email, ['ming99@ddmkt.com', 'rlawhddls@ddmkt.com', 'ddmkt1@ddmkt.com', 'gyu6425@gmail.com']);

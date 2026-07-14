@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ErpClient } from '../api/erp';
 import { totalOutsource, type ClientContract } from '../api/clientContracts';
 import { useAuth } from '../hooks/useAuth';
+import { canIssueClientAccount } from '../lib/permissions';
 import { getClientBilling, maskAccount, upsertClientBilling, type ClientBilling } from '../api/clientBilling';
 
 // 고객 계정 정보 모달 — 발급된 고객 ERP 계정의 등록 정보를 카드식으로 표시.
@@ -149,6 +150,7 @@ export default function CustomerInfoModal({
 // 정산 계좌 — 민감 정보. 내부 전용(RLS)로만 조회/저장. 마스킹 + '보기' 토글, 편집은 관리자만.
 function BillingSection({ clientId }: { clientId: string }) {
     const { profile, isAdmin } = useAuth();
+    const canManage = isAdmin || canIssueClientAccount(profile?.email); // 관리자 또는 허용 계정(조재현)
     const [billing, setBilling] = useState<ClientBilling | null>(null);
     const [loaded, setLoaded] = useState(false);
     const [reveal, setReveal] = useState(false);
@@ -169,8 +171,8 @@ function BillingSection({ clientId }: { clientId: string }) {
         };
     }, [clientId]);
 
-    // 관리자만 조회/편집(내부 전용 정보). 비관리자에겐 아예 렌더 안 함.
-    if (!isAdmin) return null;
+    // 내부 관리 권한(관리자/조재현)만 조회·편집. 그 외엔 렌더 안 함(RLS로도 이중 차단).
+    if (!canManage) return null;
 
     const startEdit = () => {
         setForm({

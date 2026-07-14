@@ -25,6 +25,7 @@ import { useAuth } from '../hooks/useAuth';
 import CustomerAccountModal from '../components/CustomerAccountModal';
 import CustomerInfoModal from '../components/CustomerInfoModal';
 import TaxGuidelineModal, { type ParsedProduct } from '../components/TaxGuidelineModal';
+import { canIssueClientAccount } from '../lib/permissions';
 import { PlaceUrlField } from '../components/PlaceUrlField';
 import { getCustomerAccount } from '../api/profiles';
 import {
@@ -2352,7 +2353,9 @@ export function ClientDetail({
     const [custAcct, setCustAcct] = useState<{ email: string | null; name: string | null } | null>(null); // 발급된 고객 계정
     const [infoOpen, setInfoOpen] = useState(false); // 계정 정보(세금계산서) 모달
     const [taxOpen, setTaxOpen] = useState(false); // 세금계산서 가이드라인 붙여넣기 모달
-    const { isAdmin } = useAuth(); // 고객 계정 발급은 관리자만
+    const { isAdmin, profile } = useAuth();
+    // 고객 ERP 발급/계정정보/재발급 UI — 관리자 또는 허용 계정(조재현).
+    const canIssueAcct = isAdmin || canIssueClientAccount(profile?.email);
     // 세금계산서 붙여넣기 적용 — 기본/업종 정보 저장 + (상품 있으면) 계약 생성.
     const applyTax = async (patch: Partial<ErpClient>, products: ParsedProduct[]) => {
         if (Object.keys(patch).length) onSave(patch);
@@ -2412,9 +2415,9 @@ export function ClientDetail({
         setCustAcct(data);
     };
     useEffect(() => {
-        if (isAdmin) void loadCustAcct();
+        if (canIssueAcct) void loadCustAcct();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [client.id, isAdmin]);
+    }, [client.id, canIssueAcct]);
     const [breakdown, setBreakdown] = useState<'net' | 'outsource' | 'sales' | null>(null); // 상품별 내역
     const [detailC, setDetailC] = useState<ClientContract | null>(null); // 내역에서 상품 클릭 시 상세
     const [expandedOut, setExpandedOut] = useState<string | null>(null); // 외주비 정산 사용 이력 펼침 대상(계약 id)
@@ -2719,7 +2722,7 @@ export function ClientDetail({
                     </div>
                 </div>
                 <div className="flex-1" />
-                {!confirmDel && isAdmin ? (
+                {!confirmDel && canIssueAcct ? (
                     custAcct ? (
                         // 이미 발급된 고객 계정 — 아이디 클릭 시 그 고객 ERP로 이동. '계정 정보'로 등록정보/세금계산서, '재발급'으로 비번 재설정.
                         <div className="flex items-stretch gap-1">
