@@ -23,6 +23,7 @@ import { SIDEBAR_CATEGORIES } from '../components/categoryRank/categories';
 import { INDUSTRY_OPTIONS, SOURCE_OPTIONS, formatPhone, saleVat, todayStr, withVat } from '../lib/erpUtils';
 import { useAuth } from '../hooks/useAuth';
 import CustomerAccountModal from '../components/CustomerAccountModal';
+import CustomerInfoModal from '../components/CustomerInfoModal';
 import { PlaceUrlField } from '../components/PlaceUrlField';
 import { getCustomerAccount } from '../api/profiles';
 import {
@@ -2348,7 +2349,30 @@ export function ClientDetail({
     const [endNote, setEndNote] = useState('');
     const [custAcctOpen, setCustAcctOpen] = useState(false); // 고객 ERP 계정 발급 모달
     const [custAcct, setCustAcct] = useState<{ email: string | null; name: string | null } | null>(null); // 발급된 고객 계정
+    const [infoOpen, setInfoOpen] = useState(false); // 계정 정보(세금계산서) 모달
     const { isAdmin } = useAuth(); // 고객 계정 발급은 관리자만
+    // 발급 전 필수 정보 검증 — 업종정보 전부 + 기본정보(거래처명·업체명·연락처·이메일). 없으면 발급 차단.
+    const missingForIssue = (): string[] => {
+        const need: [string, string | null][] = [
+            ['업체명', client.company],
+            ['거래처명', client.client_partner],
+            ['연락처', client.contact],
+            ['이메일', client.email],
+            ['사업자등록번호', client.business_number],
+            ['사업장 주소', client.address],
+            ['업종/업태', client.industry],
+            ['URL', client.url],
+        ];
+        return need.filter(([, v]) => !(v && String(v).trim())).map(([k]) => k);
+    };
+    const tryIssue = () => {
+        const miss = missingForIssue();
+        if (miss.length) {
+            onToast(`발급 전 필수 정보를 입력하세요: ${miss.join(', ')}`);
+            return;
+        }
+        setCustAcctOpen(true);
+    };
     // 이 업체의 고객 ERP 계정 조회 — 있으면 발급 버튼 대신 아이디 표시.
     const loadCustAcct = async () => {
         const { data } = await getCustomerAccount(client.id);
@@ -2651,7 +2675,7 @@ export function ClientDetail({
                 <div className="flex-1" />
                 {!confirmDel && isAdmin ? (
                     custAcct ? (
-                        // 이미 발급된 고객 계정 — 아이디 클릭 시 그 고객 ERP로 이동. 옆 '재발급'으로 비번 재설정.
+                        // 이미 발급된 고객 계정 — 아이디 클릭 시 그 고객 ERP로 이동. '계정 정보'로 등록정보/세금계산서, '재발급'으로 비번 재설정.
                         <div className="flex items-stretch gap-1">
                             <button
                                 className="rounded-md border border-[#c7d2fe] bg-[#eef2ff] px-3 py-1.5 text-left text-xs font-semibold text-[#4338ca] hover:bg-[#e0e7ff]"
@@ -2661,6 +2685,14 @@ export function ClientDetail({
                             >
                                 <span className="block text-[10px] font-normal text-[#818cf8]">고객 ERP 아이디 →</span>
                                 {(custAcct.email || '').split('@')[0] || custAcct.email}
+                            </button>
+                            <button
+                                className="rounded-md border border-[#c7d2fe] bg-white px-2 py-1.5 text-[11px] font-semibold text-[#4338ca] hover:bg-[#eef2ff]"
+                                onClick={() => setInfoOpen(true)}
+                                title="등록 정보 · 세금계산서 정보 보기"
+                                type="button"
+                            >
+                                계정 정보
                             </button>
                             <button
                                 className="rounded-md border border-[#c7d2fe] bg-white px-2 py-1.5 text-[11px] font-semibold text-[#6366f1] hover:bg-[#eef2ff]"
@@ -2674,8 +2706,8 @@ export function ClientDetail({
                     ) : (
                         <button
                             className="rounded-md border border-[#7c3aed] bg-white px-3 py-1.5 text-sm font-semibold text-[#7c3aed] hover:bg-[#f5f3ff]"
-                            onClick={() => setCustAcctOpen(true)}
-                            title="이 업체 전용 열람 계정(고객 ERP) 발급"
+                            onClick={tryIssue}
+                            title="이 업체 전용 열람 계정(고객 ERP) 발급 — 기본·업종 정보가 모두 있어야 발급됩니다"
                             type="button"
                         >
                             고객 ERP 발급
@@ -3494,6 +3526,14 @@ export function ClientDetail({
                         setCustAcctOpen(false);
                         void loadCustAcct(); // 발급 후 아이디 표시로 전환
                     }}
+                />
+            ) : null}
+            {infoOpen ? (
+                <CustomerInfoModal
+                    accountEmail={custAcct?.email ?? null}
+                    client={client}
+                    contracts={contracts}
+                    onClose={() => setInfoOpen(false)}
                 />
             ) : null}
             {endOpen ? (

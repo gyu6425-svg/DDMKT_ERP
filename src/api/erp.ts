@@ -38,6 +38,7 @@ export type ErpClient = {
     industry: string | null;
     url: string | null;
     client_partner: string | null; // 거래처명(총판/리셀러 등, 업체명과 별개)
+    advertiser_name: string | null; // 광고주 성함(세금계산서)
     outsource_paid_logs: OutsourcePaidLog[] | null; // 외주업체 지급 외주비 이력(받은 외주비와 별개)
     contract_approved: boolean | null; // 계약 관리 승인 여부 — false=신규 등록건(승인 대기), true=계약 중
 };
