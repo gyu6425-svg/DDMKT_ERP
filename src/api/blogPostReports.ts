@@ -38,6 +38,42 @@ export async function createReport(payload: {
     report_type: ReportType;
     keyword?: string | null;
 }) {
+    // 같은 블로그+같은 글(URL)을 이미 보고했으면 새 행을 만들지 않고 그 행을 갱신한다.
+    //   → 저장으로 보고한 글을 '발행으로 보고'해도 저장/발행 두 행으로 쌓이지 않고(이중 카운트도 방지)
+    //     한 행이 발행으로 이동한다(승인 시 week키 rpt-<id> 동일 → 재계상 없음).
+    const base = (payload.post_url || '').split('?')[0];
+    const { data: dupes } = await supabase
+        .from('blog_post_reports')
+        .select('*')
+        .eq('blog_account_id', payload.blog_account_id)
+        .returns<BlogPostReport[]>();
+    const dup = (dupes ?? []).find((r) => (r.post_url || '').split('?')[0] === base);
+    if (dup) {
+        const patch: Record<string, unknown> = {
+            report_type: payload.report_type,
+            title: payload.title,
+            keyword: payload.keyword ?? null,
+            post_url: payload.post_url,
+            published_at:
+                payload.report_type === 'publish' ? (dup.published_at ?? new Date().toISOString()) : dup.published_at,
+        };
+        // 반려됐던 건을 다시 보고하면 검토 대기로 되돌린다(재보고와 동일).
+        if (dup.status === 'rejected') {
+            patch.status = 'pending';
+            patch.note = null;
+            patch.reviewed_at = null;
+            patch.reviewed_by = null;
+            patch.blog_post_id = null;
+        }
+        const { data, error } = await supabase
+            .from('blog_post_reports')
+            .update(patch)
+            .eq('id', dup.id)
+            .select()
+            .returns<BlogPostReport[]>();
+        return { data: data ?? [], error };
+    }
+
     const { data, error } = await supabase
         .from('blog_post_reports')
         .insert({
