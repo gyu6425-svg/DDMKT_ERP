@@ -7,11 +7,13 @@ export const USD_TO_KRW = 1500;
 // ── 토큰 단가 (USD per 1,000,000 tokens) ──────────────────────────────
 // ⚠️ OpenAI platform 가격표의 실제 gpt-5.5 요금으로 맞추세요.
 // cachedInput = 캐시된 입력 토큰 단가(보통 input 의 ~1/10). output 에는 추론(reasoning) 토큰 포함.
+// output=42 : 사용자 실측 보정(2026-07-15) — 저화질 배너 4장 실제 청구 $0.16(=잔액 91.54→91.38).
+//   이미지 토큰(272×$40/M) 확정 후 역산 → gpt-5.5 출력 ≈ $42/M(기존 $10은 4배 과소계상이었음).
 export const TOKEN_RATES_USD_PER_M: Record<
     string,
     { input: number; cachedInput: number; output: number }
 > = {
-    'gpt-5.5': { cachedInput: 0.125, input: 1.25, output: 10 },
+    'gpt-5.5': { cachedInput: 0.125, input: 1.25, output: 42 },
 };
 const DEFAULT_MODEL_KEY = 'gpt-5.5';
 
