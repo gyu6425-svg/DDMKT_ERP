@@ -12,7 +12,6 @@ import { CafeTestTab } from '../components/cafe/CafeTestTab';
 import { CafeSavedTab } from '../components/cafe/CafeSavedTab';
 import { CafeThemanTab } from '../components/cafe/CafeThemanTab';
 import { CafeBannerTab } from '../components/cafe/CafeBannerTab';
-import { CafeTheman2Tab } from '../components/cafe/CafeTheman2Tab';
 import { CafeLeak2Tab } from '../components/cafe/CafeLeak2Tab';
 
 // 카페 원고 자동생성기 — 키워드 → OpenAI 원고 생성 + 원고의 「사진 N」 주제로 GPT 카드 이미지 생성.
@@ -305,7 +304,7 @@ function CafePage() {
                 ))}
             </div>
 
-            {activeTab === 'theman' ? <CafeThemanTab /> : activeTab === 'leak2' ? <CafeLeak2Tab /> : activeTab === 'theman2' ? <CafeTheman2Tab /> : activeTab === 'banner' ? <CafeBannerTab /> : activeTab === 'saved' ? <CafeSavedTab /> : activeTab === 'test' ? <CafeTestTab /> : activeTab === 'test2' ? <CafeTestTab cardMode="hero" /> : (
+            {activeTab === 'theman' ? <CafeThemanTab /> : activeTab === 'leak2' ? <CafeLeak2Tab /> : activeTab === 'theman2' ? <CafeBannerTab /> : activeTab === 'banner' ? <CafeBannerTab /> : activeTab === 'saved' ? <CafeSavedTab /> : activeTab === 'test' ? <CafeTestTab /> : activeTab === 'test2' ? <CafeTestTab cardMode="hero" /> : (
             <>
             <p className="m-0 text-sm text-[#64748b]">
                 키워드와 현장 사진을 넣으면 레퍼런스와 동일한 홍보 카드(사진 콜라주 + 지역·업종·서비스·전화)를 원하는 장수만큼 만들고,
