@@ -201,6 +201,78 @@ export async function generateCafeCard(input: {
     }
 }
 
+// 보안업체(더맨시스템) 배너 — 지역·보안종류·제목(3줄) → 하단 3개 자동(프리셋/AI) + 저화질 이미지 1장.
+//   반환 usage 2종(textUsage=하단3개 AI생성 시만, imageUsage=이미지 요청 텍스트 토큰) → 프론트가 정확 비용 산출.
+export type SecurityBannerItem = { title: string; subtitle: string; icon: string };
+export async function generateSecurityBanner(input: {
+    region: string;
+    secType: string;
+    titleLines: string[];
+    quality?: 'low' | 'medium' | 'high';
+    style?: 'green' | 'blue';
+    signal?: AbortSignal;
+}): Promise<{
+    imageDataUrl: string;
+    items: SecurityBannerItem[];
+    source: 'preset' | 'ai';
+    textUsage: Record<string, unknown> | null;
+    imageUsage: Record<string, unknown> | null;
+}> {
+    const url = import.meta.env.DEV ? 'http://127.0.0.1:8787/api/generate-security-banner' : '/api/generate-security-banner';
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 240000);
+    if (input.signal) {
+        if (input.signal.aborted) controller.abort();
+        else input.signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+    try {
+        const res = await fetch(url, {
+            body: JSON.stringify({
+                quality: input.quality,
+                region: input.region,
+                secType: input.secType,
+                style: input.style,
+                titleLines: input.titleLines,
+            }),
+            headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            signal: controller.signal,
+        });
+        const text = await res.text();
+        let data: {
+            imageDataUrl?: string;
+            items?: SecurityBannerItem[];
+            source?: 'preset' | 'ai';
+            textUsage?: Record<string, unknown> | null;
+            imageUsage?: Record<string, unknown> | null;
+            message?: string;
+        } = {};
+        if (text) {
+            try {
+                data = JSON.parse(text);
+            } catch {
+                throw new Error('배너 응답을 해석하지 못했습니다(로컬은 api:dev 실행 확인).');
+            }
+        }
+        if (!res.ok) throw new Error(data.message || '보안 배너 생성에 실패했습니다.');
+        if (!data.imageDataUrl) throw new Error('생성된 배너가 없습니다.');
+        return {
+            imageDataUrl: data.imageDataUrl,
+            items: data.items ?? [],
+            source: data.source ?? 'preset',
+            textUsage: data.textUsage ?? null,
+            imageUsage: data.imageUsage ?? null,
+        };
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+            throw new Error('배너 생성이 중단되었습니다(최대 4분 초과 또는 취소).', { cause: error });
+        }
+        throw error;
+    } finally {
+        window.clearTimeout(timeoutId);
+    }
+}
+
 // 후기성 카페 본문 생성 — 현재 카드 콘텐츠(content)를 소재로 후기/경험 형식 글 + 「사진 N」 마커.
 export type CafeReviewTone = 'review' | 'info' | 'story' | 'talk' | 'notice';
 
