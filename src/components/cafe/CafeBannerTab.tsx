@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
-import { generateCafeCard, generateCafeReview, generateSecurityBanner, type CafeReviewTone } from '../../api/cafeWriter';
+import { generateCafeCard, generateCafeReview, type CafeReviewTone } from '../../api/cafeWriter';
 import { defaultCafeTitle, DEFAULT_CAFE_CONTENT, mergeCafeContent } from './cafeContent';
 import { logApiUsage } from '../../api/apiUsage';
-import { computeRecordCostUsd, USD_TO_KRW } from '../../lib/apiPricing';
+import { computeRecordCostUsd } from '../../lib/apiPricing';
 import { useAuth } from '../../hooks/useAuth';
 import { getCachedCard, setCachedCard, delCachedCard } from './cardCache';
 import { downloadCafeZip } from './cafeExport';
 import { saveHistory } from './cafeHistory';
-import { SecItemsEditor, resolveSecItems, EMPTY_SEC_ITEMS, type SecItem } from './SecItemsEditor';
 
 // 카페 원고 생성기 [테스트(배너)] 탭 — 누수탐지 시스템의 독립 복제(기존 탭과 분리, 자유 실험용).
 //   · 원고(부제목+내용, 「사진 N」 마커) + AI 배너 N장(1~9)을 함께 생성.
@@ -115,63 +114,6 @@ export function CafeBannerTab() {
     const [copied, setCopied] = useState(false);
     const [msg, setMsg] = useState('');
     const { profile } = useAuth();
-
-    // ── 보안 배너(더맨시스템) 테스트 — 지역·보안종류·제목3줄 → 하단3개 자동 + 저화질 이미지 1장(이미지만) ──
-    const [secRegion, setSecRegion] = useState('강남');
-    const [secType, setSecType] = useState('회사 보안');
-    const [secL1, setSecL1] = useState('건물의');
-    const [secL2, setSecL2] = useState('안전을');
-    const [secL3, setSecL3] = useState('책임지는');
-    const [secQuality, setSecQuality] = useState<'low' | 'medium' | 'high'>('low');
-    const [secManualOn, setSecManualOn] = useState(false);
-    const [secManualItems, setSecManualItems] = useState<SecItem[]>(EMPTY_SEC_ITEMS);
-    const [secImg, setSecImg] = useState<string | null>(null);
-    const [secItems, setSecItems] = useState<{ title: string; subtitle: string; icon: string }[]>([]);
-    const [secSource, setSecSource] = useState<'preset' | 'ai' | 'manual' | null>(null);
-    const [secCost, setSecCost] = useState<{ krw: number; text: number; image: number } | null>(null);
-    const [secBusy, setSecBusy] = useState(false);
-    const [secMsg, setSecMsg] = useState('');
-
-    const genSecurity = async () => {
-        if (secBusy) return;
-        const titleLines = [secL1, secL2, secL3].map((s) => s.trim()).filter(Boolean);
-        if (!secRegion.trim() || !secType.trim() || !titleLines.length) {
-            setSecMsg('지역·보안종류·제목(최소 1줄)을 입력하세요.');
-            return;
-        }
-        setSecBusy(true);
-        setSecMsg('보안 배너 생성 중… (약 30초~1분)');
-        const operatorName = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_operator_name')) || null;
-        const email = profile?.email ?? null;
-        const t = Date.now();
-        try {
-            const r = await generateSecurityBanner({ items: resolveSecItems(secManualOn, secManualItems), quality: secQuality, region: secRegion, secType, titleLines });
-            setSecImg(r.imageDataUrl);
-            setSecItems(r.items);
-            setSecSource(r.source);
-            const textCost = r.textUsage ? computeRecordCostUsd({ model: 'gpt-5.5', provider: 'openai', usage_raw: r.textUsage }) : 0;
-            const imageCost = computeRecordCostUsd({ banner_size: 'square', image_quality: secQuality, provider: 'openai', usage_raw: r.imageUsage });
-            const krw = Math.round((textCost + imageCost) * USD_TO_KRW);
-            setSecCost({ image: imageCost, krw, text: textCost });
-            // 정확 비용 로깅(API 사용량 대시보드) — 하단3개 AI 생성 시 텍스트 1건 + 이미지 1건.
-            if (r.textUsage) {
-                void logApiUsage({
-                    cost_usd: textCost, elapsed_ms: Date.now() - t, model: 'sec-items', operator_name: operatorName,
-                    provider: 'openai', status: 'success', usage_raw: r.textUsage as never, user_email: email,
-                });
-            }
-            void logApiUsage({
-                banner_size: 'square', cost_usd: imageCost, elapsed_ms: Date.now() - t, image_quality: secQuality,
-                model: 'sec-card', operator_name: operatorName, provider: 'openai', status: 'success',
-                usage_raw: r.imageUsage as never, user_email: email,
-            });
-            setSecMsg(`완성 — 하단 3개 ${r.source === 'preset' ? '프리셋(추가 0원)' : 'AI 자동생성'} · 총 ${krw}원`);
-        } catch (e) {
-            setSecMsg(e instanceof Error ? e.message : '생성 실패');
-        } finally {
-            setSecBusy(false);
-        }
-    };
 
     const bodyText = reviewBody;
     const charCount = bodyText.replace(/「사진\s*\d+」/g, '').replace(/[\r\n]/g, '').length;
@@ -347,82 +289,6 @@ export function CafeBannerTab() {
                 <b> 첫 장·마지막 장</b>(N≥2면 중간에도 삽입), 나머지는 <b>저장 이미지</b> 재사용(비용 0). 다 나오면
                 <b> “다운받기(ZIP)”</b> → <b>원고.txt + 사진 {imageCount || '…'}</b> 저장(모든 이미지 <b>미세 변형</b>).
             </p>
-
-            {/* ── 보안 배너(더맨시스템) 테스트 — 이미지만 · 하단 3개 자동 ── */}
-            <div className="rounded-xl border-2 border-[#0f766e] bg-[#f0fdfa] p-4">
-                <div className="mb-2 flex items-center gap-2">
-                    <span className="rounded bg-[#0f766e] px-2 py-0.5 text-[11px] font-bold text-white">보안 배너 테스트</span>
-                    <span className="text-[12px] text-[#0f766e]">더맨시스템 — 지역·보안종류·제목만 넣으면 <b>하단 3개 + 아이콘 자동</b>. 이미지 1장(원고 없음).</span>
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Field label="지역명 (예: 강남)" value={secRegion} onChange={setSecRegion} />
-                    <Field label="보안 종류 (예: 회사 보안 / 야외행사 / 공사장)" value={secType} onChange={setSecType} />
-                </div>
-                <div className="mt-3">
-                    <span className="text-[12px] font-semibold text-[#475569]">제목 (3줄 · 큰 글씨)</span>
-                    <div className="mt-1 grid grid-cols-3 gap-2">
-                        <input className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm" onChange={(e) => setSecL1(e.target.value)} placeholder="1줄" value={secL1} />
-                        <input className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm" onChange={(e) => setSecL2(e.target.value)} placeholder="2줄" value={secL2} />
-                        <input className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm" onChange={(e) => setSecL3(e.target.value)} placeholder="3줄" value={secL3} />
-                    </div>
-                </div>
-                <SecItemsEditor accent="#0f766e" enabled={secManualOn} items={secManualItems} setEnabled={setSecManualOn} setItems={setSecManualItems} />
-                <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    <span className="mr-1 text-[12px] font-semibold text-[#475569]">화질</span>
-                    {QUALITY_OPTS.map(([k, label, won]) => (
-                        <button
-                            className={`rounded-full px-3 py-1 text-[12px] font-semibold ${secQuality === k ? 'bg-[#0f766e] text-white' : 'border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]'}`}
-                            key={k}
-                            onClick={() => setSecQuality(k)}
-                            type="button"
-                        >
-                            {label} ~{won}원
-                        </button>
-                    ))}
-                    <span className="ml-1 text-[11px] text-[#94a3b8]">권장: 저화질(글자 안 깨짐 · 최저가)</span>
-                </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <button
-                        className="h-10 rounded-md bg-[#0f766e] px-6 text-sm font-bold text-white hover:bg-[#115e59] disabled:opacity-50"
-                        disabled={secBusy}
-                        onClick={() => void genSecurity()}
-                        type="button"
-                    >
-                        {secBusy ? '보안 배너 생성 중…' : '보안 배너 생성'}
-                    </button>
-                    {secMsg ? <span className="text-[13px] text-[#0f766e]">{secMsg}</span> : null}
-                </div>
-
-                {secImg ? (
-                    <div className="mt-4 flex flex-wrap items-start gap-4">
-                        <img alt="보안 배너" className="w-64 rounded-lg border border-[#cbd5e1]" src={secImg} />
-                        <div className="grid gap-2 text-[13px]">
-                            <div className="font-bold text-[#334155]">
-                                하단 3개 항목 <span className="font-semibold text-[#0f766e]">({secSource === 'manual' ? '직접 입력' : secSource === 'preset' ? '프리셋 · 추가 0원' : 'AI 자동생성'})</span>
-                            </div>
-                            <ul className="m-0 grid list-none gap-1 p-0">
-                                {secItems.map((it, i) => (
-                                    <li className="text-[#475569]" key={i}>
-                                        <b>{it.title}</b> · {it.subtitle} <span className="text-[#94a3b8]">[{it.icon}]</span>
-                                    </li>
-                                ))}
-                            </ul>
-                            {secCost ? (
-                                <div className="mt-1 rounded-md bg-white px-3 py-2 text-[12px] text-[#334155]">
-                                    <div className="font-bold text-[#0f766e]">이번 생성 정확 비용: {secCost.krw}원</div>
-                                    <div className="text-[#64748b]">
-                                        이미지 {Math.round(secCost.image * USD_TO_KRW)}원
-                                        {secCost.text > 0 ? ` + 하단3개 AI ${Math.round(secCost.text * USD_TO_KRW)}원` : ' + 하단3개 0원(프리셋)'}
-                                    </div>
-                                </div>
-                            ) : null}
-                            <a className="text-[12px] font-semibold text-[#4338ca] underline" download={`보안배너_${secRegion}.png`} href={secImg}>
-                                PNG 다운로드
-                            </a>
-                        </div>
-                    </div>
-                ) : null}
-            </div>
 
             {/* 입력 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
