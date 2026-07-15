@@ -3184,8 +3184,27 @@ export function ClientDetail({
                                                             </div>
                                                         </div>
                                                     ) : (
-                                                        <div className="mt-1 text-[11px] text-[#94a3b8] blur-[1.5px]">
-                                                            {ct.goal_count ?? '—'}건 · {fmtWon(ct.amount || 0)}원
+                                                        <div
+                                                            className="mt-1.5 flex flex-col items-center gap-1"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            {/* 계약일 — 임시(날짜 미등록) 컨테이너도 상세에서 첫 계약월 지정 */}
+                                                            <label className="flex items-center gap-1 text-[10px] text-[#94a3b8]">
+                                                                계약일
+                                                                <input
+                                                                    className="rounded border border-[#ddd6fe] px-1 py-0.5 text-[10px] text-[#0f172a]"
+                                                                    defaultValue={ct.contract_date || ''}
+                                                                    onChange={(e) =>
+                                                                        void saveBoostMeta(ct, {
+                                                                            contract_date: e.target.value || null,
+                                                                        })
+                                                                    }
+                                                                    type="date"
+                                                                />
+                                                            </label>
+                                                            <div className="text-[11px] text-[#94a3b8] blur-[1.5px]">
+                                                                {ct.goal_count ?? '—'}건 · {fmtWon(ct.amount || 0)}원
+                                                            </div>
                                                         </div>
                                                     )}
                                                     <div className="mt-2 flex items-center gap-1">
