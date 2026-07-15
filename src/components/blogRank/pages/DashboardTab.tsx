@@ -12,6 +12,7 @@ import { SameDayModal, type SameDayRow } from '../components/SameDayModal';
 import { CrawlListModal, type CrawlRow } from '../components/CrawlListModal';
 import { ReportReviewModal } from '../components/ReportReviewModal';
 import { ReportsListModal } from '../components/ReportsListModal';
+import { ApprovedReportsModal } from '../components/ApprovedReportsModal';
 
 export function DashboardTab() {
     const {
@@ -59,6 +60,8 @@ export function DashboardTab() {
     // 기자단 발행 보고 — 내부: 승인 대기 KPI+모달 / 기자단: 반려 처리된 글 KPI+모달.
     const [showReports, setShowReports] = useState(false);
     const [reportPending, setReportPending] = useState(0);
+    const [showApproved, setShowApproved] = useState(false);
+    const [approvedCount, setApprovedCount] = useState(0);
     const [showRejected, setShowRejected] = useState(false);
     const [rejectedCount, setRejectedCount] = useState(0);
     const [showMyReports, setShowMyReports] = useState(false);
@@ -73,6 +76,10 @@ export function DashboardTab() {
         }
         if (customerMode) return; // 고객 뷰에선 미표시
         void getReports({ status: 'pending' }).then(({ data }) => setReportPending(data.length));
+        // 승인 처리 건(승인+발행완료) 카운트 — KPI 표시용.
+        void Promise.all([getReports({ status: 'confirmed' }), getReports({ status: 'published' })]).then(
+            ([conf, pub]) => setApprovedCount(conf.data.length + pub.data.length),
+        );
     };
     useEffect(() => {
         loadReportCount();
@@ -295,6 +302,17 @@ export function DashboardTab() {
                         onClick={() => setShowReports(true)}
                     />
                 ) : null}
+                {/* 기자단 승인 처리 건(승인+발행완료) = 내부 지표 → 눌러서 히스토리 */}
+                {!customerMode && !reporterMode ? (
+                    <KpiCard
+                        label="기자단 승인 처리 건"
+                        value={approvedCount}
+                        color="#2563eb"
+                        sub="승인·발행 완료 · 눌러서 내역"
+                        tone="purple"
+                        onClick={() => setShowApproved(true)}
+                    />
+                ) : null}
                 {/* 보고한 글 = 기자단 뷰 전용 → 내가 보고한 전체 글 */}
                 {reporterMode ? (
                     <KpiCard
@@ -471,6 +489,13 @@ export function DashboardTab() {
                     onChanged={loadReportCount}
                     onClose={() => setShowReports(false)}
                     reviewerProfileId={profile?.id ?? null}
+                />
+            ) : null}
+            {showApproved ? (
+                <ApprovedReportsModal
+                    accounts={accounts}
+                    blogNameOf={nameOf}
+                    onClose={() => setShowApproved(false)}
                 />
             ) : null}
             {showRejected ? (
