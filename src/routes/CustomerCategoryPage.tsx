@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
+import { BlogRankProvider } from '../components/blogRank/lib/BlogRankContext';
 import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
+import { CustomerReportsTab } from '../components/blogRank/pages/CustomerReportsTab';
 import { categoryByKey, type CategoryKey } from '../components/categoryRank/categories';
-import type { Tab } from '../components/blogRank/lib/helpers';
 import { CustomerPlaceRank } from './CustomerPlaceRank';
 
 export function useAsParam(): string {
@@ -20,14 +20,15 @@ export function useAsParam(): string {
     return as;
 }
 
-const CUSTOMER_TABS: { key: Extract<Tab, 'sheet' | 'tracker'>; name: string }[] = [
+type CustomerView = 'sheet' | 'tracker' | 'reports';
+const CUSTOMER_TABS: { key: CustomerView; name: string }[] = [
     { key: 'sheet', name: '블로그 관리 시트' },
     { key: 'tracker', name: '순위 트래커' },
+    { key: 'reports', name: '저장,발행 성과' },
 ];
 
 function BlogCustomerView() {
-    const { tab, goTab } = useBlogRank();
-    const shown: Extract<Tab, 'sheet' | 'tracker'> = tab === 'tracker' ? 'tracker' : 'sheet';
+    const [view, setView] = useState<CustomerView>('sheet');
 
     return (
         <>
@@ -35,17 +36,17 @@ function BlogCustomerView() {
                 {CUSTOMER_TABS.map((t) => (
                     <button
                         className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
-                            shown === t.key ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
+                            view === t.key ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
                         }`}
                         key={t.key}
-                        onClick={() => goTab(t.key)}
+                        onClick={() => setView(t.key)}
                         type="button"
                     >
                         {t.name}
                     </button>
                 ))}
             </div>
-            {shown === 'sheet' ? <SheetTab /> : <TrackerTab />}
+            {view === 'sheet' ? <SheetTab /> : view === 'tracker' ? <TrackerTab /> : <CustomerReportsTab />}
         </>
     );
 }

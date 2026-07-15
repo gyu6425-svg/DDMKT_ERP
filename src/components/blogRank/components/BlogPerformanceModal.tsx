@@ -25,7 +25,14 @@ export function BlogPerformanceModal({
     onClose: () => void;
     onReport: (selected: BlogPost[]) => void;
 }) {
-    const [tab, setTab] = useState<'reports' | 'rank'>('reports');
+    // 고객 뷰(비내부)는 '저장,발행 성과'가 별도 탭으로 빠져서, 여기선 순위 성과만. 내부는 두 탭 유지.
+    const [tab, setTab] = useState<'reports' | 'rank'>(internal ? 'reports' : 'rank');
+    const tabList: ['reports' | 'rank', string][] = internal
+        ? [
+              ['reports', '저장,발행 성과'],
+              ['rank', '순위 성과'],
+          ]
+        : [['rank', '순위 성과']];
 
     return (
         <div
@@ -44,26 +51,23 @@ export function BlogPerformanceModal({
                     </button>
                 </div>
 
-                {/* 탭: ① 저장,발행 성과  ② 순위 성과 */}
-                <div className="mb-3 flex gap-1 border-b border-[#e2e8f0]">
-                    {(
-                        [
-                            ['reports', '저장,발행 성과'],
-                            ['rank', '순위 성과'],
-                        ] as ['reports' | 'rank', string][]
-                    ).map(([k, label]) => (
-                        <button
-                            className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
-                                tab === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
-                            }`}
-                            key={k}
-                            onClick={() => setTab(k)}
-                            type="button"
-                        >
-                            {label}
-                        </button>
-                    ))}
-                </div>
+                {/* 탭 — 내부: 저장,발행 성과 + 순위 성과 / 고객: 순위 성과만(저장,발행은 별도 탭). */}
+                {tabList.length > 1 ? (
+                    <div className="mb-3 flex gap-1 border-b border-[#e2e8f0]">
+                        {tabList.map(([k, label]) => (
+                            <button
+                                className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
+                                    tab === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
+                                }`}
+                                key={k}
+                                onClick={() => setTab(k)}
+                                type="button"
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                ) : null}
 
                 {tab === 'reports' ? (
                     <ReportsTab blogAccountId={account.id} internal={internal} />
