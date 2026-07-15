@@ -55,22 +55,19 @@ export async function createReport(payload: {
     keyword?: string | null;
     round?: number | null;
 }) {
-    // 같은 블로그에 같은 글(제목 동일 또는 URL 동일)을 이미 보고했는지 확인한다.
+    // 같은 블로그에 같은 글(제목 동일)을 이미 보고했는지 확인한다.
+    //   · 판별은 '제목'만으로 한다. 저장 보고는 같은 글 URL을 계속 재사용하므로(저장 상태·회차 반복)
+    //     URL로 판별하면 제목이 다른 새 글도 URL 겹침만으로 잘못 중복 처리된다 → 제목 기준으로만 판정.
     //   · 같은 구분(저장/발행)으로 또 보고 = 진짜 중복 → 새로 만들지 않고 duplicate 신호(UI: '이미 등록한 글').
     //   · 구분이 바뀌면(저장→발행) 그 행을 이동시킨다(두 행으로 쌓이지 않게 · 승인 week키 rpt-<id> 동일 → 재계상 없음).
     //   · 반려됐던 건을 다시 보고하면 검토 대기로 되돌린다(재보고).
-    const base = (payload.post_url || '').split('?')[0];
     const titleKey = (payload.title || '').trim();
     const { data: dupes } = await supabase
         .from('blog_post_reports')
         .select('*')
         .eq('blog_account_id', payload.blog_account_id)
         .returns<BlogPostReport[]>();
-    const dup = (dupes ?? []).find(
-        (r) =>
-            (!!base && (r.post_url || '').split('?')[0] === base) ||
-            (!!titleKey && (r.title || '').trim() === titleKey),
-    );
+    const dup = (dupes ?? []).find((r) => !!titleKey && (r.title || '').trim() === titleKey);
     if (dup) {
         const sameType = (dup.report_type ?? 'save') === payload.report_type;
         // 같은 구분 + 반려 아님 = 이미 등록된 글(중복). 아무것도 바꾸지 않고 알림만.
