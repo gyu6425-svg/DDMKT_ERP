@@ -239,10 +239,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     // 계약 관리 탭: 신규 등록건/계약중/계약 종료/임시. 기본=계약중, 신규(미승인) 있으면 신규로 시작(아래 effect).
     const [contractTab, setContractTab] = useState<'new' | 'active' | 'temp' | 'ended'>('active');
     const didInitTab = useRef(false);
-    // 계약 관리 월 필터 — 전체 + 6월~현재월 드롭다운, 기본 = 이번 달(고정). (앞으로 12월까지 자동 확장)
+    // 계약 관리 월 필터 — 전체 + 6월~현재월 드롭다운, 기본 = 전체(월 무관 전체 표시). (앞으로 12월까지 자동 확장)
     const currentMonth = new Date().getMonth() + 1;
     const currentYear = new Date().getFullYear();
-    const [monthFilter, setMonthFilter] = useState(currentMonth); // 0 = 전체
+    const [monthFilter, setMonthFilter] = useState(0); // 0 = 전체(기본)
     const [yearFilter, setYearFilter] = useState(currentYear); // 0 = 전체 · 계약 관리 년 필터
     // 년 옵션 — 전체 + 계약일자에 존재하는 연도(내림차순).
     const yearOptions = useMemo(() => {

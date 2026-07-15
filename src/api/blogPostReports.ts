@@ -107,6 +107,41 @@ export function reportOutUnit(report: Pick<BlogPostReport, 'out_amount' | 'blog_
     return report.out_amount != null ? report.out_amount : publishOutUnit(company);
 }
 
+// 스키마 드리프트 대응 — 새 컬럼(blog_kind·out_amount·round 등) 마이그레이션 실행 전에도 보고가 되게,
+//   'column not found'(PGRST204/42703) 오류면 그 컬럼을 빼고 재시도. SQL 실행 후엔 그대로 저장됨.
+const missingCol = (msg: string) =>
+    (/Could not find the '([a-z_]+)' column|column "?blog_post_reports\.?([a-z_]+)"?/i.exec(msg || '') || [])
+        .slice(1)
+        .find(Boolean);
+async function bprInsert(row: Record<string, unknown>) {
+    const r = { ...row };
+    for (let i = 0; i < 6; i += 1) {
+        const { data, error } = await supabase.from('blog_post_reports').insert(r).select().returns<BlogPostReport[]>();
+        if (!error) return { data: data ?? [], error: null as { message: string } | null };
+        const col = missingCol(error.message);
+        if (col && col in r) {
+            delete r[col];
+            continue;
+        }
+        return { data: [] as BlogPostReport[], error };
+    }
+    return { data: [] as BlogPostReport[], error: { message: '보고 저장 반복 실패' } };
+}
+async function bprUpdate(id: string, patch: Record<string, unknown>) {
+    const p = { ...patch };
+    for (let i = 0; i < 6; i += 1) {
+        const { data, error } = await supabase.from('blog_post_reports').update(p).eq('id', id).select().returns<BlogPostReport[]>();
+        if (!error) return { data: data ?? [], error: null as { message: string } | null };
+        const col = missingCol(error.message);
+        if (col && col in p) {
+            delete p[col];
+            continue;
+        }
+        return { data: [] as BlogPostReport[], error };
+    }
+    return { data: [] as BlogPostReport[], error: { message: '보고 수정 반복 실패' } };
+}
+
 // 보고 등록(기자단) — report_type(저장/발행) 지정. title 필수(UI에서 검증). RLS: 본인 + 본인 담당 블로그만.
 export async function createReport(payload: {
     blog_account_id: string;
@@ -154,31 +189,22 @@ export async function createReport(payload: {
             patch.reviewed_by = null;
             patch.blog_post_id = null;
         }
-        const { data, error } = await supabase
-            .from('blog_post_reports')
-            .update(patch)
-            .eq('id', dup.id)
-            .select()
-            .returns<BlogPostReport[]>();
-        return { data: data ?? [], error, duplicate: false };
+        const { data, error } = await bprUpdate(dup.id, patch); // 드리프트 대응
+        return { data, error, duplicate: false };
     }
 
-    const { data, error } = await supabase
-        .from('blog_post_reports')
-        .insert({
-            blog_account_id: payload.blog_account_id,
-            reporter_id: payload.reporter_id,
-            post_url: payload.post_url,
-            title: payload.title,
-            keyword: payload.keyword ?? null,
-            report_type: payload.report_type,
-            round: payload.round ?? null,
-            blog_kind: payload.blog_kind ?? null,
-            published_at: payload.report_type === 'publish' ? new Date().toISOString() : null,
-        })
-        .select()
-        .returns<BlogPostReport[]>();
-    return { data: data ?? [], error, duplicate: false };
+    const { data, error } = await bprInsert({
+        blog_account_id: payload.blog_account_id,
+        reporter_id: payload.reporter_id,
+        post_url: payload.post_url,
+        title: payload.title,
+        keyword: payload.keyword ?? null,
+        report_type: payload.report_type,
+        round: payload.round ?? null,
+        blog_kind: payload.blog_kind ?? null,
+        published_at: payload.report_type === 'publish' ? new Date().toISOString() : null,
+    });
+    return { data, error, duplicate: false };
 }
 
 // 보고 목록 — 내부는 전체(status/type 필터), 기자단은 RLS로 본인 것만, 고객은 RLS로 자기 업체 블로그만.

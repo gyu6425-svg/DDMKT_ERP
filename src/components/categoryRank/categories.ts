@@ -62,13 +62,13 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
             { label: '인스타 배포', href: '/insta-rank?sub=' + encodeURIComponent('인스타 배포') },
         ],
     },
-    // 카페 — 하위: 대시보드(자동) + 브랜드 카페 + 맘카페 + 카페 원고 생성기(/cafe).
+    // 카페 — 하위: 대시보드(자동) + 카페 배포 + 맘카페 + 카페 원고 생성기(/cafe).
     {
         key: 'cafe',
         label: '카페',
         dashHref: '/cafe-rank',
         subs: [
-            { label: '브랜드 카페', href: '/cafe-rank?sub=' + encodeURIComponent('브랜드 카페') },
+            { label: '카페 배포', href: '/cafe-rank?sub=' + encodeURIComponent('카페 배포') },
             { label: '맘카페', href: '/cafe-rank?sub=' + encodeURIComponent('맘카페') },
             { label: '카페 원고 생성기', href: '/cafe' },
         ],
@@ -98,8 +98,8 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
         subs: [
             { label: '롱폼(유튜브)', href: '/video-rank?sub=' + encodeURIComponent('롱폼(유튜브)') },
             {
-                label: '숏폼(릴스,틱톡,쇼츠)',
-                href: '/video-rank?sub=' + encodeURIComponent('숏폼(릴스,틱톡,쇼츠)'),
+                label: '숏폼(유튜브,인스타)',
+                href: '/video-rank?sub=' + encodeURIComponent('숏폼(유튜브,인스타)'),
             },
             { label: '클립', href: '/video-rank?sub=' + encodeURIComponent('클립') },
             { label: '촬영 패키지', href: '/video-rank?sub=' + encodeURIComponent('촬영 패키지') },

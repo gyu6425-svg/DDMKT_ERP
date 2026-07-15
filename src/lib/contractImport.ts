@@ -130,6 +130,9 @@ export function mapProduct(nameRaw: string, unit = 0): Mapped {
     if (has('실구매')) return { category: '쇼핑', subtype: '실구매' };
     if (has('스토어 리뷰') || has('스토어리뷰') || has('체험단') || has('스마트스토어'))
         return { category: '쇼핑', subtype: '스토어 리뷰' };
+    // 카페 — 맘카페 우선, 그 외 '카페' 포함 품목은 카페 배포 시트로.
+    if (has('맘카페')) return { category: '카페', subtype: '맘카페' };
+    if (has('카페')) return { category: '카페', subtype: '카페 배포' };
     return { exclude: true };
 }
 

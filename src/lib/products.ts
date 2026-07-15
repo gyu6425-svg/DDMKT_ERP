@@ -11,7 +11,7 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
         subs: ['영수증 리뷰', '플레이스 리워드', '플레이스용 블로그 배포', '상위노출 보장형'],
     },
     { key: 'insta', label: '인스타', path: '/insta-rank', ready: false, subs: ['브랜드 인스타', '인스타 배포'] },
-    { key: 'cafe', label: '카페', path: '/cafe-rank', ready: false, subs: ['브랜드 카페', '맘카페'] },
+    { key: 'cafe', label: '카페', path: '/cafe-rank', ready: false, subs: ['카페 배포', '맘카페'] },
     {
         key: 'shopping',
         label: '쇼핑',
@@ -25,7 +25,7 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
         label: '영상',
         path: '/video-rank',
         ready: false,
-        subs: ['롱폼(유튜브)', '숏폼(릴스,틱톡,쇼츠)', '클립', '촬영 패키지', '전달 패키지'],
+        subs: ['롱폼(유튜브)', '숏폼(유튜브,인스타)', '클립', '촬영 패키지', '전달 패키지'],
     },
     {
         key: 'blog',
@@ -48,9 +48,9 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
 // 컨테이너형(부모) 세부유형 — 자기 자신을 하위로 못 넣게 제외. 상위노출 보장형=플레이스 고정, 종합광고=전 카테고리.
 export const CONTAINER_SUBS = ['상위노출 보장형', '종합광고'];
 
-// 영상 '숏폼' — 릴스/틱톡/쇼츠 중 선택. 선택 종류는 계약 blog_name(라벨)에 저장 → 카드 칩 표시.
-export const SHORTFORM_SUB = '숏폼(릴스,틱톡,쇼츠)';
-export const SHORTFORM_PLATFORMS = ['릴스', '틱톡', '쇼츠'];
+// 영상 '숏폼' — 유튜브/인스타 중 선택. 선택 종류는 계약 blog_name(라벨)에 저장 → 카드 칩 표시.
+export const SHORTFORM_SUB = '숏폼(유튜브,인스타)';
+export const SHORTFORM_PLATFORMS = ['유튜브', '인스타'];
 
 export const categoryByLabel = (label: string): ProductCategory | undefined =>
     PRODUCT_CATEGORIES.find((c) => c.label === label);
