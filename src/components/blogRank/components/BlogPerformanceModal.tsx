@@ -39,7 +39,7 @@ export function BlogPerformanceModal({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
             onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
-            <div className="flex max-h-[88vh] w-[min(820px,96vw)] flex-col rounded-2xl bg-white p-6">
+            <div className="flex max-h-[88vh] w-[min(1120px,97vw)] flex-col rounded-2xl bg-white p-6">
                 <div className="mb-2 flex items-center justify-between">
                     <h3 className="m-0 text-lg font-bold text-[#0f172a]">{account.name} · 성과</h3>
                     <button
@@ -187,10 +187,10 @@ function ReportsTab({ blogAccountId, internal }: { blogAccountId: string; intern
                 <table className="w-full text-left text-sm">
                     <thead>
                         <tr className="border-b border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
-                            {internal ? <th className="px-3 py-2 font-semibold">입금</th> : null}
-                            {internal ? <th className="px-3 py-2 font-semibold">기자단</th> : null}
-                            <th className="px-3 py-2 font-semibold">구분</th>
-                            <th className="px-3 py-2 font-semibold">상태</th>
+                            {internal ? <th className="whitespace-nowrap px-3 py-2 font-semibold">입금</th> : null}
+                            {internal ? <th className="whitespace-nowrap px-3 py-2 font-semibold">기자단</th> : null}
+                            <th className="whitespace-nowrap px-3 py-2 font-semibold">구분</th>
+                            <th className="whitespace-nowrap px-3 py-2 font-semibold">상태</th>
                             <th className="px-3 py-2 font-semibold">제목</th>
                             <th className="px-3 py-2 font-semibold">글 주소</th>
                             <th className="whitespace-nowrap px-3 py-2 font-semibold">보고일</th>
@@ -241,12 +241,12 @@ function ReportsTab({ blogAccountId, internal }: { blogAccountId: string; intern
                                                 {sb.t}
                                             </span>
                                         </td>
-                                        <td className="max-w-[220px] truncate px-3 py-2 text-[#334155]">
+                                        <td className="max-w-[340px] truncate px-3 py-2 text-[#334155]">
                                             {r.title || '제목 없음'}
                                         </td>
                                         <td className="px-3 py-2">
                                             <a
-                                                className="block max-w-[200px] truncate text-[13px] text-[#7c3aed] hover:underline"
+                                                className="block max-w-[300px] truncate text-[13px] text-[#7c3aed] hover:underline"
                                                 href={r.post_url}
                                                 rel="noopener noreferrer"
                                                 target="_blank"
