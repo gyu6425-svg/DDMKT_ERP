@@ -294,11 +294,21 @@ export function CafeBannerTab() {
                 console.warn('[cafe] 히스토리 저장 실패', se);
             }
             const savedNote = saved ? '· 저장됨' : '· ⚠️ 저장 실패(다른 탭 닫고 새로고침)';
-            setMsg(
-                imageFailed
-                    ? `원고 생성 완료 ${savedNote} — 배너 생성 실패(다시 시도). “다운받기(ZIP)”로 원고 저장.`
-                    : `생성 완료 ${savedNote} — 배너 ${bannerCount}장 + 원고. “다운받기(ZIP)”로 저장하세요.`,
-            );
+            if (imageFailed) {
+                setMsg(`원고 생성 완료 ${savedNote} — 배너 생성 실패(다시 시도). “다운받기(ZIP)”로 원고 저장.`);
+            } else {
+                // 생성 한 번에 파일(ZIP)까지 자동 생성 — 원고.txt + 사진(1·8 배너·2~7 미세변형).
+                try {
+                    setDownloading(true);
+                    const order = buildImageOrder(capBanners, fixedImages);
+                    const n = await downloadCafeZip({ bodyText: capReview, images: order, region, title: capTitle });
+                    setMsg(`생성 완료 ${savedNote} — 배너+원고 + ZIP 자동 다운로드(사진 ${n}장, 각 미세 변형).`);
+                } catch {
+                    setMsg(`생성 완료 ${savedNote} — ZIP 자동생성 실패, 아래 “다운받기(ZIP)”를 눌러주세요.`);
+                } finally {
+                    setDownloading(false);
+                }
+            }
         } catch (e) {
             setMsg(e instanceof Error ? e.message : '생성 실패');
         } finally {
