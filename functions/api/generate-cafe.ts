@@ -13,6 +13,7 @@ type GenerateCafePayload = {
     content?: Record<string, unknown>; // review 모드에서 소재(카드 콘텐츠) 참고
     tone?: string; // review 톤: review(후기)·info(정보)·story(스토리)·talk(대화)·notice(공지)
     count?: number; // 카드(이미지) 장수 = 본문 「사진 N」 마커 개수
+    layout?: 'markers' | 'bottom'; // markers=본문에 「사진 N」 인터리브 / bottom=이미지 상단 일괄 + 본문 하단(마커 없음, [출처] 끝)
 };
 
 // 후기 본문 톤 5종 — 시작 말투/문체 지시. 기본 review(후기형).
@@ -123,6 +124,26 @@ export function buildReviewPrompt(payload: GenerateCafePayload): string {
 
     const tone = REVIEW_TONES[payload.tone || 'review'] || REVIEW_TONES.review;
     const count = Math.max(1, Math.min(9, Number(payload.count) || 9));
+    // 하단형(누수탐지2) — 이미지는 상단 일괄, 본문은 마커 없이 하나의 후기 글 + [출처] 마무리.
+    if (payload.layout === 'bottom') {
+        return [
+            `너는 네이버 카페 지역글 전문 카피라이터다. 아래 업체의 "${keyword}" 홍보 카페 본문을 **[${tone.name}]** 문체로 쓴다.`,
+            `업체명 "${brand} ${branch}", 지역 "${region}", 업종 "${business}", 전화 "${phone}".`,
+            ``,
+            `[문체 지시 · ${tone.name}] ${tone.guide}`,
+            ``,
+            `[반드시 지킬 형식]`,
+            `- 이미지는 본문 위에 모두 배치되므로 「사진 N」 같은 마커를 절대 넣지 마라. 본문은 하나의 이어지는 자연스러운 후기 글이다.`,
+            `- 소제목 2~3개를 "부제목 : <내용>" 형식(한 줄 단독)으로 자연스럽게 배치. 그중 1개는 지역명(${region})+키워드를 포함해 검색 노출에 도움되게.`,
+            `- 업체명과 전화(${phone})는 정확히 표기. 과장·허위·별점·가짜 이름 금지. 마크다운·이모지 금지, 순수 텍스트.`,
+            `- 분량 1500~2500자(공백 포함). 마지막에 상담 유도 한 줄 뒤, 맨 끝에 반드시 "[출처] ${brand} ${branch}" 한 줄로 마무리.`,
+            ``,
+            `[본문에 자연스럽게 녹일 소재]`,
+            material,
+            ``,
+            `반드시 **JSON 객체 하나만** 출력한다(코드펜스·설명 금지): {"title":"클릭을 부르는 제목 1개","body":"본문 전체(줄바꿈 포함, 마커 없음, 끝에 [출처] 줄)","topics":[]}`,
+        ].join('\n');
+    }
     return [
         `너는 네이버 카페 지역글 전문 카피라이터다. 아래 업체의 "${keyword}" 홍보를 위한 카페 본문을 **[${tone.name}]** 문체로 쓴다.`,
         `업체명 "${brand} ${branch}", 지역 "${region}", 업종 "${business}", 전화 "${phone}".`,

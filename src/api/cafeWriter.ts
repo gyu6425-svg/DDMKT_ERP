@@ -279,7 +279,12 @@ export async function generateSecurityBanner(input: {
 export type CafeReviewTone = 'review' | 'info' | 'story' | 'talk' | 'notice';
 
 export async function generateCafeReview(
-    input: GenerateCafeInput & { content: Partial<CafeContent>; tone?: CafeReviewTone; count?: number },
+    input: GenerateCafeInput & {
+        content: Partial<CafeContent>;
+        tone?: CafeReviewTone;
+        count?: number;
+        layout?: 'markers' | 'bottom';
+    },
 ): Promise<GenerateCafeReviewResult> {
     const result = await postCafe(
         {
@@ -289,6 +294,7 @@ export async function generateCafeReview(
             content: input.content,
             count: input.count,
             keyword: input.keyword,
+            layout: input.layout,
             mode: 'review',
             phone: input.phone,
             region: input.region,
