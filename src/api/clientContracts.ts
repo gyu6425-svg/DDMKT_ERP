@@ -52,6 +52,7 @@ export type ClientContract = {
     boost_end?: string | null; // 상위노출 보장형 회차 종료일(시작일 = contract_date)
     parent_id?: string | null; // 컨테이너(상위노출 보장형·종합광고) 하위면 그 컨테이너 계약 id — 회차별 귀속
     no_vat?: boolean | null; // 부가세 없음(현금 거래) — true면 실매출에 VAT 10% 미포함
+    payment_method?: string | null; // 결제수단 — 'card'=카드매출, null=현금/계좌이체(일반)
 };
 
 // 누적 완료 외주금액 = Σ(진행 배치 건수 × 그 배치 외주단가) + 로그에 없는 완료분(잔여로만 갱신된 건) × 기본 외주단가.

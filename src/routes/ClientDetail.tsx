@@ -2377,6 +2377,8 @@ export function ClientDetail({
                 outsource: p.outAmt || 0,
                 contract_date: todayStr(), // 월 필터 뷰·발급 게이팅에서 빠지지 않도록 오늘 날짜 부여
                 sheet_approved: true,
+                // 카드결제일 때만 payment_method 포함 — 컬럼 미적용(마이그레이션 전)이라도 일반 붙여넣기는 실패하지 않게.
+                ...(p.payment ? { payment_method: p.payment } : {}),
                 history: [],
                 weekly_logs: [],
             }));
@@ -3285,6 +3287,11 @@ export function ClientDetail({
                                                         {isBoostChild ? (
                                                             <span className="ml-1 rounded-full bg-[#ede9fe] px-1.5 py-0.5 text-[11px] font-extrabold text-[#7c3aed]">
                                                                 {innerLabel}
+                                                            </span>
+                                                        ) : null}
+                                                        {ct.payment_method === 'card' ? (
+                                                            <span className="ml-1 rounded-full bg-[#fef3c7] px-1.5 py-0.5 text-[10px] font-extrabold text-[#b45309]">
+                                                                카드
                                                             </span>
                                                         ) : null}
                                                     </div>
