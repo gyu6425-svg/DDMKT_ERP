@@ -16,6 +16,7 @@ export type BlogPostReport = {
     keyword: string | null;
     status: ReportStatus;
     report_type: ReportType; // 저장/발행 — 기자단 히스토리 버킷
+    round: number | null; // 회차(n회차) — 기자단이 보고 시 입력
     published_at: string | null; // 기자단이 '발행' 처리한 시각(발행 히스토리)
     note: string | null;
     created_at: string;
@@ -52,6 +53,7 @@ export async function createReport(payload: {
     title: string;
     report_type: ReportType;
     keyword?: string | null;
+    round?: number | null;
 }) {
     // 같은 블로그에 같은 글(제목 동일 또는 URL 동일)을 이미 보고했는지 확인한다.
     //   · 같은 구분(저장/발행)으로 또 보고 = 진짜 중복 → 새로 만들지 않고 duplicate 신호(UI: '이미 등록한 글').
@@ -79,6 +81,7 @@ export async function createReport(payload: {
             report_type: payload.report_type,
             title: payload.title,
             keyword: payload.keyword ?? null,
+            round: payload.round ?? dup.round ?? null,
             post_url: payload.post_url,
             published_at:
                 payload.report_type === 'publish' ? (dup.published_at ?? new Date().toISOString()) : dup.published_at,
@@ -108,6 +111,7 @@ export async function createReport(payload: {
             title: payload.title,
             keyword: payload.keyword ?? null,
             report_type: payload.report_type,
+            round: payload.round ?? null,
             published_at: payload.report_type === 'publish' ? new Date().toISOString() : null,
         })
         .select()

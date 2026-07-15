@@ -16,6 +16,7 @@ function ReportSubmitTab() {
     const { accounts, showToast } = useBlogRank();
     const { profile } = useAuth();
     const [blogId, setBlogId] = useState('');
+    const [round, setRound] = useState(''); // 회차(n회차)
     const [url, setUrl] = useState('');
     const [title, setTitle] = useState('');
     const [keyword, setKeyword] = useState('');
@@ -77,6 +78,7 @@ function ReportSubmitTab() {
             title: title.trim(),
             report_type: type,
             keyword: keyword.trim() || null,
+            round: round.trim() ? Number(round) : null,
         });
         setSaving(null);
         if (error) return showToast('보고 실패: ' + error.message);
@@ -90,6 +92,7 @@ function ReportSubmitTab() {
         setUrl('');
         setTitle('');
         setKeyword('');
+        setRound('');
         setHistTab(type);
         showToast(`${type === 'publish' ? '발행' : '저장'} 보고 완료 · 담당자에게 전달됩니다`);
         loadMine();
@@ -138,6 +141,16 @@ function ReportSubmitTab() {
                             </option>
                         ))}
                     </select>
+                </label>
+                <label className="text-xs font-semibold text-[#475569]">
+                    회차(선택)
+                    <input
+                        className={inputCls}
+                        inputMode="numeric"
+                        onChange={(e) => setRound(e.target.value.replace(/[^0-9]/g, ''))}
+                        placeholder="몇 회차인지 (예: 3)"
+                        value={round}
+                    />
                 </label>
                 <label className="text-xs font-semibold text-[#475569]">
                     제목(필수)
@@ -245,7 +258,8 @@ function ReportSubmitTab() {
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="min-w-0">
                                             <div className="truncate font-semibold text-[#334155]">
-                                                {nameOf(r.blog_account_id)} · {r.title || '제목 없음'}
+                                                {nameOf(r.blog_account_id)}
+                                                {r.round ? ` · ${r.round}회차` : ''} · {r.title || '제목 없음'}
                                             </div>
                                             <a
                                                 className="block truncate text-xs text-[#7c3aed] hover:underline"
