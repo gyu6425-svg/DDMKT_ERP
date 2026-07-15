@@ -416,6 +416,7 @@ function SettlementTab() {
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-4 py-2 font-semibold">입금</th>
+                            <th className="whitespace-nowrap px-4 py-2 font-semibold">회차</th>
                             <th className="px-4 py-2 font-semibold">성함</th>
                             <th className="px-4 py-2 font-semibold">업체</th>
                             <th className="px-4 py-2 font-semibold">글 제목</th>
@@ -426,7 +427,7 @@ function SettlementTab() {
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={6}>
+                                <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={7}>
                                     불러오는 중…
                                 </td>
                             </tr>
@@ -444,6 +445,9 @@ function SettlementTab() {
                                             </span>
                                         )}
                                     </td>
+                                    <td className="whitespace-nowrap px-4 py-2 font-semibold text-[#475569]">
+                                        {r.round ? `${r.round}회차` : '-'}
+                                    </td>
                                     <td className="px-4 py-2 font-semibold text-[#334155]">{reporterName(r)}</td>
                                     <td className="px-4 py-2 text-[#475569]">{companyOf(r.blog_account_id)}</td>
                                     <td className="max-w-[280px] truncate px-4 py-2 text-[#475569]">
@@ -459,7 +463,7 @@ function SettlementTab() {
                             ))
                         ) : (
                             <tr>
-                                <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={6}>
+                                <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={7}>
                                     아직 승인되어 정산된 글이 없습니다.
                                 </td>
                             </tr>
