@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
-import { approveReport, getReports, rejectReport, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
+import { approveReport, getReports, isBrandKind, rejectReport, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
 import { getReporters } from '../../../api/blogRank';
+
+// 블로그 종류 칩 색상 — 브랜드=파랑 · 최적화=초록 · 준최적화=주황 · 저인망=보라.
+function kindChipCls(kind: string | null | undefined): string {
+    const k = kind ?? '브랜드 블로그';
+    if (k === '최적화') return 'bg-[#dcfce7] text-[#15803d]';
+    if (k === '준최적화') return 'bg-[#fef3c7] text-[#b45309]';
+    if (k === '저인망 배포') return 'bg-[#ede9fe] text-[#7c3aed]';
+    return 'bg-[#dbeafe] text-[#1e40af]';
+}
 
 // 기자단 글 보고 승인 모달 — 저장/발행 승인 대기 2탭. 승인하면 추적글 생성 + 계약 잔여 -1(카운트) +
 //   진행처리 1건(외주비 8,000/대박종합주방 10,000)이 딱 1회 잡힌다(저장·발행 동일, 중복 방지).
@@ -22,6 +31,7 @@ export function ReportReviewModal({
     const [loading, setLoading] = useState(true);
     const [rejectId, setRejectId] = useState<string | null>(null);
     const [rejectReason, setRejectReason] = useState('');
+    const [amounts, setAmounts] = useState<Record<string, string>>({}); // 비-브랜드 외주비 입력값(보고별)
 
     const load = () => {
         setLoading(true);
@@ -36,9 +46,20 @@ export function ReportReviewModal({
     useEffect(load, [tab]);
 
     // 승인 — 추적글 등록 + 계약 카운트(+1/외주비) 딱 1회.
+    //   브랜드 블로그: 외주비 8,000/10,000 자동. 비-브랜드(최적화·준최적화·저인망): 입력한 금액으로 계상.
     const approve = async (r: BlogPostReport) => {
+        const brand = isBrandKind(r.blog_kind);
+        let outAmount: number | null = null;
+        if (!brand) {
+            const v = Number((amounts[r.id] || '').replace(/[^0-9]/g, ''));
+            if (!v) {
+                alert(`'${r.blog_kind}'는 외주비 금액을 입력해야 승인됩니다.`);
+                return;
+            }
+            outAmount = v;
+        }
         setBusy(r.id);
-        const { error, processed, outUnit } = await approveReport(r, reviewerProfileId);
+        const { error, processed, outUnit } = await approveReport(r, reviewerProfileId, outAmount);
         setBusy(null);
         if (error) {
             alert('승인 실패: ' + error.message);
@@ -49,7 +70,7 @@ export function ReportReviewModal({
         alert(
             processed
                 ? `승인 완료 · 계약 1건 카운트(잔여 -1) + 외주비 ${outUnit.toLocaleString('ko-KR')}원 반영됨`
-                : '승인 완료(추적 등록). 연결된 브랜드 블로그 계약이 없어 카운트는 미반영',
+                : `승인 완료(추적 등록) · 외주비 ${outUnit.toLocaleString('ko-KR')}원 · 연결된 계약이 없어 잔여 카운트는 미반영`,
         );
     };
     const doReject = async (r: BlogPostReport) => {
@@ -125,7 +146,12 @@ export function ReportReviewModal({
                             {reports.map((r) => (
                                 <tr className="border-b border-[#e2e8f0]" key={r.id}>
                                     <td className="px-3 py-2">
-                                        <div className="font-semibold text-[#334155]">{reporterName(r)}</div>
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="font-semibold text-[#334155]">{reporterName(r)}</span>
+                                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${kindChipCls(r.blog_kind)}`}>
+                                                {r.blog_kind ?? '브랜드 블로그'}
+                                            </span>
+                                        </div>
                                         <div className="text-[11px] text-[#94a3b8]">
                                             {blogNameOf(r.blog_account_id)}
                                             {r.title ? ` · ${r.title}` : ''}
@@ -174,6 +200,21 @@ export function ReportReviewModal({
                                             </div>
                                         ) : (
                                             <div className="flex items-center justify-center gap-1">
+                                                {/* 비-브랜드(최적화·준최적화·저인망)는 외주비 금액 입력 필수 */}
+                                                {!isBrandKind(r.blog_kind) ? (
+                                                    <div className="flex items-center gap-0.5">
+                                                        <input
+                                                            className="h-8 w-24 rounded border border-[#cbd5e1] px-2 text-right text-[12px]"
+                                                            inputMode="numeric"
+                                                            onChange={(e) =>
+                                                                setAmounts((prev) => ({ ...prev, [r.id]: e.target.value.replace(/[^0-9]/g, '') }))
+                                                            }
+                                                            placeholder="외주비"
+                                                            value={amounts[r.id] ?? ''}
+                                                        />
+                                                        <span className="text-[11px] text-[#94a3b8]">원</span>
+                                                    </div>
+                                                ) : null}
                                                 <button
                                                     className="rounded bg-[#1e40af] px-3 py-1 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
                                                     disabled={busy !== null}
@@ -202,9 +243,9 @@ export function ReportReviewModal({
                     </table>
                 )}
                 <p className="mt-3 mb-0 text-[11px] text-[#94a3b8]">
-                    승인하면 추적 글로 등록되고, 그 블로그의 브랜드 블로그 계약에 <b>1건 카운트(잔여 -1)</b> + 진행처리 외주비
-                    8,000원(대박종합주방 10,000원)이 <b>1회</b> 기록됩니다. 저장·발행 모두 동일하며, 이미 승인된 건은
-                    다시 발행해도 중복 계상되지 않습니다.
+                    승인하면 추적 글로 등록되고 <b>1건 카운트(잔여 -1)</b>됩니다. <b>브랜드 블로그</b>는 외주비
+                    8,000원(대박종합주방 10,000원) 자동, <b>최적화·준최적화·저인망 배포</b>는 입력한 외주비 금액으로
+                    계상되며 기자단 정산에도 그 금액이 반영됩니다. 이미 승인된 건은 다시 발행해도 중복 계상되지 않습니다.
                 </p>
             </div>
         </div>

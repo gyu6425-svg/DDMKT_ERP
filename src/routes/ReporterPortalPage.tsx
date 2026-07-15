@@ -6,16 +6,27 @@ import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { useAuth } from '../hooks/useAuth';
 import { useAsParam } from './CustomerCategoryPage';
-import { createReport, getReports, markPublished, publishOutUnit, resubmitReport, type BlogPostReport, type ReportType } from '../api/blogPostReports';
+import { BLOG_KINDS, createReport, getReports, markPublished, reportOutUnit, resubmitReport, type BlogPostReport, type ReportType } from '../api/blogPostReports';
 import { getReporters } from '../api/blogRank';
 
 type RTab = 'dashboard' | 'sheet' | 'tracker' | 'report' | 'settlement';
+
+// 블로그 종류 칩 색상 — 브랜드=파랑 · 최적화=초록 · 준최적화=주황 · 저인망=보라.
+function kindChipCls(kind: string | null | undefined): string {
+    const k = kind ?? '브랜드 블로그';
+    if (k === '최적화') return 'bg-[#dcfce7] text-[#15803d]';
+    if (k === '준최적화') return 'bg-[#fef3c7] text-[#b45309]';
+    if (k === '저인망 배포') return 'bg-[#ede9fe] text-[#7c3aed]';
+    return 'bg-[#dbeafe] text-[#1e40af]';
+}
+const kindLabel = (kind: string | null | undefined) => kind ?? '브랜드 블로그';
 
 // 기자단 글 보고 탭 — 본인 담당 블로그에 쓴 글 URL을 보고. 내부(김다영 등)에게 알림이 감.
 function ReportSubmitTab() {
     const { accounts, showToast } = useBlogRank();
     const { profile } = useAuth();
     const [blogId, setBlogId] = useState('');
+    const [blogKind, setBlogKind] = useState<string>('브랜드 블로그'); // 블로그 종류
     const [round, setRound] = useState(''); // 회차(n회차)
     const [url, setUrl] = useState('');
     const [title, setTitle] = useState('');
@@ -79,6 +90,7 @@ function ReportSubmitTab() {
             report_type: type,
             keyword: keyword.trim() || null,
             round: round.trim() ? Number(round) : null,
+            blog_kind: blogKind || '브랜드 블로그',
         });
         setSaving(null);
         if (error) return showToast('보고 실패: ' + error.message);
@@ -138,6 +150,20 @@ function ReportSubmitTab() {
                         {accounts.map((a) => (
                             <option key={a.id} value={a.id}>
                                 {a.name}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <label className="text-xs font-semibold text-[#475569]">
+                    블로그 종류
+                    <select
+                        className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                        onChange={(e) => setBlogKind(e.target.value)}
+                        value={blogKind}
+                    >
+                        {BLOG_KINDS.map((k) => (
+                            <option key={k} value={k}>
+                                {k}
                             </option>
                         ))}
                     </select>
@@ -275,6 +301,9 @@ function ReportSubmitTab() {
                                             ) : null}
                                         </div>
                                         <div className="flex shrink-0 items-center gap-1">
+                                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${kindChipCls(r.blog_kind)}`}>
+                                                {kindLabel(r.blog_kind)}
+                                            </span>
                                             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${st.c}`}>
                                                 {st.t}
                                             </span>
@@ -395,7 +424,7 @@ function SettlementTab() {
         if (r.reporter_id && r.reporter_id === profile?.id) return profile?.name || '기자단';
         return '기자단';
     };
-    const amountOf = (r: BlogPostReport) => publishOutUnit(companyOf(r.blog_account_id));
+    const amountOf = (r: BlogPostReport) => reportOutUnit(r, companyOf(r.blog_account_id));
     const total = rows.reduce((s, r) => s + amountOf(r), 0);
     const unpaidTotal = rows.filter((r) => !r.paid).reduce((s, r) => s + amountOf(r), 0);
 

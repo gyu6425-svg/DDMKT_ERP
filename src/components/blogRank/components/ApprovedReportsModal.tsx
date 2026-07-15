@@ -2,6 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { getReports, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
 import { getProfiles } from '../../../api/profiles';
 
+// 블로그 종류 칩 색상 — 브랜드=파랑 · 최적화=초록 · 준최적화=주황 · 저인망=보라.
+function kindChipCls(kind: string | null | undefined): string {
+    const k = kind ?? '브랜드 블로그';
+    if (k === '최적화') return 'bg-[#dcfce7] text-[#15803d]';
+    if (k === '준최적화') return 'bg-[#fef3c7] text-[#b45309]';
+    if (k === '저인망 배포') return 'bg-[#ede9fe] text-[#7c3aed]';
+    return 'bg-[#dbeafe] text-[#1e40af]';
+}
+
 // 기자단 승인 처리 내역(내부) — 승인(confirmed)·발행완료(published) 보고를 히스토리 표로.
 //   컬럼: 업로드일 / 승인일 / 승인직원 / 업체 / 제목 / 회차 / 구분(저장·발행). 최근 승인순.
 export function ApprovedReportsModal({
@@ -134,6 +143,7 @@ export function ApprovedReportsModal({
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">승인일</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">승인 직원</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">업체</th>
+                                    <th className="whitespace-nowrap px-2 py-2 font-semibold">블로그 종류</th>
                                     <th className="px-2 py-2 font-semibold">제목</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">회차</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">구분</th>
@@ -148,6 +158,11 @@ export function ApprovedReportsModal({
                                             {r.reviewed_by ? nameMap[r.reviewed_by] || '—' : '—'}
                                         </td>
                                         <td className="whitespace-nowrap px-2 py-2 text-[#334155]">{blogNameOf(r.blog_account_id)}</td>
+                                        <td className="whitespace-nowrap px-2 py-2">
+                                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${kindChipCls(r.blog_kind)}`}>
+                                                {r.blog_kind ?? '브랜드 블로그'}
+                                            </span>
+                                        </td>
                                         <td className="px-2 py-2 text-[#0f172a]">
                                             {r.post_url ? (
                                                 <a className="hover:underline" href={r.post_url} rel="noopener noreferrer" target="_blank">

@@ -7,6 +7,15 @@ import { getClientContracts, updateClientContract, type RewardWeeklyLog } from '
 //   report_type만 publish로 바뀌고 재카운트는 없다(중복 방지). status = 대기/승인/반려.
 export type ReportStatus = 'pending' | 'confirmed' | 'rejected' | 'published';
 export type ReportType = 'save' | 'publish';
+
+// 블로그 종류 — 브랜드 블로그는 외주비 8,000원 고정(대박종합주방 10,000), 그 외는 승인 시 금액 직접 입력.
+export const BLOG_KINDS = ['브랜드 블로그', '최적화', '준최적화', '저인망 배포'] as const;
+export type BlogKind = (typeof BLOG_KINDS)[number];
+// 종류 미지정(구 데이터)은 브랜드 블로그로 간주.
+export function isBrandKind(kind: string | null | undefined): boolean {
+    return (kind ?? '브랜드 블로그') === '브랜드 블로그';
+}
+
 export type BlogPostReport = {
     id: string;
     blog_account_id: string;
@@ -16,6 +25,8 @@ export type BlogPostReport = {
     keyword: string | null;
     status: ReportStatus;
     report_type: ReportType; // 저장/발행 — 기자단 히스토리 버킷
+    blog_kind: string | null; // 블로그 종류(브랜드/최적화/준최적화/저인망 배포). null=브랜드 간주
+    out_amount: number | null; // 비-브랜드 외주비(승인 시 입력). null이면 브랜드 규칙(8,000/10,000)
     round: number | null; // 회차(n회차) — 기자단이 보고 시 입력
     published_at: string | null; // 기자단이 '발행' 처리한 시각(발행 히스토리)
     note: string | null;
@@ -40,9 +51,16 @@ export async function settleReports(reportIds: string[]) {
     return { error, count: data?.length ?? 0 };
 }
 
-// 발행/저장 승인 외주단가 — 대박종합주방만 10,000원, 그 외 8,000원.
+// 발행/저장 승인 외주단가 — 대박종합주방만 10,000원, 그 외 8,000원. (브랜드 블로그 고정 규칙)
 export function publishOutUnit(company: string): number {
     return (company || '').includes('대박종합주방') ? 10000 : 8000;
+}
+
+// 이 보고의 실제 외주단가 — 브랜드는 항상 회사명 규칙(8,000/10,000)으로 고정(입력값 무시, 조작 방지).
+//   비-브랜드(최적화·준최적화·저인망)만 승인 시 입력한 out_amount를 사용(없으면 규칙 폴백).
+export function reportOutUnit(report: Pick<BlogPostReport, 'out_amount' | 'blog_kind'>, company: string): number {
+    if (isBrandKind(report.blog_kind)) return publishOutUnit(company);
+    return report.out_amount != null ? report.out_amount : publishOutUnit(company);
 }
 
 // 보고 등록(기자단) — report_type(저장/발행) 지정. title 필수(UI에서 검증). RLS: 본인 + 본인 담당 블로그만.
@@ -54,6 +72,7 @@ export async function createReport(payload: {
     report_type: ReportType;
     keyword?: string | null;
     round?: number | null;
+    blog_kind?: string | null;
 }) {
     // 같은 블로그에 같은 글(제목 동일)을 이미 보고했는지 확인한다.
     //   · 판별은 '제목'만으로 한다. 저장 보고는 같은 글 URL을 계속 재사용하므로(저장 상태·회차 반복)
@@ -79,6 +98,7 @@ export async function createReport(payload: {
             title: payload.title,
             keyword: payload.keyword ?? null,
             round: payload.round ?? dup.round ?? null,
+            blog_kind: payload.blog_kind ?? dup.blog_kind ?? null,
             post_url: payload.post_url,
             published_at:
                 payload.report_type === 'publish' ? (dup.published_at ?? new Date().toISOString()) : dup.published_at,
@@ -109,6 +129,7 @@ export async function createReport(payload: {
             keyword: payload.keyword ?? null,
             report_type: payload.report_type,
             round: payload.round ?? null,
+            blog_kind: payload.blog_kind ?? null,
             published_at: payload.report_type === 'publish' ? new Date().toISOString() : null,
         })
         .select()
@@ -135,11 +156,16 @@ async function bookContractCredit(report: BlogPostReport) {
         .eq('id', report.blog_account_id);
     const acc = (accs ?? [])[0] as { client_id?: string | null; name?: string | null } | undefined;
     const clientId = acc?.client_id ?? null;
-    if (!clientId) return { processed: false, outUnit: 0, err: null as { message: string } | null };
+    // 비-브랜드(out_amount 지정)는 계약이 없어도 그 금액을 외주비로 보고(정산엔 보고행이 직접 반영됨).
+    //   브랜드는 회사명 규칙이라 계약(회사)이 없으면 0으로 폴백(주입값 무시).
+    if (!clientId) {
+        const noClientOut = isBrandKind(report.blog_kind) ? 0 : report.out_amount ?? 0;
+        return { processed: false, outUnit: noClientOut, err: null as { message: string } | null };
+    }
     let company = '';
     const { data: cl } = await supabase.from('clients').select('company').eq('id', clientId);
     company = ((cl ?? [])[0] as { company?: string } | undefined)?.company ?? '';
-    const outUnit = publishOutUnit(company);
+    const outUnit = reportOutUnit(report, company);
     const { data: contracts, error: cErr } = await getClientContracts(clientId);
     if (cErr) return { processed: false, outUnit, err: cErr };
     const sub = (ct: { subtype: string }) => ct.subtype.replace(/^상위노출 보장형 · /, '');
@@ -175,16 +201,30 @@ async function bookContractCredit(report: BlogPostReport) {
 
 // 승인(회사) — pending 보고를 승인하면서 ① 추적글 생성 ② 계약 잔여 -1 + 외주비 1건을 딱 1회 처리.
 //   원자적 클레임(.eq status pending)으로 중복 승인/동시 클릭 시 카운트 이중 계상 방지. 저장·발행 둘 다 동일.
-export async function approveReport(report: BlogPostReport, reviewerProfileId: string | null) {
-    // 1) 원자적 클레임: pending → confirmed. 실제 1행을 바꾼 '이긴' 호출만 아래 처리.
+//   outAmount: 비-브랜드 블로그(최적화/준최적화/저인망)의 외주비 금액. 지정 시 out_amount로 저장돼
+//   외주비 계상·기자단 정산에 그 금액으로 반영된다. 브랜드 블로그면 생략(8,000/10,000 규칙).
+export async function approveReport(
+    report: BlogPostReport,
+    reviewerProfileId: string | null,
+    outAmount?: number | null,
+) {
+    // 1) 원자적 클레임: pending → confirmed(+ 비-브랜드면 외주비 금액 저장). 실제 1행을 바꾼 '이긴' 호출만 아래 처리.
+    const claimPatch: Record<string, unknown> = {
+        status: 'confirmed',
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: reviewerProfileId,
+    };
+    if (outAmount != null) claimPatch.out_amount = outAmount;
     const { data: claimed, error: claimErr } = await supabase
         .from('blog_post_reports')
-        .update({ status: 'confirmed', reviewed_at: new Date().toISOString(), reviewed_by: reviewerProfileId })
+        .update(claimPatch)
         .eq('id', report.id)
         .eq('status', 'pending')
         .select('id');
     if (claimErr) return { error: claimErr, processed: false, outUnit: 0 };
     if (!claimed || claimed.length === 0) return { error: null, processed: false, outUnit: 0 }; // 이미 승인됨
+    // 아래 계약 계상은 방금 저장한 외주비 금액을 반영해야 하므로 병합본으로 넘긴다.
+    const bookReport: BlogPostReport = { ...report, out_amount: outAmount ?? report.out_amount };
 
     // 2) 추적글 생성(같은 URL 이미 추적 중이면 재사용) → blog_post_id 연결.
     const base = (report.post_url || '').split('?')[0];
@@ -217,7 +257,7 @@ export async function approveReport(report: BlogPostReport, reviewerProfileId: s
     }
 
     // 3) 계약 카운트 +1 · 외주비(중복 방지). 실패해도 승인은 유지 — 오류 표면화.
-    const { processed, outUnit, err } = await bookContractCredit(report);
+    const { processed, outUnit, err } = await bookContractCredit(bookReport);
     return { error: err, processed, outUnit };
 }
 
