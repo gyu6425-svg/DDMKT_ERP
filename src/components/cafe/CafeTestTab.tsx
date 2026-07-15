@@ -165,7 +165,7 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                 needFirstCard
                     ? (async () => {
                           const t = Date.now();
-                          const img = await generateCafeCard({
+                          const { imageDataUrl: img, usage: cardUsage } = await generateCafeCard({
                               region,
                               district: cardMode === 'default' ? district : undefined,
                               topic: business,
@@ -178,13 +178,14 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                           await setCachedCard(cardKey, img);
                           void logApiUsage({
                               banner_size: 'square',
-                              cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: 'high', provider: 'openai' }),
+                              cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: 'high', provider: 'openai', usage_raw: cardUsage }),
                               elapsed_ms: Date.now() - t,
                               image_quality: 'high',
                               model: 'cafe-card',
                               operator_name: operatorName,
                               provider: 'openai',
                               status: 'success',
+                              usage_raw: cardUsage,
                               user_email: email,
                           });
                       })()

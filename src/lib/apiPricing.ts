@@ -30,6 +30,15 @@ export const IMAGE_PRICE_USD: Record<string, Record<string, Record<string, numbe
     },
 };
 
+// ── OpenAI gpt-image: 이미지 output 토큰(결정론적) → 실제 청구 = 토큰 × $40/M ────────
+//   gpt-image 는 응답 usage 에 이미지 토큰이 안 담긴다(Responses API). 대신 크기·화질별 토큰이 고정이라
+//   토큰 × 이미지 output 단가($40/M)로 '센트 단위 정확'하게 산출한다. (OpenAI 공식 토큰표·단가, 2026)
+export const IMAGE_OUTPUT_RATE_USD_PER_M = 40;
+export const IMAGE_OUTPUT_TOKENS: Record<string, Record<string, number>> = {
+    square: { low: 272, medium: 1056, high: 4160 }, // 1024 x 1024 → $0.0109 / $0.0422 / $0.1664
+    bottom: { low: 400, medium: 1568, high: 6208 }, // 1536 x 1024 → $0.0160 / $0.0627 / $0.2483
+};
+
 export type TokenUsageRaw = {
     input_tokens?: number;
     output_tokens?: number;
@@ -72,13 +81,20 @@ export function tokenCostUsd(
     );
 }
 
-// 이미지 1장 단가 조회(provider/size/quality 매칭, 없으면 기본값).
+// 이미지 1장 단가 조회. OpenAI=결정론적 토큰 × $40/M(센트 정확). 그 외(gemini 등)=장당 정액표.
 export function imagePriceUsd(
     provider: string | null | undefined,
     size: string | null | undefined,
     quality: string | null | undefined,
 ): number {
-    const byProvider = IMAGE_PRICE_USD[provider || 'openai'] || IMAGE_PRICE_USD.openai;
+    // OpenAI gpt-image — 크기·화질별 이미지 output 토큰 × $40/M.
+    if (!provider || provider === 'openai') {
+        const bySize = IMAGE_OUTPUT_TOKENS[size || 'square'] || IMAGE_OUTPUT_TOKENS.square;
+        const qk = quality && bySize[quality] != null ? quality : 'medium';
+        return ((bySize[qk] ?? 0) * IMAGE_OUTPUT_RATE_USD_PER_M) / 1_000_000;
+    }
+    // 그 외 provider(예: gemini/imagen) — 기존 장당 정액표.
+    const byProvider = IMAGE_PRICE_USD[provider] || IMAGE_PRICE_USD.openai;
     const sizeKey = size && byProvider[size] ? size : 'square';
     const byQuality = byProvider[sizeKey];
     const qualityKey = quality && byQuality[quality] != null ? quality : 'medium';

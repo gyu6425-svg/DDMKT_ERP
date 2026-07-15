@@ -84,6 +84,7 @@ export async function generateCafeCard(p: Payload, env: FunctionContext['env']) 
     });
 
     let base64: string | undefined;
+    let usage: unknown; // Responses API usage(메인 텍스트 토큰). 이미지 토큰은 여기 없음 → 프론트가 토큰표로 산출.
     for (let attempt = 1; attempt <= 2; attempt += 1) {
         const res = await fetch(OPENAI_API_URL, {
             body,
@@ -103,10 +104,11 @@ export async function generateCafeCard(p: Payload, env: FunctionContext['env']) 
         }
         const out = (result.output as Array<{ type?: string; result?: string }> | undefined)?.find((it) => it.type === 'image_generation_call');
         base64 = out?.result;
+        usage = result.usage;
         if (base64) break;
     }
     if (!base64) return json({ message: 'OpenAI 응답에 이미지가 없습니다. 다시 시도해 주세요.' }, 502);
-    return json({ imageDataUrl: `data:image/png;base64,${base64}` });
+    return json({ imageDataUrl: `data:image/png;base64,${base64}`, usage });
 }
 
 export async function onRequestPost({ request, env }: FunctionContext) {

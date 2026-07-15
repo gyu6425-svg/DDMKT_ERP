@@ -161,17 +161,19 @@ export function CafeBannerTab() {
             const cached = await getCachedCard(bannerKey(i));
             if (cached) return cached;
             const t = Date.now();
-            const img = await generateCafeCard({ region, topic: business, phone, mode: 'hero', quality });
+            const { imageDataUrl: img, usage: cardUsage } = await generateCafeCard({ region, topic: business, phone, mode: 'hero', quality });
             await setCachedCard(bannerKey(i), img);
             void logApiUsage({
                 banner_size: 'square',
-                cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: quality, provider: 'openai' }),
+                // 실비용 = 이미지 output 토큰(결정론적) + 배너 요청 텍스트 토큰(usage). 둘 다 정확 반영.
+                cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: quality, provider: 'openai', usage_raw: cardUsage }),
                 elapsed_ms: Date.now() - t,
                 image_quality: quality,
                 model: 'cafe-card',
                 operator_name: operatorName,
                 provider: 'openai',
                 status: 'success',
+                usage_raw: cardUsage,
                 user_email: email,
             });
             return img;

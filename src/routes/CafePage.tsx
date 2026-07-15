@@ -218,7 +218,7 @@ function CafePage() {
             for (let i = 0; i < cardCount; i += 1) {
                 setMsg(`③ 카드 이미지 생성 중… (${i + 1}/${cardCount}) — 장당 1~2분`);
                 const topic = topics[i] || business;
-                const img = await generateCafeCard({ phone, refs: photos, region, services, topic });
+                const { imageDataUrl: img } = await generateCafeCard({ phone, refs: photos, region, services, topic });
                 imgs.push(img);
                 setGenImages([...imgs]); // 한 장씩 화면에 표시
             }
