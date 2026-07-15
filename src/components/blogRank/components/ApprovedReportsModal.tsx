@@ -102,23 +102,22 @@ export function ApprovedReportsModal({
                         </button>
                     ))}
                 </div>
-                {/* 블로그(업체)별 필터 */}
+                {/* 블로그(업체)별 필터 — 드롭다운 */}
                 {accounts.length > 1 ? (
-                    <div className="mb-3 flex flex-wrap gap-1.5">
-                        {[{ id: 'all', name: '전체' }, ...accounts].map((a) => (
-                            <button
-                                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                                    blogFilter === a.id
-                                        ? 'border-[#16a34a] bg-[#16a34a] text-white'
-                                        : 'border-[#cbd5e1] bg-white text-[#475569]'
-                                }`}
-                                key={a.id}
-                                onClick={() => setBlogFilter(a.id)}
-                                type="button"
-                            >
-                                {a.name}
-                            </button>
-                        ))}
+                    <div className="mb-3 flex items-center gap-2">
+                        <span className="text-[12px] font-semibold text-[#64748b]">업체</span>
+                        <select
+                            className="h-9 min-w-[180px] rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
+                            onChange={(e) => setBlogFilter(e.target.value)}
+                            value={blogFilter}
+                        >
+                            <option value="all">전체 업체</option>
+                            {accounts.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                    {a.name}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                 ) : null}
 
