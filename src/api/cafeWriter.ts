@@ -210,11 +210,12 @@ export async function generateSecurityBanner(input: {
     titleLines: string[];
     quality?: 'low' | 'medium' | 'high';
     style?: 'green' | 'blue';
+    items?: SecurityBannerItem[]; // 하단 3개 직접 입력(선택). 3개 채우면 자동/프리셋 대신 이걸 사용.
     signal?: AbortSignal;
 }): Promise<{
     imageDataUrl: string;
     items: SecurityBannerItem[];
-    source: 'preset' | 'ai';
+    source: 'preset' | 'ai' | 'manual';
     textUsage: Record<string, unknown> | null;
     imageUsage: Record<string, unknown> | null;
 }> {
@@ -228,6 +229,7 @@ export async function generateSecurityBanner(input: {
     try {
         const res = await fetch(url, {
             body: JSON.stringify({
+                items: input.items,
                 quality: input.quality,
                 region: input.region,
                 secType: input.secType,
@@ -242,7 +244,7 @@ export async function generateSecurityBanner(input: {
         let data: {
             imageDataUrl?: string;
             items?: SecurityBannerItem[];
-            source?: 'preset' | 'ai';
+            source?: 'preset' | 'ai' | 'manual';
             textUsage?: Record<string, unknown> | null;
             imageUsage?: Record<string, unknown> | null;
             message?: string;

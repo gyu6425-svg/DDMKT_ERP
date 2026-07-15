@@ -6,7 +6,7 @@
 
 type FunctionContext = { request: Request; env: Record<string, string | undefined> };
 type Item = { title: string; subtitle: string; icon: string };
-type Payload = { region?: string; secType?: string; titleLines?: string[]; quality?: string; style?: string };
+type Payload = { region?: string; secType?: string; titleLines?: string[]; quality?: string; style?: string; items?: Item[] };
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
 
@@ -137,7 +137,7 @@ function buildSecurityPromptBlue(region: string, secType: string, titleLines: st
         `Create a 1024x1024 square Korean local SECURITY/guard company promotional card (보안·경비 홍보 카드). Output the image only, no commentary.`,
         `Fixed layout & style (identical for every banner), bright high-trust local-service look:`,
         `- Bright clean WHITE/light background with vivid BLUE geometric swoosh accents (a deep-blue curved ribbon along the top-left corner and across the bottom). Palette: vivid blue #1e5bd8, dark navy #0a2a66, white, small highlight.`,
-        `- TOP-LEFT: a small blue SHIELD icon, and to its right one short bold navy tagline line: "믿을 수 있는 보안, 정확한 관리가 답입니다!".`,
+        `- TOP-LEFT: a small blue SHIELD icon, and to its right ONE short tagline line rendered in a SINGLE UNIFORM font — every character the exact SAME size, SAME semi-bold weight and SAME dark-navy color, evenly spaced on a single line, absolutely no mixed sizes/weights/styles: "믿을 수 있는 보안, 정확한 관리가 답입니다!".`,
         `- Under the tagline: the MAIN TITLE in HUGE bold Korean text with a thick blue outline and subtle 3D drop-shadow, stacked on the TITLE_LINES in order (first line dark navy, the following lines vivid blue). Use a rounded modern Korean gothic font with NORMAL well-proportioned letters (each character about as wide as it is tall, NOT vertically stretched), comfortable line spacing.`,
         `- Under the title: a blue rounded pill with a small stopwatch icon reading "빠른 출동 · 정확한 현장 대응".`,
         `- Below that, one dark-navy line: REGION + " " + SECURITY_TYPE + " 전문 관리".`,
@@ -170,12 +170,18 @@ export async function generateSecurityBanner(p: Payload, env: FunctionContext['e
         return json({ message: '지역·보안종류·제목(최소 1줄)을 입력하세요.' }, 400);
     }
 
-    // ① 하단 3개 항목 결정 — 프리셋 우선(0원), 없으면 AI 생성(~2원).
+    // ① 하단 3개 항목 결정 — 직접 입력(manual) 우선 → 프리셋(0원) → AI 생성(~2원).
     let items: Item[];
-    let source: 'preset' | 'ai';
+    let source: 'preset' | 'ai' | 'manual';
     let textUsage: unknown = null;
+    const manual = (Array.isArray(p.items) ? p.items : [])
+        .map((i) => ({ title: (i.title || '').trim(), subtitle: (i.subtitle || '').trim(), icon: (i.icon || 'shield').trim() }))
+        .filter((i) => i.title);
     const preset = presetFor(secType);
-    if (preset) {
+    if (manual.length === 3) {
+        items = fillRegion(manual, region); // {region} 치환은 유지(사용자가 넣었다면)
+        source = 'manual';
+    } else if (preset) {
         items = fillRegion(preset, region);
         source = 'preset';
     } else {

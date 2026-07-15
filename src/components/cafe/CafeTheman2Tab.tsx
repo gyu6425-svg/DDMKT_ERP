@@ -3,6 +3,7 @@ import { generateSecurityBanner } from '../../api/cafeWriter';
 import { logApiUsage } from '../../api/apiUsage';
 import { computeRecordCostUsd, USD_TO_KRW } from '../../lib/apiPricing';
 import { useAuth } from '../../hooks/useAuth';
+import { SecItemsEditor, resolveSecItems, EMPTY_SEC_ITEMS, type SecItem } from './SecItemsEditor';
 
 // 더맨시스템2 — 보안 배너(파란 레퍼런스 스타일). 지역·보안종류·제목3줄 → 하단 3개 자동(프리셋/AI) + 저화질 이미지 1장.
 //   방식은 더맨시스템(초록)과 동일, 스타일만 파란 무드(누수탐지 배너 느낌). 전화번호 없음. 이미지만.
@@ -34,9 +35,11 @@ export function CafeTheman2Tab() {
     const [l2, setL2] = useState('안전을');
     const [l3, setL3] = useState('책임지는');
     const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('low');
+    const [manualOn, setManualOn] = useState(false);
+    const [manualItems, setManualItems] = useState<SecItem[]>(EMPTY_SEC_ITEMS);
     const [img, setImg] = useState<string | null>(null);
     const [items, setItems] = useState<{ title: string; subtitle: string; icon: string }[]>([]);
-    const [source, setSource] = useState<'preset' | 'ai' | null>(null);
+    const [source, setSource] = useState<'preset' | 'ai' | 'manual' | null>(null);
     const [cost, setCost] = useState<{ krw: number; text: number; image: number } | null>(null);
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
@@ -54,7 +57,7 @@ export function CafeTheman2Tab() {
         const email = profile?.email ?? null;
         const t = Date.now();
         try {
-            const r = await generateSecurityBanner({ quality, region, secType, style: 'blue', titleLines });
+            const r = await generateSecurityBanner({ items: resolveSecItems(manualOn, manualItems), quality, region, secType, style: 'blue', titleLines });
             setImg(r.imageDataUrl);
             setItems(r.items);
             setSource(r.source);
@@ -101,6 +104,7 @@ export function CafeTheman2Tab() {
                         <input className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm" onChange={(e) => setL3(e.target.value)} placeholder="3줄" value={l3} />
                     </div>
                 </div>
+                <SecItemsEditor accent="#1e5bd8" enabled={manualOn} items={manualItems} setEnabled={setManualOn} setItems={setManualItems} />
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
                     <span className="mr-1 text-[12px] font-semibold text-[#475569]">화질</span>
                     {QUALITY_OPTS.map(([k, label, won]) => (
@@ -132,7 +136,7 @@ export function CafeTheman2Tab() {
                         <img alt="보안 배너(파란)" className="w-64 rounded-lg border border-[#cbd5e1]" src={img} />
                         <div className="grid gap-2 text-[13px]">
                             <div className="font-bold text-[#334155]">
-                                하단 3개 항목 <span className="font-semibold text-[#1e5bd8]">({source === 'preset' ? '프리셋 · 추가 0원' : 'AI 자동생성'})</span>
+                                하단 3개 항목 <span className="font-semibold text-[#1e5bd8]">({source === 'manual' ? '직접 입력' : source === 'preset' ? '프리셋 · 추가 0원' : 'AI 자동생성'})</span>
                             </div>
                             <ul className="m-0 grid list-none gap-1 p-0">
                                 {items.map((it, i) => (

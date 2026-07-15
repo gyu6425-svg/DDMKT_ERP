@@ -7,6 +7,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { getCachedCard, setCachedCard, delCachedCard } from './cardCache';
 import { downloadCafeZip } from './cafeExport';
 import { saveHistory } from './cafeHistory';
+import { SecItemsEditor, resolveSecItems, EMPTY_SEC_ITEMS, type SecItem } from './SecItemsEditor';
 
 // 카페 원고 생성기 [테스트(배너)] 탭 — 누수탐지 시스템의 독립 복제(기존 탭과 분리, 자유 실험용).
 //   · 원고(부제목+내용, 「사진 N」 마커) + AI 배너 N장(1~9)을 함께 생성.
@@ -122,9 +123,11 @@ export function CafeBannerTab() {
     const [secL2, setSecL2] = useState('안전을');
     const [secL3, setSecL3] = useState('책임지는');
     const [secQuality, setSecQuality] = useState<'low' | 'medium' | 'high'>('low');
+    const [secManualOn, setSecManualOn] = useState(false);
+    const [secManualItems, setSecManualItems] = useState<SecItem[]>(EMPTY_SEC_ITEMS);
     const [secImg, setSecImg] = useState<string | null>(null);
     const [secItems, setSecItems] = useState<{ title: string; subtitle: string; icon: string }[]>([]);
-    const [secSource, setSecSource] = useState<'preset' | 'ai' | null>(null);
+    const [secSource, setSecSource] = useState<'preset' | 'ai' | 'manual' | null>(null);
     const [secCost, setSecCost] = useState<{ krw: number; text: number; image: number } | null>(null);
     const [secBusy, setSecBusy] = useState(false);
     const [secMsg, setSecMsg] = useState('');
@@ -142,7 +145,7 @@ export function CafeBannerTab() {
         const email = profile?.email ?? null;
         const t = Date.now();
         try {
-            const r = await generateSecurityBanner({ quality: secQuality, region: secRegion, secType, titleLines });
+            const r = await generateSecurityBanner({ items: resolveSecItems(secManualOn, secManualItems), quality: secQuality, region: secRegion, secType, titleLines });
             setSecImg(r.imageDataUrl);
             setSecItems(r.items);
             setSecSource(r.source);
@@ -353,6 +356,7 @@ export function CafeBannerTab() {
                         <input className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm" onChange={(e) => setSecL3(e.target.value)} placeholder="3줄" value={secL3} />
                     </div>
                 </div>
+                <SecItemsEditor accent="#0f766e" enabled={secManualOn} items={secManualItems} setEnabled={setSecManualOn} setItems={setSecManualItems} />
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
                     <span className="mr-1 text-[12px] font-semibold text-[#475569]">화질</span>
                     {QUALITY_OPTS.map(([k, label, won]) => (
@@ -384,7 +388,7 @@ export function CafeBannerTab() {
                         <img alt="보안 배너" className="w-64 rounded-lg border border-[#cbd5e1]" src={secImg} />
                         <div className="grid gap-2 text-[13px]">
                             <div className="font-bold text-[#334155]">
-                                하단 3개 항목 <span className="font-semibold text-[#0f766e]">({secSource === 'preset' ? '프리셋 · 추가 0원' : 'AI 자동생성'})</span>
+                                하단 3개 항목 <span className="font-semibold text-[#0f766e]">({secSource === 'manual' ? '직접 입력' : secSource === 'preset' ? '프리셋 · 추가 0원' : 'AI 자동생성'})</span>
                             </div>
                             <ul className="m-0 grid list-none gap-1 p-0">
                                 {secItems.map((it, i) => (
