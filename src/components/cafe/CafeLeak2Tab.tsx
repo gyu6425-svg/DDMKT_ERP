@@ -48,7 +48,8 @@ export function CafeLeak2Tab() {
 
     const [banner, setBanner] = useState<string | null>(null); // 카페 프로세스(히어로) 이미지
     const [longImages, setLongImages] = useState<string[]>([]); // 긴 이미지(현장 세로 사진)
-    const [photos, setPhotos] = useState<string[]>([]); // 일반 사진
+    const [fixedImages, setFixedImages] = useState<string[]>([]); // 중간 저장 이미지(사진 2~7 · 프리셋 재사용)
+    const [photos, setPhotos] = useState<string[]>([]); // 일반 사진(추가 업로드)
     const [title, setTitle] = useState(defaultCafeTitle(DEFAULT_CAFE_CONTENT));
     const [body, setBody] = useState('');
     const [generating, setGenerating] = useState(false);
@@ -67,8 +68,22 @@ export function CafeLeak2Tab() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [region, business, phone]);
 
-    // 게시 순서 = 프로세스 배너 → 긴 이미지 → 일반 사진 (자동발행/ZIP 순번이 곧 게시 순서)
-    const orderedImages = [banner, ...longImages, ...photos].filter((x): x is string => !!x);
+    // 중간 저장 이미지(사진 2~7) — 기본 내장 세트 자동 로드(누수탐지와 동일 소스). 없으면 빈 채로.
+    useEffect(() => {
+        let alive = true;
+        void fetch('/images/cafe-fixed/manifest.json')
+            .then((r) => (r.ok ? r.json() : []))
+            .then((list) => {
+                if (alive && Array.isArray(list) && list.length) setFixedImages(list as string[]);
+            })
+            .catch(() => undefined);
+        return () => {
+            alive = false;
+        };
+    }, []);
+
+    // 게시 순서 = 프로세스 배너 → 긴 이미지 → 중간 저장(사진 2~7) → 일반 사진 (ZIP 순번이 곧 게시 순서)
+    const orderedImages = [banner, ...longImages, ...fixedImages, ...photos].filter((x): x is string => !!x);
     const sourceLine = `[출처] ${business} | ${keyword}`;
     const bodyForCopy = (() => {
         const b = stripMarkers(body);
@@ -150,7 +165,7 @@ export function CafeLeak2Tab() {
                     cardMode: 'banner',
                     district: region,
                     firstCard: bannerR.status === 'fulfilled' ? bannerR.value : null,
-                    fixedImages: [...longImages, ...photos],
+                    fixedImages: [...longImages, ...fixedImages, ...photos],
                     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                     keyword,
                     phone,
@@ -274,17 +289,27 @@ export function CafeLeak2Tab() {
                         </div>
                     </div>
                     <div>
-                        <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">③ 일반 사진 <span className="font-normal text-[#94a3b8]">— 2·3·4번 사진(순서대로)</span></div>
+                        <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">③ 중간 저장 이미지 (사진 2~7) <span className="font-normal text-[#94a3b8]">— 기본 내장(자동 로드)·재사용</span></div>
                         <div className="flex flex-wrap items-center gap-2">
-                            <ZoneImgs imgs={photos} onDel={(i) => setPhotos((p) => p.filter((_, j) => j !== i))} />
+                            <ZoneImgs imgs={fixedImages} onDel={(i) => setFixedImages((p) => p.filter((_, j) => j !== i))} />
                             <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-md border-2 border-dashed border-[#cbd5e1] text-[11px] font-semibold text-[#94a3b8] hover:bg-[#f8fafc]">
                                 + 사진
-                                <input accept="image/*" className="hidden" multiple onChange={async (e) => { const arr = await readFiles(e.target.files); setPhotos((p) => [...p, ...arr]); }} type="file" />
+                                <input accept="image/*" className="hidden" multiple onChange={async (e) => { const arr = await readFiles(e.target.files); setFixedImages((p) => [...p, ...arr]); }} type="file" />
                             </label>
                         </div>
                     </div>
                 </div>
-                <div className="text-[11px] text-[#94a3b8]">게시 순서: 프로세스 배너 → 긴 이미지({longImages.length}) → 일반 사진({photos.length}) · 총 {orderedImages.length}장</div>
+                <div>
+                    <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">④ 일반 사진 <span className="font-normal text-[#94a3b8]">— 추가 현장 사진(맨 뒤, 순서대로)</span></div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ZoneImgs imgs={photos} onDel={(i) => setPhotos((p) => p.filter((_, j) => j !== i))} />
+                        <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-md border-2 border-dashed border-[#cbd5e1] text-[11px] font-semibold text-[#94a3b8] hover:bg-[#f8fafc]">
+                            + 사진
+                            <input accept="image/*" className="hidden" multiple onChange={async (e) => { const arr = await readFiles(e.target.files); setPhotos((p) => [...p, ...arr]); }} type="file" />
+                        </label>
+                    </div>
+                </div>
+                <div className="text-[11px] text-[#94a3b8]">게시 순서: 프로세스 배너 → 긴 이미지({longImages.length}) → 사진 2~7({fixedImages.length}) → 일반 사진({photos.length}) · 총 {orderedImages.length}장</div>
             </div>
 
             {/* 본문 */}
