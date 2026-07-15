@@ -22,6 +22,7 @@ export type RewardWeeklyLog = {
     auto?: boolean; // 추천치 그대로 확정했는지
     outUnit?: number | null; // 그 주 외주단가(입력값) → 외주비 = count × outUnit
     vendor?: string | null; // 그 주 외주업체명
+    reporter?: string | null; // 기자단 이름(기자단 보고 승인으로 생성된 로그) — 진행 이력 표시용
     paid?: boolean; // 입금 처리 여부(true=처리, false=미처리)
     tax?: boolean; // 세금계산서 발행 여부(true=발행, false=미발행)
 };

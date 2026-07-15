@@ -1883,6 +1883,11 @@ function ContractEditModal({
                                                         {l.vendor}
                                                     </span>
                                                 ) : null}
+                                                {l.reporter ? (
+                                                    <span className="shrink-0 whitespace-nowrap rounded bg-[#e0e7ff] px-1.5 py-0.5 text-[10px] font-bold text-[#4338ca]">
+                                                        {l.reporter}
+                                                    </span>
+                                                ) : null}
                                                 {(l.outUnit || contract.unit_outsource || 0) > 0 ? (
                                                     <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-[#dc2626]">
                                                         {fmtWon(l.count * (l.outUnit || contract.unit_outsource || 0))}원
@@ -3233,8 +3238,11 @@ export function ClientDetail({
                                         }
                                         // 재계약으로 만료된 기존 계약([만료] 마커) → 블러 유지 + '계약 만료'만(재계약 버튼 없음).
                                         const isExpired = (ct.note || '').includes('[만료]');
-                                        // 완료(100%) 계약 → 블러 + 재계약 버튼. 만료 계약도 블러(둘 다 흐리게).
-                                        const isDone = isExpired || (prog != null && prog >= 100);
+                                        // 재계약(블러+버튼) 노출 조건: 외주비 소진(100%) + 진행 이력이 '처리(입금)'로 정리된 경우에만.
+                                        //   진행 이력이 있는데 미처리(입금 안 됨)가 하나라도 있으면 재계약 미노출(외주비 정산 전이므로).
+                                        const dLogs = ct.weekly_logs ?? [];
+                                        const allSettled = dLogs.length === 0 || dLogs.every((l) => l.paid);
+                                        const isDone = isExpired || (prog != null && prog >= 100 && allSettled);
                                         return (
                                             <div
                                                 className={`relative flex h-full cursor-pointer flex-col rounded-lg border-2 px-4 py-3 text-left shadow-sm transition hover:shadow-md ${

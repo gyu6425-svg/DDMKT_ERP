@@ -38,17 +38,61 @@ export type BlogPostReport = {
     paid_at: string | null; // 정산(입금) 처리 시각
 };
 
-// 외주비 정산(입금 처리, 내부) — 지정한 보고들을 입금(paid=true)으로. 주 단위 일괄 정산에 사용.
+// (내부) 이 보고에 대응하는 계약 진행이력(week=rpt-id) 로그의 paid를 동기화. 매칭 로그 없으면 no-op.
+//   입금 처리/정산이 기자단 정산과 계약 상세 진행이력에서 항상 같은 상태가 되도록 하는 단일 경로.
+async function syncContractLogPaid(report: Pick<BlogPostReport, 'id' | 'blog_account_id'>, paid: boolean) {
+    const { data: accs } = await supabase.from('blog_accounts').select('client_id').eq('id', report.blog_account_id);
+    const clientId = ((accs ?? [])[0] as { client_id?: string | null } | undefined)?.client_id ?? null;
+    if (!clientId) return null;
+    const { data: contracts } = await getClientContracts(clientId);
+    const key = `rpt-${report.id}`;
+    for (const ct of contracts) {
+        const logs = ct.weekly_logs ?? [];
+        if (logs.some((l) => l.week === key)) {
+            const newLogs = logs.map((l) => (l.week === key ? { ...l, paid } : l));
+            const { error } = await updateClientContract(ct.id, { weekly_logs: newLogs });
+            return error ?? null;
+        }
+    }
+    return null;
+}
+
+// 외주비 정산(입금 처리, 내부) — 지정한 보고들을 입금(paid=true)으로 + 계약 진행이력도 함께 처리로 동기화.
 //   RLS: 'bpr 내부 전체'(is_internal)로 내부 직원만 update.
 export async function settleReports(reportIds: string[]) {
     if (!reportIds.length) return { error: null, count: 0 };
+    // 진행이력 동기화를 위해 대상 보고(blog_account_id) 확보.
+    const { data: reps } = await supabase
+        .from('blog_post_reports')
+        .select('id,blog_account_id,status')
+        .in('id', reportIds)
+        .in('status', ['confirmed', 'published'])
+        .returns<Pick<BlogPostReport, 'id' | 'blog_account_id'>[]>();
     const { data, error } = await supabase
         .from('blog_post_reports')
         .update({ paid: true, paid_at: new Date().toISOString() })
         .in('id', reportIds)
         .in('status', ['confirmed', 'published']) // 승인(카운트)된 건만 정산 대상
         .select('id');
-    return { error, count: data?.length ?? 0 };
+    if (error) return { error, count: 0 };
+    for (const r of reps ?? []) await syncContractLogPaid(r, true); // 계약 진행이력도 처리로
+    return { error: null, count: data?.length ?? 0 };
+}
+
+// 기자단 보고 '입금 처리' 토글 — 정산(report.paid) + 계약 진행이력(week=rpt-id) 로그 paid를 함께 동기화.
+//   회사 ERP '승인 처리 내역'의 입금 버튼 → 기자단 정산(미입금↔입금) + 계약 상세 진행이력(미처리↔처리) 동시 반영.
+export async function setReportPaid(report: BlogPostReport, paid: boolean) {
+    const nowIso = new Date().toISOString();
+    // 1) 보고행 paid(승인 확정 건만)
+    const { error: e1 } = await supabase
+        .from('blog_post_reports')
+        .update({ paid, paid_at: paid ? nowIso : null })
+        .eq('id', report.id)
+        .in('status', ['confirmed', 'published']);
+    if (e1) return { error: e1 };
+    // 2) 계약 진행이력(week=rpt-id) 로그 paid 동기화 — 실패 시 오류 표면화(반쪽 동기화 방지).
+    const e2 = await syncContractLogPaid(report, paid);
+    return { error: e2 };
 }
 
 // 발행/저장 승인 외주단가 — 대박종합주방만 10,000원, 그 외 8,000원. (브랜드 블로그 고정 규칙)
@@ -179,6 +223,12 @@ async function bookContractCredit(report: BlogPostReport) {
     // 이미 이 보고로 계상된 로그가 있으면(안전판) 재계상 금지.
     const key = `rpt-${report.id}`;
     if ((target.weekly_logs ?? []).some((l) => l.week === key)) return { processed: true, outUnit, err: null };
+    // 진행 이력에 표기할 기자단 이름.
+    let reporterName: string | null = null;
+    if (report.reporter_id) {
+        const { data: rp } = await supabase.from('profiles').select('name').eq('id', report.reporter_id);
+        reporterName = ((rp ?? [])[0] as { name?: string | null } | undefined)?.name ?? null;
+    }
     const goal = target.goal_count ?? 0;
     const nextRemain = Math.max(0, (target.remain_count ?? goal) - 1);
     const log: RewardWeeklyLog = {
@@ -189,6 +239,7 @@ async function bookContractCredit(report: BlogPostReport) {
         paid: false,
         tax: true,
         vendor: '기자단',
+        reporter: reporterName,
         week: key,
     };
     const { error: uErr } = await updateClientContract(target.id, {
