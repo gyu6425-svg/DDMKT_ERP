@@ -461,7 +461,7 @@ export function SheetTab() {
                             <th className="px-3 py-2 font-semibold">업체</th>
                             {/* 거래처명(client_partner) — 내부 뷰에서만. 계약일은 시트에서 숨김(계약 편집에서만 표시). */}
                             {!customerMode && !reporterMode && <th className="px-3 py-2 font-semibold">거래처명</th>}
-                            {!customerMode && <th className="px-3 py-2 font-semibold">최근 발행 날짜</th>}
+                            {!customerMode && <th className="whitespace-nowrap px-1.5 py-2 font-semibold">최근 발행</th>}
                             {!customerMode && <th className="px-3 py-2 font-semibold">계약금액</th>}
                             {!reporterMode && <th className="px-3 py-2 font-semibold">담당</th>}
                             {!customerMode && <th className="px-3 py-2 font-semibold">기자단</th>}
@@ -557,12 +557,12 @@ export function SheetTab() {
                                             </td>
                                         )}
                                         {!customerMode && (
-                                            <td className="px-2 py-2">
+                                            <td className="px-1.5 py-2">
                                                 <span
-                                                    className={`inline-block min-w-[86px] px-1.5 py-1 text-left text-xs ${latestPubOf(a.id) ? 'font-semibold text-[#475569]' : 'text-[#cbd5e1]'}`}
-                                                    title="최근 발행한 글 날짜(추적 글 기준)"
+                                                    className={`whitespace-nowrap text-xs ${latestPubOf(a.id) ? 'font-semibold text-[#475569]' : 'text-[#cbd5e1]'}`}
+                                                    title={latestPubOf(a.id) ? `최근 발행: ${latestPubOf(a.id)}` : '최근 발행 글 없음'}
                                                 >
-                                                    {latestPubOf(a.id) || '-'}
+                                                    {latestPubOf(a.id)?.slice(2) || '-'}
                                                 </span>
                                             </td>
                                         )}
