@@ -575,7 +575,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
             </div>
 
             <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
-                <table className="w-full border-collapse text-left text-sm">
+                <table className="w-full min-w-max border-collapse whitespace-nowrap text-left text-sm">
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">업체</th>
@@ -631,7 +631,7 @@ export function ContractSheetTab({ category, subtype }: { category: string; subt
                                             </td>
                                             {showSub && (
                                                 <td className="px-3 py-2">
-                                                    <div className="flex flex-wrap gap-1">
+                                                    <div className="flex gap-1">
                                                         {[...new Set(g.rows.map((r) => r.ct.subtype))].map((s) => {
                                                             const cc = chipColor(s);
                                                             return (
