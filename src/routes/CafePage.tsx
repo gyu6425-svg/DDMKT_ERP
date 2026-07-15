@@ -280,7 +280,7 @@ function CafePage() {
                     ['draft', '초판', true],
                     ['test', '테스트', true],
                     ['test2', '누수탐지', true],
-                    ['leak2', '누수탐지2', false],
+                    ['leak2', '누수탐지2', true],
                     ['banner', '더맨시스템', false],
                     ['theman2', '더맨시스템2', false],
                     ['saved', '저장', false],
