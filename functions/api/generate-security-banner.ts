@@ -109,7 +109,8 @@ async function genItems(
 // 이미지 프롬프트 — 고정 지시문(캐시 대상) 먼저, 변수는 맨 끝 VARIABLES 블록에만. 값은 아래에서만 등장.
 function buildSecurityPrompt(region: string, secType: string, titleLines: string[], items: Item[]): string {
     const STATIC = [
-        `Create a 1024x1024 square Korean corporate/event SECURITY company promotional card. Output the image only, no commentary.`,
+        `Immediately call the image_generation tool. Do NOT write any text, plan, or revised prompt — output the image only.`,
+        `Create a 1024x1024 square Korean corporate/event SECURITY company promotional card.`,
         `Fixed layout & style (identical for every banner):`,
         `- Large sweeping DARK FOREST GREEN curved panel on the RIGHT; light green-white on the LEFT.`,
         `- RIGHT SIDE (~50%): one large realistic photo of a Korean male security guard in a dark suit/security uniform with an earpiece, standing confidently; the background scene fits SECURITY_TYPE (office lobby/glass building for corporate, outdoor festival stage for events, construction site for industrial).`,
@@ -134,7 +135,8 @@ function buildSecurityPrompt(region: string, secType: string, titleLines: string
 // 파란 레퍼런스 스타일(누수탐지 배너 무드) — 전화번호 없음. 고정 지시문 먼저 / 변수 뒤(캐싱 유도).
 function buildSecurityPromptBlue(region: string, secType: string, titleLines: string[], items: Item[]): string {
     const STATIC = [
-        `Create a 1024x1024 square Korean local SECURITY/guard company promotional card (보안·경비 홍보 카드). Output the image only, no commentary.`,
+        `Immediately call the image_generation tool. Do NOT write any text, plan, or revised prompt — output the image only.`,
+        `Create a 1024x1024 square Korean local SECURITY/guard company promotional card (보안·경비 홍보 카드).`,
         `Fixed layout & style (identical for every banner), bright high-trust local-service look:`,
         `- Bright clean WHITE/light background with vivid BLUE geometric swoosh accents (a deep-blue curved ribbon along the top-left corner and across the bottom). Palette: vivid blue #1e5bd8, dark navy #0a2a66, white, small highlight.`,
         `- TOP-LEFT: a small blue SHIELD icon, and to its right ONE short tagline line rendered in a SINGLE UNIFORM font — every character the exact SAME size, SAME semi-bold weight and SAME dark-navy color, evenly spaced on a single line, absolutely no mixed sizes/weights/styles: "믿을 수 있는 보안, 정확한 관리가 답입니다!".`,
@@ -199,6 +201,7 @@ export async function generateSecurityBanner(p: Payload, env: FunctionContext['e
     const body = JSON.stringify({
         input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }],
         model,
+        reasoning: { effort: 'low' }, // 오케스트레이션 출력 토큰 절감(품질 동일, 출력 ~39%↓ 실측)
         tools: [{ type: 'image_generation', size: '1024x1024', quality }],
     });
     let base64: string | undefined;
