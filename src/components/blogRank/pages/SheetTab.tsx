@@ -151,6 +151,16 @@ export function SheetTab() {
     );
 
     const postCountOf = (id: string) => posts.filter((p) => p.blog_account_id === id);
+    // 이 블로그의 최신 발행 날짜(추적 글 중 가장 늦은 published_date) — 없으면 null.
+    const latestPubOf = (id: string): string | null => {
+        let best: string | null = null;
+        for (const p of posts) {
+            if (p.blog_account_id !== id) continue;
+            const d = (p.published_date || '').slice(0, 10);
+            if (d && (!best || d > best)) best = d;
+        }
+        return best;
+    };
 
     // 실제 네이버 블로그 URL(http로 시작)이 아직 없는 계정 = 발행 URL 미입력 → 'URL미입력 건' 탭.
     const isUrlPending = (a: BlogAccount) => !/^https?:\/\//.test((a.blog_url || '').trim());
@@ -240,11 +250,12 @@ export function SheetTab() {
     // 현재 필터(탭·검색·담당·월)로 보이는 블로그를 엑셀(CSV)로 내보내기.
     const TAB_LABEL: Record<string, string> = { active: '계약 중', new: '신규 등록', nourl: 'URL미입력', ext: '연장', hold: '보류', ended: '계약 종료' };
     const exportExcel = () => {
-        const headers = ['업체', '거래처명', '발행 블로그 URL', '계약금액', '담당', '진행률(%)', '잔여', '상태', '특이사항'];
+        const headers = ['업체', '거래처명', '발행 블로그 URL', '최근 발행 날짜', '계약금액', '담당', '진행률(%)', '잔여', '상태', '특이사항'];
         const data = filtered.map((a) => [
             a.name || '',
             partnerById[a.client_id || ''] || '',
             a.blog_url || '',
+            latestPubOf(a.id) || '',
             amountTotal(a) || '',
             a.manager || '',
             progOf(a) ?? '',
@@ -450,6 +461,7 @@ export function SheetTab() {
                             <th className="px-3 py-2 font-semibold">업체</th>
                             {/* 거래처명(client_partner) — 내부 뷰에서만. 계약일은 시트에서 숨김(계약 편집에서만 표시). */}
                             {!customerMode && !reporterMode && <th className="px-3 py-2 font-semibold">거래처명</th>}
+                            {!customerMode && <th className="px-3 py-2 font-semibold">최근 발행 날짜</th>}
                             {!customerMode && <th className="px-3 py-2 font-semibold">계약금액</th>}
                             {!reporterMode && <th className="px-3 py-2 font-semibold">담당</th>}
                             {!customerMode && <th className="px-3 py-2 font-semibold">기자단</th>}
@@ -541,6 +553,16 @@ export function SheetTab() {
                                                     title="거래처명(계약 관리에서 수정)"
                                                 >
                                                     {partnerById[a.client_id || ''] || '-'}
+                                                </span>
+                                            </td>
+                                        )}
+                                        {!customerMode && (
+                                            <td className="px-2 py-2">
+                                                <span
+                                                    className={`inline-block min-w-[86px] px-1.5 py-1 text-left text-xs ${latestPubOf(a.id) ? 'font-semibold text-[#475569]' : 'text-[#cbd5e1]'}`}
+                                                    title="최근 발행한 글 날짜(추적 글 기준)"
+                                                >
+                                                    {latestPubOf(a.id) || '-'}
                                                 </span>
                                             </td>
                                         )}
