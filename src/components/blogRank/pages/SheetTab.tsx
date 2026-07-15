@@ -22,6 +22,7 @@ import { NoteModal } from '../components/NoteModal';
 import { ProgressModal } from '../components/ProgressModal';
 import { openBlogReport } from '../lib/report';
 import { BlogPerformanceModal } from '../components/BlogPerformanceModal';
+import { ReporterMaterialsModal } from '../components/ReporterMaterialsModal';
 import { useAuth } from '../../../hooks/useAuth';
 import { getClients } from '../../../api/erp';
 import { downloadCsv, todayTag } from '../../../lib/exportCsv';
@@ -60,6 +61,7 @@ export function SheetTab() {
     const [reporterAcc, setReporterAcc] = useState<BlogAccount | null>(null);
     const [historyAcc, setHistoryAcc] = useState<BlogAccount | null>(null); // 지난 기자단 이력 모달
     const [reportAcc, setReportAcc] = useState<BlogAccount | null>(null); // 성과 보고서 글 선택 모달
+    const [materialsAcc, setMaterialsAcc] = useState<BlogAccount | null>(null); // 기자단 자료 받기 모달
     const [progressAcc, setProgressAcc] = useState<BlogAccount | null>(null);
     const [crawlingId, setCrawlingId] = useState<string | null>(null);
     // 기자단(개인) 계정 목록 + 발급 대상 블로그 — 담당 기자단 지정 드롭다운/발급용(내부 전용).
@@ -819,10 +821,10 @@ export function SheetTab() {
                                                 <button
                                                     className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]"
                                                     onClick={() => setEditAcc(a)}
-                                                    title="업체 정보·계정·특이사항 편집"
+                                                    title="업체 정보·계정·특이사항 + 자료 관리"
                                                     type="button"
                                                 >
-                                                    편집
+                                                    정보
                                                 </button>
                                                 <button
                                                     className="rounded bg-[#1e40af] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#1e3a8a]"
@@ -836,17 +838,29 @@ export function SheetTab() {
                                         </td>
                                             </>
                                         )}
-                                        {/* 고객 뷰: 맨 뒤 성과 버튼 → 저장,발행 성과 + 순위 성과 모달 */}
+                                        {/* 고객/기자단 뷰: 맨 뒤 성과 버튼. 기자단만 좌측에 '자료' 버튼(우리가 전달한 자료 받기) */}
                                         {customerMode && (
                                             <td className="px-3 py-2 text-center">
-                                                <button
-                                                    className="rounded bg-[#1e40af] px-3 py-1 text-[11px] font-semibold text-white hover:bg-[#1e3a8a]"
-                                                    onClick={() => setReportAcc(a)}
-                                                    title="저장·발행 성과와 순위 성과 보기"
-                                                    type="button"
-                                                >
-                                                    성과
-                                                </button>
+                                                <div className="flex justify-center gap-1">
+                                                    {reporterMode && (
+                                                        <button
+                                                            className="rounded border border-[#0f766e] px-3 py-1 text-[11px] font-semibold text-[#0f766e] hover:bg-[#f0fdfa]"
+                                                            onClick={() => setMaterialsAcc(a)}
+                                                            title="이 블로그에 전달된 자료(키워드·사진) 받기"
+                                                            type="button"
+                                                        >
+                                                            자료
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        className="rounded bg-[#1e40af] px-3 py-1 text-[11px] font-semibold text-white hover:bg-[#1e3a8a]"
+                                                        onClick={() => setReportAcc(a)}
+                                                        title="저장·발행 성과와 순위 성과 보기"
+                                                        type="button"
+                                                    >
+                                                        성과
+                                                    </button>
+                                                </div>
                                             </td>
                                         )}
                                     </tr>
@@ -988,6 +1002,9 @@ export function SheetTab() {
                         });
                     }}
                 />
+            ) : null}
+            {materialsAcc ? (
+                <ReporterMaterialsModal account={materialsAcc} onClose={() => setMaterialsAcc(null)} onToast={onToast} />
             ) : null}
             {reporterManageOpen ? (
                 <ReporterManageModal

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { deleteBlogAccount, extractBlogId, updateBlogAccount, type BlogAccount } from '../../../api/blogRank';
 import { amountTotal } from '../lib/helpers';
+import { MaterialsPanel } from './MaterialsPanel';
 
 export function AccountEditModal({
     account,
@@ -13,6 +14,7 @@ export function AccountEditModal({
     onReload: () => Promise<void>;
     onToast: (message: string) => void;
 }) {
+    const [tab, setTab] = useState<'basic' | 'materials'>('basic'); // 기본 설정 / 자료
     // 시트 전체 항목(편집에서 수정 가능)
     const [name, setName] = useState(account.name ?? '');
     const [manager, setManager] = useState(account.manager ?? '');
@@ -118,8 +120,29 @@ export function AccountEditModal({
             onMouseDown={(e) => e.target === e.currentTarget && onClose()}
         >
             <div className="max-h-[90vh] w-[min(520px,94vw)] overflow-y-auto rounded-2xl bg-white p-6">
-                <h3 className="m-0 text-lg font-bold">{account.name} · 추적 설정</h3>
+                <h3 className="m-0 text-lg font-bold">{account.name} · 정보</h3>
 
+                {/* 탭: 기본 설정 / 자료 */}
+                <div className="mt-3 flex gap-1 border-b border-[#e2e8f0]">
+                    {(
+                        [
+                            ['basic', '기본 설정'],
+                            ['materials', '자료'],
+                        ] as ['basic' | 'materials', string][]
+                    ).map(([k, label]) => (
+                        <button
+                            className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${tab === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'}`}
+                            key={k}
+                            onClick={() => setTab(k)}
+                            type="button"
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
+
+                {tab === 'basic' ? (
+                <>
                 {/* ── 관리 정보(시트 전체 항목 · 편집에서 모두 수정 가능) ── */}
                 <div className="mt-4 grid gap-2 rounded-lg border border-[#e2e8f0] p-3">
                     <div className="text-xs font-bold text-[#334155]">관리 정보</div>
@@ -315,6 +338,10 @@ export function AccountEditModal({
                         {saving ? '저장 중...' : '저장'}
                     </button>
                 </div>
+                </>
+                ) : (
+                    <MaterialsPanel blogAccountId={account.id} companyName={account.name} onToast={onToast} />
+                )}
             </div>
         </div>
     );
