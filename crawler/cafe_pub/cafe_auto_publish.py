@@ -31,7 +31,6 @@ requests.packages.urllib3.disable_warnings()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-BANNER_API = "http://127.0.0.1:8787/api/generate-cafe-card"
 FIXED_DIR = os.path.join(ROOT, "public", "images", "cafe-fixed")
 CAFE_BUCKET = "cafe-images"
 UA_PC = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36"
@@ -53,6 +52,10 @@ _load_env()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
+# 배너 생성 API — 기본은 로컬 dev(:8787). 다른 PC(집)에서는 .env 의 CAFE_BANNER_API 에
+# 운영 주소(https://<배포도메인>/api/generate-cafe-card)를 넣으면 로컬 서버 없이 생성 가능.
+# ※ _load_env() 뒤에 있어야 .env 값이 반영된다.
+BANNER_API = os.environ.get("CAFE_BANNER_API", "http://127.0.0.1:8787/api/generate-cafe-card")
 
 def sb_headers():
     return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
