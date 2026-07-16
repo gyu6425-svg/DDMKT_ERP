@@ -71,6 +71,7 @@ export const SIDEBAR_CATEGORIES: SidebarCategory[] = [
             { label: '카페 배포', href: '/cafe-rank?sub=' + encodeURIComponent('카페 배포') },
             { label: '맘카페', href: '/cafe-rank?sub=' + encodeURIComponent('맘카페') },
             { label: '카페 원고 생성기', href: '/cafe' },
+            { label: '카페 댓글 자동화', href: '/cafe-comment' },
         ],
     },
     // 쇼핑·파워링크는 하위가 카테고리명과 동일(1개)이라 드롭다운 없이 상위=대시보드 링크.
