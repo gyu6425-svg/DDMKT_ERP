@@ -57,6 +57,7 @@ _load_env()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 CAFE_WRITE_URL = os.environ.get("CAFE_WRITE_URL", "")  # 카페 글쓰기 페이지 주소
+CAFE_BOARD = os.environ.get("CAFE_BOARD", "누수")       # 게시판(메뉴) 이름 — 등록 필수
 
 # ── 셀렉터 (✅ 확정: 2026-07-16 SmartEditor ONE, cafe.naver.com/ca-fe 새 글쓰기) ──
 SEL_TITLE = ['textarea.textarea_input', 'textarea[placeholder*="제목"]']
@@ -291,6 +292,34 @@ def _convert_paragraph_to_quote(page, subtitle):
     page.keyboard.type(subtitle); page.wait_for_timeout(250)
 
 
+def _select_board_and_prefix(page):
+    """등록 필수: 게시판(CAFE_BOARD) 선택 → 말머리가 있으면 자동으로 첫 항목 선택.
+    옵션은 FormSelectBox 구조(ul.option_list > li.item > button.option) — Playwright 실제 클릭 필요(JS click 은 React 미반영)."""
+    board = os.environ.get("CAFE_BOARD", "누수")
+    bsel = _first(page, ['button:has-text("게시판을 선택")', 'button[aria-haspopup="true"].button'], timeout=4000)
+    if bsel:
+        try:
+            bsel.click(); page.wait_for_timeout(700)
+            page.locator("ul.option_list button.option", has_text=board).first.click(timeout=4000)
+            _log(f"게시판 '{board}' 선택 OK")
+            page.wait_for_timeout(900)
+        except Exception as e:
+            _log(f"게시판 '{board}' 선택 실패: {str(e)[:80]}")
+    # 말머리(게시판 선택 후 활성화됨) — 있으면 자동 첫 항목
+    try:
+        mb = page.locator('button:has-text("말머리")').first
+        mb.wait_for(state="visible", timeout=2000)
+        if mb.is_enabled():
+            mb.click(); page.wait_for_timeout(600)
+            opt = page.locator("ul.option_list button.option:visible").first
+            picked = (opt.inner_text() or "").strip()
+            opt.click(timeout=3000)
+            _log(f"말머리 자동선택: {picked or '(첫 항목)'}")
+            page.wait_for_timeout(500)
+    except Exception:
+        pass  # 말머리 없거나 선택 불가 → 스킵(선택사항일 수 있음)
+
+
 def publish(page, title, blocks, no_send=False):
     """글쓰기 → 제목 + 본문 마커대로 인터리브. 2패스: (1) 텍스트/이미지 + 부제목을 일반문단으로 →
     (2) 부제목 문단을 인용구로 변환. 인용구는 커서를 가둬 키보드 탈출이 안 되므로 이 방식이 유일하게 안정적."""
@@ -323,20 +352,26 @@ def publish(page, title, blocks, no_send=False):
     # ── 2패스: 부제목 문단 → 인용구 변환 ──
     for sub in subtitles:
         _convert_paragraph_to_quote(page, sub)
+    # ── 게시판 + 말머리 선택(등록 필수) ──
+    _select_board_and_prefix(page)
     if no_send:
         _log(f"no_send: '등록' 직전까지 완료(사람이 확인 후 클릭). 인용구 {len(subtitles)}개 변환.")
         return None
+    # alert(예: '게시판을 선택하세요') 캡처 → 실패 사유 노출
+    alerts = []
+    page.on("dialog", lambda d: (alerts.append(d.message), d.dismiss()))
     sub = _first(page, SEL_SUBMIT, timeout=6000)
     if not sub:
         raise RuntimeError("등록 버튼 못 찾음 — --diag 로 SEL_SUBMIT 확정 필요")
     before = page.url
     sub.click()
     # 발행 검증: URL 이 글 상세로 바뀌면 성공
-    for _ in range(20):
+    for _ in range(24):
         page.wait_for_timeout(500)
         if page.url != before and "/write" not in page.url:
             return page.url
-    raise RuntimeError("등록 후 이동 확인 실패(발행 미확정)")
+    hint = f"(alert: {alerts[-1]})" if alerts else "(발행 미확정)"
+    raise RuntimeError(f"등록 후 이동 확인 실패 {hint}")
 
 
 def publish_job(job, cdp_url=DEFAULT_CDP, no_send=False):
