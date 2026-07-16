@@ -31,6 +31,7 @@ import time
 import json
 import pathlib
 import requests
+from urllib.parse import unquote
 
 from playwright.sync_api import sync_playwright
 
@@ -93,6 +94,39 @@ def sb_get(path, params=None):
 def sb_patch(path, params, payload):
     requests.patch(f"{SUPABASE_URL}/rest/v1/{path}", headers={**_headers(), "Prefer": "return=minimal"},
                    params=params, data=json.dumps(payload), timeout=30, verify=False)
+
+
+def article_key(url):
+    """글 식별 키 = 카페 글 번호(articleid/…/articles/N). URL 형식(구주소·iframe·ca-fe)이 달라도
+    같은 글이면 같은 키가 나오도록 정규화. 중복 댓글 방지에 사용."""
+    u = url or ""
+    for _ in range(2):   # iframe_url_utf8 은 이중 인코딩 → 두 번 디코드
+        u = unquote(u)
+    m = (re.search(r'articleid=(\d+)', u)
+         or re.search(r'/articles/(\d+)', u)
+         # 단축형 cafe.naver.com/<카페명>/<글번호> (ca-fe/cafes 경로는 위에서 이미 처리)
+         or re.search(r'cafe\.naver\.com/[^/?#]+/(\d+)(?:[/?#]|$)', u))
+    return m.group(1) if m else (url or "").strip()
+
+
+def already_commented(url, exclude_id=None):
+    """이 글에 이미 (완료/처리중) 댓글 잡이 있으면 True — 한 글에 2번 댓글 방지."""
+    key = article_key(url)
+    if not key:
+        return False
+    try:
+        rows = sb_get("cafe_comment_queue", {
+            "status": "in.(done,processing)", "select": "id,article_url",
+            "order": "created_at.desc", "limit": "500",
+        })
+    except Exception:
+        return False   # 조회 실패 시 막지 않음(게시 자체는 진행)
+    for r in rows:
+        if exclude_id and r.get("id") == exclude_id:
+            continue
+        if article_key(r.get("article_url", "")) == key:
+            return True
+    return False
 
 
 def _focus_naver_window():

@@ -46,6 +46,12 @@ def main():
             time.sleep(POLL_SEC); continue
 
         job = reqs[0]; jid = job["id"]
+        # 중복 방지 — 같은 글(글번호 기준)에 이미 댓글(완료/처리중)이 있으면 게시하지 않고 건너뜀.
+        if cc.already_commented(job.get("article_url"), exclude_id=jid):
+            cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"},
+                        {"status": "fail", "reason": "중복 방지: 이 글에 이미 댓글 있음"})
+            print(f"[{datetime.datetime.now():%H:%M:%S}] ⏭ 이미 댓글 단 글 — 건너뜀: {(job.get('article_url') or '')[:50]}", flush=True)
+            continue
         cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"}, {"status": "processing"})
         now = datetime.datetime.now().isoformat(timespec="seconds")
         print(f"[{datetime.datetime.now():%H:%M:%S}] 댓글 처리: {(job.get('article_url') or '')[:50]}", flush=True)
