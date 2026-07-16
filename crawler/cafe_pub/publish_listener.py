@@ -54,6 +54,25 @@ def _keepalive():
         print(f"[{datetime.datetime.now():%H:%M:%S}] (세션핑: 크롬 접속 실패 — run_chrome.bat 확인)", flush=True)
 
 
+def _init_last_pub_from_db():
+    """발행 간격을 DB(마지막 done_at) 기준으로 복원 — 리스너가 재시작돼도 간격이 리셋되지 않게.
+    (인메모리만 쓰면 재시작 직후 곧바로 발행해 30분 간격이 깨진다.)"""
+    try:
+        rows = pc.sb_get("cafe_publish_queue",
+                         {"status": "eq.done", "order": "done_at.desc", "limit": "1", "select": "done_at"})
+        if not rows or not rows[0].get("done_at"):
+            return
+        raw = rows[0]["done_at"].replace("Z", "+00:00")
+        dt = datetime.datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        _last_pub[0] = dt.timestamp()
+        nxt = datetime.datetime.fromtimestamp(_last_pub[0] + MIN_GAP_MIN * 60)
+        print(f"  마지막 발행 {dt.astimezone():%H:%M} (DB) → 다음 발행 가능 {nxt:%H:%M}", flush=True)
+    except Exception as e:
+        print(f"  (마지막 발행시각 복원 실패, 무시: {str(e)[:60]})", flush=True)
+
+
 def _init_first_at():
     """CAFE_FIRST_AT=HH:MM 이면 첫 발행이 그 시각에 나도록 _last_pub 역산(이후엔 MIN_GAP 간격)."""
     fa = os.environ.get("CAFE_FIRST_AT", "").strip()
@@ -75,7 +94,8 @@ def main():
         print("SUPABASE_URL / SUPABASE_SERVICE_KEY 필요(../.env)", flush=True); sys.exit(1)
     mode = "수동보조(등록 직전까지)" if NO_SEND else "완전 자동(등록 클릭)"
     print(f"[카페 발행 리스너] cafe_publish_queue 폴링 {POLL_SEC}s · 간격 {MIN_GAP_MIN}분 · {mode} — Ctrl+C 종료", flush=True)
-    _init_first_at()
+    _init_last_pub_from_db()   # 재시작해도 발행 간격 유지(DB 기준)
+    _init_first_at()           # CAFE_FIRST_AT 지정 시 그 시각으로 덮어씀
     while True:
         try:
             reqs = pc.sb_get("cafe_publish_queue", {"status": "eq.pending", "order": "created_at.asc", "limit": "1", "select": "*"})
