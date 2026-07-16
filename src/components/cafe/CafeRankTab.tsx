@@ -11,14 +11,17 @@ import {
 
 // 카페 순위 트래커 — 자사 카페 글의 네이버 통합탭 순위. 측정은 PC 크롤러(cafe_rank_crawler.py)가 기록, 여기선 등록/표시.
 
-// 순위 셀 — blogRank RankCell 규칙 미러(통합탭 단일). 측정없음=측정대기, fail=실패, out/>30=권외, ≤10 초록.
+// 순위 셀 — 인기글 테마 섹션 내 순위. 측정없음=측정대기, fail=실패, no_section=측정불가(섹션없음), out=권외.
+//   인기글 섹션은 보통 5~10개 → ≤3 초록(상위), ≤7 파랑, 그외 회색.
 function RankCell({ ms }: { ms: CafeMeasurement[] }) {
     if (!ms || !ms.length) return <span className="text-[12px] font-semibold text-[#d97706]">측정 대기</span>;
     const cur = ms[ms.length - 1];
     const prev = ms.length > 1 ? ms[ms.length - 2] : null;
     if (cur.ti_status === 'fail') return <span className="text-[13px] font-bold text-[#dc2626]">실패</span>;
-    if (cur.ti_status === 'out' || cur.ti > 30) return <span className="text-[13px] font-semibold text-[#64748b]">권외</span>;
-    const color = cur.ti <= 10 ? '#059669' : '#64748b';
+    if (cur.ti_status === 'no_section')
+        return <span className="text-[12px] font-semibold text-[#94a3b8]" title="이 키워드엔 인기글 섹션이 없어 측정 대상이 아닙니다">측정불가</span>;
+    if (cur.ti_status === 'out') return <span className="text-[13px] font-semibold text-[#64748b]">권외</span>;
+    const color = cur.ti <= 3 ? '#059669' : cur.ti <= 7 ? '#2563eb' : '#64748b';
     let delta = null as null | { s: string; c: string };
     if (prev && prev.ti_status === 'ok') {
         const d = prev.ti - cur.ti;
@@ -102,9 +105,10 @@ export function CafeRankTab() {
     return (
         <div className="grid gap-5">
             <p className="m-0 text-sm text-[#64748b]">
-                자사 카페 글의 <b>네이버 통합탭 순위</b>를 추적합니다. 아래에 <b>카페 글 URL + 키워드</b>를 등록하면,
-                PC의 <code className="rounded bg-[#f1f5f9] px-1">cafe_rank_crawler.py</code> 가 매일 순위를 측정해 표에 채웁니다.
-                <span className="text-[#94a3b8]"> (카페 전용탭은 검색 파싱이 안 돼 통합탭 단일 지표)</span>
+                자사 카페(<b>마이클의 정보 세상 · ddmkt2</b>) 글의 <b>네이버 인기글 순위</b>를 추적합니다. 검색 시 뜨는
+                <b> 테마 인기글 섹션</b>(예: 인테리어·DIY 인기글) 안에서의 위치를 잽니다. 아래에 <b>카페 글 URL + 키워드</b>를
+                등록하면 PC의 <code className="rounded bg-[#f1f5f9] px-1">cafe_rank_crawler.py</code> 가 매일 측정해 표에 채웁니다.
+                <span className="text-[#94a3b8]"> (모바일 통합검색 기준 · 인기글 섹션 없는 키워드는 ‘측정불가’)</span>
             </p>
 
             {/* 등록 (시트 붙여넣기) */}
@@ -156,7 +160,7 @@ export function CafeRankTab() {
                                     <th className="py-2 pr-2">제목</th>
                                     <th className="py-2 pr-2">카페/글번호</th>
                                     <th className="py-2 pr-2">키워드</th>
-                                    <th className="py-2 pr-2 text-center">통합탭</th>
+                                    <th className="py-2 pr-2 text-center">인기글 순위</th>
                                     <th className="py-2 pr-2">최근 측정</th>
                                     <th className="py-2"></th>
                                 </tr>

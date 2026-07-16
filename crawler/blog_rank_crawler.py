@@ -1187,26 +1187,33 @@ def parse_cafe_url(url: str):
 
 
 def _node_cafe(d):
-    """이 dict 직속 네비링크에서 (cafe_name, article_id) 목록."""
+    """이 dict 직속 네비링크에서 (cafe_name, club_id, article_id) 목록. vanity·신형(ca-fe/cafes)·구형(ArticleRead) 모두."""
     out = []
     for k in _PRIMARY_NAV_FIELDS:
         v = d.get(k)
-        if isinstance(v, str):
-            m = _CAFE_POST_RE.search(v)
-            if m and m.group(1) not in _CAFE_RESERVED:
-                out.append((m.group(1), m.group(2)))
+        if not isinstance(v, str):
+            continue
+        m = re.search(r"cafe\.naver\.com/(?:ca-fe/(?:web/)?)?cafes/(\d+)/(?:web/)?articles/(\d+)", v)  # 신형 clubid
+        if m:
+            out.append((None, m.group(1), m.group(2))); continue
+        m = re.search(r"ArticleRead\.nhn\?[^\"']*?clubid=(\d+)[^\"']*?articleid=(\d+)", v)              # 구형 clubid
+        if m:
+            out.append((None, m.group(1), m.group(2))); continue
+        m = _CAFE_POST_RE.search(v)                                                                     # 단축형 vanity
+        if m and m.group(1) not in _CAFE_RESERVED:
+            out.append((m.group(1), None, m.group(2)))
     return out
 
 
 def _ugb_cards_cafe(j):
-    """ugB 블록 → {r: set((cafe_name, article_id))}. _ugb_cards 의 카페판(같은 r 버킷)."""
+    """섹션 블록 → {r(int): set((cafe_name, club_id, article_id))}. 관련글(_PRIMARY_EXCLUDE_KEYS) 제외."""
     bucket = {}
 
     def w(o):
         if isinstance(o, dict):
             r = _node_min_r(o)
-            if r is not None and r != 0:
-                bucket.setdefault(r, set()).update(_node_cafe(o))
+            if isinstance(r, (int, float)) and not isinstance(r, bool) and r != 0:
+                bucket.setdefault(int(r), set()).update(_node_cafe(o))
             for k, v in o.items():
                 if k in _PRIMARY_EXCLUDE_KEYS:
                     continue
@@ -1219,40 +1226,23 @@ def _ugb_cards_cafe(j):
     return bucket
 
 
-def _rank_in_cafe_popular(html_text, cafe_name, article_id):
-    """통합검색 HTML → 카페 글 (rank, status). _rank_in_popular 와 동일 카운팅, 매칭만 카페."""
-    blocks = extract_bootstrap_json(html_text)
-    if not blocks:
-        return OUT_OF_RANK, "fail"
-    rank = 0
-    for b in blocks:
-        try:
-            j = json.loads(b)
-        except Exception:
+def _cafe_id_match(ids, cafe_name, club_id, article_id):
+    """ids=set((nm,club,art)). 우리 글이면 True. cafe_name·club_id 둘 다 없으면 매칭 금지(다른 카페 같은 번호 오탐 차단)."""
+    if not cafe_name and not club_id:
+        return False
+    for (nm, club, art) in ids:
+        if art != article_id:
             continue
-        area = _block_area(j)
-        blk = (j.get("refs") or {}).get("blockId", "")
-        if _ti_excluded(area, blk, _block_min_r(j)):
-            continue
-        cards = _ugb_cards(j)
-        is_web = (blk or "").lower().startswith("web/")
-        if is_web:
-            rank += 1
-        elif cards:
-            cafe_cards = _ugb_cards_cafe(j)
-            for r, _prims in cards:
-                rank += 1
-                for (nm, art) in cafe_cards.get(r, set()):
-                    if art == article_id and (not cafe_name or nm == cafe_name):
-                        return rank, "ok"
-        else:
-            rank += 1
-    return OUT_OF_RANK, "out"
+        if cafe_name and nm == cafe_name:
+            return True
+        if club_id and club == club_id:
+            return True
+    return False
 
 
 def _is_popular_section(j):
-    """블록이 '인기글' 테마 섹션인가 — title/subjectTitle 계열 필드에 '인기글' 포함.
-    예: subjectTitle='인테리어·DIY 인기글'. (area ugB_bsR / review_ugc_single_intention 템플릿)"""
+    """블록이 '인기글' 테마 섹션인가 — 섹션 헤더 전용 필드 subjectTitle 에 '인기글' 포함.
+    (개별 카드 제목/UI 라벨/관련글 오탐 방지 위해 subjectTitle 만 검사, 관련글 하위는 재귀 제외.)"""
     found = [False]
 
     def w(o):
@@ -1262,10 +1252,11 @@ def _is_popular_section(j):
             for k, v in o.items():
                 if found[0]:
                     return
-                lk = k.lower()
-                if isinstance(v, str) and ("title" in lk or "subject" in lk) and "인기글" in v:
+                if k == "subjectTitle" and isinstance(v, str) and "인기글" in v:
                     found[0] = True
                     return
+                if k in _PRIMARY_EXCLUDE_KEYS:
+                    continue
                 w(v)
         elif isinstance(o, list):
             for x in o:
@@ -1275,14 +1266,14 @@ def _is_popular_section(j):
     return found[0]
 
 
-def _rank_in_cafe_section(html_text, cafe_name, article_id):
-    """통합검색 HTML → 카페 글의 '인기글 테마 섹션 내 순위'(clickLog.r). 사용자 기준(2026-07-16 변경):
-    통합탭 전체 카운트가 아니라 '인테리어·DIY 인기글' 같은 테마 인기글 섹션 안에서의 위치(r)로 측정.
-    여러 인기글 섹션에 걸치면 최상위(min r). 섹션에 없으면 권외."""
+def _rank_in_cafe_section(html_text, cafe_name, article_id, club_id=None):
+    """통합검색 HTML → 카페 글의 '인기글 테마 섹션 내 순위'(clickLog.r). (2026-07-16 기준 변경)
+    status: ok=섹션 내 순위 / out=섹션은 있으나 우리 글 없음(권외) / no_section=인기글 섹션 자체 없음(측정불가) / fail=차단."""
     blocks = extract_bootstrap_json(html_text)
     if not blocks:
         return OUT_OF_RANK, "fail"
     best = None
+    saw_section = False
     for b in blocks:
         try:
             j = json.loads(b)
@@ -1290,19 +1281,21 @@ def _rank_in_cafe_section(html_text, cafe_name, article_id):
             continue
         if not _is_popular_section(j):
             continue
+        saw_section = True
         for r, ids in _ugb_cards_cafe(j).items():
-            for (nm, art) in ids:
-                if art == article_id and (not cafe_name or nm == cafe_name):
-                    if best is None or r < best:
-                        best = r
+            if _cafe_id_match(ids, cafe_name, club_id, article_id):
+                if best is None or r < best:
+                    best = r
     if best is not None:
-        return best, "ok"
+        return int(best), "ok"
+    if not saw_section:
+        return OUT_OF_RANK, "no_section"
     return OUT_OF_RANK, "out"
 
 
-def measure_cafe_rank(keyword, cafe_name, article_id):
-    """카페 글 순위 측정 → (ti, ti_status). 기준 = '인기글 테마 섹션(예: 인테리어·DIY 인기글) 내 순위'.
-    블로그와 동일 URL/차단회피 상수 재사용. (통합탭 전체 카운트는 _rank_in_cafe_popular 로 남겨둠)"""
+def measure_cafe_rank(keyword, cafe_name, article_id, club_id=None):
+    """카페 글 순위 → (ti, ti_status). 기준='인기글 테마 섹션(예: 인테리어·DIY 인기글) 내 순위'.
+    매칭은 cafe_name(vanity) 또는 club_id 로만(둘 다 없으면 오탐 방지 위해 미매칭). status: ok/out/no_section/fail."""
     url = f"https://m.search.naver.com/search.naver?query={quote(keyword)}"
     try:
         code, html_text = _fetch_html(url)
@@ -1311,7 +1304,7 @@ def measure_cafe_rank(keyword, cafe_name, article_id):
     except Exception as exc:
         print(f"    [카페 인기글 섹션 실패] {keyword}: {exc}")
         return OUT_OF_RANK, "fail"
-    return _rank_in_cafe_section(html_text, cafe_name, str(article_id))
+    return _rank_in_cafe_section(html_text, (cafe_name or "").strip() or None, str(article_id), str(club_id).strip() if club_id else None)
 
 
 def measure_rank(keyword, blog_id, post_url):

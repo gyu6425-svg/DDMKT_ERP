@@ -90,6 +90,17 @@ WEBSITE_CASES = [
     ("웹사이트탭 더맨시스템", PERPOST_DUMP3, "themansystem-", "224299201732", "없음"),
 ]
 
+# 카페 '인기글 테마 섹션' 내 순위 — 과천 누수탐지 실측(2026-07-16, 인테리어·DIY 인기글 섹션):
+#   ddmkt2/8=1위, overseer=2위. 오탐 방지 회귀: cafe_name 없이 article_id 만으론 매칭 금지(가짜 1위 차단).
+CAFE_DUMP = "통합탭_과천_누수탐지_2026_07_16.html"
+CAFE_CASES = [
+    # (설명, cafe_name, article_id, 기대 rank, 기대 status)
+    ("카페 인기글 ddmkt2/8(1위)", "ddmkt2", "8", 1, "ok"),
+    ("카페 인기글 overseer(2위)", "overseer", "1699832", 2, "ok"),
+    ("카페 인기글 ddmkt2/13(섹션밖·권외)", "ddmkt2", "13", c.OUT_OF_RANK, "out"),
+    ("카페 오탐차단(이름없이 8번→미매칭)", "", "8", c.OUT_OF_RANK, "out"),
+]
+
 
 KEYWORD_CASES = [
     # 실제 블로그(band14371) — 사용자 확정값. 지역=시>구>동, 서비스=지역 뒤 첫 서비스 단어.
@@ -238,6 +249,16 @@ def main():
             continue
         ok = (got == exp)
         print(f"  {'PASS' if ok else 'FAIL'}  {desc}: {got} (기대 {exp})")
+        if not ok:
+            failed += 1
+    for desc, cname, art, exp_rank, exp_status in CAFE_CASES:
+        try:
+            rank, status = c._rank_in_cafe_section(_read(CAFE_DUMP), (cname or None), art)
+        except FileNotFoundError:
+            print(f"  SKIP  {desc}: 덤프 없음({CAFE_DUMP})")
+            continue
+        ok = (rank == exp_rank and status == exp_status)
+        print(f"  {'PASS' if ok else 'FAIL'}  {desc}: rank={rank} status={status} (기대 {exp_rank}/{exp_status})")
         if not ok:
             failed += 1
     if failed:

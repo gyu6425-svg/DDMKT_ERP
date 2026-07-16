@@ -28,11 +28,12 @@ def main():
     for p in posts:
         kw = (p.get("keyword_manual") or p.get("keyword") or "").strip()
         cafe_name = (p.get("cafe_name") or "").strip()
+        club_id = (p.get("club_id") or "").strip() or None
         article_id = str(p.get("article_id") or "").strip()
         if not kw or not article_id:
             print(f"  [스킵] 키워드/글번호 없음: {p.get('title', '')[:20]}", flush=True)
             continue
-        ti, ti_s = c.measure_cafe_rank(kw, cafe_name, article_id)
+        ti, ti_s = c.measure_cafe_rank(kw, cafe_name, article_id, club_id=club_id)
         recs = [r for r in (p.get("measurements") or []) if r.get("date") != TODAY]
         recs.append({"date": TODAY, "ti": ti, "ti_status": ti_s})
         try:
@@ -42,7 +43,7 @@ def main():
         bad = (ti_s == "fail")
         ok += 0 if bad else 1
         fail += 1 if bad else 0
-        tg = f"{ti}위" if ti_s == "ok" else ("권외" if ti_s == "out" else "실패")
+        tg = f"{ti}위" if ti_s == "ok" else ("권외" if ti_s == "out" else ("측정불가(섹션없음)" if ti_s == "no_section" else "실패"))
         print(f"  [{p.get('published_date')}] {cafe_name}/{article_id} · '{kw}' → 통합 {tg}", flush=True)
         c._pause(c.REQUEST_DELAY)   # 차단회피 + 즉시검색 양보
     print(f"=== 완료: {len(posts)}글 측정 (ok {ok} / fail {fail}) ===", flush=True)

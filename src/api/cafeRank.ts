@@ -1,7 +1,8 @@
 import { supabase } from '../lib/supabase';
 
 // 카페 순위 추적 — cafe_rank_posts CRUD + 카페 URL 파싱. 측정(measurements)은 PC 크롤러(cafe_rank_crawler.py)가 기록.
-export type CafeMeasurement = { date: string; ti: number; ti_status: 'ok' | 'out' | 'fail' };
+//   ti = 네이버 통합검색 '인기글 테마 섹션(예: 인테리어·DIY 인기글)' 내 순위. no_section=인기글 섹션 자체 없음(측정불가).
+export type CafeMeasurement = { date: string; ti: number; ti_status: 'ok' | 'out' | 'no_section' | 'fail' };
 
 export type CafeRankPost = {
     id: string;
