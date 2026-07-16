@@ -1164,6 +1164,105 @@ def measure_blogtab_api(keyword, blog_id, log_no=""):
     return (rank, "ok") if rank < OUT_OF_RANK else (OUT_OF_RANK, "out")
 
 
+# ── 카페 순위 측정 (통합탭) — 블로그 통합탭 카운팅 재사용 + 카페 카드 매칭 ──
+#   실측(2026-07-16): 카페 글은 블로그와 동일 카드로 통합탭 노출(cafe.naver.com/{vanity}/{articleid}).
+#   카페 전용탭(ssc=tab.m_cafe.all)은 봇 GET 에 빈 응답 → 통합탭 단일 지표(ti)만 측정.
+_CAFE_POST_RE = re.compile(r"cafe\.naver\.com/([A-Za-z0-9_-]+)/(\d+)")
+_CAFE_RESERVED = ("ca-fe", "cafes", "f-e", "gallery")  # vanity 자리 예약 슬러그(오매칭 방지)
+
+
+def parse_cafe_url(url: str):
+    """카페 URL → (club_id, cafe_name, article_id). 구형 ArticleRead/신형 ca-fe/단축형 모두 커버."""
+    u = url or ""
+    m = re.search(r"cafe\.naver\.com/ca-fe/(?:web/)?cafes/(\d+)/(?:web/)?articles/(\d+)", u)
+    if m:
+        return m.group(1), None, m.group(2)              # 신형 ca-fe (clubid)
+    m = re.search(r"ArticleRead\.nhn\?[^\"']*?clubid=(\d+)[^\"']*?articleid=(\d+)", u)
+    if m:
+        return m.group(1), None, m.group(2)              # 구형 ArticleRead (clubid)
+    m = _CAFE_POST_RE.search(u)
+    if m and m.group(1) not in _CAFE_RESERVED:
+        return None, m.group(1), m.group(2)              # 단축형 (vanity)
+    return None, None, None
+
+
+def _node_cafe(d):
+    """이 dict 직속 네비링크에서 (cafe_name, article_id) 목록."""
+    out = []
+    for k in _PRIMARY_NAV_FIELDS:
+        v = d.get(k)
+        if isinstance(v, str):
+            m = _CAFE_POST_RE.search(v)
+            if m and m.group(1) not in _CAFE_RESERVED:
+                out.append((m.group(1), m.group(2)))
+    return out
+
+
+def _ugb_cards_cafe(j):
+    """ugB 블록 → {r: set((cafe_name, article_id))}. _ugb_cards 의 카페판(같은 r 버킷)."""
+    bucket = {}
+
+    def w(o):
+        if isinstance(o, dict):
+            r = _node_min_r(o)
+            if r is not None and r != 0:
+                bucket.setdefault(r, set()).update(_node_cafe(o))
+            for k, v in o.items():
+                if k in _PRIMARY_EXCLUDE_KEYS:
+                    continue
+                w(v)
+        elif isinstance(o, list):
+            for x in o:
+                w(x)
+
+    w(j)
+    return bucket
+
+
+def _rank_in_cafe_popular(html_text, cafe_name, article_id):
+    """통합검색 HTML → 카페 글 (rank, status). _rank_in_popular 와 동일 카운팅, 매칭만 카페."""
+    blocks = extract_bootstrap_json(html_text)
+    if not blocks:
+        return OUT_OF_RANK, "fail"
+    rank = 0
+    for b in blocks:
+        try:
+            j = json.loads(b)
+        except Exception:
+            continue
+        area = _block_area(j)
+        blk = (j.get("refs") or {}).get("blockId", "")
+        if _ti_excluded(area, blk, _block_min_r(j)):
+            continue
+        cards = _ugb_cards(j)
+        is_web = (blk or "").lower().startswith("web/")
+        if is_web:
+            rank += 1
+        elif cards:
+            cafe_cards = _ugb_cards_cafe(j)
+            for r, _prims in cards:
+                rank += 1
+                for (nm, art) in cafe_cards.get(r, set()):
+                    if art == article_id and (not cafe_name or nm == cafe_name):
+                        return rank, "ok"
+        else:
+            rank += 1
+    return OUT_OF_RANK, "out"
+
+
+def measure_cafe_rank(keyword, cafe_name, article_id):
+    """카페 글 통합탭 순위 측정 → (ti, ti_status). 블로그와 동일 URL/차단회피 상수 재사용."""
+    url = f"https://m.search.naver.com/search.naver?query={quote(keyword)}"
+    try:
+        code, html_text = _fetch_html(url)
+        if code != 200:
+            return OUT_OF_RANK, "fail"
+    except Exception as exc:
+        print(f"    [카페 통합탭 실패] {keyword}: {exc}")
+        return OUT_OF_RANK, "fail"
+    return _rank_in_cafe_popular(html_text, cafe_name, str(article_id))
+
+
 def measure_rank(keyword, blog_id, post_url):
     log_no = extract_log_no(post_url)
 
