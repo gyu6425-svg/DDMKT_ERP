@@ -11,6 +11,10 @@ import {
 
 // 카페 · 순위 트래커 — 자사 카페 글의 네이버 '인기글 테마 섹션' 내 순위. 측정은 PC 크롤러(cafe_rank_crawler.py)가 기록.
 
+// 카페 vanity → 업체(카페) 표시명. 새 카페 추가 시 여기 매핑(크롤러 CLUB_TO_VANITY 와 짝).
+const CAFE_LABEL: Record<string, string> = { ddmkt2: '마이클의 정보 세상' };
+const cafeLabel = (vanity?: string | null) => (vanity && CAFE_LABEL[vanity]) || vanity || '';
+
 // 순위 셀 — 인기글 테마 섹션 내 순위. 측정없음=측정대기, fail=실패, no_section=측정불가(섹션없음), out=권외.
 //   인기글 섹션은 보통 5~10개 → ≤3 초록(상위), ≤7 파랑, 그외 회색.
 function RankCell({ ms }: { ms: CafeMeasurement[] }) {
@@ -97,10 +101,16 @@ export function CafeTrackerTab() {
         setPosts((prev) => prev.filter((p) => p.id !== id));
     };
 
-    const rows = useMemo(
-        () => [...posts].sort((a, b) => (b.published_date || '').localeCompare(a.published_date || '')),
-        [posts],
-    );
+    // 관리 시트에서 업체 클릭(?q=업체명) 시 그 업체만 필터. 업체명/카페명(vanity) 둘 다 매칭.
+    const q = new URLSearchParams(window.location.search).get('q') || '';
+    const rows = useMemo(() => {
+        let r = [...posts];
+        if (q) {
+            const qq = q.trim();
+            r = r.filter((p) => cafeLabel(p.cafe_name).includes(qq) || (p.cafe_name || '').includes(qq));
+        }
+        return r.sort((a, b) => (b.published_date || '').localeCompare(a.published_date || ''));
+    }, [posts, q]);
 
     return (
         <div className="grid gap-5">
@@ -157,8 +167,9 @@ export function CafeTrackerTab() {
                         <table className="w-full text-[13px]">
                             <thead>
                                 <tr className="border-b border-[#e2e8f0] text-left text-[12px] text-[#64748b]">
+                                    <th className="py-2 pr-2">업체(카페)</th>
                                     <th className="py-2 pr-2">제목</th>
-                                    <th className="py-2 pr-2">카페/글번호</th>
+                                    <th className="py-2 pr-2">글번호</th>
                                     <th className="py-2 pr-2">키워드</th>
                                     <th className="py-2 pr-2 text-center">인기글 순위</th>
                                     <th className="py-2 pr-2">최근 측정</th>
@@ -170,12 +181,13 @@ export function CafeTrackerTab() {
                                     const last = p.measurements?.[p.measurements.length - 1];
                                     return (
                                         <tr className="border-b border-[#f1f5f9]" key={p.id}>
-                                            <td className="max-w-[280px] truncate py-2 pr-2 font-semibold text-[#0f172a]">
+                                            <td className="py-2 pr-2 text-[12px] font-semibold text-[#334155]">{cafeLabel(p.cafe_name) || p.club_id}</td>
+                                            <td className="max-w-[240px] truncate py-2 pr-2 font-semibold text-[#0f172a]">
                                                 {p.post_url ? (
                                                     <a className="hover:text-[#4338ca]" href={p.post_url} rel="noreferrer" target="_blank">{p.title || '(제목없음)'}</a>
                                                 ) : (p.title || '(제목없음)')}
                                             </td>
-                                            <td className="py-2 pr-2 text-[12px] text-[#64748b]">{p.cafe_name || p.club_id}/{p.article_id}</td>
+                                            <td className="py-2 pr-2 text-[12px] text-[#94a3b8]">{p.article_id}</td>
                                             <td className="py-2 pr-2">
                                                 <input
                                                     className="h-7 w-32 rounded border border-[#e2e8f0] px-1.5 text-[12px]"
