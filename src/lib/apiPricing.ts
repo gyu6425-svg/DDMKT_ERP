@@ -14,6 +14,9 @@ export const TOKEN_RATES_USD_PER_M: Record<
     { input: number; cachedInput: number; output: number }
 > = {
     'gpt-5.5': { cachedInput: 0.125, input: 1.25, output: 42 },
+    // 미니 모델 — 후기 원고용(품질 유지·비용 대폭↓). OpenAI 미니 등급 대략치, 실청구로 보정 가능.
+    'gpt-5.4-mini': { cachedInput: 0.025, input: 0.25, output: 2 },
+    'gpt-5-mini': { cachedInput: 0.025, input: 0.25, output: 2 },
 };
 const DEFAULT_MODEL_KEY = 'gpt-5.5';
 

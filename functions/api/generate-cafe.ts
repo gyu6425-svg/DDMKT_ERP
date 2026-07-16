@@ -201,8 +201,11 @@ export async function generateCafe(payload: GenerateCafePayload, env: FunctionCo
     if (!apiKey) {
         return jsonResponse({ message: 'Cloudflare 환경변수 OPENAI_API_KEY가 필요합니다.' }, 500);
     }
-    const model = env.OPENAI_TEXT_MODEL || env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
     const isReview = payload.mode === 'review';
+    // 후기 원고 = 저렴한 미니 모델(gpt-5.4-mini) — 품질 유지하며 출력 단가 20x↓. 카드/구조화 JSON 은 기존 모델.
+    const model = isReview
+        ? (env.OPENAI_CAFE_TEXT_MODEL || 'gpt-5.4-mini')
+        : (env.OPENAI_TEXT_MODEL || env.OPENAI_IMAGE_MODEL || 'gpt-5.5');
     const prompt = isReview ? buildReviewPrompt(payload) : buildCafePrompt(payload);
 
     const response = await fetch(OPENAI_API_URL, {
@@ -235,6 +238,7 @@ export async function generateCafe(payload: GenerateCafePayload, env: FunctionCo
             topics: Array.isArray(parsed.topics) ? parsed.topics : [],
             prompt,
             usage,
+            model,
         });
     }
     return jsonResponse({ content: parsed, prompt, usage });
