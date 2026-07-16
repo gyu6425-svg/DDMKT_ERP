@@ -144,7 +144,7 @@ export function CafeBannerTab() {
         setMsg(`원고 + AI 배너 ${bannerCount}장 생성 중… (1~2분)`);
         const operatorName = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_operator_name')) || null;
         const email = profile?.email ?? null;
-        const logText = (usage: { total_tokens?: number } | null | undefined, ms: number, ok: boolean, err?: string, textModel = 'gpt-5.4-mini') =>
+        const logText = (usage: { total_tokens?: number } | null | undefined, ms: number, ok: boolean, err?: string, textModel = 'gpt-5-mini') =>
             void logApiUsage({
                 cost_usd: ok ? computeRecordCostUsd({ model: textModel, provider: 'openai', usage_raw: usage ?? null }) : null,
                 elapsed_ms: ms,
@@ -198,7 +198,7 @@ export function CafeBannerTab() {
                         region,
                         tone,
                     });
-                    logText(rv.usage, Date.now() - t, true, undefined, rv.model || 'gpt-5.4-mini');
+                    logText(rv.usage, Date.now() - t, true, undefined, rv.model || 'gpt-5-mini');
                     capReview = rv.reviewBody;
                     capTitle = rv.title || defaultCafeTitle(merged);
                     setReviewBody(rv.reviewBody);

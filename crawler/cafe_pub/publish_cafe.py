@@ -220,7 +220,8 @@ def parse_body_to_blocks(body, images):
                 used.add(n - 1)
         elif ms:
             flush()
-            blocks.append({"type": "quote", "text": ms.group(1).strip()})
+            sub = re.sub(r'^(?:부제목\s*[:：]\s*)+', '', ms.group(1)).strip()  # 모델이 '부제목 :' 중복 출력해도 제거
+            blocks.append({"type": "quote", "text": sub})
         else:
             buf.append(line)
     flush()
