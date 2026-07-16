@@ -85,10 +85,14 @@ def _review_prompt(region, count):
         f'너는 네이버 카페 지역글 전문 카피라이터다. 아래 업체의 "{region} {BUSINESS}" 홍보 카페 본문을 [후기형]으로 쓴다.',
         f'업체명 "{BRAND}", 지역 "{region}", 업종 "{BUSINESS}", 전화 "{PHONE}".',
         '시작 예: "안녕하세요 :) 얼마 전 누수 때문에 든든한 누수탐지 불러봤는데, 정리해서 공유해야겠다 싶어 글 남깁니다."',
+        f'- 제목: 반드시 "{region} {BUSINESS}"로 시작(맨 앞 한 덩어리), 그 뒤에 길고 구체적인 후기형 서술을 붙여라(제목 20자 이상). '
+        f'좋은 예: "{region} {BUSINESS} 직접 불러본 후기, 천장 물샘 원인부터 확인했어요" / "{region} {BUSINESS}, 천장 물샘부터 아랫집 연락까지 직접 불러본 후기". '
+        f'지역명 없이 "{BUSINESS} 때문에…"로 시작 금지, 대표키워드를 쪼개지 마라.',
         f'- 인사말 문단 먼저, 그 다음 「사진 1」~「사진 {count}」 각 한 줄 단독(정확히 {count}개).',
-        '- 각 「사진」 뒤 본문 문단(3~5문장) 필수. 부제목만 있는 사진 없게.',
+        '- 각 「사진」 뒤 본문 문단(3~5문장) 필수. 부제목만 있는 사진 없게. 문단과 문단 사이는 빈 줄 하나로 띄워라(가독성).',
         f'- 부제목: 절반가량만 "부제목 : <내용>"(한 줄). "부제목" 두 번 쓰지 마라. 1~2개 지역({region})+키워드.',
         f'- 전화({PHONE}) 정확. 분량 공백포함 2,000~2,300자, 반드시 2,000자 이상.',
+        '- 본문에 해시태그(#…)나 URL/링크는 절대 넣지 마라(발행 시 자동으로 붙는다).',
         '반드시 JSON 하나만(코드펜스 금지): {"title":"제목","body":"본문(「사진 N」 마커 포함)","topics":["'+str(count)+'개"]}',
     ])
 
@@ -108,6 +112,28 @@ def _openai_review(prompt):
 
 def _blen(b): return len(re.sub(r'「사진\s*\d+」', '', b or '').replace("\n", ""))
 
+# 발행용 홈페이지 링크(맨 마지막 줄 고정)
+BUSINESS_URL = "https://ddnusu.imweb.me/"
+
+def _fix_title(region, title):
+    """대표키워드 "{region} {BUSINESS}"를 제목 '맨 앞'에 붙이되, 기존의 긴 제목은 그대로 살린다.
+    (모델이 대부분 처리 — 이건 안전망. 절대 제목을 짧게 자르지 않음.)"""
+    kw = f"{region} {BUSINESS}"
+    t = (title or "").strip().strip('"').strip()
+    if not t:
+        return f"{kw} 직접 불러본 후기, 원인 확인부터 마무리까지 정리했어요"
+    if t.startswith(kw):
+        return t                                  # 이미 대표키워드로 시작 → 그대로(길이 유지)
+    # 대표키워드를 앞에 붙임. 선두의 지역 조각("강남에서" 등)만 제거해 중복 방지 — 나머지 긴 서술부는 보존.
+    tail = re.sub(rf'^\s*{re.escape(region)}\S*\s*', '', t)
+    tail = re.sub(r'^[\s\-–—:,.]+', '', tail).strip()
+    return f"{kw}, {tail}" if tail else kw
+
+def _footer(region):
+    """본문 맨 끝: 해시태그(잡은 키워드) + 홈페이지 링크(마지막 줄). SmartEditor 가 자동 태그/링크화."""
+    rj = region.replace(" ", "")
+    return f"\n\n#{rj}누수탐지 #{rj}누수 #누수탐지\n\n{BUSINESS_URL}"
+
 def gen_review(region, count):
     best = _openai_review(_review_prompt(region, count))
     for _ in range(3):   # 2000자 이상 나올 때까지 최대 3회 재생성(더 긴 쪽 유지) — 사용자: 2000자 밑 금지
@@ -117,7 +143,9 @@ def gen_review(region, count):
             f'\n\n[매우 중요] 방금 본문이 {_blen(best.get("body",""))}자로 2,000자 미만이라 규칙 위반이다. 각 「사진」 뒤 본문을 5문장 이상으로 더 길고 구체적으로 늘려 반드시 공백 포함 2,100자 이상으로 다시 작성하라.')
         if _blen(p.get("body", "")) > _blen(best.get("body", "")):
             best = p
-    return best.get("title", ""), best.get("body", "")
+    title = _fix_title(region, best.get("title", ""))
+    body = (best.get("body", "") or "").rstrip() + _footer(region)   # 해시태그+링크 결정적 추가
+    return title, body
 
 
 # ── 3) 배너 생성 (api:dev :8787, hero/low) ──

@@ -26,6 +26,7 @@ import re
 import sys
 import time
 import json
+import random
 import tempfile
 import pathlib
 import requests
@@ -65,6 +66,13 @@ SEL_EDITOR = ['.se-content .se-text-paragraph', '.se-content', '.se-container [c
 SEL_IMG_BTN = ['button.se-image-toolbar-button', 'button[data-log="dot.img"]']
 SEL_QUOTE_BTN = ['button[data-log="dot.quota"]', 'button.se-quotation-toolbar-button', 'button[data-name="quotation"]']
 SEL_SUBMIT = ['a.BaseButton--skinGreen:has-text("등록")', 'a.BaseButton--skinGreen', 'button:has-text("등록")']
+# 작성 시간 하한(초) — 너무 빨리 쓰면 상위노출 불리하다는 판단 → 페이싱으로 최소 이 시간 확보
+CAFE_MIN_SECONDS = int(os.environ.get("CAFE_MIN_SECONDS", "330"))
+
+
+def _kd():
+    """사람 같은 키 입력 딜레이(ms) — 줄마다 다르게."""
+    return random.randint(38, 95)
 
 # 본문 마커 정규식 — "사진 N"(대괄호/「」 유무 허용), "부제목 : 내용"
 IMG_MARK = re.compile(r'^\s*[「\[]?\s*사진\s*(\d+)\s*[」\]]?\s*$')
@@ -236,13 +244,49 @@ def parse_body_to_blocks(body, images):
     return blocks
 
 
+def _norm_lines(text):
+    """빈 줄(문단 간격)은 살리되 연속 빈 줄은 1개로, 양끝 빈 줄은 제거."""
+    out, prev_blank = [], True  # prev_blank=True 로 시작 → 선행 빈 줄 제거
+    for ln in (text or "").split("\n"):
+        blank = not ln.strip()
+        if blank and prev_blank:
+            continue
+        out.append("" if blank else ln)
+        prev_blank = blank
+    while out and out[-1] == "":
+        out.pop()
+    return out
+
+
+def _inject_spacing(blocks):
+    """이미지 앞뒤에 빈 문단(blank) 삽입 — 사진과 글이 붙지 않게. 연속 blank 중복 제거 + 양끝 strip."""
+    out = []
+    for b in blocks:
+        if b["type"] == "image":
+            if out and out[-1]["type"] != "blank":
+                out.append({"type": "blank"})
+            out.append(b)
+            out.append({"type": "blank"})
+        else:
+            if b["type"] == "blank" and out and out[-1]["type"] == "blank":
+                continue
+            out.append(b)
+    while out and out[0]["type"] == "blank":
+        out.pop(0)
+    while out and out[-1]["type"] == "blank":
+        out.pop()
+    return out
+
+
 def _type_multiline(page, text):
-    """여러 문단 텍스트를 줄바꿈(Enter) 유지하며 타이핑. 끝에 Enter 로 다음 블록을 새 문단에서 시작."""
-    for i, ln in enumerate(text.split("\n")):
+    """여러 문단 텍스트를 타이핑. 문단 사이 빈 줄(띄어쓰기)은 그대로 유지(2번 사진 스타일).
+    사람 같은 키 딜레이(줄마다 다름)로 천천히 — 너무 빠른 작성 회피."""
+    lines = _norm_lines(text)
+    for i, ln in enumerate(lines):
         if i:
             page.keyboard.press("Enter")
         if ln:
-            page.keyboard.type(ln)
+            page.keyboard.type(ln, delay=_kd())
     page.keyboard.press("Enter")
 
 
@@ -324,12 +368,16 @@ def _select_board_and_prefix(page):
 def publish(page, title, blocks, no_send=False):
     """글쓰기 → 제목 + 본문 마커대로 인터리브. 2패스: (1) 텍스트/이미지 + 부제목을 일반문단으로 →
     (2) 부제목 문단을 인용구로 변환. 인용구는 커서를 가둬 키보드 탈출이 안 되므로 이 방식이 유일하게 안정적."""
+    blocks = _inject_spacing(blocks)
     if CAFE_WRITE_URL:
         page.goto(CAFE_WRITE_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
     # 로그인 만료 감지 — 글쓰기 URL 이 로그인 페이지로 튕기면 재시도 대상(리스너가 대기로 되돌림).
     if re.search(r"nid\.naver\.com|nidlogin", page.url or ""):
         raise RuntimeError("LOGIN_REQUIRED: 네이버 로그인 필요 — 크롬 9223 에서 로그인하세요")
+    # alert(예: '게시판을 선택하세요') 는 처음부터 자동 닫기 — 작성 중 팝업이 막지 않게.
+    alerts = []
+    page.on("dialog", lambda d: (alerts.append(d.message), d.dismiss()))
     _focus_naver_window()
     # 제목 — 페이지 준비 지연(갓 띄운 크롬 등) 대비 한 번 더 대기 후 재시도.
     t = _first(page, SEL_TITLE, timeout=6000)
@@ -345,17 +393,27 @@ def publish(page, title, blocks, no_send=False):
         raise RuntimeError("에디터 영역 못 찾음 — --diag 로 SEL_EDITOR 확정 필요")
     ed.click()
     page.wait_for_timeout(300)
-    # ── 1패스: 이미지=툴바+파일선택 / 부제목=일반문단(앵커) / 텍스트=타이핑 ──
+    # ── 1패스: 이미지=툴바+파일선택 / 부제목=일반문단(앵커) / 텍스트=타이핑 / blank=빈 문단(간격) ──
+    # 페이싱: 남은 시간을 남은 블록에 분배 → 총 작성시간 최소 CAFE_MIN_SECONDS 확보(너무 빠른 발행 회피).
     subtitles = []
-    for b in blocks:
+    n_blocks = len(blocks)
+    deadline = time.monotonic() + CAFE_MIN_SECONDS
+    for idx, b in enumerate(blocks):
         if b["type"] == "text":
             _type_multiline(page, b["text"])
         elif b["type"] == "quote":
-            page.keyboard.type(b["text"]); page.keyboard.press("Enter")  # 앵커(2패스에서 인용구화)
+            page.keyboard.type(b["text"], delay=_kd()); page.keyboard.press("Enter")  # 앵커(2패스에서 인용구화)
             subtitles.append(b["text"])
+        elif b["type"] == "blank":
+            page.keyboard.press("Enter")  # 빈 문단 = 사진/문단 사이 간격
         else:
             _insert_image_block(page, b["local"])
-        page.wait_for_timeout(200)
+        rem = n_blocks - (idx + 1)
+        if rem > 0:
+            pause = max(0.0, min((deadline - time.monotonic()) / rem, 35.0))
+            page.wait_for_timeout(int(pause * 1000))
+        else:
+            page.wait_for_timeout(200)
     # ── 2패스: 부제목 문단 → 인용구 변환 ──
     for sub in subtitles:
         _convert_paragraph_to_quote(page, sub)
@@ -364,9 +422,6 @@ def publish(page, title, blocks, no_send=False):
     if no_send:
         _log(f"no_send: '등록' 직전까지 완료(사람이 확인 후 클릭). 인용구 {len(subtitles)}개 변환.")
         return None
-    # alert(예: '게시판을 선택하세요') 캡처 → 실패 사유 노출
-    alerts = []
-    page.on("dialog", lambda d: (alerts.append(d.message), d.dismiss()))
     sub = _first(page, SEL_SUBMIT, timeout=6000)
     if not sub:
         raise RuntimeError("등록 버튼 못 찾음 — --diag 로 SEL_SUBMIT 확정 필요")
@@ -379,6 +434,29 @@ def publish(page, title, blocks, no_send=False):
             return page.url
     hint = f"(alert: {alerts[-1]})" if alerts else "(발행 미확정)"
     raise RuntimeError(f"등록 후 이동 확인 실패 {hint}")
+
+
+def session_ping(cdp_url=DEFAULT_CDP):
+    """세션 유지용 가벼운 접속 — 전용 새 탭으로 카페 홈 방문(글쓰기 탭 안 건드림).
+    로그인 만료면 (경고만, 자동 재로그인은 하지 않음 — 캡차/2FA/계정잠금 위험).
+    반환: True=로그인 유지 / False=만료(사람 재로그인 필요) / None=크롬 접속 실패."""
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.connect_over_cdp(cdp_url)
+            ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+            pg = ctx.new_page()
+            try:
+                pg.goto("https://section.cafe.naver.com/ca-fe/home",
+                        wait_until="domcontentloaded", timeout=20000)
+                pg.wait_for_timeout(1500)
+                return not re.search(r"nid\.naver\.com|nidlogin", pg.url or "")
+            finally:
+                try:
+                    pg.close()
+                except Exception:
+                    pass
+    except Exception:
+        return None  # 크롬 꺼짐/접속 실패
 
 
 def publish_job(job, cdp_url=DEFAULT_CDP, no_send=False):

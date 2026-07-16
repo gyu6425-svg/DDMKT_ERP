@@ -26,7 +26,31 @@ except Exception:
 POLL_SEC = 6
 MIN_GAP_MIN = int(os.environ.get("CAFE_MIN_GAP_MIN", "20"))  # 발행 최소 간격(분) — 계정 안전
 NO_SEND = os.environ.get("CAFE_NO_SEND", "1") != "0"        # 기본 수동보조(등록 직전까지)
+KEEPALIVE_MIN = int(os.environ.get("CAFE_KEEPALIVE_MIN", "9"))  # 유휴 시 세션 유지 핑 간격(분)
 _last_pub = [0.0]
+_last_touch = [0.0]   # 크롬과 마지막 상호작용(발행/핑) 시각 — 세션 유지 판단용
+_EXPIRE_FLAG = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".session_expired")
+
+
+def _keepalive():
+    """유휴 중 네이버 세션 유지 — 같은 루프라 발행과 겹치지 않음. 만료면 경고+플래그(자동 재로그인 X)."""
+    ok = pc.session_ping(pc.DEFAULT_CDP)
+    _last_touch[0] = time.time()
+    if ok is True:
+        try:
+            if os.path.exists(_EXPIRE_FLAG):
+                os.remove(_EXPIRE_FLAG)   # 복구됨
+        except Exception:
+            pass
+        print(f"[{datetime.datetime.now():%H:%M:%S}] 세션 유지 OK", flush=True)
+    elif ok is False:
+        try:
+            open(_EXPIRE_FLAG, "w", encoding="utf-8").write(datetime.datetime.now().isoformat())
+        except Exception:
+            pass
+        print(f"[{datetime.datetime.now():%H:%M:%S}] ⚠️ 네이버 세션 만료 — 크롬 9223 에서 재로그인 필요(자동 재로그인 안 함)", flush=True)
+    else:
+        print(f"[{datetime.datetime.now():%H:%M:%S}] (세션핑: 크롬 접속 실패 — run_chrome.bat 확인)", flush=True)
 
 
 def main():
@@ -39,10 +63,11 @@ def main():
             reqs = pc.sb_get("cafe_publish_queue", {"status": "eq.pending", "order": "created_at.asc", "limit": "1", "select": "*"})
         except Exception as e:
             print(f"폴링 오류: {e}", flush=True); time.sleep(8); continue
-        if not reqs:
-            time.sleep(POLL_SEC); continue
-        # 발행 간격 강제(계정 안전)
-        if not NO_SEND and (time.time() - _last_pub[0]) < MIN_GAP_MIN * 60:
+        gap_wait = (not NO_SEND) and (time.time() - _last_pub[0]) < MIN_GAP_MIN * 60
+        # 발행할 게 없거나(=유휴) 간격 대기 중이면 → 세션 유지 핑(주기적)
+        if not reqs or gap_wait:
+            if (time.time() - _last_touch[0]) >= KEEPALIVE_MIN * 60:
+                _keepalive()
             time.sleep(POLL_SEC); continue
 
         job = reqs[0]; jid = job["id"]
@@ -51,7 +76,7 @@ def main():
         print(f"[{datetime.datetime.now():%H:%M:%S}] 발행 처리: {job.get('title')}", flush=True)
         try:
             url = pc.publish_job(job, pc.DEFAULT_CDP, no_send=NO_SEND)
-            _last_pub[0] = time.time()
+            _last_pub[0] = time.time(); _last_touch[0] = time.time()
             if NO_SEND:
                 # 수동보조: 사람이 등록 클릭 → 다시 pending 로 두지 않고 'processing' 유지(중복 방지). 완료표시는 수동/후속.
                 pc.sb_patch("cafe_publish_queue", {"id": f"eq.{jid}"}, {"status": "done", "done_at": now, "reason": "no_send(등록은 수동)"})
