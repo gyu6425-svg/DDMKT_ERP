@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { varyImage } from '../components/cafe/cafeExport';
 
 // 카페 자동발행 대기열 — 웹 '카페 발행' → cafe-images 업로드 + cafe_publish_queue 적재.
 //   로컬 데몬(crawler/cafe_pub/publish_listener.py)이 폴링해 스마트에디터로 순서대로 발행.
@@ -20,9 +21,13 @@ async function toBlob(src: string): Promise<Blob> {
 export async function createPublishJob(input: { title: string; body: string; images: string[] }) {
     const jobId = crypto.randomUUID();
     const blocks: PublishBlock[] = [];
+    // ZIP 다운로드와 동일한 '모든 속성 미세변형'(varyImage) 적용 — 매 발행 이미지 바이트/지각해시가 달라져
+    //   네이버 중복 이미지 감지 회피(2~7 고정이미지 포함 전부). 시드는 이미지별로 분산.
+    const seedBase = Math.floor(Math.random() * 1e9);
     try {
         for (let i = 0; i < input.images.length; i += 1) {
-            const blob = await toBlob(input.images[i]);
+            const varied = await varyImage(input.images[i], seedBase + i * 7919 + 1);
+            const blob = await toBlob(varied);
             const path = `${jobId}/${String(i).padStart(2, '0')}.jpg`;
             const { error } = await supabase.storage.from(CAFE_BUCKET).upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
             if (error) throw error;
