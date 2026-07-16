@@ -124,7 +124,7 @@ const emailIn = (email: string | null | undefined, list: string[]) =>
 export const canSeeAdminPage = (email?: string | null) =>
     emailIn(email, ['rlawhddls@ddmkt.com', 'gyu6425@gmail.com']); // 김종인(대표), 장규진(테스트)
 export const canSeeAmounts = (email?: string | null) =>
-    emailIn(email, ['rlawhddls@ddmkt.com', 'gyu6425@gmail.com', 'ddmkt1@ddmkt.com']); // + 조재현
+    emailIn(email, ['rlawhddls@ddmkt.com', 'gyu6425@gmail.com', 'ddmkt1@ddmkt.com', 'ming99@ddmkt.com']); // + 조재현 · 송민경(매출)
 // 권한(계정 역할·담당) 변경 — 김종인(대표)만.
 export const canManagePermissions = (email?: string | null) =>
     emailIn(email, ['rlawhddls@ddmkt.com']);
