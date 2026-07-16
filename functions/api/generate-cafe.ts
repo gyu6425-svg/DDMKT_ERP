@@ -153,9 +153,10 @@ export function buildReviewPrompt(payload: GenerateCafePayload): string {
         `[반드시 지킬 형식]`,
         `- 위 문체를 유지하되 담백하고 자연스럽게. 과장·허위·별점·가짜 이름 금지.`,
         `- **맨 처음은 사진 마커 없이 인사말 문단으로 시작한다.** 그 인사말 문단 다음 줄에 「사진 1」을 넣고, 이후 「사진 2」~「사진 ${count}」를 본문 흐름에 맞춰 순서대로 각각 한 줄 단독으로 배치(마커 정확히 ${count}개, 그 이상도 이하도 아님). 즉 순서는 [인사말 문단]→「사진 1」→(부제목/문단)→「사진 2」→… 이다.`,
-        `- 소제목(부제목): 「사진 N」 마커 바로 다음 줄에, 이어질 문단에 어울리는 소제목을 "부제목 : <내용>" 형식(한 줄 단독)으로 넣어라. 전부는 아니고 사진들 중 절반가량에만(질문형 "~일까요?" 과 핵심 혜택형을 섞어서). 그중 1~2개는 지역명(${region})+키워드를 자연스럽게 포함해 검색 노출에 도움되게. 인사말(첫 문단)에는 부제목을 붙이지 말고, 마지막 상담 유도 문장 바로 앞에도 마무리형 "부제목 : ..." 한 줄.`,
+        `- **각 「사진 N」 마커 다음에는 반드시 본문 문단(3~5문장, 구체적·서술적으로)을 이어 쓴다.** 부제목만 있고 본문이 없는 사진이 하나도 없게 한다(부제목 나열 금지).`,
+        `- 소제목(부제목): 사진들 중 절반가량만 "부제목 : <내용>"(한 줄 단독)을 그 사진의 본문 문단 바로 앞에 넣어라(질문형 "~일까요?"·핵심 혜택형 섞어). 그중 1~2개는 지역명(${region})+키워드 포함(검색 노출). 인사말(첫 문단)에는 부제목 없음. **형식은 정확히 "부제목 : 내용" 한 번만 — "부제목"이라는 단어를 절대 두 번 쓰지 마라.**`,
         `- 업체명과 전화(${phone})는 정확히 표기. 마지막에 상담 유도 한 줄.`,
-        `- **분량 2000~2500자(공백 포함)로 충분히 상세하게** 작성. 마크다운·이모지 금지, 순수 텍스트.`,
+        `- **분량은 반드시 공백 포함 2,000자 이상(2,200~2,500자 권장).** 각 문단을 충분히 길게(한두 문장으로 끝내지 말 것) — 짧으면 규칙 위반이다. 마크다운·이모지 금지, 순수 텍스트.`,
         ``,
         `[본문에 자연스럽게 녹일 소재]`,
         material,
@@ -201,8 +202,11 @@ export async function generateCafe(payload: GenerateCafePayload, env: FunctionCo
     if (!apiKey) {
         return jsonResponse({ message: 'Cloudflare 환경변수 OPENAI_API_KEY가 필요합니다.' }, 500);
     }
-    const model = env.OPENAI_TEXT_MODEL || env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
     const isReview = payload.mode === 'review';
+    // 후기 원고 = 저렴한 미니 모델(gpt-5.4-mini) — 품질 유지하며 출력 단가 20x↓. 카드/구조화 JSON 은 기존 모델.
+    const model = isReview
+        ? (env.OPENAI_CAFE_TEXT_MODEL || 'gpt-5-mini')
+        : (env.OPENAI_TEXT_MODEL || env.OPENAI_IMAGE_MODEL || 'gpt-5.5');
     const prompt = isReview ? buildReviewPrompt(payload) : buildCafePrompt(payload);
 
     const response = await fetch(OPENAI_API_URL, {
@@ -235,6 +239,7 @@ export async function generateCafe(payload: GenerateCafePayload, env: FunctionCo
             topics: Array.isArray(parsed.topics) ? parsed.topics : [],
             prompt,
             usage,
+            model,
         });
     }
     return jsonResponse({ content: parsed, prompt, usage });

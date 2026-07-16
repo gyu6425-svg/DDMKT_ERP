@@ -142,7 +142,7 @@ export async function generateCafe(input: GenerateCafeInput): Promise<GenerateCa
     return result as GenerateCafeResult;
 }
 
-export type GenerateCafeReviewResult = { title: string; reviewBody: string; topics?: string[]; usage?: CafeTokenUsage | null };
+export type GenerateCafeReviewResult = { title: string; reviewBody: string; topics?: string[]; usage?: CafeTokenUsage | null; model?: string | null };
 
 // GPT 카드 이미지 1장 생성 — 지역/제목/전화/서비스 + 참고사진(refs). 레퍼런스 무드로 렌더.
 export async function generateCafeCard(input: {
