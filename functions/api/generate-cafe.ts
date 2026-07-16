@@ -156,7 +156,7 @@ export function buildReviewPrompt(payload: GenerateCafePayload): string {
         `- **각 「사진 N」 마커 다음에는 반드시 본문 문단(3~5문장, 구체적·서술적으로)을 이어 쓴다.** 부제목만 있고 본문이 없는 사진이 하나도 없게 한다(부제목 나열 금지).`,
         `- 소제목(부제목): 사진들 중 절반가량만 "부제목 : <내용>"(한 줄 단독)을 그 사진의 본문 문단 바로 앞에 넣어라(질문형 "~일까요?"·핵심 혜택형 섞어). 그중 1~2개는 지역명(${region})+키워드 포함(검색 노출). 인사말(첫 문단)에는 부제목 없음. **형식은 정확히 "부제목 : 내용" 한 번만 — "부제목"이라는 단어를 절대 두 번 쓰지 마라.**`,
         `- 업체명과 전화(${phone})는 정확히 표기. 마지막에 상담 유도 한 줄.`,
-        `- **분량은 반드시 공백 포함 2,000자 이상(2,200~2,500자 권장).** 각 문단을 충분히 길게(한두 문장으로 끝내지 말 것) — 짧으면 규칙 위반이다. 마크다운·이모지 금지, 순수 텍스트.`,
+        `- **분량은 공백 포함 2,000~2,300자. 반드시 2,000자 이상(2,000자 미만은 규칙 위반), 2,300자를 크게 넘기지 말 것.** 각 문단을 적당히 충실하게(한두 문장으로 끝내지 말 것). 마크다운·이모지 금지, 순수 텍스트.`,
         ``,
         `[본문에 자연스럽게 녹일 소재]`,
         material,
@@ -207,31 +207,57 @@ export async function generateCafe(payload: GenerateCafePayload, env: FunctionCo
     const model = isReview
         ? (env.OPENAI_CAFE_TEXT_MODEL || 'gpt-5-mini')
         : (env.OPENAI_TEXT_MODEL || env.OPENAI_IMAGE_MODEL || 'gpt-5.5');
-    const prompt = isReview ? buildReviewPrompt(payload) : buildCafePrompt(payload);
+    const basePrompt = isReview ? buildReviewPrompt(payload) : buildCafePrompt(payload);
 
-    const response = await fetch(OPENAI_API_URL, {
-        // reasoning effort 'low' — 후기 원고는 깊은 추론 불필요 → 추론 토큰(=출력가 $10/M) 크게 절감.
-        body: JSON.stringify({ input: prompt, model, reasoning: { effort: 'low' } }),
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        method: 'POST',
-    });
-    const text = await response.text();
-    let result: Record<string, unknown> = {};
-    try {
-        result = text ? JSON.parse(text) : {};
-    } catch {
-        return jsonResponse({ message: 'OpenAI 응답을 해석하지 못했습니다.' }, 502);
+    // OpenAI 1회 호출 + 파싱. reasoning 'low'.
+    async function callModel(promptStr: string) {
+        const response = await fetch(OPENAI_API_URL, {
+            body: JSON.stringify({ input: promptStr, model, reasoning: { effort: 'low' } }),
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            method: 'POST',
+        });
+        const text = await response.text();
+        let result: Record<string, unknown> = {};
+        try {
+            result = text ? JSON.parse(text) : {};
+        } catch {
+            return { error: 'OpenAI 응답을 해석하지 못했습니다.', status: 502 };
+        }
+        if (!response.ok) {
+            return { error: (result.error as { message?: string } | undefined)?.message || '원고 생성에 실패했습니다.', status: response.status };
+        }
+        const parsed = parseCafeJson(extractOutputText(result as Parameters<typeof extractOutputText>[0]));
+        return { parsed, usage: (result as { usage?: Record<string, number> }).usage ?? null };
     }
-    if (!response.ok) {
-        const message = (result.error as { message?: string } | undefined)?.message || '원고 생성에 실패했습니다.';
-        return jsonResponse({ message }, response.status);
+
+    // 순수 글자수(「사진 N」·줄바꿈 제외) — 최소 분량 판정용.
+    const bodyLen = (p: Record<string, unknown> | null | undefined) =>
+        String((p?.body ?? '')).replace(/「사진\s*\d+」/g, '').replace(/[\r\n]/g, '').length;
+    const sumUsage = (a: Record<string, number> | null, b: Record<string, number> | null) => {
+        if (!a) return b; if (!b) return a;
+        const out: Record<string, number> = { ...a };
+        for (const k of ['input_tokens', 'output_tokens', 'total_tokens']) out[k] = (a[k] || 0) + (b[k] || 0);
+        return out;
+    };
+
+    let r1 = await callModel(basePrompt);
+    if ('error' in r1 && r1.error) return jsonResponse({ message: r1.error }, r1.status);
+    let parsed = r1.parsed;
+    let usage = r1.usage;
+    let prompt = basePrompt;
+    // 후기 원고 최소 분량 보장(사용자: 2,000자 미만 금지) — 짧으면 1회 재생성 후 더 긴 쪽 채택.
+    if (isReview && parsed && bodyLen(parsed) < 2000) {
+        const longer = basePrompt + '\n\n[매우 중요] 방금 결과가 2,000자 미만이면 규칙 위반이다. 각 「사진」 뒤 본문을 4~5문장으로 더 길고 구체적으로 늘려서 반드시 공백 포함 2,000자 이상(2,200자 내외)으로 다시 작성하라.';
+        const r2 = await callModel(longer);
+        if (!('error' in r2) && r2.parsed && bodyLen(r2.parsed) > bodyLen(parsed)) {
+            parsed = r2.parsed; usage = sumUsage(usage, r2.usage); prompt = longer;
+        } else {
+            usage = sumUsage(usage, ('error' in r2) ? null : r2.usage);
+        }
     }
-    const raw = extractOutputText(result as Parameters<typeof extractOutputText>[0]);
-    const parsed = parseCafeJson(raw);
     if (!parsed) {
         return jsonResponse({ message: '생성 결과(JSON)를 해석하지 못했습니다. 다시 시도해 주세요.' }, 502);
     }
-    const usage = (result as { usage?: unknown }).usage ?? null;
     if (isReview) {
         return jsonResponse({
             title: parsed.title ?? '',
