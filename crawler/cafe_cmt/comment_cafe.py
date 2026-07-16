@@ -59,8 +59,8 @@ _load_env()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
-# ── 셀렉터 (⚠️ 미확정: 최초 --diag 로 확정 후 주석에 확인일자 남길 것) ──
-# 새 카페(cafe.naver.com/ca-fe) 댓글 입력창/등록 버튼 후보. diag 결과로 맞춘 뒤 좁힐 것.
+# ── 셀렉터 (✅ 확정: 2026-07-16 ddmkt2 / cafe.naver.com/ca-fe 새 UI, --diag 로 확인) ──
+#   댓글창=textarea.comment_inbox_text, 등록=a.button.btn_register (댓글 iframe 안). 나머지는 폴백.
 SEL_CMT_BOX = [
     'textarea.comment_inbox_text',
     'textarea[placeholder*="댓글"]',
@@ -71,7 +71,6 @@ SEL_CMT_BOX = [
 SEL_CMT_SUBMIT = [
     'a.button.btn_register',
     'button.btn_register',
-    '.CommentWriter button:has-text("등록")',
     'a:has-text("등록")',
     'button:has-text("등록")',
 ]
