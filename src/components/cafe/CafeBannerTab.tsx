@@ -7,6 +7,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { getCachedCard, setCachedCard, delCachedCard } from './cardCache';
 import { downloadCafeZip } from './cafeExport';
 import { saveHistory } from './cafeHistory';
+import { createPublishJob } from '../../api/cafePublishQueue';
 
 // 카페 원고 생성기 [테스트(배너)] 탭 — 누수탐지 시스템의 독립 복제(기존 탭과 분리, 자유 실험용).
 //   · 원고(부제목+내용, 「사진 N」 마커) + AI 배너 N장(1~9)을 함께 생성.
@@ -111,6 +112,7 @@ export function CafeBannerTab() {
     const [reviewBody, setReviewBody] = useState('');
     const [generating, setGenerating] = useState(false);
     const [downloading, setDownloading] = useState(false);
+    const [publishing, setPublishing] = useState(false);
     const [copied, setCopied] = useState(false);
     const [msg, setMsg] = useState('');
     const { profile } = useAuth();
@@ -282,6 +284,22 @@ export function CafeBannerTab() {
         }
     };
 
+    // 카페 발행 대기열 등록 — 이미지(게시 순서) + 본문을 cafe_publish_queue에 적재(로컬 발행기가 처리).
+    const publishCafe = async () => {
+        if (publishing || !ready) return;
+        setPublishing(true);
+        setMsg('카페 발행 대기열 등록 중… (이미지 업로드)');
+        try {
+            const { error, jobId } = await createPublishJob({ body: bodyText, images: allImages, title });
+            if (error) throw error;
+            setMsg(`카페 발행 등록 완료 (#${jobId?.slice(0, 8)}) — 로컬 발행기가 순서대로 게시합니다.`);
+        } catch (e) {
+            setMsg(e instanceof Error ? e.message : '카페 발행 등록 실패');
+        } finally {
+            setPublishing(false);
+        }
+    };
+
     return (
         <div className="grid gap-5">
             <p className="m-0 text-sm text-[#64748b]">
@@ -360,6 +378,15 @@ export function CafeBannerTab() {
                         type="button"
                     >
                         {downloading ? 'ZIP 생성 중…' : '다운받기 (ZIP)'}
+                    </button>
+                    <button
+                        className="h-10 rounded-md bg-[#03c75a] px-5 text-sm font-bold text-white hover:bg-[#02b350] disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={publishing || !ready}
+                        onClick={() => void publishCafe()}
+                        title="네이버 카페 자동발행 대기열에 등록 — 로컬 발행기가 순서대로 게시"
+                        type="button"
+                    >
+                        {publishing ? '발행 등록 중…' : '카페 발행'}
                     </button>
                     {msg ? <span className="text-[13px] text-[#6366f1]">{msg}</span> : null}
                 </div>
