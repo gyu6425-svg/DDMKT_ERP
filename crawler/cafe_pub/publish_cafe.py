@@ -424,15 +424,24 @@ def publish(page, title, blocks, no_send=False, link_url=None, tags=None):
     (2) 부제목 문단을 인용구로 변환. 인용구는 커서를 가둬 키보드 탈출이 안 되므로 이 방식이 유일하게 안정적.
     본문 뒤: link_url = 썸네일 카드로 삽입 / tags = 에디터 태그칸(하단 태그칩)."""
     blocks = _inject_spacing(blocks)
+    # ⚠️ 핸들러는 goto '전'에 등록해야 한다. 이전 글이 에디터에 남아있으면 페이지 이탈 시
+    #    beforeunload('작성 중인 글이 있습니다') 가 뜨는데, 이걸 dismiss 하면 navigation 이
+    #    취소돼(ERR_ABORTED) 발행이 통째로 실패한다 → beforeunload 는 accept(이탈 허용).
+    alerts = []
+
+    def _on_dialog(d):
+        if d.type == "beforeunload":
+            d.accept()          # 작성 중 글 버리고 이동
+        else:
+            alerts.append(d.message)
+            d.dismiss()         # alert(예: '게시판을 선택하세요') 는 닫기
+    page.on("dialog", _on_dialog)
     if CAFE_WRITE_URL:
         page.goto(CAFE_WRITE_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
     # 로그인 만료 감지 — 글쓰기 URL 이 로그인 페이지로 튕기면 재시도 대상(리스너가 대기로 되돌림).
     if re.search(r"nid\.naver\.com|nidlogin", page.url or ""):
         raise RuntimeError("LOGIN_REQUIRED: 네이버 로그인 필요 — 크롬 9223 에서 로그인하세요")
-    # alert(예: '게시판을 선택하세요') 는 처음부터 자동 닫기 — 작성 중 팝업이 막지 않게.
-    alerts = []
-    page.on("dialog", lambda d: (alerts.append(d.message), d.dismiss()))
     _focus_naver_window()
     # 제목 — 페이지 준비 지연(갓 띄운 크롬 등) 대비 한 번 더 대기 후 재시도.
     t = _first(page, SEL_TITLE, timeout=6000)
