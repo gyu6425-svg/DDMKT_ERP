@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createCommentJob, listCommentJobs, type CommentJob } from '../api/cafeCommentQueue';
+import { buildComment } from '../lib/cafeCommentTemplates';
 
 // 카페 댓글 자동화 — 대상 글 주소 + 댓글 내용을 큐에 적재.
 //   로컬 데몬(crawler/cafe_cmt/comment_listener.py)이 폴링해 로그인된 크롬(포트 9224)으로 댓글 작성.
@@ -15,9 +16,14 @@ const STATUS_LABEL: Record<CommentJob['status'], { text: string; cls: string }> 
 function CafeCommentPage() {
     const [articleUrl, setArticleUrl] = useState('');
     const [body, setBody] = useState('');
+    const [region, setRegion] = useState('과천');
+    const [keyword, setKeyword] = useState('누수탐지');
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
     const [jobs, setJobs] = useState<CommentJob[]>([]);
+
+    // 고정 템플릿 풀에서 랜덤 문구 생성 → 본문에 채움(수정 가능). 직전 문구와 중복 회피.
+    const generate = () => setBody(buildComment({ region, keyword }, { avoid: body }));
 
     const refresh = async () => {
         const { data } = await listCommentJobs(20);
@@ -66,11 +72,41 @@ function CafeCommentPage() {
                         onChange={(e) => setArticleUrl(e.target.value)}
                     />
                 </label>
+                <div className="grid grid-cols-2 gap-3">
+                    <label className="grid gap-1">
+                        <span className="text-[12px] font-semibold text-[#475569]">지역</span>
+                        <input
+                            className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
+                            placeholder="예: 과천"
+                            value={region}
+                            onChange={(e) => setRegion(e.target.value)}
+                        />
+                    </label>
+                    <label className="grid gap-1">
+                        <span className="text-[12px] font-semibold text-[#475569]">키워드(업종)</span>
+                        <input
+                            className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
+                            placeholder="예: 누수탐지 / 철거"
+                            value={keyword}
+                            onChange={(e) => setKeyword(e.target.value)}
+                        />
+                    </label>
+                </div>
                 <label className="grid gap-1">
-                    <span className="text-[12px] font-semibold text-[#475569]">댓글 내용</span>
+                    <div className="flex items-center justify-between">
+                        <span className="text-[12px] font-semibold text-[#475569]">댓글 내용</span>
+                        <button
+                            type="button"
+                            className="rounded-md border border-[#16a34a] px-2 py-0.5 text-[12px] font-semibold text-[#16a34a] disabled:opacity-40"
+                            disabled={!region.trim() || !keyword.trim()}
+                            onClick={generate}
+                        >
+                            {body ? '🔄 다른 문구' : '✨ 문구 자동생성'}
+                        </button>
+                    </div>
                     <textarea
                         className="min-h-[96px] rounded-md border border-[#cbd5e1] bg-white p-2.5 text-sm"
-                        placeholder="댓글로 작성할 내용을 입력하세요."
+                        placeholder="'문구 자동생성'을 누르거나 직접 입력하세요. (생성 후 수정 가능)"
                         value={body}
                         onChange={(e) => setBody(e.target.value)}
                     />
