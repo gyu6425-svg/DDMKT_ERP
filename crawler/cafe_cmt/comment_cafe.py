@@ -96,6 +96,13 @@ def sb_patch(path, params, payload):
                    params=params, data=json.dumps(payload), timeout=30, verify=False)
 
 
+def sb_insert(path, payload):
+    r = requests.post(f"{SUPABASE_URL}/rest/v1/{path}", headers={**_headers(), "Prefer": "return=minimal"},
+                      data=json.dumps(payload), timeout=30, verify=False)
+    r.raise_for_status()
+    return r
+
+
 def article_key(url):
     """글 식별 키 = 카페 글 번호(articleid/…/articles/N). URL 형식(구주소·iframe·ca-fe)이 달라도
     같은 글이면 같은 키가 나오도록 정규화. 중복 댓글 방지에 사용."""
