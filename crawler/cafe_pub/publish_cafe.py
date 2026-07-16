@@ -62,7 +62,12 @@ CAFE_WRITE_URL = os.environ.get("CAFE_WRITE_URL", "")  # 카페 글쓰기 페이
 SEL_TITLE = ['textarea.textarea_input', 'textarea[placeholder*="제목"]']
 SEL_EDITOR = ['.se-content .se-text-paragraph', '.se-content', '.se-container [contenteditable="true"]', '[contenteditable="true"]']
 SEL_IMG_BTN = ['button.se-image-toolbar-button', 'button[data-log="dot.img"]']
+SEL_QUOTE_BTN = ['button[data-log="dot.quota"]', 'button.se-quotation-toolbar-button', 'button[data-name="quotation"]']
 SEL_SUBMIT = ['a.BaseButton--skinGreen:has-text("등록")', 'a.BaseButton--skinGreen', 'button:has-text("등록")']
+
+# 본문 마커 정규식 — "사진 N"(대괄호/「」 유무 허용), "부제목 : 내용"
+IMG_MARK = re.compile(r'^\s*[「\[]?\s*사진\s*(\d+)\s*[」\]]?\s*$')
+SUB_MARK = re.compile(r'^\s*부제목\s*[:：]\s*(.+?)\s*$')
 
 
 def _log(m):
@@ -175,23 +180,110 @@ def diag(page):
 
 
 def _download_manifest(manifest):
-    """매니페스트 이미지 블록을 임시폴더로 다운로드(순서 유지). → [{type,image path/local} | {type,text}]"""
+    """매니페스트 → (이미지 로컬경로 리스트[순서], 본문텍스트, tmpdir). 이미지 상단·본문 하단 매니페스트든
+    인터리브든, 이미지는 순서대로 모으고 본문(텍스트 블록)은 이어붙인다. 배치는 본문 마커로 결정."""
     tmp = tempfile.mkdtemp(prefix="cafepub_")
-    blocks = []
+    images, texts = [], []
     for i, b in enumerate(manifest):
         if b.get("type") == "image":
             local = os.path.join(tmp, f"{i:02d}.jpg")
             if storage_download(b["path"], local):
-                blocks.append({"type": "image", "local": local})
+                images.append(local)
             else:
                 _log(f"  ! 이미지 다운로드 실패: {b['path']}")
         elif b.get("type") == "text":
-            blocks.append({"type": "text", "text": b.get("text", "")})
-    return blocks, tmp
+            texts.append(b.get("text", ""))
+    return images, "\n".join(texts), tmp
+
+
+def parse_body_to_blocks(body, images):
+    """본문을 렌더 블록으로 파싱: '사진 N'→그 위치에 images[N-1] 삽입, '부제목 : X'→인용구, 나머지→문단 텍스트.
+    마커가 하나도 없으면 기존 방식(이미지 상단 일괄 + 본문)으로 폴백."""
+    blocks, buf, used = [], [], set()
+
+    def flush():
+        if buf:
+            text = "\n".join(buf).strip("\n")
+            if text.strip():
+                blocks.append({"type": "text", "text": text})
+        buf.clear()
+
+    for line in (body or "").splitlines():
+        mi = IMG_MARK.match(line)
+        ms = SUB_MARK.match(line)
+        if mi:
+            flush()
+            n = int(mi.group(1))
+            if 1 <= n <= len(images):
+                blocks.append({"type": "image", "local": images[n - 1]})
+                used.add(n - 1)
+        elif ms:
+            flush()
+            blocks.append({"type": "quote", "text": ms.group(1).strip()})
+        else:
+            buf.append(line)
+    flush()
+
+    if not used:  # 마커 없음 → 기존 방식(이미지 상단 + 본문)
+        return [{"type": "image", "local": im} for im in images] + \
+               ([{"type": "text", "text": body}] if (body or "").strip() else [])
+    # 마커에 안 잡힌 남은 이미지는 맨 끝에 붙임(사진 누락 방지)
+    for i, im in enumerate(images):
+        if i not in used:
+            blocks.append({"type": "image", "local": im})
+    return blocks
+
+
+def _type_multiline(page, text):
+    """여러 문단 텍스트를 줄바꿈(Enter) 유지하며 타이핑. 끝에 Enter 로 다음 블록을 새 문단에서 시작."""
+    for i, ln in enumerate(text.split("\n")):
+        if i:
+            page.keyboard.press("Enter")
+        if ln:
+            page.keyboard.type(ln)
+    page.keyboard.press("Enter")
+
+
+def _insert_image_block(page, local):
+    btn = _first(page, SEL_IMG_BTN, timeout=4000)
+    if not btn:
+        raise RuntimeError("사진 버튼 못 찾음 — --diag 로 SEL_IMG_BTN 확정 필요")
+    with page.expect_file_chooser(timeout=8000) as fc:
+        btn.click()
+    fc.value.set_files(local)          # 한 장씩 → 순서 보장
+    page.wait_for_timeout(1800)        # 업로드(비동기) 대기
+
+
+# 인용구 변환용: 텍스트 컴포넌트(인용구 제외) 안에서 정확히 일치하는 문단의 중앙 좌표 반환.
+_FIND_PARA_JS = """(txt) => {
+  const paras=[...document.querySelectorAll('.se-component.se-text .se-text-paragraph')];
+  const el=paras.find(p=>(p.innerText||'').trim()===txt);
+  if(!el) return null;
+  el.scrollIntoView({block:'center'});
+  const r=el.getBoundingClientRect();
+  return {x:r.x+r.width/2, y:r.y+r.height/2};
+}"""
+
+
+def _convert_paragraph_to_quote(page, subtitle):
+    """1패스에서 일반 문단으로 써둔 '부제목'을 찾아 선택 → 인용구 버튼 → 빈 인용구에 부제목 타이핑.
+    (인용구 버튼은 선택 문단을 인용구 블록으로 '치환'하고 커서를 그 안에 둔다 → 이웃 문단 보존)."""
+    pos = page.evaluate(_FIND_PARA_JS, subtitle)
+    if not pos:
+        _log(f"  ! 부제목 문단 못찾음(인용구 변환 스킵): {subtitle[:18]}")
+        return
+    page.mouse.click(pos["x"], pos["y"]); page.wait_for_timeout(150)
+    page.keyboard.press("Home"); page.keyboard.press("Shift+End"); page.wait_for_timeout(150)
+    btn = _first(page, SEL_QUOTE_BTN, timeout=3000)
+    if not btn:
+        return  # 인용구 버튼 없으면 부제목을 일반 문단으로 둠(폴백)
+    btn.click(); page.wait_for_timeout(500)
+    page.keyboard.type(subtitle); page.wait_for_timeout(250)
 
 
 def publish(page, title, blocks, no_send=False):
-    """글쓰기 → 제목 + (이미지 순서대로 + 본문) 삽입 → (no_send 아니면) 등록. 성공 시 URL 반환/실패 시 예외."""
+    """글쓰기 → 제목 + 본문 마커대로 인터리브. 2패스: (1) 텍스트/이미지 + 부제목을 일반문단으로 →
+    (2) 부제목 문단을 인용구로 변환. 인용구는 커서를 가둬 키보드 탈출이 안 되므로 이 방식이 유일하게 안정적."""
     if CAFE_WRITE_URL:
         page.goto(CAFE_WRITE_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
@@ -206,22 +298,23 @@ def publish(page, title, blocks, no_send=False):
     if not ed:
         raise RuntimeError("에디터 영역 못 찾음 — --diag 로 SEL_EDITOR 확정 필요")
     ed.click()
-    # 블록 순서대로: 이미지=툴바 버튼+파일선택 / 텍스트=타이핑
+    page.wait_for_timeout(300)
+    # ── 1패스: 이미지=툴바+파일선택 / 부제목=일반문단(앵커) / 텍스트=타이핑 ──
+    subtitles = []
     for b in blocks:
         if b["type"] == "text":
-            page.keyboard.type(b["text"])
-            page.keyboard.press("Enter")
+            _type_multiline(page, b["text"])
+        elif b["type"] == "quote":
+            page.keyboard.type(b["text"]); page.keyboard.press("Enter")  # 앵커(2패스에서 인용구화)
+            subtitles.append(b["text"])
         else:
-            btn = _first(page, SEL_IMG_BTN, timeout=4000)
-            if not btn:
-                raise RuntimeError("사진 버튼 못 찾음 — --diag 로 SEL_IMG_BTN 확정 필요")
-            with page.expect_file_chooser(timeout=8000) as fc:
-                btn.click()
-            fc.value.set_files(b["local"])  # 한 장씩 → 순서 보장
-            page.wait_for_timeout(1800)     # 업로드(비동기) 대기
-        page.wait_for_timeout(300)
+            _insert_image_block(page, b["local"])
+        page.wait_for_timeout(200)
+    # ── 2패스: 부제목 문단 → 인용구 변환 ──
+    for sub in subtitles:
+        _convert_paragraph_to_quote(page, sub)
     if no_send:
-        _log("no_send: '등록' 직전까지 완료(사람이 확인 후 클릭).")
+        _log(f"no_send: '등록' 직전까지 완료(사람이 확인 후 클릭). 인용구 {len(subtitles)}개 변환.")
         return None
     sub = _first(page, SEL_SUBMIT, timeout=6000)
     if not sub:
@@ -237,8 +330,12 @@ def publish(page, title, blocks, no_send=False):
 
 
 def publish_job(job, cdp_url=DEFAULT_CDP, no_send=False):
-    """큐 1건 발행 — 매니페스트 다운로드 → publish. (posted_url 또는 예외)"""
-    blocks, tmp = _download_manifest(job.get("manifest") or [])
+    """큐 1건 발행 — 이미지 다운로드 + 본문 마커 파싱 → 인터리브 발행. (posted_url 또는 예외)"""
+    images, body, tmp = _download_manifest(job.get("manifest") or [])
+    blocks = parse_body_to_blocks(body, images)
+    n_img = sum(1 for b in blocks if b["type"] == "image")
+    n_q = sum(1 for b in blocks if b["type"] == "quote")
+    _log(f"블록 파싱: 텍스트 {sum(1 for b in blocks if b['type']=='text')} · 이미지 {n_img} · 인용구 {n_q}")
     with sync_playwright() as p:
         page = _connect(p, cdp_url)
         return publish(page, job.get("title") or "제목", blocks, no_send=no_send)
