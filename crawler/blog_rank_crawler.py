@@ -1250,17 +1250,68 @@ def _rank_in_cafe_popular(html_text, cafe_name, article_id):
     return OUT_OF_RANK, "out"
 
 
+def _is_popular_section(j):
+    """블록이 '인기글' 테마 섹션인가 — title/subjectTitle 계열 필드에 '인기글' 포함.
+    예: subjectTitle='인테리어·DIY 인기글'. (area ugB_bsR / review_ugc_single_intention 템플릿)"""
+    found = [False]
+
+    def w(o):
+        if found[0]:
+            return
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if found[0]:
+                    return
+                lk = k.lower()
+                if isinstance(v, str) and ("title" in lk or "subject" in lk) and "인기글" in v:
+                    found[0] = True
+                    return
+                w(v)
+        elif isinstance(o, list):
+            for x in o:
+                w(x)
+
+    w(j)
+    return found[0]
+
+
+def _rank_in_cafe_section(html_text, cafe_name, article_id):
+    """통합검색 HTML → 카페 글의 '인기글 테마 섹션 내 순위'(clickLog.r). 사용자 기준(2026-07-16 변경):
+    통합탭 전체 카운트가 아니라 '인테리어·DIY 인기글' 같은 테마 인기글 섹션 안에서의 위치(r)로 측정.
+    여러 인기글 섹션에 걸치면 최상위(min r). 섹션에 없으면 권외."""
+    blocks = extract_bootstrap_json(html_text)
+    if not blocks:
+        return OUT_OF_RANK, "fail"
+    best = None
+    for b in blocks:
+        try:
+            j = json.loads(b)
+        except Exception:
+            continue
+        if not _is_popular_section(j):
+            continue
+        for r, ids in _ugb_cards_cafe(j).items():
+            for (nm, art) in ids:
+                if art == article_id and (not cafe_name or nm == cafe_name):
+                    if best is None or r < best:
+                        best = r
+    if best is not None:
+        return best, "ok"
+    return OUT_OF_RANK, "out"
+
+
 def measure_cafe_rank(keyword, cafe_name, article_id):
-    """카페 글 통합탭 순위 측정 → (ti, ti_status). 블로그와 동일 URL/차단회피 상수 재사용."""
+    """카페 글 순위 측정 → (ti, ti_status). 기준 = '인기글 테마 섹션(예: 인테리어·DIY 인기글) 내 순위'.
+    블로그와 동일 URL/차단회피 상수 재사용. (통합탭 전체 카운트는 _rank_in_cafe_popular 로 남겨둠)"""
     url = f"https://m.search.naver.com/search.naver?query={quote(keyword)}"
     try:
         code, html_text = _fetch_html(url)
         if code != 200:
             return OUT_OF_RANK, "fail"
     except Exception as exc:
-        print(f"    [카페 통합탭 실패] {keyword}: {exc}")
+        print(f"    [카페 인기글 섹션 실패] {keyword}: {exc}")
         return OUT_OF_RANK, "fail"
-    return _rank_in_cafe_popular(html_text, cafe_name, str(article_id))
+    return _rank_in_cafe_section(html_text, cafe_name, str(article_id))
 
 
 def measure_rank(keyword, blog_id, post_url):
