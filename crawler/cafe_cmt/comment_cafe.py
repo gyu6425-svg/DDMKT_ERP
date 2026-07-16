@@ -144,7 +144,8 @@ def _box_text(box):
 def _connect(p, cdp_url):
     browser = p.chromium.connect_over_cdp(cdp_url)
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-    pages = [pg for pg in ctx.pages if "naver.com" in (pg.url or "")]
+    # keep_alive.py 가 잠깐 여는 확인용 탭(#keepalive 마커)은 작업 탭으로 오인·선택하지 않는다.
+    pages = [pg for pg in ctx.pages if "naver.com" in (pg.url or "") and "keepalive" not in (pg.url or "")]
     page = pages[0] if pages else (ctx.pages[0] if ctx.pages else ctx.new_page())
     try:
         page.bring_to_front()
