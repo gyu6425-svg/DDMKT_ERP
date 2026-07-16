@@ -61,8 +61,19 @@ def main():
                 print(f"  ✅ 발행 완료: {url}", flush=True)
         except Exception as e:
             reason = str(e)[:300]
-            pc.sb_patch("cafe_publish_queue", {"id": f"eq.{jid}"}, {"status": "fail", "reason": reason})
-            print(f"  ❌ 실패 — {reason}", flush=True)
+            # 로그인 만료·크롬 꺼짐·일시적 페이지 지연은 '영구 실패'가 아니라 재시도 대상 →
+            #   상태를 pending 으로 되돌려 두고(발행 요청 보존), 크롬/로그인 복구되면 자동 재개.
+            retryable = any(k in reason for k in (
+                "LOGIN_REQUIRED", "ECONNREFUSED", "connect_over_cdp", "제목 입력칸", "에디터 영역",
+                "Timeout", "Target closed", "browserContext", "websocket",
+            ))
+            if retryable:
+                pc.sb_patch("cafe_publish_queue", {"id": f"eq.{jid}"}, {"status": "pending", "reason": None})
+                print(f"  ⏸ 크롬/로그인/일시오류 — 대기로 되돌림(복구되면 자동 발행): {reason[:90]}", flush=True)
+                time.sleep(30)   # 백오프(복구 전까지 과도한 재시도 방지)
+            else:
+                pc.sb_patch("cafe_publish_queue", {"id": f"eq.{jid}"}, {"status": "fail", "reason": reason})
+                print(f"  ❌ 실패 — {reason}", flush=True)
 
 
 if __name__ == "__main__":

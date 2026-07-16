@@ -326,11 +326,17 @@ def publish(page, title, blocks, no_send=False):
     if CAFE_WRITE_URL:
         page.goto(CAFE_WRITE_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
+    # 로그인 만료 감지 — 글쓰기 URL 이 로그인 페이지로 튕기면 재시도 대상(리스너가 대기로 되돌림).
+    if re.search(r"nid\.naver\.com|nidlogin", page.url or ""):
+        raise RuntimeError("LOGIN_REQUIRED: 네이버 로그인 필요 — 크롬 9223 에서 로그인하세요")
     _focus_naver_window()
-    # 제목
+    # 제목 — 페이지 준비 지연(갓 띄운 크롬 등) 대비 한 번 더 대기 후 재시도.
     t = _first(page, SEL_TITLE, timeout=6000)
     if not t:
-        raise RuntimeError("제목 입력칸 못 찾음 — --diag 로 SEL_TITLE 확정 필요")
+        page.wait_for_timeout(2500)
+        t = _first(page, SEL_TITLE, timeout=6000)
+    if not t:
+        raise RuntimeError("제목 입력칸 못 찾음(페이지 준비 지연/로그인 확인 필요)")
     t.click(); t.fill(title)
     # 에디터 포커스
     ed = _first(page, SEL_EDITOR, timeout=6000)
