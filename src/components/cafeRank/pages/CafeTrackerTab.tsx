@@ -49,6 +49,8 @@ export function CafeTrackerTab() {
     const [defaultCafe, setDefaultCafe] = useState('ddmkt2');
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
+    const [search, setSearch] = useState('');
+    const [showAdd, setShowAdd] = useState(false);
 
     const reload = async () => {
         setLoading(true);
@@ -109,111 +111,152 @@ export function CafeTrackerTab() {
             const qq = q.trim();
             r = r.filter((p) => cafeLabel(p.cafe_name).includes(qq) || (p.cafe_name || '').includes(qq));
         }
+        if (search.trim()) {
+            const s = search.trim();
+            r = r.filter((p) =>
+                cafeLabel(p.cafe_name).includes(s) ||
+                (p.title || '').includes(s) ||
+                (p.keyword_manual || p.keyword || '').includes(s),
+            );
+        }
         return r.sort((a, b) => (b.published_date || '').localeCompare(a.published_date || ''));
-    }, [posts, q]);
+    }, [posts, q, search]);
 
     return (
-        <div className="grid gap-5">
-            <p className="m-0 text-sm text-[#64748b]">
-                자사 카페(<b>마이클의 정보 세상 · ddmkt2</b>) 글의 <b>네이버 인기글 순위</b>를 추적합니다. 검색 시 뜨는
-                <b> 테마 인기글 섹션</b>(예: 인테리어·DIY 인기글) 안에서의 위치를 잽니다. 아래에 <b>카페 글 URL + 키워드</b>를
-                등록하면 PC의 <code className="rounded bg-[#f1f5f9] px-1">cafe_rank_crawler.py</code> 가 매일 측정해 표에 채웁니다.
-                <span className="text-[#94a3b8]"> (모바일 통합검색 기준 · 인기글 섹션 없는 키워드는 ‘측정불가’)</span>
-            </p>
-
-            {/* 등록 (시트 붙여넣기) */}
-            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-                <div className="mb-2 flex flex-wrap items-center gap-3">
-                    <div className="text-[13px] font-bold text-[#334155]">카페 글 등록</div>
-                    <label className="flex items-center gap-1.5 text-[12px] font-semibold text-[#475569]">
-                        기본 카페명(vanity)
-                        <input
-                            className="h-8 w-28 rounded-md border border-[#cbd5e1] px-2 text-[13px]"
-                            onChange={(e) => setDefaultCafe(e.target.value)}
-                            value={defaultCafe}
-                        />
-                    </label>
-                    <span className="text-[11px] text-[#94a3b8]">URL에 vanity 없으면(clubid만) 이 값으로 매칭</span>
-                </div>
-                <textarea
-                    className="h-24 w-full rounded-md border border-[#cbd5e1] bg-white px-3 py-2 font-mono text-[12px] leading-5"
-                    onChange={(e) => setPaste(e.target.value)}
-                    placeholder={'줄마다: 카페글URL [탭 또는 ,] 키워드 [탭] 제목(선택)\nhttps://cafe.naver.com/ddmkt2/13\t과천 누수탐지\t과천 누수탐지 후기\nhttps://cafe.naver.com/ArticleRead.nhn?clubid=31754130&articleid=8, 과천 누수탐지'}
-                    value={paste}
+        <div className="grid gap-3">
+            {/* 상단 안내 + 액션 바 (블로그 관리시트 스타일) */}
+            <div className="flex flex-wrap items-center gap-2">
+                <input
+                    className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="업체·제목·키워드 검색..."
+                    value={search}
                 />
-                <div className="mt-2 flex items-center gap-2">
-                    <button
-                        className="h-9 rounded-md bg-[#03c75a] px-5 text-sm font-bold text-white hover:bg-[#02b350] disabled:opacity-50"
-                        disabled={busy || !paste.trim()}
-                        onClick={() => void register()}
-                        type="button"
-                    >
-                        {busy ? '등록 중…' : '등록'}
-                    </button>
-                    {msg ? <span className="text-[13px] text-[#6366f1]">{msg}</span> : null}
-                </div>
+                <span className="ml-auto text-xs text-[#64748b]">{rows.length}개</span>
+                <button
+                    className="inline-flex h-9 items-center rounded-md border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                    onClick={() => void reload()}
+                    type="button"
+                >
+                    새로고침
+                </button>
+                <button
+                    className="inline-flex h-9 items-center rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
+                    onClick={() => setShowAdd((v) => !v)}
+                    type="button"
+                >
+                    시트 붙여넣기 등록
+                </button>
             </div>
 
-            {/* 순위 표 */}
-            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-                <div className="mb-2 text-[13px] font-bold text-[#334155]">추적 글 ({rows.length})</div>
-                {err ? <div className="rounded-md bg-[#fef2f2] px-3 py-2 text-[13px] text-[#b91c1c]">{err}</div> : null}
-                {loading ? (
-                    <div className="py-8 text-center text-sm text-[#94a3b8]">불러오는 중…</div>
-                ) : !rows.length && !err ? (
-                    <div className="py-8 text-center text-sm text-[#94a3b8]">등록된 카페 글이 없습니다. 위에서 URL+키워드를 붙여넣어 등록하세요.</div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-[13px]">
-                            <thead>
-                                <tr className="border-b border-[#e2e8f0] text-left text-[12px] text-[#64748b]">
-                                    <th className="py-2 pr-2">업체(카페)</th>
-                                    <th className="py-2 pr-2">제목</th>
-                                    <th className="py-2 pr-2">글번호</th>
-                                    <th className="py-2 pr-2">키워드</th>
-                                    <th className="py-2 pr-2 text-center">인기글 순위</th>
-                                    <th className="py-2 pr-2">최근 측정</th>
-                                    <th className="py-2"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {rows.map((p) => {
-                                    const last = p.measurements?.[p.measurements.length - 1];
-                                    return (
-                                        <tr className="border-b border-[#f1f5f9]" key={p.id}>
-                                            <td className="py-2 pr-2 text-[12px] font-semibold text-[#334155]">{cafeLabel(p.cafe_name) || p.club_id}</td>
-                                            <td className="max-w-[240px] truncate py-2 pr-2 font-semibold text-[#0f172a]">
-                                                {p.post_url ? (
-                                                    <a className="hover:text-[#4338ca]" href={p.post_url} rel="noreferrer" target="_blank">{p.title || '(제목없음)'}</a>
-                                                ) : (p.title || '(제목없음)')}
-                                            </td>
-                                            <td className="py-2 pr-2 text-[12px] text-[#94a3b8]">{p.article_id}</td>
-                                            <td className="py-2 pr-2">
-                                                <input
-                                                    className="h-7 w-32 rounded border border-[#e2e8f0] px-1.5 text-[12px]"
-                                                    defaultValue={p.keyword_manual || p.keyword || ''}
-                                                    onBlur={(e) => void saveKeyword(p.id, e.target.value)}
-                                                    onChange={(e) => void onKeyword(p.id, e.target.value)}
-                                                    placeholder="측정 키워드"
-                                                />
-                                            </td>
-                                            <td className="py-2 pr-2 text-center"><RankCell ms={p.measurements} /></td>
-                                            <td className="py-2 pr-2 text-[11px] text-[#94a3b8]">{last?.date || '—'}</td>
-                                            <td className="py-2">
-                                                <button
-                                                    className="rounded px-1.5 text-[13px] text-[#cbd5e1] hover:text-[#dc2626]"
-                                                    onClick={() => void remove(p.id)}
-                                                    title="삭제(측정 제외)"
-                                                    type="button"
-                                                >✕</button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
+            <p className="m-0 text-xs text-[#94a3b8]">
+                자사 카페(<b className="text-[#64748b]">마이클의 정보 세상 · ddmkt2</b>) 글의 <b className="text-[#64748b]">네이버 인기글 테마 섹션</b>(예: 인테리어·DIY 인기글) 내 순위.
+                PC의 <code className="rounded bg-[#f1f5f9] px-1">cafe_rank_crawler.py</code> 가 매일 측정. 섹션 없는 키워드는 ‘측정불가’.
+            </p>
+
+            {/* 등록 폼 (시트 붙여넣기) — 접기/펼치기 */}
+            {showAdd ? (
+                <div className="rounded-md border border-[#e2e8f0] bg-[#f8fafc] p-4">
+                    <div className="mb-2 flex flex-wrap items-center gap-3">
+                        <div className="text-[13px] font-bold text-[#334155]">카페 글 등록</div>
+                        <label className="flex items-center gap-1.5 text-[12px] font-semibold text-[#475569]">
+                            기본 카페명(vanity)
+                            <input
+                                className="h-8 w-28 rounded-md border border-[#cbd5e1] px-2 text-[13px]"
+                                onChange={(e) => setDefaultCafe(e.target.value)}
+                                value={defaultCafe}
+                            />
+                        </label>
+                        <span className="text-[11px] text-[#94a3b8]">URL에 vanity 없으면(clubid만) 이 값으로 매칭</span>
                     </div>
-                )}
+                    <textarea
+                        className="h-24 w-full rounded-md border border-[#cbd5e1] bg-white px-3 py-2 font-mono text-[12px] leading-5"
+                        onChange={(e) => setPaste(e.target.value)}
+                        placeholder={'줄마다: 카페글URL [탭 또는 ,] 키워드 [탭] 제목(선택)\nhttps://cafe.naver.com/ddmkt2/13\t과천 누수탐지\t과천 누수탐지 후기\nhttps://cafe.naver.com/ArticleRead.nhn?clubid=31754130&articleid=8, 과천 누수탐지'}
+                        value={paste}
+                    />
+                    <div className="mt-2 flex items-center gap-2">
+                        <button
+                            className="h-9 rounded-md bg-[#03c75a] px-5 text-sm font-bold text-white hover:bg-[#02b350] disabled:opacity-50"
+                            disabled={busy || !paste.trim()}
+                            onClick={() => void register()}
+                            type="button"
+                        >
+                            {busy ? '등록 중…' : '등록'}
+                        </button>
+                        {msg ? <span className="text-[13px] text-[#6366f1]">{msg}</span> : null}
+                    </div>
+                </div>
+            ) : null}
+
+            {err ? <div className="rounded-md bg-[#fef2f2] px-3 py-2 text-[13px] text-[#b91c1c]">{err}</div> : null}
+
+            {/* 순위 표 — 블로그 관리시트 스타일 */}
+            <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
+                <table className="w-full border-collapse text-left text-sm">
+                    <thead>
+                        <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
+                            <th className="px-3 py-2 font-semibold">업체(카페)</th>
+                            <th className="px-3 py-2 font-semibold">제목</th>
+                            <th className="px-3 py-2 text-center font-semibold">글번호</th>
+                            <th className="px-3 py-2 font-semibold">키워드</th>
+                            <th className="px-3 py-2 text-center font-semibold">인기글 순위</th>
+                            <th className="px-3 py-2 text-center font-semibold">최근 측정</th>
+                            <th className="px-3 py-2 text-center font-semibold">관리</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading ? (
+                            <tr><td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={7}>불러오는 중…</td></tr>
+                        ) : !rows.length ? (
+                            <tr><td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={7}>등록된 카페 글이 없습니다 · '시트 붙여넣기 등록'으로 추가하세요</td></tr>
+                        ) : (
+                            rows.map((p) => {
+                                const last = p.measurements?.[p.measurements.length - 1];
+                                return (
+                                    <tr className="border-b border-[#e2e8f0] hover:bg-[#f8fafc]" key={p.id}>
+                                        <td className="px-3 py-3">
+                                            <a
+                                                className="font-semibold text-[#0f172a] hover:text-[#1e40af] hover:underline"
+                                                href={`https://cafe.naver.com/${p.cafe_name || ''}`}
+                                                rel="noreferrer"
+                                                target="_blank"
+                                                title="카페로 이동"
+                                            >
+                                                {cafeLabel(p.cafe_name) || p.club_id}
+                                            </a>
+                                        </td>
+                                        <td className="max-w-[280px] truncate px-3 py-3">
+                                            {p.post_url ? (
+                                                <a className="font-semibold text-[#0f172a] hover:text-[#1e40af] hover:underline" href={p.post_url} rel="noreferrer" target="_blank">{p.title || '(제목없음)'}</a>
+                                            ) : <span className="font-semibold text-[#0f172a]">{p.title || '(제목없음)'}</span>}
+                                        </td>
+                                        <td className="px-3 py-3 text-center text-xs text-[#94a3b8]">{p.article_id}</td>
+                                        <td className="px-3 py-3">
+                                            <input
+                                                className="h-7 w-32 rounded border border-[#e2e8f0] px-1.5 text-[12px]"
+                                                defaultValue={p.keyword_manual || p.keyword || ''}
+                                                onBlur={(e) => void saveKeyword(p.id, e.target.value)}
+                                                onChange={(e) => void onKeyword(p.id, e.target.value)}
+                                                placeholder="측정 키워드"
+                                            />
+                                        </td>
+                                        <td className="px-3 py-3 text-center"><RankCell ms={p.measurements} /></td>
+                                        <td className="px-3 py-3 text-center text-[11px] text-[#94a3b8]">{last?.date?.slice(5) || '—'}</td>
+                                        <td className="px-3 py-3 text-center">
+                                            <button
+                                                className="rounded border border-[#fca5a5] bg-white px-2 py-1 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
+                                                onClick={() => void remove(p.id)}
+                                                title="삭제(측정 제외)"
+                                                type="button"
+                                            >삭제</button>
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        )}
+                    </tbody>
+                </table>
             </div>
         </div>
     );
