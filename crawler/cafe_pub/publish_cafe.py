@@ -245,13 +245,23 @@ def _type_multiline(page, text):
 
 
 def _insert_image_block(page, local):
-    btn = _first(page, SEL_IMG_BTN, timeout=4000)
-    if not btn:
-        raise RuntimeError("사진 버튼 못 찾음 — --diag 로 SEL_IMG_BTN 확정 필요")
-    with page.expect_file_chooser(timeout=8000) as fc:
-        btn.click()
-    fc.value.set_files(local)          # 한 장씩 → 순서 보장
-    page.wait_for_timeout(1800)        # 업로드(비동기) 대기
+    last_err = None
+    for attempt in range(3):           # 파일선택창이 가끔 안 뜸(포커스/타이밍) → 재시도
+        btn = _first(page, SEL_IMG_BTN, timeout=4000)
+        if not btn:
+            raise RuntimeError("사진 버튼 못 찾음 — --diag 로 SEL_IMG_BTN 확정 필요")
+        try:
+            with page.expect_file_chooser(timeout=10000) as fc:
+                btn.click()
+            fc.value.set_files(local)  # 한 장씩 → 순서 보장
+            page.wait_for_timeout(1800)  # 업로드(비동기) 대기
+            return
+        except Exception as e:
+            last_err = e
+            _log(f"  파일선택창 재시도({attempt + 1}/3) — 창 포커스 후")
+            _focus_naver_window()
+            page.wait_for_timeout(700)
+    raise last_err
 
 
 # 인용구 변환용: 텍스트 컴포넌트(인용구 제외) 안에서 정확히 일치하는 문단의 중앙 좌표 반환.
