@@ -13,4 +13,7 @@ echo [START] %date% %time% >> crawler.log
 set CRAWL_DELAY=3.5
 set CRAWL_REST_EVERY=6
 set CRAWL_REST_SEC=40
-start "ddmkt-full" /min cmd /c "C:\Users\ddmkt\AppData\Local\Python\pythoncore-3.14-64\python.exe blog_rank_crawler.py --spread --chunk-size 5 --deadline 08:30 >> crawler.log 2>&1"
+REM Blog Full crawl, THEN cafe rank crawl sequentially in the same console (chained with &).
+REM   The cafe crawl starts only AFTER the blog crawl fully finishes -> never overlaps (anti-block).
+REM   Blog finishes by 08:30, cafe is quick, Today starts 09:05 -> all three stay separated.
+start "ddmkt-full" /min cmd /c "C:\Users\ddmkt\AppData\Local\Python\pythoncore-3.14-64\python.exe blog_rank_crawler.py --spread --chunk-size 5 --deadline 08:30 >> crawler.log 2>&1 & echo [CAFE-RANK-START] %date% %time% >> crawler.log & C:\Users\ddmkt\AppData\Local\Python\pythoncore-3.14-64\python.exe cafe_rank_crawler.py >> crawler.log 2>&1"
