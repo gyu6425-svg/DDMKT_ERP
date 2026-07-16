@@ -62,13 +62,20 @@ def _init_last_pub_from_db():
                          {"status": "eq.done", "order": "done_at.desc", "limit": "1", "select": "done_at"})
         if not rows or not rows[0].get("done_at"):
             return
+        # ⚠️ 이 리스너는 done_at 에 datetime.now()(KST, tz없음)를 넣는다. 컬럼이 timestamptz 라
+        #    '벽시계값'이 UTC 로 라벨링돼 저장된다(2026-07-16T18:13:04+00:00 = 실제 18:13 KST).
+        #    그래서 읽을 때도 tz 라벨을 버리고 '벽시계값 = 로컬(KST)'로 해석해야 맞다.
+        #    (UTC 로 해석하면 9시간 미래가 돼 발행이 통째로 막힌다 — 2026-07-16 실제 사고)
         raw = rows[0]["done_at"].replace("Z", "+00:00")
-        dt = datetime.datetime.fromisoformat(raw)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=datetime.timezone.utc)
-        _last_pub[0] = dt.timestamp()
-        nxt = datetime.datetime.fromtimestamp(_last_pub[0] + MIN_GAP_MIN * 60)
-        print(f"  마지막 발행 {dt.astimezone():%H:%M} (DB) → 다음 발행 가능 {nxt:%H:%M}", flush=True)
+        dt = datetime.datetime.fromisoformat(raw).replace(tzinfo=None)
+        last = dt.timestamp()          # naive → 로컬(KST)로 해석
+        now = time.time()
+        if last > now + 60:            # 그래도 미래면 신뢰하지 않음(발행 막힘 방지)
+            print(f"  (DB 마지막 발행 {dt:%H:%M} 이 미래 — 무시하고 즉시 발행 가능)", flush=True)
+            return
+        _last_pub[0] = last
+        nxt = datetime.datetime.fromtimestamp(last + MIN_GAP_MIN * 60)
+        print(f"  마지막 발행 {dt:%H:%M} (DB) → 다음 발행 가능 {nxt:%H:%M}", flush=True)
     except Exception as e:
         print(f"  (마지막 발행시각 복원 실패, 무시: {str(e)[:60]})", flush=True)
 
