@@ -58,11 +58,11 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 CAFE_WRITE_URL = os.environ.get("CAFE_WRITE_URL", "")  # 카페 글쓰기 페이지 주소
 
-# ── 셀렉터 후보 (⚠️ --diag 로 확정 필요) ──
-SEL_TITLE = ['input[placeholder*="제목"]', 'textarea[placeholder*="제목"]', '.se_title input', '.ArticleTitle input']
-SEL_EDITOR = ['.se-content [contenteditable="true"]', '.se-container [contenteditable="true"]', 'div.se-text-paragraph', 'iframe#se2_iframe']
-SEL_IMG_BTN = ['button[data-name="image"]', '.se-toolbar-item-image button', 'button[data-log="ime.image"]', 'button:has-text("사진")']
-SEL_SUBMIT = ['a:has-text("등록")', 'button:has-text("등록")', '.BaseButton--skinGreen', 'a.btn_register']
+# ── 셀렉터 (✅ 확정: 2026-07-16 SmartEditor ONE, cafe.naver.com/ca-fe 새 글쓰기) ──
+SEL_TITLE = ['textarea.textarea_input', 'textarea[placeholder*="제목"]']
+SEL_EDITOR = ['.se-content .se-text-paragraph', '.se-content', '.se-container [contenteditable="true"]', '[contenteditable="true"]']
+SEL_IMG_BTN = ['button.se-image-toolbar-button', 'button[data-log="dot.img"]']
+SEL_SUBMIT = ['a.BaseButton--skinGreen:has-text("등록")', 'a.BaseButton--skinGreen', 'button:has-text("등록")']
 
 
 def _log(m):
