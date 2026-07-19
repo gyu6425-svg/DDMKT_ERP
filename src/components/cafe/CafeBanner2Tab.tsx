@@ -52,7 +52,8 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
     );
 }
 
-export function CafeBanner2Tab() {
+// abModel=true(더맨시스템3)면 카드 모델 A/B 토글(gpt-5.5/mini) 노출. 기본 false(더맨시스템2)는 기존과 100% 동일.
+export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) {
     const { profile } = useAuth();
     // 원고
     const [keyword, setKeyword] = useState('일산 회사 보안');
@@ -66,6 +67,7 @@ export function CafeBanner2Tab() {
     const [l2, setL2] = useState('안전을');
     const [l3, setL3] = useState('책임지는');
     const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('low');
+    const [cardModel, setCardModel] = useState<'gpt-5.5' | 'gpt-5-mini'>('gpt-5.5'); // 오케스트레이션 모델(A/B). 기본 gpt-5.5.
     const [manualOn, setManualOn] = useState(false);
     const [manualItems, setManualItems] = useState<SecItem[]>(EMPTY_SEC_ITEMS);
 
@@ -78,7 +80,8 @@ export function CafeBanner2Tab() {
     const [copied, setCopied] = useState(false);
     const [msg, setMsg] = useState('');
 
-    const bannerKey = () => `banner2|${region}|${secType}|${l1}|${l2}|${l3}|${quality}`;
+    // A/B(더맨3)일 때만 모델을 키에 포함 → gpt-5.5/mini 캐시 분리. 더맨2는 기존 키 유지(캐시 보존).
+    const bannerKey = () => `banner2|${region}|${secType}|${l1}|${l2}|${l3}|${quality}${abModel ? `|${cardModel}` : ''}`;
     useEffect(() => {
         let alive = true;
         void getCachedCard(bannerKey()).then((img) => alive && img && setBanner(img));
@@ -86,7 +89,7 @@ export function CafeBanner2Tab() {
             alive = false;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [region, secType, l1, l2, l3, quality]);
+    }, [region, secType, l1, l2, l3, quality, cardModel]);
 
     // 2~7 중간 저장 이미지 — 기본 내장 세트 자동 로드.
     useEffect(() => {
@@ -134,12 +137,16 @@ export function CafeBanner2Tab() {
                     const cached = await getCachedCard(bannerKey());
                     if (cached) return cached;
                     const t = Date.now();
-                    const r = await generateSecurityBanner({ items: resolveSecItems(manualOn, manualItems), quality, region, secType, style: 'blue', titleLines });
+                    const r = await generateSecurityBanner({ items: resolveSecItems(manualOn, manualItems), model: abModel ? cardModel : undefined, quality, region, secType, style: 'blue', titleLines });
                     await setCachedCard(bannerKey(), r.imageDataUrl);
-                    const textCost = r.textUsage ? computeRecordCostUsd({ model: 'gpt-5.5', provider: 'openai', usage_raw: r.textUsage }) : 0;
-                    const imageCost = computeRecordCostUsd({ banner_size: 'square', image_quality: quality, provider: 'openai', usage_raw: r.imageUsage });
-                    if (r.textUsage) void logApiUsage({ cost_usd: textCost, elapsed_ms: Date.now() - t, model: 'sec-items', operator_name: operatorName, provider: 'openai', status: 'success', usage_raw: r.textUsage as never, user_email: email });
-                    void logApiUsage({ banner_size: 'square', cost_usd: imageCost, elapsed_ms: Date.now() - t, image_quality: quality, model: 'sec-card2', operator_name: operatorName, provider: 'openai', status: 'success', usage_raw: r.imageUsage as never, user_email: email });
+                    // 실제 사용 모델을 비용/라벨에 반영 → 대시보드가 gpt-5.5 vs mini 절감을 구분.
+                    const isMini = r.model === 'gpt-5-mini';
+                    const textLabel = isMini ? 'sec-items-mini' : 'sec-items';
+                    const cardLabel = isMini ? 'sec-card2-mini' : 'sec-card2';
+                    const textCost = r.textUsage ? computeRecordCostUsd({ model: r.model, provider: 'openai', usage_raw: r.textUsage }) : 0;
+                    const imageCost = computeRecordCostUsd({ banner_size: 'square', image_quality: quality, model: r.model, provider: 'openai', usage_raw: r.imageUsage });
+                    if (r.textUsage) void logApiUsage({ cost_usd: textCost, elapsed_ms: Date.now() - t, model: textLabel, operator_name: operatorName, provider: 'openai', status: 'success', usage_raw: r.textUsage as never, user_email: email });
+                    void logApiUsage({ banner_size: 'square', cost_usd: imageCost, elapsed_ms: Date.now() - t, image_quality: quality, model: cardLabel, operator_name: operatorName, provider: 'openai', status: 'success', usage_raw: r.imageUsage as never, user_email: email });
                     return r.imageDataUrl;
                 })(),
                 (async () => {
@@ -255,6 +262,22 @@ export function CafeBanner2Tab() {
                         </button>
                     ))}
                 </div>
+                {abModel ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className="mr-1 text-[12px] font-semibold text-[#475569]">카드 모델</span>
+                        {(['gpt-5.5', 'gpt-5-mini'] as const).map((m) => (
+                            <button
+                                className={`rounded-full px-3 py-1 text-[12px] font-semibold ${cardModel === m ? 'bg-[#0ea5e9] text-white' : 'border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]'}`}
+                                key={m}
+                                onClick={() => setCardModel(m)}
+                                type="button"
+                            >
+                                {m === 'gpt-5-mini' ? 'mini (실험·저비용)' : 'gpt-5.5 (기본)'}
+                            </button>
+                        ))}
+                        <span className="ml-1 text-[11px] text-[#94a3b8]">모델 바꿔 각각 생성 → 미리보기·비용 비교(캐시 분리)</span>
+                    </div>
+                ) : null}
             </div>
 
             {/* 실행 */}

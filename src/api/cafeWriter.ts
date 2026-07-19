@@ -213,6 +213,7 @@ export async function generateSecurityBanner(input: {
     quality?: 'low' | 'medium' | 'high';
     style?: 'green' | 'blue';
     items?: SecurityBannerItem[]; // 하단 3개 직접 입력(선택). 3개 채우면 자동/프리셋 대신 이걸 사용.
+    model?: 'gpt-5.5' | 'gpt-5-mini'; // 오케스트레이션 모델(A/B용). 미지정 시 서버 기본 gpt-5.5.
     signal?: AbortSignal;
 }): Promise<{
     imageDataUrl: string;
@@ -220,6 +221,7 @@ export async function generateSecurityBanner(input: {
     source: 'preset' | 'ai' | 'manual';
     textUsage: Record<string, unknown> | null;
     imageUsage: Record<string, unknown> | null;
+    model: string;
 }> {
     const url = import.meta.env.DEV ? 'http://127.0.0.1:8787/api/generate-security-banner' : '/api/generate-security-banner';
     const controller = new AbortController();
@@ -232,6 +234,7 @@ export async function generateSecurityBanner(input: {
         const res = await fetch(url, {
             body: JSON.stringify({
                 items: input.items,
+                model: input.model,
                 quality: input.quality,
                 region: input.region,
                 secType: input.secType,
@@ -249,6 +252,7 @@ export async function generateSecurityBanner(input: {
             source?: 'preset' | 'ai' | 'manual';
             textUsage?: Record<string, unknown> | null;
             imageUsage?: Record<string, unknown> | null;
+            model?: string;
             message?: string;
         } = {};
         if (text) {
@@ -266,6 +270,7 @@ export async function generateSecurityBanner(input: {
             source: data.source ?? 'preset',
             textUsage: data.textUsage ?? null,
             imageUsage: data.imageUsage ?? null,
+            model: data.model ?? 'gpt-5.5',
         };
     } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {

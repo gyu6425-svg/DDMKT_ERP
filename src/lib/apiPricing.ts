@@ -30,6 +30,11 @@ const MODEL_LABEL_ALIASES: Record<string, string> = {
     // 카드 이미지 오케스트레이션: 기본 gpt-5.5(기존 폴백과 동일값이라 과거기록 불변), A/B용 mini 라벨은 gpt-5-mini.
     'cafe-card': 'gpt-5.5',
     'cafe-card-mini': 'gpt-5-mini',
+    // 더맨 보안배너: 기존 sec-*는 gpt-5.5(폴백과 동일값·과거기록 불변), A/B용 mini 라벨만 gpt-5-mini.
+    'sec-items': 'gpt-5.5',
+    'sec-items-mini': 'gpt-5-mini',
+    'sec-card2': 'gpt-5.5',
+    'sec-card2-mini': 'gpt-5-mini',
 };
 
 // 로그의 model 값(실제 id 또는 용도 라벨)을 단가표 키로 해석한다.
