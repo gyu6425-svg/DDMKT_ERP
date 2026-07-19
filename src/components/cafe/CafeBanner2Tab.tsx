@@ -151,7 +151,8 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
                 })(),
                 (async () => {
                     const t = Date.now();
-                    const rv = await generateCafeReview({ business, content: merged, keyword, phone, region, tone });
+                    // 더맨(보안) 원고 — 누수탐지 소재(content) 대신 빈 소재 + 더맨 브랜드/업종으로 생성(누수 내용 유입 차단).
+                    const rv = await generateCafeReview({ brand: '더맨시스템', business, content: {}, keyword, phone, region, tone });
                     void logApiUsage({ cost_usd: computeRecordCostUsd({ model: 'gpt-5-mini', provider: 'openai', usage_raw: rv.usage ?? null }), elapsed_ms: Date.now() - t, model: 'cafe-post', operator_name: operatorName, provider: 'openai', status: 'success', total_tokens: rv.usage?.total_tokens ?? null, usage_raw: (rv.usage as never) ?? null, user_email: email });
                     return rv;
                 })(),
