@@ -27,6 +27,9 @@ const DEFAULT_MODEL_KEY = 'gpt-5.5';
 //      과거 기록도 '읽을 때' 이 매핑으로 재계산되므로, 여기만 고치면 전부 정정된다.
 const MODEL_LABEL_ALIASES: Record<string, string> = {
     'cafe-post': 'gpt-5-mini',
+    // 카드 이미지 오케스트레이션: 기본 gpt-5.5(기존 폴백과 동일값이라 과거기록 불변), A/B용 mini 라벨은 gpt-5-mini.
+    'cafe-card': 'gpt-5.5',
+    'cafe-card-mini': 'gpt-5-mini',
 };
 
 // 로그의 model 값(실제 id 또는 용도 라벨)을 단가표 키로 해석한다.

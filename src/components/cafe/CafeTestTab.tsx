@@ -43,6 +43,7 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
     const [phone, setPhone] = useState(DEFAULT_CAFE_CONTENT.phone);
     const [business, setBusiness] = useState('누수탐지');
     const [tone, setTone] = useState<CafeReviewTone>('review');
+    const [cardModel, setCardModel] = useState<'gpt-5.5' | 'gpt-5-mini'>('gpt-5.5'); // 카드 오케스트레이션 모델(A/B). 기본 gpt-5.5.
 
     const [firstCard, setFirstCard] = useState<string | null>(null); // 지역 반영 첫 장(GPT 생성) — 1·마지막 재사용
     const [fromCache, setFromCache] = useState(false); // 현재 첫 장이 캐시(과거 기록)에서 온 것인지
@@ -63,7 +64,8 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
     }, []);
 
     // 첫 장 카드 조건(지역·전화 등). 같은 조건이면 캐시(과거 기록)에서 재사용 → 이미지 비용 0.
-    const cardKey = `${cardMode}|${region}|${district}|${business}|${phone}`;
+    // 모델을 키에 포함 → gpt-5.5/mini 캐시 분리(A/B 혼입 차단). 토글하면 해당 모델 캐시가 자동 로드돼 비교 가능.
+    const cardKey = `${cardMode}|${region}|${district}|${business}|${phone}|${cardModel}`;
     // 지역 등이 바뀌면 캐시에서 첫 장을 자동 로드(있으면 미리보기에 뜨고 생성 시 재사용). 새로고침해도 유지(IndexedDB).
     useEffect(() => {
         let alive = true;
@@ -165,23 +167,26 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                 needFirstCard
                     ? (async () => {
                           const t = Date.now();
-                          const { imageDataUrl: img, usage: cardUsage } = await generateCafeCard({
+                          const { imageDataUrl: img, usage: cardUsage, model: usedModel } = await generateCafeCard({
                               region,
                               district: cardMode === 'default' ? district : undefined,
                               topic: business,
                               phone,
                               mode: cardMode === 'hero' ? 'hero' : undefined,
+                              model: cardModel,
                           });
                           capFirst = img;
                           setFirstCard(img);
                           setFromCache(false);
                           await setCachedCard(cardKey, img);
+                          // 실제 사용 모델을 비용/라벨에 반영 → 대시보드가 gpt-5.5 vs mini 를 구분해 절감이 잡힌다.
+                          const cardLabel = usedModel === 'gpt-5-mini' ? 'cafe-card-mini' : 'cafe-card';
                           void logApiUsage({
                               banner_size: 'square',
-                              cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: 'high', provider: 'openai', usage_raw: cardUsage }),
+                              cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: 'high', model: usedModel, provider: 'openai', usage_raw: cardUsage }),
                               elapsed_ms: Date.now() - t,
                               image_quality: 'high',
-                              model: 'cafe-card',
+                              model: cardLabel,
                               operator_name: operatorName,
                               provider: 'openai',
                               status: 'success',
@@ -286,6 +291,20 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
                             {label}
                         </button>
                     ))}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="mr-1 text-[12px] font-semibold text-[#475569]">카드 모델</span>
+                    {(['gpt-5.5', 'gpt-5-mini'] as const).map((m) => (
+                        <button
+                            className={`rounded-full px-3 py-1 text-[12px] font-semibold ${cardModel === m ? 'bg-[#0ea5e9] text-white' : 'border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]'}`}
+                            key={m}
+                            onClick={() => setCardModel(m)}
+                            type="button"
+                        >
+                            {m === 'gpt-5-mini' ? 'mini(실험·저비용)' : 'gpt-5.5(기본)'}
+                        </button>
+                    ))}
+                    <span className="ml-1 text-[11px] text-[#94a3b8]">모델을 바꿔 각각 생성 → 미리보기·비용 비교</span>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button

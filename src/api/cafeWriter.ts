@@ -154,8 +154,9 @@ export async function generateCafeCard(input: {
     refs?: string[];
     mode?: 'fixed' | 'hero';
     quality?: 'low' | 'medium' | 'high'; // 이미지 화질(비용) — 서버 기본 high. low≈$0.01/medium≈$0.04/high≈$0.16.
+    model?: 'gpt-5.5' | 'gpt-5-mini'; // 오케스트레이션 모델(A/B용). 미지정 시 서버 기본 gpt-5.5.
     signal?: AbortSignal;
-}): Promise<{ imageDataUrl: string; usage: Record<string, unknown> | null }> {
+}): Promise<{ imageDataUrl: string; usage: Record<string, unknown> | null; model: string }> {
     const url = import.meta.env.DEV ? 'http://127.0.0.1:8787/api/generate-cafe-card' : '/api/generate-cafe-card';
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 240000); // 이미지 생성은 오래 걸림
@@ -168,6 +169,7 @@ export async function generateCafeCard(input: {
             body: JSON.stringify({
                 district: input.district,
                 mode: input.mode,
+                model: input.model,
                 phone: input.phone,
                 quality: input.quality,
                 refs: input.refs,
@@ -180,7 +182,7 @@ export async function generateCafeCard(input: {
             signal: controller.signal,
         });
         const text = await res.text();
-        let data: { imageDataUrl?: string; message?: string; usage?: Record<string, unknown> | null } = {};
+        let data: { imageDataUrl?: string; message?: string; usage?: Record<string, unknown> | null; model?: string } = {};
         if (text) {
             try {
                 data = JSON.parse(text);
@@ -190,7 +192,7 @@ export async function generateCafeCard(input: {
         }
         if (!res.ok) throw new Error(data.message || '카드 생성에 실패했습니다.');
         if (!data.imageDataUrl) throw new Error('생성된 카드가 없습니다.');
-        return { imageDataUrl: data.imageDataUrl, usage: data.usage ?? null };
+        return { imageDataUrl: data.imageDataUrl, model: data.model ?? 'gpt-5.5', usage: data.usage ?? null };
     } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
             throw new Error('카드 생성이 중단되었습니다(최대 4분 초과 또는 취소).', { cause: error });
