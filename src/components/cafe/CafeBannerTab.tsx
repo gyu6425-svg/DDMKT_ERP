@@ -64,7 +64,8 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
     );
 }
 
-export function CafeBannerTab() {
+// abModel=true(누수탐지3)면 카드 모델 A/B 토글(gpt-5.5/mini)을 노출. 기본 false(누수탐지2)는 기존과 100% 동일.
+export function CafeBannerTab({ abModel = false }: { abModel?: boolean } = {}) {
     const [keyword, setKeyword] = useState('잠실동 누수탐지');
     const [region, setRegion] = useState('잠실동');
     const [district, setDistrict] = useState('송파구');
@@ -73,6 +74,7 @@ export function CafeBannerTab() {
     const [tone, setTone] = useState<CafeReviewTone>('review');
     const [bannerCount, setBannerCount] = useState(1); // 생성할 AI 배너 장수(1~9). 지금 기본 1장.
     const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('low'); // 이미지 화질(비용). 기본 저화질(50원 밑).
+    const [cardModel, setCardModel] = useState<'gpt-5.5' | 'gpt-5-mini'>('gpt-5.5'); // 카드 오케스트레이션 모델(A/B). 기본 gpt-5.5.
 
     const [banners, setBanners] = useState<string[]>([]); // 생성된 AI 배너들
     const [fixedImages, setFixedImages] = useState<string[]>([]); // 중간 저장 이미지(세트 + 업로드)
@@ -92,7 +94,8 @@ export function CafeBannerTab() {
     }, []);
 
     // 배너 캐시 키 — 기존 탭('default'/'hero')과 분리된 'banner' 네임스페이스 + 배너 인덱스.
-    const bannerKey = (i: number) => `banner|${i}|${region}|${district}|${business}|${phone}`;
+    // A/B(누수탐지3)일 때만 모델을 키에 포함 → gpt-5.5/mini 캐시 분리. 누수탐지2는 기존 키 유지(캐시 보존).
+    const bannerKey = (i: number) => `banner|${i}|${region}|${district}|${business}|${phone}${abModel ? `|${cardModel}` : ''}`;
     // 조건이 바뀌면 캐시에서 배너들을 자동 로드(있으면 미리보기 + 생성 시 재사용).
     useEffect(() => {
         let alive = true;
@@ -163,15 +166,16 @@ export function CafeBannerTab() {
             const cached = await getCachedCard(bannerKey(i));
             if (cached) return cached;
             const t = Date.now();
-            const { imageDataUrl: img, usage: cardUsage } = await generateCafeCard({ region, topic: business, phone, mode: 'hero', quality });
+            const { imageDataUrl: img, usage: cardUsage, model: usedModel } = await generateCafeCard({ region, topic: business, phone, mode: 'hero', quality, model: abModel ? cardModel : undefined });
             await setCachedCard(bannerKey(i), img);
+            const cardLabel = usedModel === 'gpt-5-mini' ? 'cafe-card-mini' : 'cafe-card';
             void logApiUsage({
                 banner_size: 'square',
-                // 실비용 = 이미지 output 토큰(결정론적) + 배너 요청 텍스트 토큰(usage). 둘 다 정확 반영.
-                cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: quality, provider: 'openai', usage_raw: cardUsage }),
+                // 실비용 = 이미지 output 토큰(결정론적) + 배너 요청 텍스트 토큰(usage). 실제 사용 모델 반영.
+                cost_usd: computeRecordCostUsd({ banner_size: 'square', image_quality: quality, model: usedModel, provider: 'openai', usage_raw: cardUsage }),
                 elapsed_ms: Date.now() - t,
                 image_quality: quality,
-                model: 'cafe-card',
+                model: cardLabel,
                 operator_name: operatorName,
                 provider: 'openai',
                 status: 'success',
@@ -362,6 +366,22 @@ export function CafeBannerTab() {
                         <span className="font-normal text-[#94a3b8]"> (배너 {bannerCount}장 · 재사용 시 0원)</span>
                     </span>
                 </div>
+                {abModel ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className="mr-1 text-[12px] font-semibold text-[#475569]">카드 모델</span>
+                        {(['gpt-5.5', 'gpt-5-mini'] as const).map((m) => (
+                            <button
+                                className={`rounded-full px-3 py-1 text-[12px] font-semibold ${cardModel === m ? 'bg-[#0ea5e9] text-white' : 'border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]'}`}
+                                key={m}
+                                onClick={() => setCardModel(m)}
+                                type="button"
+                            >
+                                {m === 'gpt-5-mini' ? 'mini (실험·저비용)' : 'gpt-5.5 (기본)'}
+                            </button>
+                        ))}
+                        <span className="ml-1 text-[11px] text-[#94a3b8]">모델 바꿔 각각 생성 → 미리보기·비용 비교(캐시 분리)</span>
+                    </div>
+                ) : null}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
                         className="h-10 rounded-md bg-[#4338ca] px-6 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
