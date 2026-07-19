@@ -145,7 +145,7 @@ export function CafeBanner2Tab() {
                 (async () => {
                     const t = Date.now();
                     const rv = await generateCafeReview({ business, content: merged, keyword, phone, region, tone });
-                    void logApiUsage({ cost_usd: computeRecordCostUsd({ model: 'gpt-5.5', provider: 'openai', usage_raw: rv.usage ?? null }), elapsed_ms: Date.now() - t, model: 'cafe-post', operator_name: operatorName, provider: 'openai', status: 'success', total_tokens: rv.usage?.total_tokens ?? null, usage_raw: (rv.usage as never) ?? null, user_email: email });
+                    void logApiUsage({ cost_usd: computeRecordCostUsd({ model: 'gpt-5-mini', provider: 'openai', usage_raw: rv.usage ?? null }), elapsed_ms: Date.now() - t, model: 'cafe-post', operator_name: operatorName, provider: 'openai', status: 'success', total_tokens: rv.usage?.total_tokens ?? null, usage_raw: (rv.usage as never) ?? null, user_email: email });
                     return rv;
                 })(),
             ]);

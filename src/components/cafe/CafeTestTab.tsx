@@ -117,7 +117,7 @@ export function CafeTestTab({ cardMode = 'default' }: { cardMode?: 'default' | '
         // 카페 텍스트(원고) 사용량 기록 — model 'cafe-post'.
         const logText = (usage: { total_tokens?: number } | null | undefined, ms: number, ok: boolean, err?: string) =>
             void logApiUsage({
-                cost_usd: ok ? computeRecordCostUsd({ model: 'gpt-5.5', provider: 'openai', usage_raw: usage ?? null }) : null,
+                cost_usd: ok ? computeRecordCostUsd({ model: 'gpt-5-mini', provider: 'openai', usage_raw: usage ?? null }) : null,
                 elapsed_ms: ms,
                 error_message: err ?? null,
                 model: 'cafe-post',

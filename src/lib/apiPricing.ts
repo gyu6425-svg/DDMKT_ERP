@@ -20,6 +20,23 @@ export const TOKEN_RATES_USD_PER_M: Record<
 };
 const DEFAULT_MODEL_KEY = 'gpt-5.5';
 
+// 로그 model 값이 실제 모델 id 가 아니라 '용도 라벨'인 경우가 있다(예: 'cafe-post').
+// 라벨 → 실제 과금 모델 매핑. 여기 없는 라벨은 DEFAULT_MODEL_KEY(gpt-5.5)로 폴백한다.
+//   ⚠️ 'cafe-post'(카페 후기 원고)는 gpt-5-mini 로 생성된다(functions/api/generate-cafe.ts, review 모드).
+//      매핑이 없으면 gpt-5.5 기본단가(출력 $42/M)로 계산돼 실제(gpt-5-mini, 출력 $2/M) 대비 ~20배 과대계상된다.
+//      과거 기록도 '읽을 때' 이 매핑으로 재계산되므로, 여기만 고치면 전부 정정된다.
+const MODEL_LABEL_ALIASES: Record<string, string> = {
+    'cafe-post': 'gpt-5-mini',
+};
+
+// 로그의 model 값(실제 id 또는 용도 라벨)을 단가표 키로 해석한다.
+function resolveModelKey(model: string | null | undefined): string {
+    if (!model) return DEFAULT_MODEL_KEY;
+    if (TOKEN_RATES_USD_PER_M[model]) return model; // 이미 실제 모델 id
+    if (MODEL_LABEL_ALIASES[model]) return MODEL_LABEL_ALIASES[model]; // 용도 라벨 → 모델
+    return DEFAULT_MODEL_KEY;
+}
+
 // ── 이미지 1장 단가 (USD) : provider → size → quality ──────────────────
 // ⚠️ 실제 image_generation 요금으로 맞추세요.
 // square medium = $0.04 : 사용자 실측(2장 $0.08, OpenAI Usage 대시보드)으로 보정됨(2026-06-22).
@@ -116,8 +133,7 @@ export type CostInput = {
 
 // 기록 1건의 정확 비용(읽을 때 계산). 이미지(=banner_size 있음)면 토큰비 + 장당 이미지비, 텍스트면 토큰비만.
 export function computeRecordCostUsd(record: CostInput): number {
-    const model =
-        record.model && TOKEN_RATES_USD_PER_M[record.model] ? record.model : DEFAULT_MODEL_KEY;
+    const model = resolveModelKey(record.model);
     const isImage = Boolean(record.banner_size);
     let cost = 0;
     // Gemini 는 usage 를 안 주므로 토큰비 0(이미지 장당가만).
