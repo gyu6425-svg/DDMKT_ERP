@@ -1,4 +1,6 @@
 chrome_profile/
+chrome_profile_*/
+accounts.txt
 .env
 *.log
 __pycache__/

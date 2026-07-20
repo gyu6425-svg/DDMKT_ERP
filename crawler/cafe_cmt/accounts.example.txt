@@ -1,0 +1,13 @@
+# Copy this file to accounts.txt and edit. ASCII only (read by python AND .bat).
+# Format: name,port,profile_dir
+#   - one line per Naver account used for cafe comments
+#   - port 9222 = kakao, 9223 = cafe publish (already taken). Comments start at 9224.
+#   - profile_dir is created under crawler/cafe_cmt/ by run_chrome_login.bat <name>
+#   - the FIRST line is the default account (used when a job/watch row has no account)
+#
+# Log in once per account:  run_chrome_login.bat <name>
+# Start everything:         start_all.bat   (launches one Chrome per account)
+
+dog6425,9224,chrome_profile
+# sub01,9225,chrome_profile_sub01
+# sub02,9226,chrome_profile_sub02

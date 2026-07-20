@@ -42,8 +42,11 @@ except Exception:
     pass
 requests.packages.urllib3.disable_warnings()
 
+import accounts as acct
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CDP = "http://127.0.0.1:9224"   # 발행(9223)과 분리
+# 기본(첫 번째) 계정의 CDP. 멀티계정은 accounts.txt 참조 — acct.cdp_for(<계정명>).
+DEFAULT_CDP = acct.cdp_for(None)         # 기본 9224 (발행 9223·카카오 9222와 분리)
 
 
 # ── 환경(../.env SUPABASE + cafe_cmt/.env CAFE_CMT_*) ──
@@ -59,6 +62,9 @@ def _load_env():
 _load_env()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+# ⚠️ _load_env() 뒤에서 읽어야 cafe_cmt/.env 설정이 반영된다(독립검증 m7).
+#   account=계정별 1회 허용(여러 계정이 같은 글에 각각 1개) / global=글당 1개만.
+DEDUP_SCOPE = os.environ.get("CAFE_CMT_DEDUP_SCOPE", "account").strip().lower()
 
 # ── 셀렉터 (✅ 확정: 2026-07-16 ddmkt2 / cafe.naver.com/ca-fe 새 UI, --diag 로 확인) ──
 #   댓글창=textarea.comment_inbox_text, 등록=a.button.btn_register (댓글 iframe 안). 나머지는 폴백.
@@ -116,18 +122,37 @@ def article_key(url):
     return m.group(1) if m else (url or "").strip()
 
 
-def already_commented(url, exclude_id=None):
-    """이 글에 이미 (완료/처리중) 댓글 잡이 있으면 True — 한 글에 2번 댓글 방지."""
+def already_commented(url, exclude_id=None, account=None):
+    """이 글에 이미 (완료/처리중) 댓글 잡이 있으면 True — 중복 댓글 방지.
+
+    DEDUP_SCOPE=account(기본): '같은 계정'이 같은 글에 두 번 달지 못하게만 막는다
+      → 계정이 여러 개면 계정마다 1개씩 달릴 수 있음(멀티계정 마케팅 용도).
+    DEDUP_SCOPE=global      : 계정 불문 글당 댓글 1개만 허용.
+    """
     key = article_key(url)
     if not key:
         return False
+    params = {
+        "status": "in.(done,processing)", "select": "id,article_url,account",
+        "order": "created_at.desc", "limit": "500",
+    }
+    if DEDUP_SCOPE != "global":
+        # 계정별 판정. ⚠️ 웹 수동예약은 account=null, 워처 예약은 계정명이 들어가는데
+        #   둘 다 '기본 계정'이면 같은 아이디다 → null 과 기본계정명을 한 묶음으로 봐야
+        #   같은 아이디가 한 글에 두 번 다는 걸 막는다(독립검증 M5).
+        canon = acct.canonical_name(account)
+        if canon and canon == acct.default_account()["name"]:
+            params["or"] = f"(account.is.null,account.eq.{canon})"
+        elif canon:
+            params["account"] = f"eq.{canon}"
+        else:
+            params["account"] = "is.null"
     try:
-        rows = sb_get("cafe_comment_queue", {
-            "status": "in.(done,processing)", "select": "id,article_url",
-            "order": "created_at.desc", "limit": "500",
-        })
-    except Exception:
-        return False   # 조회 실패 시 막지 않음(게시 자체는 진행)
+        rows = sb_get("cafe_comment_queue", params)
+    except Exception as e:
+        # ⚠️ 조회 실패를 '중복 없음'으로 취급하면 마이그레이션 전에 중복 댓글이 쏟아진다.
+        #   호출부가 판단하도록 올린다(독립검증 M2).
+        raise RuntimeError(f"DEDUP_QUERY_FAILED: {str(e)[:120]}")
     for r in rows:
         if exclude_id and r.get("id") == exclude_id:
             continue

@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 
 export type CommentJob = {
     id: string;
+    account: string | null; // 댓글 달 계정명(crawler/cafe_cmt/accounts.txt 의 name; null=기본 계정)
     article_url: string;
     body: string;
     status: 'pending' | 'processing' | 'done' | 'fail';
@@ -15,16 +16,18 @@ export type CommentJob = {
     done_at: string | null;
 };
 
-// 댓글 예약 등록 — 대상 글 주소 + 댓글 본문을 큐에 insert.
-export async function createCommentJob(input: { articleUrl: string; body: string }) {
+// 댓글 예약 등록 — 대상 글 주소 + 댓글 본문을 큐에 insert. account 미지정이면 데몬이 기본 계정 사용.
+export async function createCommentJob(input: { articleUrl: string; body: string; account?: string | null }) {
     const jobId = crypto.randomUUID();
     const articleUrl = input.articleUrl.trim();
     const body = input.body.trim();
+    const account = (input.account ?? '').trim() || null;
     if (!articleUrl || !body) {
         return { error: { message: '글 주소와 댓글 내용을 모두 입력하세요.' }, jobId: null };
     }
     const { error } = await supabase.from('cafe_comment_queue').insert({
         id: jobId,
+        account,
         article_url: articleUrl,
         body,
         status: 'pending',
@@ -33,12 +36,14 @@ export async function createCommentJob(input: { articleUrl: string; body: string
     return { error: null, jobId };
 }
 
-// 댓글 큐 현황(내부) — 최근순.
-export async function listCommentJobs(limit = 20) {
-    const { data, error } = await supabase
+// 댓글 큐 현황(내부) — 최근순. account 를 주면 그 계정 것만(탭별 조회).
+export async function listCommentJobs(limit = 20, account?: string | null) {
+    let q = supabase
         .from('cafe_comment_queue')
-        .select('id,article_url,body,status,posted_url,reason,created_at,done_at')
+        .select('id,account,article_url,body,status,posted_url,reason,created_at,done_at')
         .order('created_at', { ascending: false })
         .limit(limit);
+    if (account) q = q.eq('account', account);
+    const { data, error } = await q;
     return { data: (data ?? []) as CommentJob[], error };
 }

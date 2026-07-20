@@ -6,6 +6,7 @@
 create table if not exists public.cafe_comment_queue (
     id uuid primary key default gen_random_uuid(),
     created_at timestamptz not null default now(),
+    account text,                              -- 댓글 달 계정명(accounts.txt 의 name; null=기본 계정)
     article_url text not null,                 -- 댓글 달 카페 글 주소(전체 URL)
     body text not null,                        -- 댓글 내용(텍스트)
     status text not null default 'pending',    -- pending | processing | done | fail
@@ -14,7 +15,11 @@ create table if not exists public.cafe_comment_queue (
     scheduled_at timestamptz,                  -- 예약/간격 제어(선택)
     done_at timestamptz
 );
+-- 이미 만들어진 테이블에도 계정 컬럼 추가(멀티계정) — create if not exists 는 기존 테이블에 무효라 필요.
+alter table public.cafe_comment_queue add column if not exists account text;
 create index if not exists ccq_status_idx on public.cafe_comment_queue (status, created_at);
+-- 계정별 중복판정/조회용
+create index if not exists ccq_account_status_idx on public.cafe_comment_queue (account, status, created_at);
 alter table public.cafe_comment_queue enable row level security;
 
 drop policy if exists "ccq 내부 전체" on public.cafe_comment_queue;

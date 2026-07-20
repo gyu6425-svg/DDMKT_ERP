@@ -24,6 +24,7 @@ import time
 from playwright.sync_api import sync_playwright
 
 import comment_cafe as cc
+import accounts as acct     # 계정 → 크롬 포트(멀티계정)
 from comment_templates import build_comment
 
 try:
@@ -66,8 +67,9 @@ def scrape_articles(page, cafe_url):
     return sorted(found.values(), key=lambda r: r["id"])
 
 
-def process_watch(page, w):
-    """감시 카페 1건 처리 — 새 글 감지 후 큐 적재. (예약 건수 반환)"""
+def process_watch(page, w, canon_acct=None):
+    """감시 카페 1건 처리 — 새 글 감지 후 큐 적재. (예약 건수 반환)
+    canon_acct: accounts.txt 로 검증된 정규 계정명(미등록이면 호출부에서 이미 걸러짐)."""
     cafe_url = w.get("cafe_url") or ""
     region = w.get("region") or ""
     keyword = w.get("keyword") or ""
@@ -86,62 +88,95 @@ def process_watch(page, w):
         _log(f"  기준선 설정(첫 실행): 최신 #{max_id} 까지 '이미 봄' 처리 — 댓글 안 달림. {cafe_url}")
         return 0
 
-    news = [a for a in arts if a["id"] > last_seen]
+    news = sorted([a for a in arts if a["id"] > last_seen], key=lambda x: x["id"])
     if not news:
         return 0
     news = news[:MAX_NEW_PER_RUN]   # 폭주 방지 상한
     queued = 0
     last_body = None
+    # ⚠️ 기준선은 '실제로 처리한 글'까지만 전진시킨다. 예약이 실패했는데 max_id 로 밀면
+    #   그 글들은 영구히 기준선 아래로 내려가 다시는 댓글이 안 달린다(독립검증 M2·n17).
+    advanced_to = last_seen
     for a in news:
-        if cc.already_commented(a["url"]):
-            continue
-        body = build_comment(region, keyword, avoid=last_body)
-        last_body = body
         try:
-            cc.sb_insert("cafe_comment_queue", {
-                "article_url": a["url"], "body": body, "status": "pending",
-            })
-            queued += 1
-            _log(f"  ✅ 예약: #{a['id']} '{a['title'][:20]}' → \"{body[:24]}...\"")
+            dup = cc.already_commented(a["url"], account=canon_acct)
         except Exception as e:
-            _log(f"  ! 예약 실패 #{a['id']}: {str(e)[:80]}")
-    # 마지막 본 글번호 갱신
-    cc.sb_patch("cafe_comment_watch", {"id": f"eq.{w['id']}"},
-                {"last_seen_article_id": max_id, "updated_at": now})
+            _log(f"  ⏸ 중복확인 실패 — 여기서 중단(기준선 유지, 다음 크롤 재시도): {str(e)[:90]}")
+            break
+        if not dup:
+            body = build_comment(region, keyword, avoid=last_body)
+            last_body = body
+            try:
+                cc.sb_insert("cafe_comment_queue", {
+                    "article_url": a["url"], "body": body, "status": "pending",
+                    "account": canon_acct,
+                })
+                queued += 1
+                _log(f"  ✅ 예약[{canon_acct}]: #{a['id']} '{a['title'][:20]}' → \"{body[:24]}...\"")
+            except Exception as e:
+                _log(f"  ⏸ 예약 실패 #{a['id']} — 여기서 중단(기준선 유지): {str(e)[:90]}")
+                break
+        advanced_to = a["id"]   # 예약 성공 또는 '이미 댓글 있음' 확인된 글까지만 전진
+    if advanced_to != last_seen:
+        cc.sb_patch("cafe_comment_watch", {"id": f"eq.{w['id']}"},
+                    {"last_seen_article_id": advanced_to, "updated_at": now})
     return queued
 
 
-def run_once(cdp_url):
+def run_once(cdp_url=None):
+    """감시 카페를 계정별로 묶어, 각 계정의 크롬(포트)으로 크롤한다.
+    cdp_url 을 주면(단일 테스트용) 계정 구분 없이 그 브라우저 하나로만 돈다."""
     try:
         watches = cc.sb_get("cafe_comment_watch", {"enabled": "eq.true", "select": "*"})
     except Exception as e:
         _log(f"감시목록 조회 실패: {str(e)[:100]}"); return
     if not watches:
         _log("등록된 감시 카페 없음"); return
+
+    # 계정별 그룹핑 — 계정마다 자기 크롬(로그인 세션)으로 크롤해야 한다.
+    groups = {}
+    for w in watches:
+        key = (w.get("account") or "")
+        groups.setdefault(key, []).append(w)
+
+    total = 0
     with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(cdp_url)
-        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = ctx.new_page()   # 별도 탭(리스너 작업탭 보존)
-        try:
-            total = 0
-            for w in watches:
-                try:
-                    total += process_watch(page, w)
-                except Exception as e:
-                    _log(f"  카페 처리 오류({w.get('cafe_url')}): {str(e)[:100]}")
-            if total:
-                _log(f"이번 크롤: 새 글 {total}건 예약")
-        finally:
+        for acct_name, rows in groups.items():
+            a = acct.find_account(acct_name)
+            # B1: 감시행이 지정한 계정이 accounts.txt 에 없으면 기본 계정으로 크롤/예약하지 않는다
+            #     (엉뚱한 아이디로 댓글이 달림). 등록할 때까지 이 그룹은 건너뜀.
+            if a is None:
+                _log(f"⚠️ 계정 미등록 '{acct_name}' — 감시 카페 {len(rows)}건 건너뜀 "
+                     f"(accounts.txt 에 추가 후 run_chrome_login.bat {acct_name} 로 로그인)")
+                continue
+            url = cdp_url or ("http://127.0.0.1:%d" % a["port"])
             try:
-                page.close()
-            except Exception:
-                pass
+                browser = p.chromium.connect_over_cdp(url)
+            except Exception as e:
+                _log(f"[{a['name']}:{a['port']}] 크롬 접속 실패(꺼짐?): {str(e)[:80]}")
+                continue
+            ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+            page = ctx.new_page()   # 별도 탭(리스너 작업탭 보존)
+            try:
+                for w in rows:
+                    try:
+                        total += process_watch(page, w, canon_acct=a["name"])
+                    except Exception as e:
+                        _log(f"  [{a['name']}] 카페 처리 오류({w.get('cafe_url')}): {str(e)[:100]}")
+            finally:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+    if total:
+        _log(f"이번 크롤: 새 글 {total}건 예약")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true")
-    ap.add_argument("--cdp", default=cc.DEFAULT_CDP)
+    # 기본 None = 감시행의 계정별 크롬으로 각각 접속(멀티계정). 값을 주면 그 브라우저 하나로만 크롤(테스트용).
+    ap.add_argument("--cdp", default=None)
     args = ap.parse_args()
     if not cc.SUPABASE_URL or not cc.SUPABASE_KEY:
         print("SUPABASE_URL / SUPABASE_SERVICE_KEY 필요(../.env)", flush=True); sys.exit(1)
