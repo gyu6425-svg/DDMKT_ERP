@@ -21,7 +21,7 @@ if "%HERE:~-1%"=="\" set "HERE=%HERE:~0,-1%"
 set PYTHONUTF8=1
 cd /d "%HERE%"
 
-echo [1/3] starting one headless Chrome per account...
+echo [1/4] starting one headless Chrome per account...
 if exist "%HERE%\accounts.txt" (
   REM tokens=1,3 -> %%a = name, %%b = profile dir. delims includes a space so
   REM "name, port, profile" style lines do not carry a leading space.
@@ -43,7 +43,7 @@ if exist "%HERE%\accounts.txt" (
 REM wait for the CDP ports to open
 ping -n 9 127.0.0.1 >nul 2>&1
 
-echo [2/3] starting comment listener...
+echo [2/4] starting comment listener...
 start "cafe-cmt-listener" /min py comment_listener.py
 
 echo [3/4] starting new-post watcher...

@@ -79,7 +79,10 @@ def run_once():
     replied = {(r.get("reply_to_body") or "").strip()
                for r in rows if r.get("reply_to_body") and r.get("status") != "fail"}
     # 답글 대상 후보: 우리가 단 '일반 댓글' 중 done 인 것 (답글 자신은 제외)
-    cutoff = datetime.datetime.now() - datetime.timedelta(minutes=REPLY_AFTER_MIN)
+    # 타임존 인식으로 비교한다. 예전엔 done_at 문자열을 [:19] 로 잘라 오프셋을 버리는 바람에
+    #   'UTC 시각'을 '로컬 시각'으로 착각해 KST 기준 9시간 과거로 보였고, 결과적으로 이 게이트가
+    #   항상 통과돼(=댓글 직후 바로 답글) 아무 역할도 못 했다.
+    cutoff = datetime.datetime.now().astimezone() - datetime.timedelta(minutes=REPLY_AFTER_MIN)
     by_article = {}
     for r in rows:
         if r.get("reply_to_body"):          # 답글 자체는 대상 아님
@@ -89,10 +92,14 @@ def run_once():
         body = (r.get("body") or "").strip()
         if not body or body in replied:
             continue
-        ts = (r.get("done_at") or r.get("created_at") or "")[:19]
+        ts = (r.get("done_at") or r.get("created_at") or "").strip()
         try:
-            if ts and datetime.datetime.fromisoformat(ts) > cutoff:
-                continue                     # 너무 최근 댓글 — 조금 묵혔다가
+            if ts:
+                dt = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if dt.tzinfo is None:        # 오프셋 없는 옛 데이터는 로컬로 간주
+                    dt = dt.astimezone()
+                if dt > cutoff:
+                    continue                 # 너무 최근 댓글 — 조금 묵혔다가
         except Exception:
             pass
         by_article.setdefault(cc.article_key(r.get("article_url", "")), []).append(r)

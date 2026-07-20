@@ -55,7 +55,11 @@ def _log(m):
 
 def scrape_articles(page, cafe_url):
     """카페 홈을 새 탭에서 열어 최신글 (article_id, url, title) 목록을 수집. 로그인 필요 시 예외."""
-    url = cafe_url.rstrip("/") + "#watch"    # #watch 마커 → 리스너 _connect 가 이 탭을 안 잡음
+    # 워처 탭 표시 → 리스너 _connect 가 이 탭을 작업탭으로 오인해 가로채지 않게 한다.
+    #   ⚠️ '#watch' 프래그먼트만 쓰면 카페가 리다이렉트/replaceState 하면서 자주 사라져
+    #      표시가 무용지물이 된다. keep_alive.py 처럼 쿼리 파라미터로 남겨야 살아남는다.
+    base = cafe_url.rstrip("/")
+    url = base + ("&" if "?" in base else "?") + "watch=1#watch"
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_timeout(2500)
     if "nid.naver.com" in (page.url or "") or "nidlogin" in (page.url or ""):

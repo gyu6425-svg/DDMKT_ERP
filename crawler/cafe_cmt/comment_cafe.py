@@ -223,6 +223,24 @@ def _box_text(box):
         return None
 
 
+def _posted_check(scope, box, body):
+    """등록 확인이 애매할 때 '정말 안 달렸는지'를 목록 본문으로 재확인.
+
+    ⚠️ 이게 없으면: 등록은 됐는데 확인만 실패 → 리스너가 재시도 대상으로 보고 다시 게시 →
+       **같은 댓글/답글이 최대 5번 달린다**(답글은 중복판정도 건너뛰므로 특히 위험).
+       입력창(box)에 남아있는 글자는 제외해야 오판하지 않는다."""
+    k = (body or "").strip()[:24]
+    if len(k) < 6:
+        return False
+    try:
+        return bool(scope.evaluate("""([k, box]) => {
+          const els = [...document.querySelectorAll('.comment_text_view, .text_comment, li')];
+          return els.some(e => (!box || !e.contains(box)) && (e.innerText || '').includes(k));
+        }""", [k, box]))
+    except Exception:
+        return False   # 확인 자체가 안 되면 '안 달렸다'고 단정하지 않고 호출부가 판단
+
+
 def _connect(p, cdp_url):
     browser = p.chromium.connect_over_cdp(cdp_url)
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
@@ -235,7 +253,9 @@ def _connect(p, cdp_url):
         return ("keepalive" in u) or ("#watch" in u) or ("watch=1" in u)
 
     pages = [pg for pg in ctx.pages if "naver.com" in (pg.url or "") and not _helper(pg.url)]
-    page = pages[0] if pages else (ctx.pages[0] if ctx.pages else ctx.new_page())
+    # ⚠️ 폴백으로 ctx.pages[0] 을 쓰면, 부팅 직후처럼 도우미 탭밖에 없을 때 방금 걸러낸 그 탭을
+    #    도로 집어 워처가 스크랩 중인 페이지를 goto 로 덮어쓴다(→ Target closed). 새 탭을 연다.
+    page = pages[0] if pages else ctx.new_page()
     try:
         page.bring_to_front()
     except Exception:
@@ -349,8 +369,15 @@ def write_comment(page, url, body, no_send=False):
             break
     if confirmed:
         return page.url
-    hint = f"(alert: {alerts[-1]})" if alerts else "(등록 미확정 — 입력창 비워짐 확인 불가)"
-    raise RuntimeError(f"댓글 등록 확인 실패 {hint}")
+    # 확인 실패 = '안 달렸다'가 아니다. 목록에 실제로 올라왔는지 보고, 올라왔으면 성공 처리한다.
+    if _posted_check(fr or page, box, body):
+        _log("등록 확인은 실패했지만 목록에 반영됨 — 성공 처리(중복 게시 방지).")
+        return page.url
+    if alerts:
+        # 도배 방지·권한 없음 같은 알림은 재시도해봐야 계속 막히고 계정만 위험해진다.
+        #   → 재시도 목록에 안 걸리는 문구로 올려 영구 실패시킨다.
+        raise RuntimeError(f"네이버 알림으로 등록 거부(재시도 안 함): {alerts[-1]}")
+    raise RuntimeError("댓글 등록 확인 실패 (등록 미확정 — 입력창 비워짐 확인 불가)")
 
 
 def write_reply(page, url, target_body, body, no_send=False):
@@ -445,7 +472,7 @@ def write_reply(page, url, target_body, body, no_send=False):
     # 검증: 등록되면 (a) 답글 폼이 통째로 사라지거나 (b) 입력창이 비워진다.
     #   댓글과 달리 답글은 폼이 제거되는 쪽이라, 비워짐만 보면 성공인데도 실패로 오판한다
     #   (실제로 정상 게시된 답글이 '등록 미확정'으로 fail 처리된 적 있음).
-    for _ in range(20):
+    for _ in range(30):                          # 8초 -> 12초(댓글 경로와 동일하게)
         page.wait_for_timeout(400)
         try:
             gone = not box.is_visible()          # 폼이 사라짐 = 등록됨
@@ -456,8 +483,13 @@ def write_reply(page, url, target_body, body, no_send=False):
         cur = _box_text(box)
         if cur is not None and cur.strip() == "":
             return page.url
-    hint = f"(alert: {alerts[-1]})" if alerts else "(등록 미확정)"
-    raise RuntimeError(f"답글 등록 확인 실패 {hint}")
+    # 답글은 재시도 시 중복 판정을 건너뛰므로, 여기서 실제 게시 여부를 반드시 확인해야 한다.
+    if _posted_check(fr, box, body):
+        _log("등록 확인은 실패했지만 목록에 반영됨 — 성공 처리(중복 답글 방지).")
+        return page.url
+    if alerts:
+        raise RuntimeError(f"네이버 알림으로 등록 거부(재시도 안 함): {alerts[-1]}")
+    raise RuntimeError("답글 등록 확인 실패 (등록 미확정)")
 
 
 def comment_job(job, cdp_url=DEFAULT_CDP, no_send=False):

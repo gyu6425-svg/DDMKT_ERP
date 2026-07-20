@@ -52,8 +52,24 @@ def _port_open(port, timeout=1.0):
         return False
 
 
+def _patch_safe(jid, payload):
+    """상태 기록(치명적이지 않은 것) — 실패해도 프로세스를 죽이지 않는다.
+
+    ⚠️ sb_patch 는 중복 게시를 막으려고 '예외를 올리도록' 바뀌었다. 그런데 processing 표시나
+       실패 기록처럼 except 블록/루프 본문에서 부르는 곳까지 그대로 두면, 수파베이스가 20초만
+       끊겨도 예외가 main() 밖으로 나가 **리스너가 통째로 종료**된다(bat 에 감시 루프도 없어
+       재부팅 전까지 댓글이 멈춘다). 그런 자리에는 이 함수를 쓴다.
+       (게시 직후 done 기록만은 sb_patch 를 그대로 써서 호출부가 알아채게 둔다)"""
+    try:
+        cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"}, payload)
+        return True
+    except Exception as e:
+        print(f"  ❗ 상태기록 실패(계속 진행): {str(e)[:110]}", flush=True)
+        return False
+
+
 def _fail(jid, reason):
-    cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"}, {"status": "fail", "reason": reason})
+    _patch_safe(jid, {"status": "fail", "reason": reason})
 
 
 def _try_count(job):
@@ -73,8 +89,14 @@ def main():
 
     while True:
         try:
+            # 예약시각이 아직 안 된 작업은 '서버에서' 빼고 가져온다. 클라이언트에서만 건너뛰면
+            #   뒤로 미뤄둔 작업들이 (created_at 이 옛날이라) 조회창 앞자리를 계속 차지해
+            #   BATCH 를 60 으로 늘려도 새 작업이 안 보이는 구간이 남는다.
             reqs = cc.sb_get("cafe_comment_queue", {
-                "status": "eq.pending", "order": "created_at.asc", "limit": str(BATCH), "select": "*",
+                "status": "eq.pending",
+                "or": f"(scheduled_at.is.null,scheduled_at.lte.{datetime.datetime.now().astimezone().isoformat(timespec='seconds')})",
+                "order": "scheduled_at.asc.nullsfirst,created_at.asc",
+                "limit": str(BATCH), "select": "*",
             })
         except Exception as e:
             print(f"폴링 오류: {e}", flush=True); time.sleep(8); continue
@@ -139,7 +161,7 @@ def main():
             print(f"[{datetime.datetime.now():%H:%M:%S}] ⏭ 이미 댓글 단 글 — 건너뜀: {(job.get('article_url') or '')[:46]}", flush=True)
             continue
 
-        cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"}, {"status": "processing"})
+        _patch_safe(jid, {"status": "processing"})
         # astimezone(): 오프셋을 붙여야 DB(timestamptz)가 UTC 로 오해하지 않는다.
         #   예전엔 done_at 이 9시간 과거로 저장돼, 답글 예약기의 '댓글 후 20분 묵힘'이 무력화됐다.
         now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
@@ -148,7 +170,9 @@ def main():
         try:
             url = cc.comment_job(job, f"http://127.0.0.1:{a['port']}", no_send=NO_SEND)
             _last[a["name"]] = time.time()
-            posted = True     # 여기부터는 '이미 게시됨' — 아래 기록이 실패해도 재시도하면 안 된다
+            # 여기부터는 '이미 게시됨' — 아래 기록이 실패해도 재시도하면 안 된다.
+            #   no_send 는 입력만 하고 등록을 안 누르므로 게시된 게 아니다(재시도해도 안전).
+            posted = not NO_SEND
             if NO_SEND:
                 cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"},
                             {"status": "done", "done_at": now, "reason": "no_send(등록은 수동)"})
@@ -176,7 +200,10 @@ def main():
                 "LOGIN_REQUIRED", "ECONNREFUSED", "connect_over_cdp",
                 "댓글 입력창", "댓글 등록 버튼", "댓글 등록 확인",
                 "답글쓰기 버튼", "대상 댓글 못 찾음", "답글 입력창", "답글 등록 버튼", "답글 등록 확인",
-                "Timeout", "Target closed", "browserContext", "websocket",
+                # 크롬이 죽거나 CDP 가 끊긴 경우 — 실제 Playwright 문구에 맞춰야 한다.
+                #   ("Target closed"/"browserContext" 는 요즘 문구와 안 맞아 헛돌았다)
+                "Timeout", "websocket", "has been closed", "Browser closed",
+                "Connection closed", "Protocol error", "net::ERR_", "Target closed",
             ))
             if retryable and n_try < MAX_TRY:
                 # 재시도는 '지금 당장'이 아니라 뒤로 미룬다. 안 그러면 이 작업이 큐의 머리를
@@ -184,7 +211,7 @@ def main():
                 #   반복돼 네이버 요청량도 폭증한다(측정상 9배).
                 back = RETRY_BACKOFF_MIN * (2 ** (n_try - 1))     # 3, 6, 12, 24분…
                 nxt = datetime.datetime.now().astimezone() + datetime.timedelta(minutes=back)
-                cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"}, {
+                _patch_safe(jid, {
                     "status": "pending",
                     "reason": f"{RETRY_TAG}{n_try}/{MAX_TRY}: {reason[:160]}",
                     "scheduled_at": nxt.isoformat(timespec="seconds"),
@@ -199,4 +226,15 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # 감시 루프 — 예상 못 한 예외로 리스너가 조용히 죽는 일을 막는다.
+    #   (start_all.bat 은 죽은 프로세스를 되살리지 않아, 재부팅 전까지 댓글이 멈춰버린다)
+    while True:
+        try:
+            main()
+        except KeyboardInterrupt:
+            print("종료합니다.", flush=True); break
+        except SystemExit:
+            raise
+        except Exception as e:
+            print(f"[치명적] 리스너 예외 — 20초 뒤 재시작: {str(e)[:200]}", flush=True)
+            time.sleep(20)
