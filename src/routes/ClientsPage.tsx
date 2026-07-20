@@ -240,7 +240,6 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const [contractTab, setContractTab] = useState<'new' | 'active' | 'temp' | 'ended'>('active');
     const didInitTab = useRef(false);
     // 계약 관리 월 필터 — 전체 + 6월~현재월 드롭다운, 기본 = 전체(월 무관 전체 표시). (앞으로 12월까지 자동 확장)
-    const currentMonth = new Date().getMonth() + 1;
     const currentYear = new Date().getFullYear();
     const [monthFilter, setMonthFilter] = useState(0); // 0 = 전체(기본)
     const [yearFilter, setYearFilter] = useState(currentYear); // 0 = 전체 · 계약 관리 년 필터
@@ -253,10 +252,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         }
         return [0, ...[...set].sort((a, b) => b - a)];
     }, [clientContracts, currentYear]);
-    // 월 옵션 — 전체 + (기본 6..현재월) + 계약일자에 실제 존재하는 월(예: 4월 등 자동 포함).
+    // 월 옵션 — 전체 + (기본 6..12월) + 계약일자에 실제 존재하는 월(예: 4월 등 자동 포함).
     const monthOptions = useMemo(() => {
         const set = new Set<number>();
-        for (let m = 6; m <= currentMonth; m++) set.add(m);
+        for (let m = 6; m <= 12; m++) set.add(m);
         for (const ct of clientContracts) {
             const m = Number((ct.contract_date || '').slice(5, 7));
             if (m >= 1 && m <= 12) set.add(m);
@@ -267,7 +266,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             if (m >= 1 && m <= 12) set.add(m);
         }
         return [0, ...[...set].sort((a, b) => a - b)];
-    }, [clientContracts, clients, currentMonth]);
+    }, [clientContracts, clients]);
     const [dateSort, setDateSort] = useState<null | 'asc' | 'desc'>(null); // 등록일 정렬(헤더 클릭)
     // 계약 진행 단계 변경 대상(5단계 선택 모달).
     const [stageClient, setStageClient] = useState<ErpClient | null>(null);
