@@ -42,6 +42,11 @@ REQUIRE_KEYWORD = os.environ.get("CAFE_CMT_REQUIRE_KEYWORD", "1") != "0"
 #   n번째 계정 지연 = n × STAGGER_MIN ± JITTER. 기본 10±5 → 1번째 즉시, 2번째 5~15분, 3번째 15~25분.
 STAGGER_MIN = float(os.environ.get("CAFE_CMT_STAGGER_MIN", "10"))
 STAGGER_JITTER = float(os.environ.get("CAFE_CMT_STAGGER_JITTER", "5"))
+# ⚠️ 답글 전용 계정(=글 작성자)은 일반 댓글 대상에서 제외한다.
+#   작성자가 자기 글에 "저도 알아보던 중이었는데" 같은 댓글을 달면 명백히 어색하다.
+#   accounts.txt 에는 답글을 달기 위해 등록돼 있을 뿐이므로 여기서 걸러야 한다.
+REPLY_ONLY = {x.strip().lower() for x in
+              os.environ.get("CAFE_CMT_REPLY_ACCOUNT", "rlawhddls25").split(",") if x.strip()}
 
 
 def _log(m):
@@ -109,7 +114,12 @@ def process_watch(page, w, canon_acct=None):
     if w.get("account"):
         targets = [canon_acct]
     else:
-        targets = [x["name"] for x in acct.load_accounts()]
+        # 답글 전용 계정(작성자)은 제외 — 자기 글에 일반 댓글을 달면 안 된다.
+        targets = [x["name"] for x in acct.load_accounts()
+                   if x["name"].lower() not in REPLY_ONLY]
+    if not targets:
+        _log("⚠️ 댓글 달 계정이 없음(전부 답글 전용?) — 건너뜀")
+        return 0
 
     # ⚠️ 기준선은 '실제로 처리한 글'까지만 전진시킨다. 예약이 실패했는데 max_id 로 밀면
     #   그 글들은 영구히 기준선 아래로 내려가 다시는 댓글이 안 달린다(독립검증 M2·n17).
