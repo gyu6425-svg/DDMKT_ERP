@@ -74,6 +74,15 @@ SEL_LINK_CONFIRM = 'button.se-popup-button-confirm'   # "확인"(카드 삽입)
 SEL_TAG_INPUT = 'input.tag_input'                     # "태그를 입력해주세요 (최대 10개)"
 # 작성 시간 하한(초) — 너무 빨리 쓰면 상위노출 불리하다는 판단 → 페이싱으로 최소 이 시간 확보
 CAFE_MIN_SECONDS = int(os.environ.get("CAFE_MIN_SECONDS", "330"))
+# 상한 — 글마다 MIN~MAX 사이에서 새로 뽑아 작성 시간을 불규칙하게 한다(매번 같은 소요시간은 봇 티가 남).
+#   미설정이면 MIN 과 같아 기존처럼 고정(하위호환).
+CAFE_MAX_SECONDS = int(os.environ.get("CAFE_MAX_SECONDS", str(CAFE_MIN_SECONDS)))
+
+
+def _write_seconds():
+    """이 글을 쓰는 데 쓸 목표 시간(초) — MIN~MAX 랜덤."""
+    lo, hi = min(CAFE_MIN_SECONDS, CAFE_MAX_SECONDS), max(CAFE_MIN_SECONDS, CAFE_MAX_SECONDS)
+    return random.uniform(lo, hi) if hi > lo else float(lo)
 
 
 def _kd():
@@ -461,7 +470,9 @@ def publish(page, title, blocks, no_send=False, link_url=None, tags=None):
     # 페이싱: 남은 시간을 남은 블록에 분배 → 총 작성시간 최소 CAFE_MIN_SECONDS 확보(너무 빠른 발행 회피).
     subtitles = []
     n_blocks = len(blocks)
-    deadline = time.monotonic() + CAFE_MIN_SECONDS
+    _target_sec = _write_seconds()
+    _log(f"작성 페이싱: 목표 {_target_sec/60:.0f}분에 걸쳐 천천히 작성")
+    deadline = time.monotonic() + _target_sec
     for idx, b in enumerate(blocks):
         if b["type"] == "text":
             _type_multiline(page, b["text"])

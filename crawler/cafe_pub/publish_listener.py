@@ -13,6 +13,7 @@
 """
 import datetime
 import os
+import random
 import sys
 import time
 
@@ -25,6 +26,17 @@ except Exception:
 
 POLL_SEC = 6
 MIN_GAP_MIN = int(os.environ.get("CAFE_MIN_GAP_MIN", "20"))  # 발행 최소 간격(분) — 계정 안전
+# 최대 간격 — MIN~MAX 사이에서 매번 새로 뽑아 발행 간격을 불규칙하게 만든다(같은 간격 반복은 봇 티가 남).
+#   미설정이면 MIN 과 같아 기존처럼 고정 간격으로 동작(하위호환).
+MAX_GAP_MIN = int(os.environ.get("CAFE_MAX_GAP_MIN", str(MIN_GAP_MIN)))
+_gap_min = [float(MIN_GAP_MIN)]   # 이번 회차에 적용할 간격(분) — 발행할 때마다 재추첨
+
+
+def _roll_gap():
+    """다음 발행까지 기다릴 간격을 MIN~MAX 에서 새로 뽑는다."""
+    lo, hi = min(MIN_GAP_MIN, MAX_GAP_MIN), max(MIN_GAP_MIN, MAX_GAP_MIN)
+    _gap_min[0] = random.uniform(lo, hi) if hi > lo else float(lo)
+    return _gap_min[0]
 NO_SEND = os.environ.get("CAFE_NO_SEND", "1") != "0"        # 기본 수동보조(등록 직전까지)
 KEEPALIVE_MIN = int(os.environ.get("CAFE_KEEPALIVE_MIN", "9"))  # 유휴 시 세션 유지 핑 간격(분)
 _last_pub = [0.0]
@@ -121,7 +133,7 @@ def main():
                     time.sleep(POLL_SEC); continue
             except Exception:
                 pass
-        gap_wait = (not NO_SEND) and (time.time() - _last_pub[0]) < MIN_GAP_MIN * 60
+        gap_wait = (not NO_SEND) and (time.time() - _last_pub[0]) < _gap_min[0] * 60
         # 발행할 게 없거나(=유휴) 간격 대기 중이면 → 세션 유지 핑(주기적)
         if not reqs or gap_wait:
             if (time.time() - _last_touch[0]) >= KEEPALIVE_MIN * 60:
@@ -135,6 +147,10 @@ def main():
         try:
             url = pc.publish_job(job, pc.DEFAULT_CDP, no_send=NO_SEND)
             _last_pub[0] = time.time(); _last_touch[0] = time.time()
+            # 다음 발행까지의 간격을 새로 추첨 → 30분, 20분, 40분… 처럼 불규칙해진다.
+            g = _roll_gap()
+            nxt = datetime.datetime.now() + datetime.timedelta(minutes=g)
+            print(f"  다음 발행 간격 {g:.0f}분 → {nxt:%H:%M} 이후", flush=True)
             if NO_SEND:
                 # 수동보조: 사람이 등록 클릭 → 다시 pending 로 두지 않고 'processing' 유지(중복 방지). 완료표시는 수동/후속.
                 pc.sb_patch("cafe_publish_queue", {"id": f"eq.{jid}"}, {"status": "done", "done_at": now, "reason": "no_send(등록은 수동)"})
