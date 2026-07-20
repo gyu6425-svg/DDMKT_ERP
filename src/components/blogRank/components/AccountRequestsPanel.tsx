@@ -48,10 +48,15 @@ export function AccountRequestsPanel({
     const doApprove = async (r: BlogAccountRequest) => {
         if (!profile?.id) return onToast('계정 정보를 확인할 수 없습니다');
         setBusy(r.id);
-        const { error } = await approveAccountRequest(r, profile.id);
+        const { error, linked, note } = await approveAccountRequest(r, profile.id);
         setBusy(null);
         if (error) return onToast('승인 실패: ' + error.message);
-        onToast(`${r.name} 승인 완료 · 브랜드 블로그에 등록되었습니다`);
+        // 같은 블로그 주소가 이미 있으면 새로 만들지 않고 그 블로그에 연결한다(무엇이 유지됐는지 함께 안내).
+        onToast(
+            linked
+                ? `${r.name} 승인 완료 · 이미 등록된 블로그에 연결했습니다${note ? ` (${note})` : ''}`
+                : `${r.name} 승인 완료 · 브랜드 블로그에 등록되었습니다`,
+        );
         load();
         onDone();
     };

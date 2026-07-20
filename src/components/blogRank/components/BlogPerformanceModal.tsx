@@ -7,6 +7,7 @@ import {
     type ReportStatus,
     type ReportType,
 } from '../../../api/blogPostReports';
+import { getReporterRegisteredBlogIds } from '../../../api/blogAccountRequests';
 import { fmtRank, lastM } from '../lib/helpers';
 
 // 성과 모달 — 2탭.
@@ -97,6 +98,18 @@ function ReportsTab({ blogAccountId, internal }: { blogAccountId: string; intern
     const [filter, setFilter] = useState<'all' | ReportType>('all');
     const [names, setNames] = useState<Record<string, string>>({}); // reporter_id → 이름(내부만)
     const [settling, setSettling] = useState(false);
+    // 기자단 '업체 등록'으로 승인된 블로그는 계약 미연동이라 외주비가 계상되지 않는다.
+    //   → 0원짜리를 정산한 것처럼 보이지 않도록 '외주비 정산' 버튼을 숨긴다.
+    const [noOutsource, setNoOutsource] = useState(false);
+    useEffect(() => {
+        let alive = true;
+        void getReporterRegisteredBlogIds().then((ids) => {
+            if (alive) setNoOutsource(ids.has(blogAccountId));
+        });
+        return () => {
+            alive = false;
+        };
+    }, [blogAccountId]);
 
     const load = () => {
         setLoading(true);
@@ -273,7 +286,12 @@ function ReportsTab({ blogAccountId, internal }: { blogAccountId: string; intern
             </div>
 
             {/* 외주비 정산 — 내부만. 미입금(승인·미정산) 건을 이 기자단 이름으로 일괄 입금 처리. */}
-            {internal ? (
+            {internal && noOutsource ? (
+                <p className="mt-3 mb-0 text-xs text-[#94a3b8]">
+                    기자단이 등록한 업체라 외주비가 계상되지 않습니다 · 계약 관리 연동 후 별도 등록
+                </p>
+            ) : null}
+            {internal && !noOutsource ? (
                 <div className="mt-3 flex items-center justify-between">
                     <span className="text-xs text-[#94a3b8]">
                         미입금 {unpaid.length}건 — 주 단위로 정산하면 미입금이 입금으로 바뀝니다.

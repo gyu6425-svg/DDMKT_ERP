@@ -11,6 +11,7 @@ import { getReporters } from '../api/blogRank';
 import {
     createAccountRequest,
     getAccountRequests,
+    getReporterRegisteredBlogIdsSafe,
     resubmitAccountRequest,
     type BlogAccountRequest,
 } from '../api/blogAccountRequests';
@@ -410,19 +411,26 @@ function SettlementTab() {
     const [rows, setRows] = useState<BlogPostReport[]>([]);
     const [names, setNames] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
+    // 기자단이 '업체 등록'으로 승인받은 블로그 — 외주비를 잡지 않으므로 정산에서도 0원 처리.
+    const [ownBlogIds, setOwnBlogIds] = useState<Set<string>>(new Set());
+    const [ownErr, setOwnErr] = useState(false); // 등록업체 판정 조회 실패 — 금액이 부정확할 수 있음
 
     useEffect(() => {
         let alive = true;
         setLoading(true);
-        void Promise.all([getReports(), getReporters()]).then(([rep, reps]) => {
-            if (!alive) return;
-            // 승인 확정(= 외주비 계상됨)만: confirmed(현행) / published(구 데이터).
-            setRows(rep.data.filter((r) => r.status === 'confirmed' || r.status === 'published'));
-            const m: Record<string, string> = {};
-            reps.data.forEach((r) => (m[r.id] = r.name || r.email));
-            setNames(m);
-            setLoading(false);
-        });
+        void Promise.all([getReports(), getReporters(), getReporterRegisteredBlogIdsSafe()]).then(
+            ([rep, reps, own]) => {
+                if (!alive) return;
+                // 승인 확정(= 외주비 계상됨)만: confirmed(현행) / published(구 데이터).
+                setRows(rep.data.filter((r) => r.status === 'confirmed' || r.status === 'published'));
+                const m: Record<string, string> = {};
+                reps.data.forEach((r) => (m[r.id] = r.name || r.email));
+                setNames(m);
+                setOwnBlogIds(own.ids);
+                setOwnErr(!!own.error);
+                setLoading(false);
+            },
+        );
         return () => {
             alive = false;
         };
@@ -435,13 +443,21 @@ function SettlementTab() {
         if (r.reporter_id && r.reporter_id === profile?.id) return profile?.name || '기자단';
         return '기자단';
     };
-    const amountOf = (r: BlogPostReport) => reportOutUnit(r, companyOf(r.blog_account_id));
+    // 기자단 등록 업체는 계약 관리 미연동이라 외주비가 계상되지 않는다 → 정산 금액 0원.
+    //   (계약 관리와 합칠 때 별도 등록 예정. 그 외 블로그는 기존 규칙 그대로 8,000/10,000)
+    const amountOf = (r: BlogPostReport) =>
+        ownBlogIds.has(r.blog_account_id) ? 0 : reportOutUnit(r, companyOf(r.blog_account_id));
     const total = rows.reduce((s, r) => s + amountOf(r), 0);
     const unpaidTotal = rows.filter((r) => !r.paid).reduce((s, r) => s + amountOf(r), 0);
 
     return (
         <div className="grid gap-3">
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
+                {ownErr ? (
+                    <p className="m-0 mb-2 rounded-md bg-[#fef2f2] px-3 py-2 text-[12px] font-semibold text-[#dc2626]">
+                        ⚠ 등록 업체 정보를 불러오지 못해 금액이 정확하지 않을 수 있습니다. 새로고침해 주세요.
+                    </p>
+                ) : null}
                 <div className="flex items-center justify-between">
                     <div className="text-sm font-bold text-[#0f172a]">정산 내역</div>
                     <div className="text-sm text-[#64748b]">

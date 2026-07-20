@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { approveReport, getReports, isBrandKind, rejectReport, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
+import { getReporterRegisteredBlogIds } from '../../../api/blogAccountRequests';
 import { getReporters } from '../../../api/blogRank';
 
 // 블로그 종류 칩 색상 — 브랜드=파랑 · 최적화=초록 · 준최적화=주황 · 저인망=보라.
@@ -33,13 +34,22 @@ export function ReportReviewModal({
     const [rejectReason, setRejectReason] = useState('');
     const [amounts, setAmounts] = useState<Record<string, string>>({}); // 비-브랜드 외주비 입력값(보고별)
 
+    // 기자단 '업체 등록'으로 승인된 블로그 — 계약 미연동이라 외주비를 잡지 않는다.
+    //   → 승인 시 금액 입력을 요구하지 않고 out_amount 도 저장하지 않는다(쓰이지 않는 금액이 DB에 남아
+    //     나중에 계약 관리와 합칠 때 이중 계상되는 것을 막기 위함).
+    const [ownBlogIds, setOwnBlogIds] = useState<Set<string>>(new Set());
     const load = () => {
         setLoading(true);
-        void Promise.all([getReports({ status: 'pending', report_type: tab }), getReporters()]).then(([rep, reps]) => {
+        void Promise.all([
+            getReports({ status: 'pending', report_type: tab }),
+            getReporters(),
+            getReporterRegisteredBlogIds(),
+        ]).then(([rep, reps, ownIds]) => {
             setReports(rep.data);
             const m: Record<string, string> = {};
             reps.data.forEach((r) => (m[r.id] = r.name || r.email));
             setNames(m);
+            setOwnBlogIds(ownIds);
             setLoading(false);
         });
     };
@@ -48,7 +58,8 @@ export function ReportReviewModal({
     // 승인 — 추적글 등록 + 계약 카운트(+1/외주비) 딱 1회.
     //   브랜드 블로그: 외주비 8,000/10,000 자동. 비-브랜드(최적화·준최적화·저인망): 입력한 금액으로 계상.
     const approve = async (r: BlogPostReport) => {
-        const brand = isBrandKind(r.blog_kind);
+        // 기자단 등록 업체는 종류와 무관하게 외주비를 잡지 않으므로 금액 입력을 건너뛴다.
+        const brand = isBrandKind(r.blog_kind) || ownBlogIds.has(r.blog_account_id);
         let outAmount: number | null = null;
         if (!brand) {
             const v = Number((amounts[r.id] || '').replace(/[^0-9]/g, ''));
@@ -59,7 +70,7 @@ export function ReportReviewModal({
             outAmount = v;
         }
         setBusy(r.id);
-        const { error, processed, outUnit } = await approveReport(r, reviewerProfileId, outAmount);
+        const { error, processed, outUnit, mode } = await approveReport(r, reviewerProfileId, outAmount);
         setBusy(null);
         if (error) {
             alert('승인 실패: ' + error.message);
@@ -67,10 +78,15 @@ export function ReportReviewModal({
         }
         setReports((prev) => prev.filter((x) => x.id !== r.id));
         onChanged?.();
+        // 기자단 등록 업체(계약 관리 미연동)는 블로그 진행 건수만 +1 하고 외주비는 잡지 않는다.
         alert(
-            processed
-                ? `승인 완료 · 계약 1건 카운트(잔여 -1) + 외주비 ${outUnit.toLocaleString('ko-KR')}원 반영됨`
-                : `승인 완료(추적 등록) · 외주비 ${outUnit.toLocaleString('ko-KR')}원 · 연결된 계약이 없어 잔여 카운트는 미반영`,
+            mode === 'blog'
+                ? processed
+                    ? '승인 완료 · 진행 1건 카운트(잔여 -1) · 기자단 등록 업체라 외주비는 계약 관리 연동 후 별도 등록'
+                    : '승인 완료(추적 등록) · 계약 건수가 입력되지 않아 진행 카운트는 미반영'
+                : processed
+                  ? `승인 완료 · 계약 1건 카운트(잔여 -1) + 외주비 ${outUnit.toLocaleString('ko-KR')}원 반영됨`
+                  : `승인 완료(추적 등록) · 외주비 ${outUnit.toLocaleString('ko-KR')}원 · 연결된 계약이 없어 잔여 카운트는 미반영`,
         );
     };
     const doReject = async (r: BlogPostReport) => {
@@ -200,8 +216,9 @@ export function ReportReviewModal({
                                             </div>
                                         ) : (
                                             <div className="flex items-center justify-center gap-1">
-                                                {/* 비-브랜드(최적화·준최적화·저인망)는 외주비 금액 입력 필수 */}
-                                                {!isBrandKind(r.blog_kind) ? (
+                                                {/* 비-브랜드(최적화·준최적화·저인망)는 외주비 금액 입력 필수.
+                                                    단 기자단 등록 업체는 외주비를 잡지 않으므로 입력칸도 숨긴다. */}
+                                                {!isBrandKind(r.blog_kind) && !ownBlogIds.has(r.blog_account_id) ? (
                                                     <div className="flex items-center gap-0.5">
                                                         <input
                                                             className="h-8 w-24 rounded border border-[#cbd5e1] px-2 text-right text-[12px]"
