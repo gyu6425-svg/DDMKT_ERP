@@ -29,13 +29,48 @@ PLAIN = [
 WITH_REGION = [
     '{지역}쪽도 출장 되는 걸로 알고 있어요~',
     '{지역} 근처시면 참고하시면 좋을 것 같아요!',
-    '{키워드}는 원인 잡는 게 반이더라구요. 도움 되셨으면 좋겠어요',
+    '{키워드}{은는} 원인 잡는 게 반이더라구요. 도움 되셨으면 좋겠어요',
     '{지역}에서도 비슷한 사례 많다고 하시더라구요~',
     '{키워드} 알아보실 때 참고되셨으면 좋겠습니다!',
 ]
 
+# --- 더맨시스템(시설경비·경호) 전용 -------------------------------------------
+#   누수 문구에는 '아랫집 연락', '원인 잡는 게 반' 처럼 업종에 묶인 표현이 있어 그대로 못 쓴다.
+PLAIN_SECURITY = [
+    '감사합니다~ 도움 되셨다면 다행이네요',
+    '읽어주셔서 감사합니다!',
+    '도움이 됐다니 다행이에요 :)',
+    '네 저도 겪어보니 미리 챙겨두는 게 낫더라구요',
+    '공감해주셔서 감사합니다~',
+    '현장마다 상황이 달라서 점검이 중요하더라구요',
+    '별거 아닌데 봐주셔서 감사해요!',
+    '궁금한 거 있으시면 편하게 물어보세요~',
+    '도움 되셨다니 저도 뿌듯하네요 :)',
+    '사람 없는 시간대가 제일 걱정이죠.. 참고되셨으면 좋겠어요',
+]
+
+WITH_REGION_SECURITY = [
+    '{지역}쪽도 출장 되는 걸로 알고 있어요~',
+    '{지역} 근처시면 참고하시면 좋을 것 같아요!',
+    '{키워드}{은는} 현장 파악이 반이더라구요. 도움 되셨으면 좋겠어요',
+    '{지역}에서도 비슷한 문의 많다고 하시더라구요~',
+    '{키워드} 알아보실 때 참고되셨으면 좋겠습니다!',
+]
+
+# 업종(키워드) → (순수응답, 지역포함) 풀
+POOLS = {
+    '누수탐지': (PLAIN, WITH_REGION),
+    '보안': (PLAIN_SECURITY, WITH_REGION_SECURITY),
+}
+
 # 지역 문구가 섞일 확률
 REGION_RATE = float(__import__("os").environ.get("CAFE_CMT_REPLY_REGION_RATE", "0.35"))
+
+
+# 키워드 앞에 붙지만 지역이 아닌 말 — '서초 회사 보안' 의 '회사' 같은 것.
+#   이걸 안 걸러내면 답글이 "회사쪽도 출장 되는 걸로 알고 있어요~" 가 된다.
+GENERIC_HEAD = {"회사", "사무실", "빌딩", "건물", "공장", "상가", "매장", "점포",
+                "아파트", "빌라", "오피스텔", "주택", "우리", "저희", "그", "이", "저"}
 
 
 def region_from_text(text, keyword, fallback=""):
@@ -43,27 +78,52 @@ def region_from_text(text, keyword, fallback=""):
 
     키워드 바로 앞에 '붙어 있는 한글 덩어리'만 취해서, 앞 문장의 끝("~갑니다.")이
     지역으로 잘못 잡히는 문제를 막는다(마침표·공백에서 자연히 끊긴다).
+    업종어가 끼는 경우('서초 회사 보안')를 위해 최대 두 덩어리까지 보고 뒤에서부터 걷어낸다.
     """
     if not text or not keyword:
         return fallback
-    m = re.search(r"([가-힣]{2,6})\s*" + re.escape(keyword), text)
+    m = re.search(r"((?:[가-힣]{2,6}\s+)?[가-힣]{2,6})\s*" + re.escape(keyword), text)
     if not m:
         return fallback
-    cand = m.group(1)
+    toks = [t for t in m.group(1).split() if t]
+    while toks and toks[-1] in GENERIC_HEAD:
+        toks.pop()
+    if not toks:
+        return fallback
+    cand = toks[-1]
     # 문장 어미가 잡힌 경우는 지역이 아니다
     if re.search(r"(니다|습니|어요|아요|네요|세요|해요|지요|군요|더라|겠어)$", cand):
         return fallback
     return cand
 
 
+def _josa_eun_neun(word):
+    """받침 유무로 은/는 선택. '누수탐지는' 은 맞지만 '보안는' 은 틀리다(→ '보안은')."""
+    w = (word or "").strip()
+    if not w:
+        return "는"
+    ch = w[-1]
+    if "가" <= ch <= "힣":
+        return "은" if (ord(ch) - 0xAC00) % 28 else "는"
+    return "는"
+
+
 def build_reply(region, keyword, avoid=None):
     """답글 1건 — 대부분 순수 응답, 가끔 지역/키워드를 섞는다."""
+    pools = POOLS.get((keyword or "").strip())
+    if pools is None:
+        raise RuntimeError(f"답글 템플릿 없음: 키워드 '{keyword}' — reply_templates.POOLS 에 추가 필요")
+    plain_pool, region_pool = pools
+
     def compose():
         if region and random.random() < REGION_RATE:
-            t = random.choice(WITH_REGION)
-            out = t.replace("{지역}", region.strip()).replace("{키워드}", (keyword or "").strip())
+            t = random.choice(region_pool)
+            kw = (keyword or "").strip()
+            out = (t.replace("{지역}", region.strip())
+                    .replace("{키워드}", kw)
+                    .replace("{은는}", _josa_eun_neun(kw)))
         else:
-            out = random.choice(PLAIN)
+            out = random.choice(plain_pool)
         return re.sub(r"\s{2,}", " ", out).strip()
 
     out = compose()

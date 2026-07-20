@@ -20,6 +20,29 @@ TEMPLATES = [
     '정리 깔끔하게 잘 해주셨네요. {지역} {키워드} 필요하면 참고하겠습니다.',
 ]
 
+# 더맨시스템(시설경비·경호) 전용 — 위 누수 문구는 '아래층 젖으면', '이사와서' 처럼
+#   업종에 묶여 있어 보안 글에 그대로 쓰면 말이 안 된다. 톤/구조는 원본과 동일하게 유지.
+#   ⚠️ '{지역} {키워드}' 는 반드시 붙여 쓴다. 제목이 '서초 회사 보안 …' 이면 지역이
+#      '서초 회사' 로 잡히므로, 사이에 다른 말을 끼우면 "서초 회사 사무실 보안" 이 된다.
+TEMPLATES_SECURITY = [
+    '{지역} {키워드}의 좋은 후기 잘 보고갑니다.',
+    '{지역} {키워드} 알아보려고 하다가 보니까 큰 도움되는 정보였어요.',
+    '사람 없는 시간대가 제일 신경쓰이는데 꼼꼼하게 봐주시나 봐요. {지역} {키워드}에 대한 정보 공유 감사합니다!',
+    '안그래도 {지역} {키워드} 업체 알아보고 있었는데! 기억하고 있다가 꼭 써먹어야겠어요.',
+    '필요한 정보였는데 {지역} {키워드}에 대해서 깔끔하게 정리해주셔서 잘 읽었습니다. 감사합니다!',
+    '이런 정보 찾고 있었는데 잘 보고 갑니다. {지역} {키워드} 참고할게요!',
+    '{지역} {키워드} 후기 잘 봤습니다. 현장마다 신경 많이 써주시나 봐요!',
+    '정리 깔끔하게 잘 해주셨네요. {지역} {키워드} 필요하면 참고하겠습니다.',
+]
+
+# 업종(키워드) → 문구 풀. 감시행의 keyword 로 고른다.
+#   여기에 없는 키워드는 기본(누수) 풀 대신 '업종 무관' 문구만 쓰는 게 아니라,
+#   아예 등록을 요구한다(엉뚱한 업종 문구가 나가는 것보다 안 다는 게 낫다).
+POOLS = {
+    '누수탐지': TEMPLATES,
+    '보안': TEMPLATES_SECURITY,
+}
+
 CLOSERS = ['', '', ' 감사합니다!', ' 좋은 정보 감사해요.', ' 도움 많이 됐어요!']
 
 
@@ -55,11 +78,21 @@ def _fill(tpl, region, keyword):
     return re.sub(r'\s{2,}', ' ', out).strip()
 
 
+def pool_for(keyword):
+    """업종별 문구 풀. 등록 안 된 키워드면 None — 호출부가 댓글을 안 달게 한다."""
+    return POOLS.get((keyword or '').strip())
+
+
 def build_comment(region, keyword, avoid=None):
     """랜덤 댓글 1건 — 오프너+템플릿+클로저 조합. avoid 와 같으면 몇 번 다시 뽑음."""
+    pool = pool_for(keyword)
+    if pool is None:
+        # 업종 문구가 없는데 아무거나 쓰면 보안 글에 '아래층 젖으면…' 이 달린다.
+        raise RuntimeError(f"댓글 템플릿 없음: 키워드 '{keyword}' — comment_templates.POOLS 에 추가 필요")
+
     def compose():
         opener = random.choice(OPENERS)
-        base = _fill(random.choice(TEMPLATES), region, keyword)
+        base = _fill(random.choice(pool), region, keyword)
         closer = random.choice(CLOSERS)
         if re.search(r'[!~]$|감사', base):
             closer = ''

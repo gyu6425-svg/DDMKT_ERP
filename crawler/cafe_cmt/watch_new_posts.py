@@ -147,8 +147,15 @@ def process_watch(page, w, canon_acct=None):
                 break
             if dup:
                 continue
-            # 계정마다 다른 문구가 나가도록 직전 문구를 피해 생성
-            body = build_comment(art_region, keyword, avoid=last_body)
+            # 계정마다 다른 문구가 나가도록 직전 문구를 피해 생성.
+            #   업종 문구가 등록 안 된 키워드면 예약하지 않는다(엉뚱한 업종 댓글 방지).
+            #   기준선도 올리지 않아, 템플릿을 추가하면 다음 크롤에서 다시 잡힌다.
+            try:
+                body = build_comment(art_region, keyword, avoid=last_body)
+            except Exception as e:
+                _log(f"  ⏸ {str(e)[:110]}")
+                aborted = True
+                break
             last_body = body
             # 같은 글에 여러 계정이 동시에 달리면 티가 나므로 계정마다 시차를 둔다.
             #   n번째 계정 = 기준시각 + (n × STAGGER_MIN) ± 지터. 리스너가 이 시각 전엔 처리하지 않는다.

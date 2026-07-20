@@ -50,14 +50,28 @@ def _log(m):
 
 
 def _watch_settings():
-    """감시 카페의 지역/키워드(답글 문구 생성에 사용). 카페별로 매핑."""
-    out = {}
+    """감시행 목록(지역/키워드 — 답글 문구 생성에 사용)."""
     try:
-        for w in cc.sb_get("cafe_comment_watch", {"select": "cafe_url,region,keyword"}):
-            out[cc.article_key(w.get("cafe_url", "")) or w.get("cafe_url", "")] = w
+        return cc.sb_get("cafe_comment_watch", {"select": "cafe_url,region,keyword"})
     except Exception:
-        pass
-    return out
+        return []
+
+
+def _match_watch(body, watches):
+    """이 원댓글이 '어느 업종 글'에 달린 것인지 판별한다.
+
+    ⚠️ 예전엔 감시행 중 아무거나(next(iter(...))) 집었다. 카페 하나에 업종이 하나일 때만
+       맞는 얘기고, 같은 카페에 누수/보안 감시행이 같이 있으면 보안 글 댓글에 누수 답글이
+       달린다. 우리 댓글은 항상 '<지역> <키워드>' 를 포함하므로 그 키워드로 되짚는다.
+       (키워드가 서로 포함관계면 더 긴 쪽이 정확하다)
+    """
+    best = None
+    for w in watches:
+        k = (w.get("keyword") or "").strip()
+        if k and k in (body or ""):
+            if best is None or len(k) > len((best.get("keyword") or "")):
+                best = w
+    return best
 
 
 def run_once():
@@ -124,10 +138,17 @@ def run_once():
             # 답글 문구의 지역 — 원댓글에 이미 '<지역> <키워드>' 가 들어 있으므로 거기서 뽑는다.
             #   region_from_text 는 키워드 '바로 앞에 붙은' 한글만 취해, 앞 문장 끝("~갑니다.")이
             #   지역으로 잘못 잡히던 문제를 막는다.
-            w = next(iter(watches.values()), {}) if watches else {}
-            keyword = (w.get("keyword") or "누수탐지")
+            w = _match_watch(r.get("body", ""), watches)
+            if w is None:
+                _log(f"  ⏭ 업종 판별 불가(감시 키워드 미포함) — 답글 건너뜀: \"{(r.get('body') or '')[:24]}\"")
+                continue
+            keyword = (w.get("keyword") or "").strip()
             region = region_from_text(r.get("body", ""), keyword, (w.get("region") or ""))
-            text = build_reply(region, keyword, avoid=last_body)
+            try:
+                text = build_reply(region, keyword, avoid=last_body)
+            except Exception as e:
+                _log(f"  ⏭ {str(e)[:90]}")
+                continue
             last_body = text
             delay = i * REPLY_STAGGER_MIN + random.uniform(0, REPLY_STAGGER_JITTER)
             # astimezone(): 오프셋을 붙여 저장(DB timestamptz 가 UTC 로 오해하는 것 방지)
