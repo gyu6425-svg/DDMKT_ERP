@@ -1,7 +1,9 @@
 @echo off
-REM [평소 운영] 네이버 카페 댓글 자동화용 '헤드리스 크롬'(창 안 뜸).
-REM   로그인 세션은 chrome_profile/ 재사용. 세션 만료 시 run_chrome_login.bat 로 1회 재로그인.
-REM   포트 9224 = 발행(9223)·카카오(9222)와 분리(동시 실행 가능).
+REM [normal ops] Headless Chrome for cafe comment automation (no visible window).
+REM   Reuses the logged-in session in chrome_profile/. If the session expires,
+REM   run run_chrome_login.bat once to log in again.
+REM   Port 9224 (separate from publish 9223 and kakao 9222).
+REM   NOTE: this file must stay ASCII + CRLF (see docs ops guide).
 cd /d "%~dp0"
 start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" ^
  --headless=new --remote-debugging-port=9224 --user-data-dir="%~dp0chrome_profile" ^

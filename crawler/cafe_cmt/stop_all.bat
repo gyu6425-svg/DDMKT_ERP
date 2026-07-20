@@ -1,6 +1,9 @@
 @echo off
-REM 카페 댓글 자동화 종료 — 데몬·워처 창을 닫는다. (크롬 9224는 로그인 세션 유지 위해 남겨둠)
-taskkill /fi "WINDOWTITLE eq cafe-댓글데몬*" /f >nul 2>&1
-taskkill /fi "WINDOWTITLE eq cafe-새글감시*" /f >nul 2>&1
-echo ✅ 댓글 데몬·워처 종료됨. (크롬은 유지 — 완전 종료하려면 크롬 창도 닫으세요)
-timeout /t 3 /nobreak >nul
+REM Stop cafe comment automation (listener + watcher).
+REM   Chrome on 9224 is left running so the Naver login session stays alive.
+REM   NOTE: this file must stay ASCII + CRLF (see docs ops guide).
+taskkill /fi "WINDOWTITLE eq cafe-cmt-listener*" /f >nul 2>&1
+taskkill /fi "WINDOWTITLE eq cafe-cmt-watcher*" /f >nul 2>&1
+echo Stopped: comment listener + new-post watcher.
+echo Chrome (9224) left running to keep the Naver session. Close it manually if needed.
+ping -n 3 127.0.0.1 >nul 2>&1

@@ -1,7 +1,10 @@
 @echo off
-REM [최초 1회] 네이버 카페 댓글용 '보이는 크롬'. 여기서 네이버 로그인 → 세션이 chrome_profile/ 에 저장됨.
-REM   로그인 후 이 창은 닫고, 평소엔 run_chrome.bat(헤드리스, 9224)로 붙어서 댓글 작성.
-REM   포트 9224 = 발행(9223)과 분리. user-data-dir 도 별도(발행과 독립).
+REM [first time only] Visible Chrome for Naver login (cafe comment automation).
+REM   Log in here; the session is saved into chrome_profile/.
+REM   IMPORTANT: check "Keep me logged in" on the Naver login page, otherwise the
+REM   session cookie dies when Chrome closes.
+REM   Port 9224 / its own user-data-dir (independent from publish 9223).
+REM   NOTE: this file must stay ASCII + CRLF (see docs ops guide).
 cd /d "%~dp0"
 start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" ^
  --remote-debugging-port=9224 --user-data-dir="%~dp0chrome_profile" ^
