@@ -27,6 +27,11 @@ function kindChipCls(kind: string | null | undefined): string {
 }
 const kindLabel = (kind: string | null | undefined) => kind ?? '브랜드 블로그';
 
+// 업체 등록 신청의 블로그 주소 — 스킴(https://)이 있어야 관리 시트에서 정상 분류된다.
+const URL_PREFIX = 'https://';
+const hasScheme = (u: string) => /^https?:\/\/.+/.test(u.trim());
+const URL_HINT = '블로그 주소는 https:// 로 시작해야 합니다 · 주소 앞에 https:// 를 붙여주세요';
+
 // 기자단 글 보고 탭 — 본인 담당 블로그에 쓴 글 URL을 보고. 내부(김다영 등)에게 알림이 감.
 function ReportSubmitTab() {
     const { accounts, showToast } = useBlogRank();
@@ -518,7 +523,9 @@ function CompanyRequestModal({ onClose }: { onClose: () => void }) {
     const inputCls = 'mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm';
 
     const [name, setName] = useState('');
-    const [url, setUrl] = useState('');
+    // 주소창은 https:// 를 미리 채워두고 뒤에 붙여넣게 한다 — 스킴이 없으면 시트에서 'URL미입력 건'으로
+    //   분류돼(SheetTab isUrlPending) 신규 등록 건에 안 보이므로, 입력 단계에서 막는다.
+    const [url, setUrl] = useState(URL_PREFIX);
     const [contractCount, setContractCount] = useState('');
     const [progressCount, setProgressCount] = useState('');
     const [saving, setSaving] = useState(false);
@@ -540,7 +547,8 @@ function CompanyRequestModal({ onClose }: { onClose: () => void }) {
 
     const submit = async () => {
         if (!name.trim()) return showToast('업체 이름을 입력하세요');
-        if (!url.trim()) return showToast('블로그 주소를 입력하세요');
+        if (!url.trim() || url.trim() === URL_PREFIX) return showToast('블로그 주소를 입력하세요');
+        if (!hasScheme(url)) return showToast(URL_HINT);
         if (!profile?.id) return showToast('계정 정보를 확인할 수 없습니다');
         setSaving(true);
         const { error, duplicate } = await createAccountRequest({
@@ -558,7 +566,7 @@ function CompanyRequestModal({ onClose }: { onClose: () => void }) {
             return;
         }
         setName('');
-        setUrl('');
+        setUrl(URL_PREFIX);
         setContractCount('');
         setProgressCount('');
         showToast('업체 등록 신청 완료 · 담당자 승인 후 내 블로그에 추가됩니다');
@@ -568,13 +576,14 @@ function CompanyRequestModal({ onClose }: { onClose: () => void }) {
     const startRe = (r: BlogAccountRequest) => {
         setReId(r.id);
         setReName(r.name);
-        setReUrl(r.blog_url);
+        setReUrl(r.blog_url || URL_PREFIX);
         setReContract(r.contract_count == null ? '' : String(r.contract_count));
         setReProgress(r.progress_count == null ? '' : String(r.progress_count));
     };
     const doRe = async (r: BlogAccountRequest) => {
         if (!reName.trim()) return showToast('업체 이름을 입력하세요');
-        if (!reUrl.trim()) return showToast('블로그 주소를 입력하세요');
+        if (!reUrl.trim() || reUrl.trim() === URL_PREFIX) return showToast('블로그 주소를 입력하세요');
+        if (!hasScheme(reUrl)) return showToast(URL_HINT);
         setReSaving(true);
         const { error } = await resubmitAccountRequest(r.id, {
             name: reName,
@@ -636,6 +645,13 @@ function CompanyRequestModal({ onClose }: { onClose: () => void }) {
                         placeholder="https://blog.naver.com/..."
                         value={url}
                     />
+                    {url.trim() && url.trim() !== URL_PREFIX && !hasScheme(url) ? (
+                        <span className="mt-1 block text-[11px] font-semibold text-[#dc2626]">⚠ {URL_HINT}</span>
+                    ) : (
+                        <span className="mt-1 block text-[11px] font-normal text-[#94a3b8]">
+                            https:// 뒤에 블로그 주소를 붙여넣으세요 (예: https://blog.naver.com/myblog)
+                        </span>
+                    )}
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                     <label className="text-xs font-semibold text-[#475569]">
