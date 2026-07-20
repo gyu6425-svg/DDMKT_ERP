@@ -110,6 +110,10 @@ def _openai_review(prompt):
         headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
         data=json.dumps({"input": prompt, "model": "gpt-5-mini", "reasoning": {"effort": "low"}}), timeout=150, verify=False)
     j = r.json()
+    # 비용 확인용 — 원고(텍스트) 토큰 사용량을 찍는다.
+    u = j.get("usage") or {}
+    if u:
+        _log(f"    [사용량] 입력 {u.get('input_tokens', '?')} · 출력 {u.get('output_tokens', '?')} 토큰")
     txt = j.get("output_text") or ""
     if not txt:
         for it in j.get("output", []):

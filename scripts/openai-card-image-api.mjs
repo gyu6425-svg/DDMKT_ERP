@@ -1434,13 +1434,24 @@ async function generateCafeCard(p) {
         body: JSON.stringify({ input: [{ role: 'user', content }], model, tools: [{ type: 'image_generation', size: '1024x1024', quality }] }),
     });
     const result = await readJsonResponse(res);
-    // 어떤 모델/화질로 실제 생성했는지 남긴다(비용 추적 — 예전엔 기록이 없어 확인 불가였다).
-    rememberRequest({ model, ok: res.ok, quality, route: 'generate-cafe-card', status: res.status });
+    // 어떤 모델/화질로 실제 생성했는지 + 토큰 사용량을 남긴다(비용 추적).
+    //   예전엔 기록이 전혀 없어 '어떤 모델로 얼마 썼는지' 확인 자체가 불가능했다.
+    rememberRequest({
+        model,
+        ok: res.ok,
+        quality,
+        route: 'generate-cafe-card',
+        status: res.status,
+        usage: result?.usage ?? null,
+    });
     if (!res.ok) return { statusCode: res.status, body: { message: result?.error?.message || 'OpenAI 카드 생성 실패' } };
     const out = (result.output || []).find((it) => it.type === 'image_generation_call');
     if (!out?.result) return { statusCode: 502, body: { message: 'OpenAI 응답에 이미지가 없습니다.' } };
-    // 호출부(웹)가 표시/검증할 수 있도록 실제 사용 모델을 응답에 포함.
-    return { statusCode: 200, body: { imageDataUrl: `data:image/png;base64,${out.result}`, model } };
+    // 호출부(웹)가 표시/검증할 수 있도록 실제 사용 모델·사용량을 응답에 포함.
+    return {
+        statusCode: 200,
+        body: { imageDataUrl: `data:image/png;base64,${out.result}`, model, usage: result?.usage ?? null },
+    };
 }
 
 loadDotEnv();
