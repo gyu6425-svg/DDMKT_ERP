@@ -65,8 +65,14 @@ def main():
             time.sleep(POLL_SEC); continue
 
         picked = None
+        now_iso = datetime.datetime.now().isoformat(timespec="seconds")
         for job in reqs:
             jid = job["id"]
+            # 예약시각(scheduled_at)이 아직 안 됐으면 건너뜀 — 계정 간 시차를 지켜
+            #   같은 글에 여러 계정 댓글이 동시에 달리지 않게 한다.
+            sched = (job.get("scheduled_at") or "").strip()
+            if sched and sched[:19] > now_iso[:19]:
+                continue
             a = acct.find_account(job.get("account"))
             # B1: 이름이 있는데 accounts.txt 에 없으면 기본 계정으로 폴백하지 않고 실패 처리
             #     (폴백하면 엉뚱한 네이버 아이디로 댓글이 달린다)
