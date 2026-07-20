@@ -585,6 +585,8 @@ create table if not exists public.cafe_comment_queue (
 );
 -- 이미 만들어진 테이블에도 계정 컬럼 추가(멀티계정).
 alter table public.cafe_comment_queue add column if not exists account text;
+-- 대댓글(답글) 대상 — 비어 있으면 일반 댓글, 값이 있으면 그 텍스트를 가진 댓글에 답글.
+alter table public.cafe_comment_queue add column if not exists reply_to_body text;
 create index if not exists ccq_status_idx on public.cafe_comment_queue (status, created_at);
 create index if not exists ccq_account_status_idx on public.cafe_comment_queue (account, status, created_at);
 alter table public.cafe_comment_queue enable row level security;

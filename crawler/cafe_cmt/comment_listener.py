@@ -65,14 +65,22 @@ def main():
             time.sleep(POLL_SEC); continue
 
         picked = None
-        now_iso = datetime.datetime.now().isoformat(timespec="seconds")
+        now_dt = datetime.datetime.now().astimezone()   # 타임존 인식(로컬)
         for job in reqs:
             jid = job["id"]
             # 예약시각(scheduled_at)이 아직 안 됐으면 건너뜀 — 계정 간 시차를 지켜
             #   같은 글에 여러 계정 댓글이 동시에 달리지 않게 한다.
+            #   DB 는 timestamptz(UTC 로 돌려줌)라 문자열이 아니라 시각으로 비교해야 정확하다.
             sched = (job.get("scheduled_at") or "").strip()
-            if sched and sched[:19] > now_iso[:19]:
-                continue
+            if sched:
+                try:
+                    sdt = datetime.datetime.fromisoformat(sched.replace("Z", "+00:00"))
+                    if sdt.tzinfo is None:
+                        sdt = sdt.astimezone()
+                    if sdt > now_dt:
+                        continue
+                except Exception:
+                    pass   # 파싱 실패 시 예약 무시하고 진행
             a = acct.find_account(job.get("account"))
             # B1: 이름이 있는데 accounts.txt 에 없으면 기본 계정으로 폴백하지 않고 실패 처리
             #     (폴백하면 엉뚱한 네이버 아이디로 댓글이 달린다)
@@ -94,11 +102,18 @@ def main():
         job, jid, a = picked
 
         # 중복 방지 — 조회 자체가 실패하면(마이그레이션 전 등) 게시하지 않고 다음 기회로 미룬다.
-        try:
-            dup = cc.already_commented(job.get("article_url"), exclude_id=jid, account=a["name"])
-        except Exception as e:
-            print(f"  ⏸ 중복확인 실패 — 게시 보류(대기 유지): {str(e)[:110]}", flush=True)
-            time.sleep(15); continue
+        #   ⚠️ 답글(reply_to_body 있음)에는 이 판정을 적용하지 않는다. 여기 판정은
+        #   '이 계정이 이 글에 댓글을 달았나'라서, 같은 글에 댓글을 단 계정은 답글도 못 달게 된다.
+        #   답글의 중복 방지는 예약기(reply_scheduler)가 '그 원댓글에 이미 답글했나'로 처리한다.
+        is_reply = bool((job.get("reply_to_body") or "").strip())
+        if is_reply:
+            dup = False
+        else:
+            try:
+                dup = cc.already_commented(job.get("article_url"), exclude_id=jid, account=a["name"])
+            except Exception as e:
+                print(f"  ⏸ 중복확인 실패 — 게시 보류(대기 유지): {str(e)[:110]}", flush=True)
+                time.sleep(15); continue
         if dup:
             _fail(jid, "중복 방지: 이 글에 이미 댓글 있음")
             print(f"[{datetime.datetime.now():%H:%M:%S}] ⏭ 이미 댓글 단 글 — 건너뜀: {(job.get('article_url') or '')[:46]}", flush=True)

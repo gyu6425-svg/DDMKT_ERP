@@ -81,6 +81,11 @@ SEL_CMT_SUBMIT = [
     'a:has-text("등록")',
     'button:has-text("등록")',
 ]
+# ── 대댓글(답글) 셀렉터 (✅ 확정: 2026-07-20 ddmkt2) ──
+#   댓글 항목마다 "답글쓰기"(a.comment_info_button)가 있고, 누르면 그 댓글 아래에
+#   답글용 입력창/등록버튼이 '추가로' 생긴다 — 클래스는 댓글용과 동일하다.
+#   그래서 답글은 "새로 늘어난 마지막 것"을 써야 한다(첫 번째는 일반 댓글창).
+SEL_REPLY_OPEN = 'a.comment_info_button'
 
 
 def _log(m):
@@ -319,15 +324,126 @@ def write_comment(page, url, body, no_send=False):
     raise RuntimeError(f"댓글 등록 확인 실패 {hint}")
 
 
+def write_reply(page, url, target_body, body, no_send=False):
+    """대댓글 — target_body(우리가 단 댓글 문구)를 가진 댓글을 찾아 '답글쓰기' 후 작성.
+
+    답글창은 댓글창과 클래스가 같고 클릭 시 '추가로' 생기므로, 클릭 전후 개수를 비교해
+    새로 생긴 마지막 입력창/등록버튼을 쓴다(첫 번째를 쓰면 일반 댓글이 달려버린다).
+    """
+    _goto_article(page, url)
+    _focus_naver_window()
+
+    # 댓글 목록이 있는 프레임 찾기
+    fr = None
+    for f in page.frames:
+        try:
+            if f.locator(SEL_REPLY_OPEN).count() > 0:
+                fr = f
+                break
+        except Exception:
+            continue
+    if not fr:
+        raise RuntimeError("답글쓰기 버튼 못 찾음 — 댓글이 없거나 셀렉터 변경")
+
+    # 대상 댓글 찾기: 그 댓글 문구를 포함한 항목의 '답글쓰기' 클릭
+    key = (target_body or "").strip()[:20]
+    if not key:
+        raise RuntimeError("답글 대상(reply_to_body) 없음")
+    idx = fr.evaluate("""(k) => {
+      const btns = [...document.querySelectorAll('a.comment_info_button')];
+      for (let i = 0; i < btns.length; i++) {
+        const li = btns[i].closest('li') || btns[i].parentElement;
+        if (li && (li.innerText || '').includes(k)) return i;
+      }
+      return -1;
+    }""", key)
+    if idx < 0:
+        raise RuntimeError(f"대상 댓글 못 찾음(삭제됐거나 아직 미반영): '{key[:16]}'")
+
+    before_box = fr.locator('textarea.comment_inbox_text').count()
+    fr.locator(SEL_REPLY_OPEN).nth(idx).click()
+    page.wait_for_timeout(1200)
+    if fr.locator('textarea.comment_inbox_text').count() <= before_box:
+        raise RuntimeError("답글 입력창이 열리지 않음")
+
+    # ⚠️ 답글창은 댓글창과 클래스가 같다. DOM 마지막(.last)은 페이지 하단의 '메인 댓글창'이라
+    #   그걸 쓰면 답글이 아니라 일반 댓글로 달린다(실제로 그렇게 잘못 달린 적 있음).
+    #   → 반드시 '그 댓글 항목(li) 안에 새로 생긴' 입력창을 써야 한다.
+    box = fr.evaluate_handle("""(k) => {
+      const btns = [...document.querySelectorAll('a.comment_info_button')];
+      for (const b of btns) {
+        const li = b.closest('li');
+        if (!li || !(li.innerText || '').includes(k)) continue;
+        // 그 댓글 항목 안, 없으면 바로 다음 형제(답글 폼이 형제로 붙는 스킨 대비)
+        let t = li.querySelector('textarea.comment_inbox_text');
+        if (!t && li.nextElementSibling) t = li.nextElementSibling.querySelector('textarea.comment_inbox_text');
+        if (t) return t;
+      }
+      return null;
+    }""", key)
+    if not box or not box.as_element():
+        raise RuntimeError("답글 입력창을 대상 댓글 안에서 못 찾음(구조 변경?)")
+    box = box.as_element()
+    box.scroll_into_view_if_needed()
+    box.click()
+    page.wait_for_timeout(200)
+    try:
+        box.fill(body)
+    except Exception:
+        page.keyboard.type(body)
+    page.wait_for_timeout(300)
+    if no_send:
+        _log("no_send: 답글 입력만 완료(사람이 '등록' 클릭).")
+        return None
+
+    # 등록 버튼도 같은 답글 폼 안에서 찾는다(메인 댓글창 등록버튼을 누르면 안 됨).
+    btn = fr.evaluate_handle("""(k) => {
+      const btns = [...document.querySelectorAll('a.comment_info_button')];
+      for (const b of btns) {
+        const li = b.closest('li');
+        if (!li || !(li.innerText || '').includes(k)) continue;
+        let r = li.querySelector('a.button.btn_register, button.btn_register');
+        if (!r && li.nextElementSibling) r = li.nextElementSibling.querySelector('a.button.btn_register, button.btn_register');
+        if (r) return r;
+      }
+      return null;
+    }""", key)
+    if not btn or not btn.as_element():
+        raise RuntimeError("답글 등록 버튼을 대상 댓글 안에서 못 찾음")
+    alerts = []
+    page.on("dialog", lambda d: (alerts.append(d.message), d.dismiss()))
+    btn.as_element().click()
+    # 검증: 등록되면 (a) 답글 폼이 통째로 사라지거나 (b) 입력창이 비워진다.
+    #   댓글과 달리 답글은 폼이 제거되는 쪽이라, 비워짐만 보면 성공인데도 실패로 오판한다
+    #   (실제로 정상 게시된 답글이 '등록 미확정'으로 fail 처리된 적 있음).
+    for _ in range(20):
+        page.wait_for_timeout(400)
+        try:
+            gone = not box.is_visible()          # 폼이 사라짐 = 등록됨
+        except Exception:
+            gone = True                          # 요소 자체가 DOM 에서 떨어져 나감
+        if gone:
+            return page.url
+        cur = _box_text(box)
+        if cur is not None and cur.strip() == "":
+            return page.url
+    hint = f"(alert: {alerts[-1]})" if alerts else "(등록 미확정)"
+    raise RuntimeError(f"답글 등록 확인 실패 {hint}")
+
+
 def comment_job(job, cdp_url=DEFAULT_CDP, no_send=False):
-    """큐 1건 처리 — 대상 글에 댓글 작성. (posted_url 또는 예외)"""
+    """큐 1건 처리 — 일반 댓글 또는 대댓글(reply_to_body 가 있으면). (posted_url 또는 예외)"""
     url = job.get("article_url") or ""
     body = job.get("body") or ""
+    target = (job.get("reply_to_body") or "").strip()
     if not url or not body:
         raise RuntimeError("article_url/body 누락")
-    _log(f"댓글 처리: {url[:60]} — {body[:20]}...")
+    kind = "답글" if target else "댓글"
+    _log(f"{kind} 처리: {url[:56]} — {body[:20]}...")
     with sync_playwright() as p:
         page = _connect(p, cdp_url)
+        if target:
+            return write_reply(page, url, target, body, no_send=no_send)
         return write_comment(page, url, body, no_send=no_send)
 
 

@@ -139,7 +139,8 @@ def process_watch(page, w, canon_acct=None):
             # 같은 글에 여러 계정이 동시에 달리면 티가 나므로 계정마다 시차를 둔다.
             #   n번째 계정 = 기준시각 + (n × STAGGER_MIN) ± 지터. 리스너가 이 시각 전엔 처리하지 않는다.
             delay = idx * STAGGER_MIN + random.uniform(-STAGGER_JITTER, STAGGER_JITTER)
-            when = datetime.datetime.now() + datetime.timedelta(minutes=max(0.0, delay))
+            # astimezone(): 오프셋을 붙여 저장해야 DB(timestamptz)가 UTC 로 오해하지 않는다.
+            when = datetime.datetime.now().astimezone() + datetime.timedelta(minutes=max(0.0, delay))
             try:
                 cc.sb_insert("cafe_comment_queue", {
                     "article_url": a["url"], "body": body, "status": "pending",
