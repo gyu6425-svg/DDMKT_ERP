@@ -36,6 +36,37 @@ export async function createCommentJob(input: { articleUrl: string; body: string
     return { error: null, jobId };
 }
 
+// 계정별 집계 — 탭 구성 + 건수 표시용.
+export type AccountStat = {
+    account: string;   // '' = 계정 미지정(기본 계정으로 처리됨)
+    total: number;
+    done: number;
+    fail: number;
+    pending: number;   // pending + processing
+};
+
+// 계정별 건수 — 큐에 기록된 계정들을 모아 탭을 만든다(계정 목록은 로컬 accounts.txt 라 웹에서 못 읽음).
+export async function listCommentStats(limit = 1000) {
+    const { data, error } = await supabase
+        .from('cafe_comment_queue')
+        .select('account,status')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    const map = new Map<string, AccountStat>();
+    for (const r of (data ?? []) as { account: string | null; status: string }[]) {
+        const key = r.account ?? '';
+        const s = map.get(key) ?? { account: key, total: 0, done: 0, fail: 0, pending: 0 };
+        s.total += 1;
+        if (r.status === 'done') s.done += 1;
+        else if (r.status === 'fail') s.fail += 1;
+        else s.pending += 1; // pending | processing
+        map.set(key, s);
+    }
+    // 건수 많은 계정 먼저
+    const stats = [...map.values()].sort((a, b) => b.total - a.total);
+    return { data: stats, error };
+}
+
 // 댓글 큐 현황(내부) — 최근순. account 를 주면 그 계정 것만(탭별 조회).
 export async function listCommentJobs(limit = 20, account?: string | null) {
     let q = supabase
