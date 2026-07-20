@@ -56,8 +56,19 @@ export async function getReporterRegisteredBlogIdsSafe(): Promise<{
         .eq('status', 'approved')
         .not('blog_account_id', 'is', null)
         .returns<{ blog_account_id: string | null }[]>();
-    const ids = new Set((data ?? []).map((r) => r.blog_account_id).filter((id): id is string => !!id));
-    return { ids, error: error ?? null };
+    const linked = (data ?? []).map((r) => r.blog_account_id).filter((id): id is string => !!id);
+    if (error || !linked.length) return { ids: new Set<string>(), error: error ?? null };
+    // 신청 이력이 있어도 그 뒤 계약 관리에 연동됐으면(client_id 있음) 계약 규칙대로 외주비가 잡힌다.
+    //   → 계약 미연동(client_id is null)인 것만 '외주비 없음' 대상. DB 함수 count_blog_progress 의
+    //     판정 조건과 동일하게 맞춘다(둘이 갈라지면 정산 금액이 실제 계상과 어긋난다).
+    const { data: accs, error: accErr } = await supabase
+        .from('blog_accounts')
+        .select('id')
+        .in('id', linked)
+        .is('client_id', null)
+        .returns<{ id: string }[]>();
+    if (accErr) return { ids: new Set<string>(), error: accErr };
+    return { ids: new Set((accs ?? []).map((a) => a.id)), error: null };
 }
 
 // 기자단 신청 등록. 같은 블로그 주소를 이미 신청(검토중)했으면 duplicate로 알린다.
