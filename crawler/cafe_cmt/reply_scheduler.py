@@ -104,8 +104,11 @@ def run_once():
     last_body = None
     for akey, cands in by_article.items():
         # 이 글에 이미 달린 답글 수 만큼 빼서 목표치를 채운다
+        # 실패한 답글은 할당량에서 빼야 한다. 예전엔 fail 도 세서, 두 번 실패하면
+        #   그 글은 have=2 가 되어 다시는 답글을 못 받았다(replied 집합과 판정이 어긋났음).
         have = sum(1 for r in rows
-                   if r.get("reply_to_body") and cc.article_key(r.get("article_url", "")) == akey)
+                   if r.get("reply_to_body") and r.get("status") != "fail"
+                   and cc.article_key(r.get("article_url", "")) == akey)
         need = REPLY_PER_POST - have
         if need <= 0:
             continue

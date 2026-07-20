@@ -102,9 +102,21 @@ def sb_get(path, params=None):
     return r.json()
 
 
-def sb_patch(path, params, payload):
-    requests.patch(f"{SUPABASE_URL}/rest/v1/{path}", headers={**_headers(), "Prefer": "return=minimal"},
-                   params=params, data=json.dumps(payload), timeout=30, verify=False)
+def sb_patch(path, params, payload, tries=4):
+    """상태 기록. ⚠️ 예전엔 오류를 통째로 삼켜서(raise_for_status 없음) 게시 성공 후
+    done 표시가 실패하면 작업이 pending 으로 남아 **같은 댓글이 두 번 게시**됐다.
+    짧게 재시도하고, 그래도 안 되면 예외를 올려 호출부가 알게 한다."""
+    last = None
+    for i in range(tries):
+        try:
+            r = requests.patch(f"{SUPABASE_URL}/rest/v1/{path}", headers={**_headers(), "Prefer": "return=minimal"},
+                               params=params, data=json.dumps(payload), timeout=30, verify=False)
+            r.raise_for_status()
+            return r
+        except Exception as e:
+            last = e
+            time.sleep(1.5 * (i + 1))
+    raise RuntimeError(f"SB_PATCH_FAILED: {str(last)[:150]}")
 
 
 def sb_insert(path, payload):
@@ -214,8 +226,15 @@ def _box_text(box):
 def _connect(p, cdp_url):
     browser = p.chromium.connect_over_cdp(cdp_url)
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-    # keep_alive.py 가 잠깐 여는 확인용 탭(#keepalive 마커)은 작업 탭으로 오인·선택하지 않는다.
-    pages = [pg for pg in ctx.pages if "naver.com" in (pg.url or "") and "keepalive" not in (pg.url or "")]
+    # 도우미 프로세스가 잠깐 여는 탭은 작업 탭으로 오인·선택하지 않는다.
+    #   keep_alive.py → #keepalive, watch_new_posts.py → #watch.
+    #   watch 마커는 필터에 빠져 있어서, 워처가 스크랩 중인 탭을 리스너가 가로채
+    #   Target closed 가 나는 경로가 남아 있었다.
+    def _helper(u):
+        u = u or ""
+        return ("keepalive" in u) or ("#watch" in u) or ("watch=1" in u)
+
+    pages = [pg for pg in ctx.pages if "naver.com" in (pg.url or "") and not _helper(pg.url)]
     page = pages[0] if pages else (ctx.pages[0] if ctx.pages else ctx.new_page())
     try:
         page.bring_to_front()
@@ -312,8 +331,18 @@ def write_comment(page, url, body, no_send=False):
     #   input_value()/inner_text() 를 못 읽으면(contenteditable·detach) None → 성공으로 오판하지 않고 계속 대기.
     #   (오판 성공은 '등록 안 됐는데 완료 처리'라 오판 실패보다 위험 → 확인 불가는 성공으로 치지 않음)
     confirmed = False
-    for _ in range(20):
+    for _ in range(30):          # 8초 -> 12초 (느린 응답에서 정상 게시가 실패로 오판되던 문제)
         page.wait_for_timeout(400)
+        # 등록되면 입력창이 비워지거나, 폼/요소가 DOM 에서 떨어져 나간다.
+        #   답글 경로엔 이 처리가 있는데 댓글 경로엔 없어서, 실제로 달린 댓글이
+        #   '등록 미확정' 으로 영구 실패 처리된 적이 있다.
+        try:
+            if not box.is_visible():
+                confirmed = True
+                break
+        except Exception:
+            confirmed = True     # 요소 자체가 사라짐 = 등록됨
+            break
         cur = _box_text(box)
         if cur is not None and cur.strip() == "":
             confirmed = True

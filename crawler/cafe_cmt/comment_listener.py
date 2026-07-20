@@ -14,6 +14,7 @@ comment_cafe 로 대상 글에 댓글을 작성한다. cafe_pub/publish_listener
 """
 import datetime
 import os
+import re
 import socket
 import sys
 import time
@@ -27,8 +28,17 @@ except Exception:
     pass
 
 POLL_SEC = 6
-BATCH = 10                                                        # 후보를 여러 건 받아 처리 가능한 것부터
+# 후보 조회 폭. 좁으면(예전 10) 한 계정의 밀린 작업이 창을 다 차지해 다른 계정 작업이
+#   아예 보이지 않는 교착이 생긴다(측정상 답글 10건이면 댓글이 통째로 굶음).
+BATCH = int(os.environ.get("CAFE_CMT_BATCH", "60"))
+MAX_TRY = int(os.environ.get("CAFE_CMT_MAX_TRY", "5"))            # 재시도 한도(초과 시 영구 실패)
+RETRY_BACKOFF_MIN = float(os.environ.get("CAFE_CMT_RETRY_BACKOFF_MIN", "3"))
+RETRY_TAG = "재시도 "                                              # reason 에 남겨 횟수를 추적
 MIN_GAP_MIN = int(os.environ.get("CAFE_CMT_MIN_GAP_MIN", "20"))    # 댓글 최소 간격(분) — 계정별
+# 답글 전용 계정(글 작성자)의 간격 — 자기 글 관리라 짧게 둬도 자연스럽다.
+REPLY_GAP_MIN = int(os.environ.get("CAFE_CMT_REPLY_GAP_MIN", "10"))
+REPLY_ACCOUNTS = {x.strip().lower() for x in
+                  os.environ.get("CAFE_CMT_REPLY_ACCOUNT", "rlawhddls25").split(",") if x.strip()}
 NO_SEND = os.environ.get("CAFE_CMT_NO_SEND", "1") != "0"           # 기본 수동보조(등록 직전까지)
 _last = {}                                                        # 계정별 마지막 게시 시각(멀티계정 처리량 확보)
 
@@ -44,6 +54,13 @@ def _port_open(port, timeout=1.0):
 
 def _fail(jid, reason):
     cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"}, {"status": "fail", "reason": reason})
+
+
+def _try_count(job):
+    """이 작업이 지금까지 몇 번 재시도됐는지 — reason 에 남긴 '재시도 N/M' 을 읽는다.
+    (별도 컬럼을 추가하지 않으려고 reason 을 그대로 쓴다)"""
+    m = re.match(RETRY_TAG + r"(\d+)/", (job.get("reason") or ""))
+    return int(m.group(1)) if m else 0
 
 
 def main():
@@ -88,8 +105,11 @@ def main():
                 _fail(jid, f"계정 미등록: '{job.get('account')}' — accounts.txt 에 추가 후 재예약")
                 print(f"  ❌ 계정 미등록으로 실패 처리: {job.get('account')}", flush=True)
                 continue
-            # 계정별 간격(완전 자동일 때만)
-            if not NO_SEND and (time.time() - _last.get(a["name"], 0.0)) < MIN_GAP_MIN * 60:
+            # 계정별 간격(완전 자동일 때만).
+            #   답글 전용 계정(글 작성자)은 자기 글에 답하는 것이라 빈도 제약이 덜해 간격을 짧게 둔다.
+            #   안 그러면 답글 생성(글당 2개)이 처리량(20분당 1건)을 넘어 백로그가 무한히 쌓인다.
+            gap = REPLY_GAP_MIN if a["name"].lower() in REPLY_ACCOUNTS else MIN_GAP_MIN
+            if not NO_SEND and (time.time() - _last.get(a["name"], 0.0)) < gap * 60:
                 continue
             # 해당 계정 크롬이 죽어있으면 건너뛰고 다른 계정 작업을 처리(머리 막힘 방지)
             if not _port_open(a["port"]):
@@ -120,11 +140,15 @@ def main():
             continue
 
         cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"}, {"status": "processing"})
-        now = datetime.datetime.now().isoformat(timespec="seconds")
+        # astimezone(): 오프셋을 붙여야 DB(timestamptz)가 UTC 로 오해하지 않는다.
+        #   예전엔 done_at 이 9시간 과거로 저장돼, 답글 예약기의 '댓글 후 20분 묵힘'이 무력화됐다.
+        now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+        posted = False
         print(f"[{datetime.datetime.now():%H:%M:%S}] 댓글 처리[{a['name']}:{a['port']}]: {(job.get('article_url') or '')[:44]}", flush=True)
         try:
             url = cc.comment_job(job, f"http://127.0.0.1:{a['port']}", no_send=NO_SEND)
             _last[a["name"]] = time.time()
+            posted = True     # 여기부터는 '이미 게시됨' — 아래 기록이 실패해도 재시도하면 안 된다
             if NO_SEND:
                 cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"},
                             {"status": "done", "done_at": now, "reason": "no_send(등록은 수동)"})
@@ -135,15 +159,40 @@ def main():
                 print(f"  ✅ 댓글 완료: {url}", flush=True)
         except Exception as e:
             reason = str(e)[:300]
+            # 게시는 됐는데 기록만 실패한 경우 — 절대 재시도하면 안 된다(같은 댓글 2번 게시).
+            if posted:
+                print(f"  ⚠️ 게시는 완료됐으나 상태기록 실패 — 중복 방지 위해 done 처리: {reason[:80]}", flush=True)
+                try:
+                    cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"},
+                                {"status": "done", "done_at": now, "reason": "기록 지연(게시는 완료)"})
+                except Exception:
+                    print("  ❗ done 기록 재시도도 실패 — 수동 확인 필요", flush=True)
+                continue
+            n_try = _try_count(job) + 1
             # 로그인 만료·크롬 꺼짐·일시 오류는 재시도 대상 → pending 으로 되돌려 복구 후 자동 재개.
+            # ⚠️ 답글 경로의 오류 문구는 전부 '답글~' 이라, 예전엔 이 목록에 하나도 안 걸려
+            #   일시적 오류(댓글이 아직 렌더 안 됨 등)까지 영구 실패로 죽었다.
             retryable = any(k in reason for k in (
-                "LOGIN_REQUIRED", "ECONNREFUSED", "connect_over_cdp", "댓글 입력창", "댓글 등록 버튼",
+                "LOGIN_REQUIRED", "ECONNREFUSED", "connect_over_cdp",
+                "댓글 입력창", "댓글 등록 버튼", "댓글 등록 확인",
+                "답글쓰기 버튼", "대상 댓글 못 찾음", "답글 입력창", "답글 등록 버튼", "답글 등록 확인",
                 "Timeout", "Target closed", "browserContext", "websocket",
             ))
-            if retryable:
-                cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"}, {"status": "pending", "reason": None})
-                print(f"  ⏸ 크롬/로그인/일시오류 — 대기로 되돌림(복구되면 자동): {reason[:90]}", flush=True)
-                time.sleep(30)
+            if retryable and n_try < MAX_TRY:
+                # 재시도는 '지금 당장'이 아니라 뒤로 미룬다. 안 그러면 이 작업이 큐의 머리를
+                #   계속 차지해(가장 오래됨) 다른 작업이 영영 처리되지 않고, 30초마다 재시도가
+                #   반복돼 네이버 요청량도 폭증한다(측정상 9배).
+                back = RETRY_BACKOFF_MIN * (2 ** (n_try - 1))     # 3, 6, 12, 24분…
+                nxt = datetime.datetime.now().astimezone() + datetime.timedelta(minutes=back)
+                cc.sb_patch("cafe_comment_queue", {"id": f"eq.{jid}"}, {
+                    "status": "pending",
+                    "reason": f"{RETRY_TAG}{n_try}/{MAX_TRY}: {reason[:160]}",
+                    "scheduled_at": nxt.isoformat(timespec="seconds"),
+                })
+                print(f"  ⏸ 일시오류 {n_try}/{MAX_TRY} — {back}분 뒤 재시도: {reason[:80]}", flush=True)
+            elif retryable:
+                _fail(jid, f"재시도 {MAX_TRY}회 초과: {reason[:200]}")
+                print(f"  ❌ 재시도 한도 초과 — {reason[:80]}", flush=True)
             else:
                 _fail(jid, reason)
                 print(f"  ❌ 실패 — {reason}", flush=True)

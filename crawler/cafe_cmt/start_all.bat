@@ -46,11 +46,16 @@ ping -n 9 127.0.0.1 >nul 2>&1
 echo [2/3] starting comment listener...
 start "cafe-cmt-listener" /min py comment_listener.py
 
-echo [3/3] starting new-post watcher...
+echo [3/4] starting new-post watcher...
 start "cafe-cmt-watcher" /min py watch_new_posts.py
 
+REM Reply scheduler was missing here, so after any reboot replies stopped silently
+REM while comments kept working - and nothing reported it.
+echo [4/4] starting reply scheduler...
+start "cafe-cmt-reply" /min py reply_scheduler.py
+
 echo.
-echo Started: Chrome per account + comment listener + new-post watcher.
+echo Started: Chrome per account + comment listener + watcher + reply scheduler.
 echo You may close this window. Use stop_all.bat to stop.
 ping -n 4 127.0.0.1 >nul 2>&1
 endlocal
