@@ -105,7 +105,7 @@ function CafePage() {
     const [cardCount, setCardCount] = useState(3); // 뽑을 카드 장수(1~9)
     const [genImages, setGenImages] = useState<string[]>([]); // GPT로 생성된 카드 이미지들
     // 초판·테스트는 비활성(유지만), 기본은 테스트2. 저장=생성 히스토리.
-    const [activeTab, setActiveTab] = useState<'draft' | 'test' | 'test2' | 'leak2' | 'leak3' | 'theman' | 'theman2' | 'theman3' | 'banner' | 'saved'>('leak2');
+    const [activeTab, setActiveTab] = useState<'draft' | 'test' | 'test2' | 'leak2' | 'leak3' | 'theman' | 'theman2' | 'theman3' | 'banner' | 'saved'>('leak3');
     const [saved, setSaved] = useState<CafeOutput[]>([]); // 저장 갤러리
     const [saving, setSaving] = useState(false);
 
@@ -279,10 +279,10 @@ function CafePage() {
                     ['draft', '초판', true],
                     ['test', '테스트', true],
                     ['test2', '누수탐지', true],
-                    ['leak2', '누수탐지2', false],
+                    ['leak2', '누수탐지2', true],
                     ['leak3', '누수탐지3', false],
                     ['banner', '더맨시스템', true],
-                    ['theman2', '더맨시스템2', false],
+                    ['theman2', '더맨시스템2', true],
                     ['theman3', '더맨시스템3', false],
                     ['saved', '저장', false],
                 ] as [typeof activeTab, string, boolean][]).map(([k, label, disabled]) => (
