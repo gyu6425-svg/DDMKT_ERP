@@ -89,6 +89,39 @@ def _kd():
     """사람 같은 키 입력 딜레이(ms) — 줄마다 다르게."""
     return random.randint(38, 95)
 
+
+# 오타→백스페이스 연출이 일어날 줄의 비율. 실제 사람은 정타만 쭉 치지 않는다.
+CAFE_TYPO_RATE = float(os.environ.get("CAFE_TYPO_RATE", "0.20"))
+# 지웠다 쓸 때 잠깐 보였다 사라지는 글자들 — 어차피 전부 지우므로 내용은 무의미.
+_TYPO_CHARS = "ㅁㄴㅇㄹ아어이오우그느다드르"
+
+
+def _typo_burst(page):
+    """군더더기 글자를 몇 개 더 쳤다가 Backspace 로 전부 지운다.
+    친 만큼만 지우므로 최종 본문은 원본과 동일하다(가감 합 0)."""
+    n = random.randint(1, 3)
+    page.keyboard.type("".join(random.choice(_TYPO_CHARS) for _ in range(n)), delay=_kd())
+    page.wait_for_timeout(random.randint(120, 380))   # "어, 오타네" 알아채는 순간
+    for _ in range(n):
+        page.keyboard.press("Backspace")
+        page.wait_for_timeout(random.randint(45, 110))
+
+
+def _type_human(page, ln):
+    """한 줄을 사람처럼 타이핑 — 가끔 오타 냈다 지우고 다시 정타.
+    지우는 건 방금 친 군더더기뿐이라 결과 텍스트는 ln 그대로다."""
+    if len(ln) < 12 or random.random() >= CAFE_TYPO_RATE:
+        page.keyboard.type(ln, delay=_kd())
+        return
+    n_ev = random.randint(1, 2) if len(ln) >= 40 else 1
+    cuts = sorted(random.sample(range(5, len(ln) - 3), n_ev))   # 줄 맨앞/맨뒤는 피함
+    pos = 0
+    for c in cuts:
+        page.keyboard.type(ln[pos:c], delay=_kd())
+        _typo_burst(page)
+        pos = c
+    page.keyboard.type(ln[pos:], delay=_kd())
+
 # 본문 마커 정규식 — "사진 N"(대괄호/「」 유무 허용), "부제목 : 내용"
 IMG_MARK = re.compile(r'^\s*[「\[]?\s*사진\s*(\d+)\s*[」\]]?\s*$')
 SUB_MARK = re.compile(r'^\s*부제목\s*[:：]\s*(.+?)\s*$')
@@ -305,8 +338,10 @@ def _type_multiline(page, text):
     for i, ln in enumerate(lines):
         if i:
             page.keyboard.press("Enter")
+            if random.random() < 0.25:
+                page.wait_for_timeout(random.randint(400, 1500))  # 다음 문장 생각하는 멈칫
         if ln:
-            page.keyboard.type(ln, delay=_kd())
+            _type_human(page, ln)
     page.keyboard.press("Enter")
 
 
