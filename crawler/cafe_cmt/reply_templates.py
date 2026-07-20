@@ -67,10 +67,9 @@ POOLS = {
 REGION_RATE = float(__import__("os").environ.get("CAFE_CMT_REPLY_REGION_RATE", "0.35"))
 
 
-# 키워드 앞에 붙지만 지역이 아닌 말 — '서초 회사 보안' 의 '회사' 같은 것.
-#   이걸 안 걸러내면 답글이 "회사쪽도 출장 되는 걸로 알고 있어요~" 가 된다.
-GENERIC_HEAD = {"회사", "사무실", "빌딩", "건물", "공장", "상가", "매장", "점포",
-                "아파트", "빌라", "오피스텔", "주택", "우리", "저희", "그", "이", "저"}
+# 지역이 아닌 업종어 목록은 댓글 쪽과 반드시 같아야 한다(다르면 같은 글인데
+#   댓글은 '서초', 답글은 '서초 회사' 가 되어 티가 난다) → 한 곳에서 가져다 쓴다.
+from comment_templates import GENERIC_HEAD  # noqa: E402
 
 
 def region_from_text(text, keyword, fallback=""):

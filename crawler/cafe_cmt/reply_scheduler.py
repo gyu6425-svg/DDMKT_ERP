@@ -27,6 +27,7 @@ import time
 
 import accounts as acct
 import comment_cafe as cc
+from comment_templates import region_from_comment
 from reply_templates import build_reply, region_from_text
 
 try:
@@ -143,7 +144,10 @@ def run_once():
                 _log(f"  ⏭ 업종 판별 불가(감시 키워드 미포함) — 답글 건너뜀: \"{(r.get('body') or '')[:24]}\"")
                 continue
             keyword = (w.get("keyword") or "").strip()
-            region = region_from_text(r.get("body", ""), keyword, (w.get("region") or ""))
+            # 1순위: 템플릿 역매칭(정확). 2순위: 정규식 추출(옛 데이터·수동 댓글). 3순위: 감시행 지역.
+            region = region_from_comment(r.get("body", ""), keyword,
+                                         region_from_text(r.get("body", ""), keyword,
+                                                          (w.get("region") or "")))
             try:
                 text = build_reply(region, keyword, avoid=last_body)
             except Exception as e:
