@@ -3,9 +3,14 @@
 //   이전 배너 프롬프트와 무관한 '깨끗한' 전용 프롬프트.
 
 type FunctionContext = { request: Request; env: Record<string, string | undefined> };
-type Payload = { region?: string; district?: string; topic?: string; phone?: string; services?: string; refs?: string[]; quality?: string; mode?: string };
+type Payload = { region?: string; district?: string; topic?: string; phone?: string; services?: string; refs?: string[]; quality?: string; mode?: string; model?: string };
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
+// 카드 오케스트레이션 모델 화이트리스트. 기본은 gpt-5.5, A/B용으로 gpt-5-mini 만 허용(임의 문자열 주입 차단).
+//   ⚠️ 전역 env(OPENAI_IMAGE_MODEL)는 보안배너·블로그·카드이미지가 공유하므로 여기서 바꾸지 않는다.
+const ALLOWED_CARD_MODELS = ['gpt-5.5', 'gpt-5-mini'];
+// 텍스트/재작성 없이 곧장 이미지를 뱉게 강제(약한 모델이 프롬프트를 축약·재작성하는 위험 완화). security-banner 와 동일 취지.
+const IMAGE_ONLY_GUARD = 'Immediately call the image_generation tool and output ONLY the image. Do NOT write any text, plan, or a revised prompt.';
 
 function json(body: unknown, status = 200) {
     return new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json; charset=utf-8' }, status });
@@ -20,6 +25,7 @@ export function buildCafeCardPrompt(p: Payload): string {
     // 고정 카드(2~8번용): 같은 브랜드 무드지만 지역·전화번호 없이, 현장 사진 위주.
     if (p.mode === 'fixed') {
         return [
+            IMAGE_ONLY_GUARD,
             `Create a 1024x1024 square Korean local "leak detection / plumbing repair" photo card (누수탐지·배관공사 현장 카드).`,
             `Follow this EXACT fixed layout (top to bottom), professional Korean local-service thumbnail mood:`,
             `1) TOP HEADER on a deep navy blue bar: the main title in HUGE bold WHITE text "누수탐지 · 배관공사", and directly under it a smaller yellow line "탐지부터 공사까지".`,
@@ -36,6 +42,7 @@ export function buildCafeCardPrompt(p: Payload): string {
     // 'hero' 템플릿(테스트2): 큰 인물 사진 + 대형 구/동 타이틀 + 신뢰 3항목 + 하단 문구 + 전화번호.
     if (p.mode === 'hero') {
         return [
+            IMAGE_ONLY_GUARD,
             `Create a 1024x1024 square Korean local leak-detection (누수탐지) promotional card. Reproduce this EXACT layout and style:`,
             `- Bright clean white/light background with subtle blue tech accents. Palette: dark navy (#0a2a66), vivid blue (#1e6fff), white, small yellow highlight.`,
             `- RIGHT SIDE (fills right ~45%): one large realistic photo of a masked technician in a navy work uniform looking UP and holding a handheld endoscope/leak-detection wand against a water-stained apartment ceiling near a bright window; he also holds a device with a small screen.`,
@@ -49,6 +56,7 @@ export function buildCafeCardPrompt(p: Payload): string {
         ].join('\n');
     }
     return [
+        IMAGE_ONLY_GUARD,
         `Create a 1024x1024 square Korean local leak-detection (누수탐지) promotional thumbnail card. Reproduce this EXACT professional layout and style:`,
         `- Bright, clean white/light background with subtle blue geometric accents; modern high-trust local-service look. Palette: vivid blue (#1e5bd8), white, dark navy.`,
         `- TOP-LEFT: a small round badge (circle) containing a water-drop + magnifier icon and two short lines of blue text "누수" / "전문".`,
@@ -67,7 +75,8 @@ export function buildCafeCardPrompt(p: Payload): string {
 export async function generateCafeCard(p: Payload, env: FunctionContext['env']) {
     const apiKey = env.OPENAI_API_KEY;
     if (!apiKey) return json({ message: 'Cloudflare 환경변수 OPENAI_API_KEY가 필요합니다.' }, 500);
-    const model = env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
+    // 요청이 허용목록의 모델을 명시하면 그걸 쓰고(A/B용), 아니면 기존 기본(gpt-5.5) 유지.
+    const model = p.model && ALLOWED_CARD_MODELS.includes(p.model) ? p.model : env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
     const quality = ['low', 'medium', 'high'].includes(p.quality || '') ? (p.quality as string) : 'high';
 
     const content: Array<{ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string }> = [
@@ -80,6 +89,8 @@ export async function generateCafeCard(p: Payload, env: FunctionContext['env']) 
     const body = JSON.stringify({
         input: [{ role: 'user', content }],
         model,
+        // 추론 토큰↓ → 텍스트 출력비 절감(오케스트레이션만, 이미지 화질 무영향). security-banner 에서 출력 ~39%↓ 실측.
+        reasoning: { effort: 'low' },
         tools: [{ type: 'image_generation', size: '1024x1024', quality }],
     });
 
@@ -108,7 +119,7 @@ export async function generateCafeCard(p: Payload, env: FunctionContext['env']) 
         if (base64) break;
     }
     if (!base64) return json({ message: 'OpenAI 응답에 이미지가 없습니다. 다시 시도해 주세요.' }, 502);
-    return json({ imageDataUrl: `data:image/png;base64,${base64}`, usage });
+    return json({ imageDataUrl: `data:image/png;base64,${base64}`, model, usage });
 }
 
 export async function onRequestPost({ request, env }: FunctionContext) {

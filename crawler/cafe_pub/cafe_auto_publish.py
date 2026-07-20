@@ -31,7 +31,6 @@ requests.packages.urllib3.disable_warnings()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-BANNER_API = "http://127.0.0.1:8787/api/generate-cafe-card"
 FIXED_DIR = os.path.join(ROOT, "public", "images", "cafe-fixed")
 CAFE_BUCKET = "cafe-images"
 UA_PC = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36"
@@ -53,6 +52,10 @@ _load_env()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
+# 배너 생성 API — 기본은 로컬 dev(:8787). 다른 PC(집)에서는 .env 의 CAFE_BANNER_API 에
+# 운영 주소(https://<배포도메인>/api/generate-cafe-card)를 넣으면 로컬 서버 없이 생성 가능.
+# ※ _load_env() 뒤에 있어야 .env 값이 반영된다.
+BANNER_API = os.environ.get("CAFE_BANNER_API", "http://127.0.0.1:8787/api/generate-cafe-card")
 
 def sb_headers():
     return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
@@ -80,15 +83,20 @@ def has_popular_pc(keyword):
 
 
 # ── 2) 원고 생성 (gpt-5-mini, 2000자+ 보장) ──
-def _review_prompt(region, count):
+def _review_prompt(region, count, ending="후기"):
     return "\n".join([
         f'너는 네이버 카페 지역글 전문 카피라이터다. 아래 업체의 "{region} {BUSINESS}" 홍보 카페 본문을 [후기형]으로 쓴다.',
         f'업체명 "{BRAND}", 지역 "{region}", 업종 "{BUSINESS}", 전화 "{PHONE}".',
         '시작 예: "안녕하세요 :) 얼마 전 누수 때문에 든든한 누수탐지 불러봤는데, 정리해서 공유해야겠다 싶어 글 남깁니다."',
+        f'- 제목(가장 중요): 반드시 "{region} {BUSINESS}"로 **시작**(맨 앞 한 덩어리 대표키워드, 절대 쪼개거나 앞에 다른 말 붙이지 마라). '
+        f'그 뒤에 구체적 상황·서비스 키워드(천장 물샘, 아파트·빌라, 아랫집 연락, 24시간 출동, 원인 확인, 방수 등)를 붙이고 **마무리는 "{ending}" 느낌**으로. 제목 22~40자. '
+        f'좋은 예: "과천 누수탐지, 천장 물샘부터 아랫집 연락까지 직접 불러본 후기" / "부평 누수탐지 아파트 빌라 24시간 출동이 가능한 가이드". '
+        f'제목 금지: 업체명("{BRAND}") 넣기, "~때문에/~골치였다면" 같은 가정·하소연형, 물결(~)·대괄호·따옴표. 매번 서술을 다르게 써라.',
         f'- 인사말 문단 먼저, 그 다음 「사진 1」~「사진 {count}」 각 한 줄 단독(정확히 {count}개).',
-        '- 각 「사진」 뒤 본문 문단(3~5문장) 필수. 부제목만 있는 사진 없게.',
+        '- 각 「사진」 뒤 본문 문단(3~5문장) 필수. 부제목만 있는 사진 없게. 문단과 문단 사이는 빈 줄 하나로 띄워라(가독성).',
         f'- 부제목: 절반가량만 "부제목 : <내용>"(한 줄). "부제목" 두 번 쓰지 마라. 1~2개 지역({region})+키워드.',
         f'- 전화({PHONE}) 정확. 분량 공백포함 2,000~2,300자, 반드시 2,000자 이상.',
+        '- 본문에 해시태그(#…)나 URL/링크는 절대 넣지 마라(발행 시 자동으로 붙는다).',
         '반드시 JSON 하나만(코드펜스 금지): {"title":"제목","body":"본문(「사진 N」 마커 포함)","topics":["'+str(count)+'개"]}',
     ])
 
@@ -108,16 +116,48 @@ def _openai_review(prompt):
 
 def _blen(b): return len(re.sub(r'「사진\s*\d+」', '', b or '').replace("\n", ""))
 
+# 발행용 홈페이지 링크(맨 마지막 줄 고정)
+BUSINESS_URL = "https://ddnusu.imweb.me/"
+# 제목 마무리 표현 풀 — 매번 다르게(사용자: 후기/가이드 등 다양하게)
+TITLE_ENDINGS = ["후기", "솔직 후기", "직접 불러본 후기", "가이드", "총정리", "체크 가이드", "정리", "경험담", "꿀팁 정리"]
+
+def _fix_title(region, title):
+    """대표키워드 "{region} {BUSINESS}"를 제목 '맨 앞'에 붙이되, 기존의 긴 제목은 그대로 살린다.
+    (모델이 대부분 처리 — 이건 안전망. 절대 제목을 짧게 자르지 않음.)"""
+    kw = f"{region} {BUSINESS}"
+    t = (title or "").strip().strip('"').strip()
+    if not t:
+        return f"{kw} 직접 불러본 후기, 원인 확인부터 마무리까지 정리했어요"
+    if t.startswith(kw):
+        return t                                  # 이미 대표키워드로 시작 → 그대로(길이 유지)
+    # 대표키워드를 앞에 붙임. 선두 지역조각·업체명·가정형·대시 제거해 깔끔한 서술만 남김(길이 보존).
+    tail = re.sub(rf'^\s*{re.escape(region)}\S*\s*', '', t)
+    tail = re.sub(re.escape(BRAND), '', tail)                 # 업체명 제거(제목 중복 방지)
+    tail = re.sub(r'[—–\-~"\'\[\]]', ' ', tail)               # 대시·물결·따옴표·대괄호 제거
+    tail = re.sub(r'^[\s:,.]+', '', tail)
+    tail = re.sub(r'\s{2,}', ' ', tail).strip()
+    return f"{kw} {tail}" if tail else kw
+
+def _tags(region):
+    """에디터 '태그 입력칸'(최대 10개)에 넣을 대표키워드 — 본문 #해시태그가 아니라 블로그식 하단 태그칩.
+    사용자 요청(2026-07-16): 사진1처럼 하단 태그로. 지역은 공백 제거해 한 덩어리 키워드로."""
+    rj = region.replace(" ", "")
+    return [f"{rj}누수탐지", f"{rj}누수", f"{rj}누수탐지업체", f"{rj}화장실누수",
+            "누수탐지", "누수", "누수탐지업체", "화장실누수", "아파트누수", "든든한누수탐지"][:10]
+
 def gen_review(region, count):
-    best = _openai_review(_review_prompt(region, count))
+    ending = random.choice(TITLE_ENDINGS)   # 제목 마무리 매번 다르게
+    best = _openai_review(_review_prompt(region, count, ending))
     for _ in range(3):   # 2000자 이상 나올 때까지 최대 3회 재생성(더 긴 쪽 유지) — 사용자: 2000자 밑 금지
         if _blen(best.get("body", "")) >= 2000:
             break
-        p = _openai_review(_review_prompt(region, count) +
+        p = _openai_review(_review_prompt(region, count, ending) +
             f'\n\n[매우 중요] 방금 본문이 {_blen(best.get("body",""))}자로 2,000자 미만이라 규칙 위반이다. 각 「사진」 뒤 본문을 5문장 이상으로 더 길고 구체적으로 늘려 반드시 공백 포함 2,100자 이상으로 다시 작성하라.')
         if _blen(p.get("body", "")) > _blen(best.get("body", "")):
             best = p
-    return best.get("title", ""), best.get("body", "")
+    title = _fix_title(region, best.get("title", ""))
+    body = (best.get("body", "") or "").rstrip()   # 태그/링크는 본문이 아니라 별도 블록으로 처리
+    return title, body
 
 
 # ── 3) 배너 생성 (api:dev :8787, hero/low) ──
@@ -200,6 +240,9 @@ def make_and_queue(region, fixed):
         if not path: raise RuntimeError(f"이미지 업로드 실패 idx={i}")
         blocks.append({"type": "image", "path": path})
     blocks.append({"type": "text", "text": body})
+    # 본문 뒤: 홈페이지 링크(썸네일 카드로 삽입) + 하단 태그칩(에디터 태그칸)
+    blocks.append({"type": "link", "url": BUSINESS_URL})
+    blocks.append({"type": "tags", "tags": _tags(region)})
     ok, err = queue_job(job_id, title, blocks)
     if not ok: raise RuntimeError(f"큐 적재 실패: {err}")
     _log(f"  ✅ 큐 등록 완료: {job_id[:8]} (이미지 {count} + 본문)")

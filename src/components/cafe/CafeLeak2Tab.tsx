@@ -137,7 +137,7 @@ export function CafeLeak2Tab() {
                     const t = Date.now();
                     const rv = await generateCafeReview({ business, content: merged, keyword, layout: 'bottom', phone, region, tone });
                     void logApiUsage({
-                        cost_usd: computeRecordCostUsd({ model: 'gpt-5.5', provider: 'openai', usage_raw: rv.usage ?? null }),
+                        cost_usd: computeRecordCostUsd({ model: 'gpt-5-mini', provider: 'openai', usage_raw: rv.usage ?? null }),
                         elapsed_ms: Date.now() - t,
                         model: 'cafe-post',
                         operator_name: operatorName,

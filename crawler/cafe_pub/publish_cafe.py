@@ -26,6 +26,7 @@ import re
 import sys
 import time
 import json
+import random
 import tempfile
 import pathlib
 import requests
@@ -65,6 +66,19 @@ SEL_EDITOR = ['.se-content .se-text-paragraph', '.se-content', '.se-container [c
 SEL_IMG_BTN = ['button.se-image-toolbar-button', 'button[data-log="dot.img"]']
 SEL_QUOTE_BTN = ['button[data-log="dot.quota"]', 'button.se-quotation-toolbar-button', 'button[data-name="quotation"]']
 SEL_SUBMIT = ['a.BaseButton--skinGreen:has-text("등록")', 'a.BaseButton--skinGreen', 'button:has-text("등록")']
+# 링크 썸네일 카드(OG) + 하단 태그칩 — ✅ 확정 2026-07-16
+SEL_LINK_BTN = 'button[data-log="dot.link"]'          # se-oglink-toolbar-button "링크 추가"
+SEL_LINK_INPUT = 'input.se-popup-oglink-input'        # "URL을 입력하세요."
+SEL_LINK_SEARCH = 'button.se-popup-oglink-button'     # "검색"(OG 정보 조회)
+SEL_LINK_CONFIRM = 'button.se-popup-button-confirm'   # "확인"(카드 삽입)
+SEL_TAG_INPUT = 'input.tag_input'                     # "태그를 입력해주세요 (최대 10개)"
+# 작성 시간 하한(초) — 너무 빨리 쓰면 상위노출 불리하다는 판단 → 페이싱으로 최소 이 시간 확보
+CAFE_MIN_SECONDS = int(os.environ.get("CAFE_MIN_SECONDS", "330"))
+
+
+def _kd():
+    """사람 같은 키 입력 딜레이(ms) — 줄마다 다르게."""
+    return random.randint(38, 95)
 
 # 본문 마커 정규식 — "사진 N"(대괄호/「」 유무 허용), "부제목 : 내용"
 IMG_MARK = re.compile(r'^\s*[「\[]?\s*사진\s*(\d+)\s*[」\]]?\s*$')
@@ -185,6 +199,7 @@ def _download_manifest(manifest):
     인터리브든, 이미지는 순서대로 모으고 본문(텍스트 블록)은 이어붙인다. 배치는 본문 마커로 결정."""
     tmp = tempfile.mkdtemp(prefix="cafepub_")
     images, texts = [], []
+    link_url, tags = None, []
     for i, b in enumerate(manifest):
         if b.get("type") == "image":
             local = os.path.join(tmp, f"{i:02d}.jpg")
@@ -194,7 +209,11 @@ def _download_manifest(manifest):
                 _log(f"  ! 이미지 다운로드 실패: {b['path']}")
         elif b.get("type") == "text":
             texts.append(b.get("text", ""))
-    return images, "\n".join(texts), tmp
+        elif b.get("type") == "link":
+            link_url = b.get("url")            # 본문 끝에 썸네일 카드로 삽입
+        elif b.get("type") == "tags":
+            tags = b.get("tags") or []         # 에디터 태그칸(하단 태그칩)
+    return images, "\n".join(texts), tmp, link_url, tags
 
 
 def parse_body_to_blocks(body, images):
@@ -236,13 +255,49 @@ def parse_body_to_blocks(body, images):
     return blocks
 
 
+def _norm_lines(text):
+    """빈 줄(문단 간격)은 살리되 연속 빈 줄은 1개로, 양끝 빈 줄은 제거."""
+    out, prev_blank = [], True  # prev_blank=True 로 시작 → 선행 빈 줄 제거
+    for ln in (text or "").split("\n"):
+        blank = not ln.strip()
+        if blank and prev_blank:
+            continue
+        out.append("" if blank else ln)
+        prev_blank = blank
+    while out and out[-1] == "":
+        out.pop()
+    return out
+
+
+def _inject_spacing(blocks):
+    """이미지 앞뒤에 빈 문단(blank) 삽입 — 사진과 글이 붙지 않게. 연속 blank 중복 제거 + 양끝 strip."""
+    out = []
+    for b in blocks:
+        if b["type"] == "image":
+            if out and out[-1]["type"] != "blank":
+                out.append({"type": "blank"})
+            out.append(b)
+            out.append({"type": "blank"})
+        else:
+            if b["type"] == "blank" and out and out[-1]["type"] == "blank":
+                continue
+            out.append(b)
+    while out and out[0]["type"] == "blank":
+        out.pop(0)
+    while out and out[-1]["type"] == "blank":
+        out.pop()
+    return out
+
+
 def _type_multiline(page, text):
-    """여러 문단 텍스트를 줄바꿈(Enter) 유지하며 타이핑. 끝에 Enter 로 다음 블록을 새 문단에서 시작."""
-    for i, ln in enumerate(text.split("\n")):
+    """여러 문단 텍스트를 타이핑. 문단 사이 빈 줄(띄어쓰기)은 그대로 유지(2번 사진 스타일).
+    사람 같은 키 딜레이(줄마다 다름)로 천천히 — 너무 빠른 작성 회피."""
+    lines = _norm_lines(text)
+    for i, ln in enumerate(lines):
         if i:
             page.keyboard.press("Enter")
         if ln:
-            page.keyboard.type(ln)
+            page.keyboard.type(ln, delay=_kd())
     page.keyboard.press("Enter")
 
 
@@ -293,6 +348,49 @@ def _convert_paragraph_to_quote(page, subtitle):
     page.keyboard.type(subtitle); page.wait_for_timeout(250)
 
 
+def _insert_link_card(page, url):
+    """홈페이지 링크를 OG 썸네일 카드로 본문 끝에 삽입(사용자 요청: 사진2처럼 썸네일).
+    흐름: 링크버튼 → URL 입력 → 검색(OG조회) → 확인(삽입). 실패해도 발행은 계속(카드 없이)."""
+    try:
+        page.click(SEL_LINK_BTN); page.wait_for_timeout(1200)
+        inp = page.locator(SEL_LINK_INPUT).first
+        inp.wait_for(state="visible", timeout=6000)
+        inp.click(); inp.fill(url); page.wait_for_timeout(300)
+        page.click(SEL_LINK_SEARCH); page.wait_for_timeout(3000)      # OG 정보 조회(네트워크)
+        page.click(SEL_LINK_CONFIRM); page.wait_for_timeout(1800)     # 카드 삽입
+        n = page.evaluate("() => document.querySelectorAll('.se-component.se-oglink').length")
+        _log(f"  링크 카드 {'삽입 OK' if n else '미확인(카드 없이 진행)'}: {url}")
+        return bool(n)
+    except Exception as e:
+        _log(f"  ! 링크 카드 실패(무시하고 진행): {str(e)[:70]}")
+        try:
+            page.keyboard.press("Escape")   # 팝업 열린 채로 남지 않게
+        except Exception:
+            pass
+        return False
+
+
+def _fill_tags(page, tags):
+    """에디터 '태그 입력칸'에 대표키워드 입력 — 블로그식 하단 태그칩(최대 10개).
+    (본문에 #해시태그 텍스트를 쓰는 게 아님 — 사용자 확정 2026-07-16)"""
+    if not tags:
+        return 0
+    try:
+        ti = page.locator(SEL_TAG_INPUT).first
+        ti.wait_for(state="visible", timeout=6000)
+        ti.click(); page.wait_for_timeout(250)
+        n = 0
+        for t in tags[:10]:
+            ti.type(t, delay=45); page.wait_for_timeout(180)
+            page.keyboard.press("Enter"); page.wait_for_timeout(280)
+            n += 1
+        _log(f"  태그 {n}개 입력: {', '.join(tags[:10])}")
+        return n
+    except Exception as e:
+        _log(f"  ! 태그 입력 실패(무시하고 진행): {str(e)[:70]}")
+        return 0
+
+
 def _select_board_and_prefix(page):
     """등록 필수: 게시판(CAFE_BOARD) 선택 → 말머리가 있으면 자동으로 첫 항목 선택.
     옵션은 FormSelectBox 구조(ul.option_list > li.item > button.option) — Playwright 실제 클릭 필요(JS click 은 React 미반영)."""
@@ -321,9 +419,23 @@ def _select_board_and_prefix(page):
         pass  # 말머리 없거나 선택 불가 → 스킵(선택사항일 수 있음)
 
 
-def publish(page, title, blocks, no_send=False):
+def publish(page, title, blocks, no_send=False, link_url=None, tags=None):
     """글쓰기 → 제목 + 본문 마커대로 인터리브. 2패스: (1) 텍스트/이미지 + 부제목을 일반문단으로 →
-    (2) 부제목 문단을 인용구로 변환. 인용구는 커서를 가둬 키보드 탈출이 안 되므로 이 방식이 유일하게 안정적."""
+    (2) 부제목 문단을 인용구로 변환. 인용구는 커서를 가둬 키보드 탈출이 안 되므로 이 방식이 유일하게 안정적.
+    본문 뒤: link_url = 썸네일 카드로 삽입 / tags = 에디터 태그칸(하단 태그칩)."""
+    blocks = _inject_spacing(blocks)
+    # ⚠️ 핸들러는 goto '전'에 등록해야 한다. 이전 글이 에디터에 남아있으면 페이지 이탈 시
+    #    beforeunload('작성 중인 글이 있습니다') 가 뜨는데, 이걸 dismiss 하면 navigation 이
+    #    취소돼(ERR_ABORTED) 발행이 통째로 실패한다 → beforeunload 는 accept(이탈 허용).
+    alerts = []
+
+    def _on_dialog(d):
+        if d.type == "beforeunload":
+            d.accept()          # 작성 중 글 버리고 이동
+        else:
+            alerts.append(d.message)
+            d.dismiss()         # alert(예: '게시판을 선택하세요') 는 닫기
+    page.on("dialog", _on_dialog)
     if CAFE_WRITE_URL:
         page.goto(CAFE_WRITE_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
@@ -345,28 +457,40 @@ def publish(page, title, blocks, no_send=False):
         raise RuntimeError("에디터 영역 못 찾음 — --diag 로 SEL_EDITOR 확정 필요")
     ed.click()
     page.wait_for_timeout(300)
-    # ── 1패스: 이미지=툴바+파일선택 / 부제목=일반문단(앵커) / 텍스트=타이핑 ──
+    # ── 1패스: 이미지=툴바+파일선택 / 부제목=일반문단(앵커) / 텍스트=타이핑 / blank=빈 문단(간격) ──
+    # 페이싱: 남은 시간을 남은 블록에 분배 → 총 작성시간 최소 CAFE_MIN_SECONDS 확보(너무 빠른 발행 회피).
     subtitles = []
-    for b in blocks:
+    n_blocks = len(blocks)
+    deadline = time.monotonic() + CAFE_MIN_SECONDS
+    for idx, b in enumerate(blocks):
         if b["type"] == "text":
             _type_multiline(page, b["text"])
         elif b["type"] == "quote":
-            page.keyboard.type(b["text"]); page.keyboard.press("Enter")  # 앵커(2패스에서 인용구화)
+            page.keyboard.type(b["text"], delay=_kd()); page.keyboard.press("Enter")  # 앵커(2패스에서 인용구화)
             subtitles.append(b["text"])
+        elif b["type"] == "blank":
+            page.keyboard.press("Enter")  # 빈 문단 = 사진/문단 사이 간격
         else:
             _insert_image_block(page, b["local"])
-        page.wait_for_timeout(200)
+        rem = n_blocks - (idx + 1)
+        if rem > 0:
+            pause = max(0.0, min((deadline - time.monotonic()) / rem, 35.0))
+            page.wait_for_timeout(int(pause * 1000))
+        else:
+            page.wait_for_timeout(200)
+    # ── 링크 썸네일 카드: 지금 커서가 본문 맨 끝이라 여기서 삽입(2패스 전) ──
+    if link_url:
+        _insert_link_card(page, link_url)
     # ── 2패스: 부제목 문단 → 인용구 변환 ──
     for sub in subtitles:
         _convert_paragraph_to_quote(page, sub)
     # ── 게시판 + 말머리 선택(등록 필수) ──
     _select_board_and_prefix(page)
+    # ── 하단 태그칩(대표키워드) ──
+    _fill_tags(page, tags)
     if no_send:
         _log(f"no_send: '등록' 직전까지 완료(사람이 확인 후 클릭). 인용구 {len(subtitles)}개 변환.")
         return None
-    # alert(예: '게시판을 선택하세요') 캡처 → 실패 사유 노출
-    alerts = []
-    page.on("dialog", lambda d: (alerts.append(d.message), d.dismiss()))
     sub = _first(page, SEL_SUBMIT, timeout=6000)
     if not sub:
         raise RuntimeError("등록 버튼 못 찾음 — --diag 로 SEL_SUBMIT 확정 필요")
@@ -381,16 +505,47 @@ def publish(page, title, blocks, no_send=False):
     raise RuntimeError(f"등록 후 이동 확인 실패 {hint}")
 
 
+def session_ping(cdp_url=DEFAULT_CDP):
+    """세션 유지 + 로그인 진짜 검증 — 전용 새 탭으로 '글쓰기 페이지'(로그인 필수) 방문.
+    ⚠️ section.cafe.naver.com 등 공개 페이지로 검사하면 로그아웃 상태에서도 통과해 오판함(2026-07-16 실제 사고).
+       발행이 실제로 쓰는 CAFE_WRITE_URL 로 검사해야 만료를 잡는다. 쿠키(NID_AUT/NID_SES)도 같이 확인.
+    로그인 만료면 경고만(자동 재로그인은 하지 않음 — 캡차/2FA/계정잠금 위험).
+    반환: True=로그인 유지 / False=만료(사람 재로그인 필요) / None=크롬 접속 실패."""
+    if not CAFE_WRITE_URL:
+        return None
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.connect_over_cdp(cdp_url)
+            ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+            pg = ctx.new_page()
+            try:
+                pg.goto(CAFE_WRITE_URL, wait_until="domcontentloaded", timeout=25000)
+                pg.wait_for_timeout(2000)
+                if re.search(r"nid\.naver\.com|nidlogin", pg.url or ""):
+                    return False
+                names = {c.get("name") for c in ctx.cookies() if "naver" in (c.get("domain") or "")}
+                return "NID_AUT" in names   # 로그인 쿠키까지 있어야 진짜 유지
+            finally:
+                try:
+                    pg.close()
+                except Exception:
+                    pass
+    except Exception:
+        return None  # 크롬 꺼짐/접속 실패
+
+
 def publish_job(job, cdp_url=DEFAULT_CDP, no_send=False):
     """큐 1건 발행 — 이미지 다운로드 + 본문 마커 파싱 → 인터리브 발행. (posted_url 또는 예외)"""
-    images, body, tmp = _download_manifest(job.get("manifest") or [])
+    images, body, tmp, link_url, tags = _download_manifest(job.get("manifest") or [])
     blocks = parse_body_to_blocks(body, images)
     n_img = sum(1 for b in blocks if b["type"] == "image")
     n_q = sum(1 for b in blocks if b["type"] == "quote")
-    _log(f"블록 파싱: 텍스트 {sum(1 for b in blocks if b['type']=='text')} · 이미지 {n_img} · 인용구 {n_q}")
+    _log(f"블록 파싱: 텍스트 {sum(1 for b in blocks if b['type']=='text')} · 이미지 {n_img} · 인용구 {n_q}"
+         f" · 링크 {'O' if link_url else 'X'} · 태그 {len(tags)}")
     with sync_playwright() as p:
         page = _connect(p, cdp_url)
-        return publish(page, job.get("title") or "제목", blocks, no_send=no_send)
+        return publish(page, job.get("title") or "제목", blocks, no_send=no_send,
+                       link_url=link_url, tags=tags)
 
 
 def main():

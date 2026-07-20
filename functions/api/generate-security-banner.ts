@@ -6,7 +6,9 @@
 
 type FunctionContext = { request: Request; env: Record<string, string | undefined> };
 type Item = { title: string; subtitle: string; icon: string };
-type Payload = { region?: string; secType?: string; titleLines?: string[]; quality?: string; style?: string; items?: Item[] };
+type Payload = { region?: string; secType?: string; titleLines?: string[]; quality?: string; style?: string; items?: Item[]; model?: string };
+// 오케스트레이션 모델 화이트리스트(A/B용). 기본 gpt-5.5, mini 만 허용. 전역 env(공유)는 건드리지 않는다.
+const ALLOWED_SEC_MODELS = ['gpt-5.5', 'gpt-5-mini'];
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
 
@@ -163,7 +165,8 @@ function buildSecurityPromptBlue(region: string, secType: string, titleLines: st
 export async function generateSecurityBanner(p: Payload, env: FunctionContext['env']) {
     const apiKey = env.OPENAI_API_KEY;
     if (!apiKey) return json({ message: 'Cloudflare 환경변수 OPENAI_API_KEY가 필요합니다.' }, 500);
-    const model = env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
+    // 요청이 허용목록 모델을 명시하면 그걸(A/B), 아니면 기존 기본(gpt-5.5). genItems·이미지 양쪽에 동일 적용.
+    const model = p.model && ALLOWED_SEC_MODELS.includes(p.model) ? p.model : env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
     const quality = ['low', 'medium', 'high'].includes(p.quality || '') ? (p.quality as string) : 'low';
     const region = (p.region || '').trim();
     const secType = (p.secType || '').trim();
@@ -229,7 +232,7 @@ export async function generateSecurityBanner(p: Payload, env: FunctionContext['e
         if (base64) break;
     }
     if (!base64) return json({ message: 'OpenAI 응답에 이미지가 없습니다. 다시 시도해 주세요.' }, 502);
-    return json({ imageDataUrl: `data:image/png;base64,${base64}`, items, source, textUsage, imageUsage });
+    return json({ imageDataUrl: `data:image/png;base64,${base64}`, items, model, source, textUsage, imageUsage });
 }
 
 export async function onRequestPost({ request, env }: FunctionContext) {

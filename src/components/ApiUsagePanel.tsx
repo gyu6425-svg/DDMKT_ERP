@@ -38,7 +38,7 @@ function isCafePost(record: ApiUsageRecord) {
     return record.model === 'cafe-post';
 }
 function isCafeCard(record: ApiUsageRecord) {
-    return record.model === 'cafe-card';
+    return record.model === 'cafe-card' || record.model === 'cafe-card-mini';
 }
 function isCafe(record: ApiUsageRecord) {
     return isCafePost(record) || isCafeCard(record);

@@ -1,0 +1,7 @@
+# Windows 실행 스크립트는 반드시 CRLF — LF 로 저장되면 cmd/wscript 가 파싱을 못해
+# 자동시작(Startup VBS → bat → 리스너)이 조용히 실패한다. (2026-07-16 실제 사고: 재부팅 후
+# 카페 발행·재검색 리스너 둘 다 미기동. 원인이 bat/vbs 의 LF 줄바꿈이었음.)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.vbs text eol=crlf
+*.ps1 text eol=crlf
