@@ -25,7 +25,7 @@ from playwright.sync_api import sync_playwright
 
 import comment_cafe as cc
 import accounts as acct     # 계정 → 크롬 포트(멀티계정)
-from comment_templates import build_comment
+from comment_templates import build_comment, region_from_title
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -34,6 +34,9 @@ except Exception:
 
 INTERVAL_MIN = int(os.environ.get("CAFE_CMT_WATCH_MIN", "5"))   # 크롤 주기(분)
 MAX_NEW_PER_RUN = int(os.environ.get("CAFE_CMT_WATCH_MAX", "5"))  # 한 번에 예약할 새 글 상한(폭주 방지)
+# 제목에 키워드(업종)가 없는 글은 건너뛴다. 끄면(0) 등록 지역으로 폴백해 모든 새 글에 댓글.
+#   예: '천안 이불 백화점…' 글에 '강남 누수탐지' 댓글이 달리는 어색함/봇 티 방지.
+REQUIRE_KEYWORD = os.environ.get("CAFE_CMT_REQUIRE_KEYWORD", "1") != "0"
 
 
 def _log(m):
@@ -98,13 +101,21 @@ def process_watch(page, w, canon_acct=None):
     #   그 글들은 영구히 기준선 아래로 내려가 다시는 댓글이 안 달린다(독립검증 M2·n17).
     advanced_to = last_seen
     for a in news:
+        # 제목에 키워드가 없는 글(업종 무관)은 건너뛴다 — 엉뚱한 지역/업종 댓글 방지.
+        if REQUIRE_KEYWORD and keyword and keyword not in (a.get("title") or ""):
+            _log(f"  ⏭ 키워드('{keyword}') 없는 글 — 건너뜀: #{a['id']} '{a.get('title','')[:22]}'")
+            advanced_to = a["id"]
+            continue
         try:
             dup = cc.already_commented(a["url"], account=canon_acct)
         except Exception as e:
             _log(f"  ⏸ 중복확인 실패 — 여기서 중단(기준선 유지, 다음 크롤 재시도): {str(e)[:90]}")
             break
         if not dup:
-            body = build_comment(region, keyword, avoid=last_body)
+            # ★ 댓글의 지역은 '그 글 제목'에서 뽑는다(안양 글엔 '안양 누수탐지').
+            #   제목에서 못 뽑으면 감시 카페에 등록한 지역으로 폴백.
+            art_region = region_from_title(a.get("title", ""), keyword, region)
+            body = build_comment(art_region, keyword, avoid=last_body)
             last_body = body
             try:
                 cc.sb_insert("cafe_comment_queue", {
@@ -112,7 +123,7 @@ def process_watch(page, w, canon_acct=None):
                     "account": canon_acct,
                 })
                 queued += 1
-                _log(f"  ✅ 예약[{canon_acct}]: #{a['id']} '{a['title'][:20]}' → \"{body[:24]}...\"")
+                _log(f"  ✅ 예약[{canon_acct}] #{a['id']} 지역='{art_region}' '{a['title'][:18]}' → \"{body[:22]}...\"")
             except Exception as e:
                 _log(f"  ⏸ 예약 실패 #{a['id']} — 여기서 중단(기준선 유지): {str(e)[:90]}")
                 break

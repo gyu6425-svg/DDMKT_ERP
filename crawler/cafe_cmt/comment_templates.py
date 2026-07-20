@@ -23,6 +23,33 @@ TEMPLATES = [
 CLOSERS = ['', '', ' 감사합니다!', ' 좋은 정보 감사해요.', ' 도움 많이 됐어요!']
 
 
+def region_from_title(title, keyword, fallback=""):
+    """글 제목에서 '<지역> <키워드>' 패턴의 지역을 뽑는다.
+
+    예) '강남 누수탐지, 누수로 골치였다면'      → '강남'
+        '안산 단원구 누수탐지 직접 불러본 후기' → '안산 단원구'
+        '과천 누수탐지 아파트 빌라 …'          → '과천'
+    키워드가 제목에 없거나 앞부분이 지역 같지 않으면 fallback(등록 지역)을 쓴다.
+    → 댓글에 항상 '그 글의 지역 + 키워드'가 들어가게 하기 위함.
+    """
+    if not title or not keyword:
+        return fallback
+    idx = title.find(keyword)
+    if idx <= 0:                     # 키워드가 없거나 맨 앞이면 앞에 지역이 없음
+        return fallback
+    head = title[:idx].strip(" \t[]【】「」<>()-–—·,.…‘’\"'")
+    toks = [t for t in head.split() if t]
+    if not toks:
+        return fallback
+    # '안산 단원구' 같은 2단 지역 우선, 너무 길면 마지막 한 토큰만
+    cand = " ".join(toks[-2:]) if len(toks) >= 2 else toks[-1]
+    if len(cand) > 12:
+        cand = toks[-1]
+    if not (2 <= len(cand) <= 12):
+        return fallback
+    return cand
+
+
 def _fill(tpl, region, keyword):
     out = tpl.replace('{지역}', (region or '').strip()).replace('{키워드}', (keyword or '').strip())
     return re.sub(r'\s{2,}', ' ', out).strip()
