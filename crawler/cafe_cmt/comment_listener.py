@@ -40,6 +40,11 @@ REPLY_GAP_MIN = int(os.environ.get("CAFE_CMT_REPLY_GAP_MIN", "10"))
 REPLY_ACCOUNTS = {x.strip().lower() for x in
                   os.environ.get("CAFE_CMT_REPLY_ACCOUNT", "rlawhddls25").split(",") if x.strip()}
 NO_SEND = os.environ.get("CAFE_CMT_NO_SEND", "1") != "0"           # 기본 수동보조(등록 직전까지)
+# 작업 정지 시간대(HH:MM-HH:MM). 두 가지 이유로 둔다.
+#   1) 다른 PC의 전체크롤이 평일 03:00~09:00 에 돌아, 겹치지 않게 비워둔다(docs/크롤링-운영.md).
+#   2) 새벽 4시에 댓글이 달리는 것 자체가 부자연스럽다.
+#   이 시간엔 게시만 멈추고 큐는 그대로 쌓인다(끝나면 이어서 처리).
+QUIET = os.environ.get("CAFE_CMT_QUIET", "03:00-09:00").strip()
 _last = {}                                                        # 계정별 마지막 게시 시각(멀티계정 처리량 확보)
 
 
@@ -50,6 +55,22 @@ def _port_open(port, timeout=1.0):
             return True
     except Exception:
         return False
+
+
+def _in_quiet(now=None):
+    """지금이 정지 시간대인가. 자정을 넘는 구간(예: 23:00-06:00)도 지원."""
+    if not QUIET or "-" not in QUIET:
+        return False
+    try:
+        s, e = [x.strip() for x in QUIET.split("-", 1)]
+        sh, sm = [int(x) for x in s.split(":")]
+        eh, em = [int(x) for x in e.split(":")]
+    except Exception:
+        return False
+    n = now or datetime.datetime.now()
+    cur = n.hour * 60 + n.minute
+    a, b = sh * 60 + sm, eh * 60 + em
+    return (a <= cur < b) if a <= b else (cur >= a or cur < b)
 
 
 def _patch_safe(jid, payload):
@@ -87,7 +108,18 @@ def main():
     print(f"[카페 댓글 리스너] 폴링 {POLL_SEC}s · 계정별 간격 {MIN_GAP_MIN}분 · {mode} · 중복범위 {cc.DEDUP_SCOPE}", flush=True)
     print(f"  계정: {names} — Ctrl+C 종료", flush=True)
 
+    quiet_logged = False
     while True:
+        if _in_quiet():
+            if not quiet_logged:
+                print(f"[{datetime.datetime.now():%H:%M}] ⏸ 정지 시간대({QUIET}) — 게시 보류(큐는 유지). "
+                      f"다른 PC 전체크롤과 겹치지 않게 비워둡니다.", flush=True)
+                quiet_logged = True
+            time.sleep(60)
+            continue
+        if quiet_logged:
+            print(f"[{datetime.datetime.now():%H:%M}] ▶ 정지 시간대 종료 — 작업 재개", flush=True)
+            quiet_logged = False
         try:
             # 예약시각이 아직 안 된 작업은 '서버에서' 빼고 가져온다. 클라이언트에서만 건너뛰면
             #   뒤로 미뤄둔 작업들이 (created_at 이 옛날이라) 조회창 앞자리를 계속 차지해

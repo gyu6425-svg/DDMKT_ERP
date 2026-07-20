@@ -43,7 +43,9 @@ REPLY_AFTER_MIN = int(os.environ.get("CAFE_CMT_REPLY_AFTER_MIN", "20"))
 # 답글끼리도 시차를 둔다(분).
 REPLY_STAGGER_MIN = float(os.environ.get("CAFE_CMT_REPLY_STAGGER_MIN", "12"))
 REPLY_STAGGER_JITTER = float(os.environ.get("CAFE_CMT_REPLY_STAGGER_JITTER", "6"))
-LOOKBACK = int(os.environ.get("CAFE_CMT_REPLY_LOOKBACK", "60"))     # 최근 몇 건의 댓글을 살필지
+# 최근 몇 건의 댓글을 살필지. 60 이면 밀린 글이 많을 때(예: 과거글 일괄 보충) 오래된 댓글이
+#   조회창 밖으로 밀려 영영 답글을 못 받는다. 넉넉히 본다(조회 1회라 비용도 미미).
+LOOKBACK = int(os.environ.get("CAFE_CMT_REPLY_LOOKBACK", "300"))
 
 
 def _log(m):
