@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
 import type { Tab } from '../components/blogRank/lib/helpers';
 import { DashboardTab } from '../components/blogRank/pages/DashboardTab';
@@ -8,6 +8,12 @@ import { useAuth } from '../hooks/useAuth';
 import { useAsParam } from './CustomerCategoryPage';
 import { BLOG_KINDS, createReport, getReports, markPublished, reportOutUnit, resubmitReport, type BlogPostReport, type ReportType } from '../api/blogPostReports';
 import { getReporters } from '../api/blogRank';
+import {
+    createAccountRequest,
+    getAccountRequests,
+    resubmitAccountRequest,
+    type BlogAccountRequest,
+} from '../api/blogAccountRequests';
 
 type RTab = 'dashboard' | 'sheet' | 'tracker' | 'report' | 'settlement';
 
@@ -20,6 +26,11 @@ function kindChipCls(kind: string | null | undefined): string {
     return 'bg-[#dbeafe] text-[#1e40af]';
 }
 const kindLabel = (kind: string | null | undefined) => kind ?? '브랜드 블로그';
+
+// 업체 등록 신청의 블로그 주소 — 스킴(https://)이 있어야 관리 시트에서 정상 분류된다.
+const URL_PREFIX = 'https://';
+const hasScheme = (u: string) => /^https?:\/\/.+/.test(u.trim());
+const URL_HINT = '블로그 주소는 https:// 로 시작해야 합니다 · 주소 앞에 https:// 를 붙여주세요';
 
 // 기자단 글 보고 탭 — 본인 담당 블로그에 쓴 글 URL을 보고. 내부(김다영 등)에게 알림이 감.
 function ReportSubmitTab() {
@@ -503,11 +514,313 @@ function SettlementTab() {
     );
 }
 
+// 기자단 업체 등록 모달 — '내 블로그' 탭 우측 상단 버튼으로 연다. 기자단이 본인이 진행할 업체를 직접 신청.
+//   회사가 브랜드 블로그 시트에서 승인하면 그때 블로그가 생성되고 담당 기자단으로 본인이 붙어
+//   '내 블로그'에 바로 나타난다. (계약 관리에는 들어가지 않는다 — 브랜드 블로그에서만 관리)
+function CompanyRequestModal({ onClose }: { onClose: () => void }) {
+    const { showToast, reload } = useBlogRank();
+    const { profile } = useAuth();
+    const inputCls = 'mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm';
+
+    const [name, setName] = useState('');
+    // 주소창은 https:// 를 미리 채워두고 뒤에 붙여넣게 한다 — 스킴이 없으면 시트에서 'URL미입력 건'으로
+    //   분류돼(SheetTab isUrlPending) 신규 등록 건에 안 보이므로, 입력 단계에서 막는다.
+    const [url, setUrl] = useState(URL_PREFIX);
+    const [contractCount, setContractCount] = useState('');
+    const [progressCount, setProgressCount] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [mine, setMine] = useState<BlogAccountRequest[]>([]);
+
+    // 재신청(반려 건 수정 후 다시 보내기)
+    const [reId, setReId] = useState<string | null>(null);
+    const [reName, setReName] = useState('');
+    const [reUrl, setReUrl] = useState('');
+    const [reContract, setReContract] = useState('');
+    const [reProgress, setReProgress] = useState('');
+    const [reSaving, setReSaving] = useState(false);
+
+    const loadMine = () => void getAccountRequests().then(({ data }) => setMine(data));
+    useEffect(loadMine, []);
+
+    const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
+    const onlyNum = (v: string) => v.replace(/[^0-9]/g, '');
+
+    const submit = async () => {
+        if (!name.trim()) return showToast('업체 이름을 입력하세요');
+        if (!url.trim() || url.trim() === URL_PREFIX) return showToast('블로그 주소를 입력하세요');
+        if (!hasScheme(url)) return showToast(URL_HINT);
+        if (!profile?.id) return showToast('계정 정보를 확인할 수 없습니다');
+        setSaving(true);
+        const { error, duplicate } = await createAccountRequest({
+            reporter_id: profile.id,
+            name: name.trim(),
+            blog_url: url.trim(),
+            contract_count: numOrNull(contractCount),
+            progress_count: numOrNull(progressCount),
+        });
+        setSaving(false);
+        if (error) return showToast('신청 실패: ' + error.message);
+        if (duplicate) {
+            showToast('이미 신청한 블로그입니다 · 검토중인 신청이 있어요');
+            loadMine();
+            return;
+        }
+        setName('');
+        setUrl(URL_PREFIX);
+        setContractCount('');
+        setProgressCount('');
+        showToast('업체 등록 신청 완료 · 담당자 승인 후 내 블로그에 추가됩니다');
+        loadMine();
+    };
+
+    const startRe = (r: BlogAccountRequest) => {
+        setReId(r.id);
+        setReName(r.name);
+        setReUrl(r.blog_url || URL_PREFIX);
+        setReContract(r.contract_count == null ? '' : String(r.contract_count));
+        setReProgress(r.progress_count == null ? '' : String(r.progress_count));
+    };
+    const doRe = async (r: BlogAccountRequest) => {
+        if (!reName.trim()) return showToast('업체 이름을 입력하세요');
+        if (!reUrl.trim() || reUrl.trim() === URL_PREFIX) return showToast('블로그 주소를 입력하세요');
+        if (!hasScheme(reUrl)) return showToast(URL_HINT);
+        setReSaving(true);
+        const { error } = await resubmitAccountRequest(r.id, {
+            name: reName,
+            blog_url: reUrl,
+            contract_count: numOrNull(reContract),
+            progress_count: numOrNull(reProgress),
+        });
+        setReSaving(false);
+        if (error) return showToast('재신청 실패: ' + error.message);
+        setReId(null);
+        showToast('재신청 완료 · 다시 검토중으로 전환됩니다');
+        loadMine();
+    };
+
+    const statusTag = (s: BlogAccountRequest['status']) => {
+        if (s === 'approved') return <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#15803d]">승인</span>;
+        if (s === 'rejected') return <span className="rounded-full bg-[#fee2e2] px-2 py-0.5 text-[11px] font-bold text-[#dc2626]">반려</span>;
+        return <span className="rounded-full bg-[#fef3c7] px-2 py-0.5 text-[11px] font-bold text-[#b45309]">검토중</span>;
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+            onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+        >
+            <div className="flex max-h-[88vh] w-[min(760px,95vw)] flex-col gap-5 overflow-y-auto rounded-2xl bg-white p-6">
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <h3 className="m-0 text-lg font-bold text-[#0f172a]">업체 등록</h3>
+                        <p className="mt-1 mb-0 text-sm text-[#64748b]">
+                            내가 진행할 업체를 신청하면 담당자 승인 후 <b>내 블로그</b>에 추가됩니다.
+                        </p>
+                    </div>
+                    <button
+                        className="rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-[12px] font-bold text-[#475569] hover:bg-[#f8fafc]"
+                        onClick={onClose}
+                        type="button"
+                    >
+                        닫기
+                    </button>
+                </div>
+
+            <div className="grid gap-3 rounded-lg border border-[#e2e8f0] bg-white p-4">
+                <div className="text-sm font-bold text-[#0f172a]">업체 등록 신청</div>
+                <label className="text-xs font-semibold text-[#475569]">
+                    업체 이름
+                    <input
+                        className={inputCls}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="예: 대박종합주방"
+                        value={name}
+                    />
+                </label>
+                <label className="text-xs font-semibold text-[#475569]">
+                    블로그 주소
+                    <input
+                        className={inputCls}
+                        onChange={(e) => setUrl(e.target.value)}
+                        placeholder="https://blog.naver.com/..."
+                        value={url}
+                    />
+                    {url.trim() && url.trim() !== URL_PREFIX && !hasScheme(url) ? (
+                        <span className="mt-1 block text-[11px] font-semibold text-[#dc2626]">⚠ {URL_HINT}</span>
+                    ) : (
+                        <span className="mt-1 block text-[11px] font-normal text-[#94a3b8]">
+                            https:// 뒤에 블로그 주소를 붙여넣으세요 (예: https://blog.naver.com/myblog)
+                        </span>
+                    )}
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                    <label className="text-xs font-semibold text-[#475569]">
+                        계약 건
+                        <input
+                            className={inputCls}
+                            inputMode="numeric"
+                            onChange={(e) => setContractCount(onlyNum(e.target.value))}
+                            placeholder="총 계약 건수"
+                            value={contractCount}
+                        />
+                    </label>
+                    <label className="text-xs font-semibold text-[#475569]">
+                        진행 건
+                        <input
+                            className={inputCls}
+                            inputMode="numeric"
+                            onChange={(e) => setProgressCount(onlyNum(e.target.value))}
+                            placeholder="이미 진행한 건수"
+                            value={progressCount}
+                        />
+                    </label>
+                </div>
+                <div className="mt-1 flex justify-end">
+                    <button
+                        className="rounded-md bg-[#1e40af] px-4 py-2 text-sm font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-60"
+                        disabled={saving}
+                        onClick={() => void submit()}
+                        type="button"
+                    >
+                        {saving ? '신청 중…' : '업체 등록 신청'}
+                    </button>
+                </div>
+                <p className="m-0 text-[11px] text-[#94a3b8]">
+                    담당자가 <b>승인</b>하면 이 업체가 <b>내 블로그</b>에 추가되고 글 보고를 할 수 있습니다. 잔여 건수는{' '}
+                    <b>계약 건 − 진행 건</b>으로 계산됩니다.
+                </p>
+            </div>
+
+            <div className="grid gap-2">
+                <div className="text-sm font-bold text-[#0f172a]">내 신청 내역</div>
+                <div className="overflow-x-auto rounded-lg border border-[#e2e8f0] bg-white">
+                    <table className="w-full border-collapse text-sm">
+                        <thead>
+                            <tr className="border-b border-[#e2e8f0] bg-[#f8fafc] text-[12px] text-[#64748b]">
+                                <th className="px-4 py-2 text-left font-semibold">업체</th>
+                                <th className="px-4 py-2 text-left font-semibold">블로그 주소</th>
+                                <th className="px-4 py-2 text-right font-semibold">계약</th>
+                                <th className="px-4 py-2 text-right font-semibold">진행</th>
+                                <th className="px-4 py-2 text-left font-semibold">상태</th>
+                                <th className="px-4 py-2 text-left font-semibold">신청일</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {mine.length ? (
+                                mine.map((r) => (
+                                    <Fragment key={r.id}>
+                                        <tr className="border-b border-[#f1f5f9]">
+                                            <td className="px-4 py-2.5 font-semibold text-[#0f172a]">{r.name}</td>
+                                            <td className="max-w-[280px] truncate px-4 py-2.5 text-[#475569]">
+                                                {r.blog_url}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-right">{r.contract_count ?? '-'}</td>
+                                            <td className="px-4 py-2.5 text-right">{r.progress_count ?? '-'}</td>
+                                            <td className="px-4 py-2.5">{statusTag(r.status)}</td>
+                                            <td className="px-4 py-2.5 text-[12px] text-[#94a3b8]">
+                                                {r.created_at.slice(0, 10)}
+                                            </td>
+                                        </tr>
+                                        {r.status === 'rejected' ? (
+                                            <tr className="border-b border-[#f1f5f9] bg-[#fff7ed]">
+                                                <td className="px-4 py-2.5" colSpan={6}>
+                                                    <div className="text-[12px] text-[#b45309]">
+                                                        반려 사유: {r.note || '사유 없음'}
+                                                    </div>
+                                                    {reId === r.id ? (
+                                                        <div className="mt-2 grid max-w-[520px] gap-2">
+                                                            <input
+                                                                className="h-9 rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                                                onChange={(e) => setReName(e.target.value)}
+                                                                placeholder="업체 이름"
+                                                                value={reName}
+                                                            />
+                                                            <input
+                                                                className="h-9 rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                                                onChange={(e) => setReUrl(e.target.value)}
+                                                                placeholder="블로그 주소"
+                                                                value={reUrl}
+                                                            />
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <input
+                                                                    className="h-9 rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                                                    inputMode="numeric"
+                                                                    onChange={(e) => setReContract(onlyNum(e.target.value))}
+                                                                    placeholder="계약 건"
+                                                                    value={reContract}
+                                                                />
+                                                                <input
+                                                                    className="h-9 rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                                                    inputMode="numeric"
+                                                                    onChange={(e) => setReProgress(onlyNum(e.target.value))}
+                                                                    placeholder="진행 건"
+                                                                    value={reProgress}
+                                                                />
+                                                            </div>
+                                                            <div className="flex gap-2">
+                                                                <button
+                                                                    className="rounded-md bg-[#1e40af] px-3 py-1.5 text-[12px] font-bold text-white disabled:opacity-60"
+                                                                    disabled={reSaving}
+                                                                    onClick={() => void doRe(r)}
+                                                                    type="button"
+                                                                >
+                                                                    {reSaving ? '전송 중…' : '재신청'}
+                                                                </button>
+                                                                <button
+                                                                    className="rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-[12px] font-bold text-[#475569]"
+                                                                    onClick={() => setReId(null)}
+                                                                    type="button"
+                                                                >
+                                                                    취소
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <button
+                                                            className="mt-1.5 rounded-md border border-[#1e40af] bg-white px-3 py-1 text-[12px] font-bold text-[#1e40af]"
+                                                            onClick={() => startRe(r)}
+                                                            type="button"
+                                                        >
+                                                            수정 후 재신청
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ) : null}
+                                    </Fragment>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={6}>
+                                        아직 신청한 업체가 없습니다.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+                <button
+                    className="justify-self-start rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-[12px] font-bold text-[#475569]"
+                    onClick={() => {
+                        loadMine();
+                        void reload(); // 승인된 업체가 '내 블로그'에 바로 보이도록 함께 갱신
+                    }}
+                    type="button"
+                >
+                    새로고침
+                </button>
+            </div>
+            </div>
+        </div>
+    );
+}
+
 // 기자단 ERP 포털 — 본인 담당 블로그만(RLS 스코프) 읽기전용 + 글 보고.
 function ReporterShell() {
     const { accounts, posts, loading, error, reload, toastMsg, tab, goTab } = useBlogRank();
     // 대시보드/내블로그/순위는 context tab 사용(대시보드 KPI 클릭 네비게이션이 먹히도록). 글 보고·정산 내역은 별도 플래그.
     const [extraTab, setExtraTab] = useState<'report' | 'settlement' | null>(null);
+    const [companyOpen, setCompanyOpen] = useState(false); // 업체 등록 모달('내 블로그' 탭 우측 상단 버튼)
     const active: RTab = extraTab
         ? extraTab
         : tab === 'sheet'
@@ -539,13 +852,25 @@ function ReporterShell() {
                         {loading ? '· 불러오는 중...' : `· 블로그 ${accounts.length}개 · 글 ${posts.length}건`}
                     </p>
                 </div>
-                <button
-                    className="inline-flex h-10 items-center justify-center rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white"
-                    onClick={() => void reload()}
-                    type="button"
-                >
-                    새로고침
-                </button>
+                <div className="flex items-center gap-2">
+                    {/* 업체 등록 — '내 블로그' 탭에서만. 신청 → 담당자 승인 시 내 블로그에 추가됨. */}
+                    {active === 'sheet' ? (
+                        <button
+                            className="inline-flex h-10 items-center justify-center rounded-md border border-[#1e40af] bg-white px-4 text-sm font-semibold text-[#1e40af] hover:bg-[#eff6ff]"
+                            onClick={() => setCompanyOpen(true)}
+                            type="button"
+                        >
+                            + 업체 등록
+                        </button>
+                    ) : null}
+                    <button
+                        className="inline-flex h-10 items-center justify-center rounded-md bg-[#1e40af] px-4 text-sm font-semibold text-white"
+                        onClick={() => void reload()}
+                        type="button"
+                    >
+                        새로고침
+                    </button>
+                </div>
             </div>
 
             {error ? (
@@ -579,6 +904,7 @@ function ReporterShell() {
             {active === 'sheet' ? <SheetTab /> : null}
             {active === 'tracker' ? <TrackerTab /> : null}
             {active === 'report' ? <ReportSubmitTab /> : null}
+            {companyOpen ? <CompanyRequestModal onClose={() => setCompanyOpen(false)} /> : null}
             {active === 'settlement' ? <SettlementTab /> : null}
 
             {toastMsg ? (

@@ -26,6 +26,8 @@ import { ReporterMaterialsModal } from '../components/ReporterMaterialsModal';
 import { useAuth } from '../../../hooks/useAuth';
 import { getClients } from '../../../api/erp';
 import { downloadCsv, todayTag } from '../../../lib/exportCsv';
+import { AccountRequestsPanel } from '../components/AccountRequestsPanel';
+import { getAccountRequests } from '../../../api/blogAccountRequests';
 
 export function SheetTab() {
     const {
@@ -52,7 +54,14 @@ export function SheetTab() {
     const [sortKey, setSortKey] = useState<'remain' | 'prog' | 'date'>('date'); // 기본=계약일 최신순
     const [sortDir, setSortDir] = useState(1);
     const [monthFilter, setMonthFilter] = useState(0); // 0=전체, 1~12=해당 월(계약일 기준)
-    const [tab, setTab] = useState<'active' | 'new' | 'nourl' | 'ext' | 'hold' | 'ended'>('active'); // 계약 중 / 신규 / URL미입력 / 연장 건 / 보류 / 계약 종료
+    const [tab, setTab] = useState<'active' | 'new' | 'nourl' | 'ext' | 'hold' | 'ended' | 'req'>('active'); // 계약 중 / 신규 / URL미입력 / 연장 건 / 보류 / 계약 종료 / 업체 승인 대기
+    // 기자단 업체 등록 신청 대기 건수 — 내부 뷰에서만 탭으로 노출.
+    const [reqCount, setReqCount] = useState(0);
+    const loadReqCount = () => {
+        if (customerMode || reporterMode) return;
+        void getAccountRequests('pending').then(({ data }) => setReqCount(data.length));
+    };
+    useEffect(loadReqCount, [customerMode, reporterMode]);
     const [page, setPage] = useState(1);
     const [importOpen, setImportOpen] = useState(false);
     const [editAcc, setEditAcc] = useState<BlogAccount | null>(null);
@@ -367,15 +376,19 @@ export function SheetTab() {
 
             {/* 신규 등록 건 / 계약 중 / 계약 종료 탭 — 업체명 검색 밑. 고객 ERP에선 숨김(계약 중만 노출). */}
             <div className={`flex gap-1 border-b border-[#e2e8f0] ${customerMode ? 'hidden' : ''}`}>
-                {([
-                    ['new', '신규 등록 건', tabCounts.new],
-                    ['nourl', 'URL미입력 건', tabCounts.nourl],
-                    ['ext', '연장 건', tabCounts.ext],
-                    ['active', '계약 중', tabCounts.active],
-                    ['hold', '보류', tabCounts.hold],
-                    ['ended', '계약 종료', tabCounts.ended],
-                ] as const).map(([key, label, n]) => {
-                    const hot = (key === 'new' || key === 'nourl' || key === 'ext') && n > 0;
+                {(
+                    [
+                        ['new', '신규 등록 건', tabCounts.new],
+                        ['nourl', 'URL미입력 건', tabCounts.nourl],
+                        ['ext', '연장 건', tabCounts.ext],
+                        ['active', '계약 중', tabCounts.active],
+                        ['hold', '보류', tabCounts.hold],
+                        ['ended', '계약 종료', tabCounts.ended],
+                        // 기자단이 직접 신청한 업체 — 내부만 승인/반려.
+                        ...(reporterMode ? [] : [['req', '업체 승인 대기', reqCount]]),
+                    ] as [typeof tab, string, number][]
+                ).map(([key, label, n]) => {
+                    const hot = (key === 'new' || key === 'nourl' || key === 'ext' || key === 'req') && n > 0;
                     return (
                         <button
                             key={key}
@@ -397,7 +410,15 @@ export function SheetTab() {
                 })}
             </div>
 
-            {tab === 'ended' ? (
+            {tab === 'req' ? (
+                <AccountRequestsPanel
+                    onDone={() => {
+                        loadReqCount();
+                        void onReload(); // 승인된 업체가 시트 목록에 바로 보이도록
+                    }}
+                    onToast={onToast}
+                />
+            ) : tab === 'ended' ? (
                 <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
                     <table className="w-full border-collapse text-left text-sm">
                         <thead>
