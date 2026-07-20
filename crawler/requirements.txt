@@ -3,3 +3,7 @@ feedparser
 beautifulsoup4
 python-dotenv
 truststore  # 윈도 백신/프록시의 TLS 인터셉션 환경에서 SSL 검증 통과(OS 신뢰 저장소 사용)
+pillow      # 카페 원고 생성기(cafe_pub/cafe_auto_publish.py) 이미지 미세변형용
+
+# ── 카페 '발행'까지 하는 PC 에서만 추가 (크롤링·원고생성에는 불필요) ──
+# playwright   # 설치 후: python -m playwright install chromium
