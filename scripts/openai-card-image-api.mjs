@@ -1417,7 +1417,13 @@ function buildCafeCardPrompt(p) {
 async function generateCafeCard(p) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) return { statusCode: 500, body: { message: '.env 의 OPENAI_API_KEY 가 필요합니다.' } };
-    const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
+    // 호출부가 고른 모델(웹 UI 'mini' 토글 / crawler CAFE_BANNER_MODEL)을 존중한다.
+    //   기존엔 payload.model 을 무시하고 .env 값만 써서, 화면에서 mini 를 골라도 gpt-5.5 로 생성됐다.
+    const ALLOWED_MODELS = ['gpt-5.5', 'gpt-5-mini'];
+    const model = ALLOWED_MODELS.includes(p.model)
+        ? p.model
+        : process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
+    const quality = ['low', 'medium', 'high'].includes(p.quality) ? p.quality : 'high';
     const content = [{ type: 'input_text', text: buildCafeCardPrompt(p) }];
     for (const u of (Array.isArray(p.refs) ? p.refs : []).slice(0, 2)) {
         if (typeof u === 'string' && u.startsWith('data:')) content.push({ type: 'input_image', image_url: u });
@@ -1425,14 +1431,16 @@ async function generateCafeCard(p) {
     const res = await fetch(OPENAI_API_URL, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: [{ role: 'user', content }], model, tools: [{ type: 'image_generation', size: '1024x1024', quality: p.quality || 'high' }] }),
+        body: JSON.stringify({ input: [{ role: 'user', content }], model, tools: [{ type: 'image_generation', size: '1024x1024', quality }] }),
     });
     const result = await readJsonResponse(res);
-    rememberRequest({ ok: res.ok, route: 'generate-cafe-card', status: res.status });
+    // 어떤 모델/화질로 실제 생성했는지 남긴다(비용 추적 — 예전엔 기록이 없어 확인 불가였다).
+    rememberRequest({ model, ok: res.ok, quality, route: 'generate-cafe-card', status: res.status });
     if (!res.ok) return { statusCode: res.status, body: { message: result?.error?.message || 'OpenAI 카드 생성 실패' } };
     const out = (result.output || []).find((it) => it.type === 'image_generation_call');
     if (!out?.result) return { statusCode: 502, body: { message: 'OpenAI 응답에 이미지가 없습니다.' } };
-    return { statusCode: 200, body: { imageDataUrl: `data:image/png;base64,${out.result}` } };
+    // 호출부(웹)가 표시/검증할 수 있도록 실제 사용 모델을 응답에 포함.
+    return { statusCode: 200, body: { imageDataUrl: `data:image/png;base64,${out.result}`, model } };
 }
 
 loadDotEnv();

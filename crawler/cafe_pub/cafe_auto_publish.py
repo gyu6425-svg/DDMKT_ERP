@@ -94,6 +94,11 @@ def _review_prompt(region, count, ending="후기"):
         f'제목 금지: 업체명("{BRAND}") 넣기, "~때문에/~골치였다면" 같은 가정·하소연형, 물결(~)·대괄호·따옴표. 매번 서술을 다르게 써라.',
         f'- 인사말 문단 먼저, 그 다음 「사진 1」~「사진 {count}」 각 한 줄 단독(정확히 {count}개).',
         '- 각 「사진」 뒤 본문 문단(3~5문장) 필수. 부제목만 있는 사진 없게. 문단과 문단 사이는 빈 줄 하나로 띄워라(가독성).',
+        # 실제 이미지는 참고용 고정 이미지/배너라, 사진에 찍힌 장면인 것처럼 쓰면 글과 사진이 따로 논다.
+        '- [매우 중요] 사진에 무엇이 찍혀 있는지 묘사하지 마라. 사진은 참고 이미지일 뿐이고 실제 현장 사진이 아니다. '
+        '"진행 모습", "작업 사진", "시공 장면", "위 사진처럼", "사진에서 보이듯", "~하는 모습이 보이네요" 같은 '
+        '사진 장면 서술·지시 표현을 본문과 부제목 어디에도 절대 쓰지 마라. '
+        '대신 겪은 상황, 알아본 정보, 판단 기준, 느낀 점 위주로 서술하라.',
         f'- 부제목: 절반가량만 "부제목 : <내용>"(한 줄). "부제목" 두 번 쓰지 마라. 1~2개 지역({region})+키워드.',
         f'- 전화({PHONE}) 정확. 분량 공백포함 2,000~2,300자, 반드시 2,000자 이상.',
         '- 본문에 해시태그(#…)나 URL/링크는 절대 넣지 마라(발행 시 자동으로 붙는다).',
@@ -162,8 +167,13 @@ def gen_review(region, count):
 
 # ── 3) 배너 생성 (api:dev :8787, hero/low) ──
 def gen_banner(region):
+    # 화질/모델은 .env 로 조정 가능(기본: 저화질 low + gpt-5-mini = 최저비용).
+    #   quality/imageQuality 둘 다 보냄 — 서버가 예전엔 imageQuality 만 읽어 low 가 무시됐었다.
+    q = os.environ.get("CAFE_BANNER_QUALITY", "low")
+    m = os.environ.get("CAFE_BANNER_MODEL", "gpt-5-mini")
     r = requests.post(BANNER_API, headers={"Content-Type": "application/json"},
-        data=json.dumps({"region": region, "topic": BUSINESS, "phone": PHONE, "mode": "hero", "quality": "low"}), timeout=240)
+        data=json.dumps({"region": region, "topic": BUSINESS, "phone": PHONE, "mode": "hero",
+                         "quality": q, "imageQuality": q, "model": m}), timeout=240)
     d = r.json()
     if not d.get("imageDataUrl"):
         raise RuntimeError(f"배너 실패: {d.get('message', r.status_code)}")
