@@ -97,7 +97,9 @@ def process_watch(page, w, canon_acct=None):
         return 0
     max_id = max(a["id"] for a in arts)
 
-    now = datetime.datetime.now().isoformat(timespec="seconds")
+    # astimezone(): 오프셋 없이 저장하면 DB(timestamptz)가 UTC 로 읽어 9시간 어긋난다.
+    #   (지금은 표시용이지만, '마지막 크롤 시각'으로 죽은 워처를 감지하려면 정확해야 한다)
+    now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     # 첫 실행 → 기준선만 잡고 댓글 안 달기(기존 글 폭주 방지)
     if last_seen is None:
         cc.sb_patch("cafe_comment_watch", {"id": f"eq.{w['id']}"},
