@@ -1,6 +1,10 @@
 import { supabase } from '../lib/supabase';
 import { getClientContracts, updateClientContract, type RewardWeeklyLog } from './clientContracts';
 
+// 승인 시 카운트가 어디에 잡혔는지 — 'contract'=계약 잔여 -1 + 외주비, 'blog'=블로그 진행 건수만
+//   (기자단 등록 업체 · 외주비 없음), 'none'=연결된 계약이 없어 카운트 미반영.
+export type BookMode = 'contract' | 'blog' | 'none';
+
 // 기자단 글 보고 — 기자단이 본인 담당 블로그 글을 '저장(save)' 또는 '발행(publish)'으로 보고.
 //   회사가 '승인'하면 그때 추적글(blog_posts) 생성 + 계약 잔여 -1(카운트) + 외주비 1건이 딱 1회 잡힌다.
 //   report_type = 저장/발행(기자단 히스토리 구분). 저장을 승인해 카운트된 뒤 기자단이 '발행' 버튼을 누르면
@@ -226,18 +230,37 @@ async function bookContractCredit(report: BlogPostReport) {
         .eq('id', report.blog_account_id);
     const acc = (accs ?? [])[0] as { client_id?: string | null; name?: string | null } | undefined;
     const clientId = acc?.client_id ?? null;
-    // 비-브랜드(out_amount 지정)는 계약이 없어도 그 금액을 외주비로 보고(정산엔 보고행이 직접 반영됨).
-    //   브랜드는 회사명 규칙이라 계약(회사)이 없으면 0으로 폴백(주입값 무시).
     if (!clientId) {
+        // 기자단이 '업체 등록'으로 승인받은 블로그 — 계약 관리 미연동이라 계약 잔여/외주비를 잡을 수 없다.
+        //   대신 블로그 자체 진행 건수만 +1(remain_count -1). 외주비는 계약 관리 통합 시 별도 등록.
+        //   판정과 차감을 모두 RPC 안에서 처리한다 — 단일 UPDATE라 동시 승인에도 카운트가 유실되지 않고,
+        //   '기자단 등록 업체' 정의가 SQL 한 곳에만 있어 앱 판정과 갈라지지 않는다.
+        const { data, error } = await supabase.rpc('count_blog_progress', {
+            p_blog_account_id: report.blog_account_id,
+        });
+        const res = data as { matched?: boolean; counted?: boolean } | null;
+        if (!error && res?.matched) {
+            // counted=false → 계약 건수 미입력이거나 잔여가 이미 0(소진). 외주비는 어느 쪽이든 잡지 않는다.
+            return { processed: !!res.counted, outUnit: 0, err: null, mode: 'blog' as BookMode };
+        }
+        // 그 외 계약 미연동 블로그(시트 붙여넣기 등록 등)는 기존 동작 유지 — 카운트 없음.
+        //   비-브랜드(out_amount 지정)는 계약이 없어도 그 금액을 외주비로 보고(정산엔 보고행이 직접 반영됨).
+        //   브랜드는 회사명 규칙이라 계약(회사)이 없으면 0으로 폴백(주입값 무시).
+        //   RPC 오류 시에도 기존 동작으로 떨어지되 오류는 표면화한다(조용한 오계상 방지).
         const noClientOut = isBrandKind(report.blog_kind) ? 0 : report.out_amount ?? 0;
-        return { processed: false, outUnit: noClientOut, err: null as { message: string } | null };
+        return {
+            processed: false,
+            outUnit: noClientOut,
+            err: (error ?? null) as { message: string } | null,
+            mode: 'none' as BookMode,
+        };
     }
     let company = '';
     const { data: cl } = await supabase.from('clients').select('company').eq('id', clientId);
     company = ((cl ?? [])[0] as { company?: string } | undefined)?.company ?? '';
     const outUnit = reportOutUnit(report, company);
     const { data: contracts, error: cErr } = await getClientContracts(clientId);
-    if (cErr) return { processed: false, outUnit, err: cErr };
+    if (cErr) return { processed: false, outUnit, err: cErr, mode: 'none' as BookMode };
     const sub = (ct: { subtype: string }) => ct.subtype.replace(/^상위노출 보장형 · /, '');
     const blogs = contracts.filter((ct) => ct.category === '블로그');
     const target =
@@ -245,10 +268,11 @@ async function bookContractCredit(report: BlogPostReport) {
         blogs.find((ct) => sub(ct) === '브랜드 블로그') ||
         blogs.find((ct) => sub(ct) === '블로그') ||
         (blogs.length === 1 ? blogs[0] : null);
-    if (!target) return { processed: false, outUnit, err: null };
+    if (!target) return { processed: false, outUnit, err: null, mode: 'none' as BookMode };
     // 이미 이 보고로 계상된 로그가 있으면(안전판) 재계상 금지.
     const key = `rpt-${report.id}`;
-    if ((target.weekly_logs ?? []).some((l) => l.week === key)) return { processed: true, outUnit, err: null };
+    if ((target.weekly_logs ?? []).some((l) => l.week === key))
+        return { processed: true, outUnit, err: null, mode: 'contract' as BookMode };
     // 진행 이력에 표기할 기자단 이름.
     let reporterName: string | null = null;
     if (report.reporter_id) {
@@ -273,7 +297,7 @@ async function bookContractCredit(report: BlogPostReport) {
         unit_outsource: outUnit,
         weekly_logs: [...(target.weekly_logs ?? []), log],
     });
-    return { processed: !uErr, outUnit, err: uErr ?? null };
+    return { processed: !uErr, outUnit, err: uErr ?? null, mode: 'contract' as BookMode };
 }
 
 // 승인(회사) — pending 보고를 승인하면서 ① 추적글 생성 ② 계약 잔여 -1 + 외주비 1건을 딱 1회 처리.
@@ -298,8 +322,9 @@ export async function approveReport(
         .eq('id', report.id)
         .eq('status', 'pending')
         .select('id');
-    if (claimErr) return { error: claimErr, processed: false, outUnit: 0 };
-    if (!claimed || claimed.length === 0) return { error: null, processed: false, outUnit: 0 }; // 이미 승인됨
+    if (claimErr) return { error: claimErr, processed: false, outUnit: 0, mode: 'none' as BookMode };
+    if (!claimed || claimed.length === 0)
+        return { error: null, processed: false, outUnit: 0, mode: 'none' as BookMode }; // 이미 승인됨
     // 아래 계약 계상은 방금 저장한 외주비 금액을 반영해야 하므로 병합본으로 넘긴다.
     const bookReport: BlogPostReport = { ...report, out_amount: outAmount ?? report.out_amount };
 
@@ -334,8 +359,8 @@ export async function approveReport(
     }
 
     // 3) 계약 카운트 +1 · 외주비(중복 방지). 실패해도 승인은 유지 — 오류 표면화.
-    const { processed, outUnit, err } = await bookContractCredit(bookReport);
-    return { error: err, processed, outUnit };
+    const { processed, outUnit, err, mode } = await bookContractCredit(bookReport);
+    return { error: err, processed, outUnit, mode };
 }
 
 // 기자단 '발행' 처리 — 저장으로 보고한 글을 발행했을 때. report_type만 publish로 + published_at.
@@ -370,7 +395,9 @@ export async function resubmitReport(
     return { error };
 }
 
-// 반려(회사).
+// 반려(회사) — 대기(pending) 건만. 이미 승인된 건을 반려로 되돌릴 수 없게 막는다.
+//   승인 → 반려 → 재보고 → 재승인 경로가 열리면 카운트가 두 번 잡히기 때문(계약 모드는 rpt- week키로
+//   막히지만 블로그 진행 카운트는 멱등 키가 없어 그대로 -2 된다). UI에도 그런 경로는 없지만 원천 차단.
 export async function rejectReport(id: string, reviewerProfileId: string | null, note?: string) {
     const { error } = await supabase
         .from('blog_post_reports')
@@ -380,6 +407,7 @@ export async function rejectReport(id: string, reviewerProfileId: string | null,
             reviewed_by: reviewerProfileId,
             note: note ?? null,
         })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('status', 'pending');
     return { error };
 }
