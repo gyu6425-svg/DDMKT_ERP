@@ -67,7 +67,7 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
     const [l2, setL2] = useState('안전을');
     const [l3, setL3] = useState('책임지는');
     const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('low');
-    const [cardModel, setCardModel] = useState<'gpt-5.5' | 'gpt-5-mini'>('gpt-5.5'); // 오케스트레이션 모델(A/B). 기본 gpt-5.5.
+    const [cardModel, setCardModel] = useState<'gpt-5.5' | 'gpt-5-mini'>('gpt-5-mini'); // 오케스트레이션 모델(A/B). 기본 mini(비용 절감).
     const [manualOn, setManualOn] = useState(false);
     const [manualItems, setManualItems] = useState<SecItem[]>(EMPTY_SEC_ITEMS);
 

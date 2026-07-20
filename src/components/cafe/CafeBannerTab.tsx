@@ -74,7 +74,7 @@ export function CafeBannerTab({ abModel = false }: { abModel?: boolean } = {}) {
     const [tone, setTone] = useState<CafeReviewTone>('review');
     const [bannerCount, setBannerCount] = useState(1); // 생성할 AI 배너 장수(1~9). 지금 기본 1장.
     const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('low'); // 이미지 화질(비용). 기본 저화질(50원 밑).
-    const [cardModel, setCardModel] = useState<'gpt-5.5' | 'gpt-5-mini'>('gpt-5.5'); // 카드 오케스트레이션 모델(A/B). 기본 gpt-5.5.
+    const [cardModel, setCardModel] = useState<'gpt-5.5' | 'gpt-5-mini'>('gpt-5-mini'); // 카드 오케스트레이션 모델(A/B). 기본 mini(비용 절감).
 
     const [banners, setBanners] = useState<string[]>([]); // 생성된 AI 배너들
     const [fixedImages, setFixedImages] = useState<string[]>([]); // 중간 저장 이미지(세트 + 업로드)
