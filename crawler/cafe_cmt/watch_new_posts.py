@@ -26,7 +26,8 @@ from playwright.sync_api import sync_playwright
 
 import comment_cafe as cc
 import accounts as acct     # 계정 → 크롬 포트(멀티계정)
-from comment_templates import build_comment, region_from_title
+from comment_templates import (build_comment, region_from_title, _lead_region,
+                               classify_business, DEFAULT_BUSINESS)
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -104,6 +105,9 @@ def process_watch(page, w, canon_acct=None):
     cafe_url = w.get("cafe_url") or ""
     region = w.get("region") or ""
     keyword = w.get("keyword") or ""
+    # 게시판 '전체 잡기' 모드 — keyword 가 '*'/'전체'/'all' 이면 업종을 글마다 제목으로 자동판별.
+    #   그 게시판에 뭐가 올라오든(누수/보안, 제목 형식 불문) 다 잡는다.
+    catch_all = keyword.strip().lower() in ("*", "all", "전체")
     last_seen = w.get("last_seen_article_id")
     arts = scrape_articles(page, cafe_url)
     if not arts:
@@ -146,14 +150,24 @@ def process_watch(page, w, canon_acct=None):
     advanced_to = last_seen
     aborted = False
     for a in news:
-        # 제목에 키워드가 없는 글(업종 무관)은 건너뛴다 — 엉뚱한 지역/업종 댓글 방지.
-        if REQUIRE_KEYWORD and keyword and not _title_matches(keyword, a.get("title") or ""):
-            _log(f"  ⏭ 키워드('{keyword}') 없는 글 — 건너뜀: #{a['id']} '{a.get('title','')[:22]}'")
-            advanced_to = a["id"]
-            continue
-        # ★ 댓글의 지역은 '그 글 제목'에서 뽑는다(안양 글엔 '안양 누수탐지').
-        #   제목에서 못 뽑으면 감시 카페에 등록한 지역으로 폴백.
-        art_region = region_from_title(a.get("title", ""), keyword, region)
+        title = a.get("title") or ""
+        if catch_all:
+            # 게시판 전체 잡기: 제목으로 업종 자동판별. 못 정하면 기본 업종으로(다 잡으라는 요청).
+            art_kw = classify_business(title)
+            if art_kw is None:
+                art_kw = DEFAULT_BUSINESS
+                _log(f"  ℹ️ 업종 미분류 → 기본('{art_kw}') 적용: #{a['id']} '{title[:22]}'")
+            art_region = region_from_title(title, art_kw, region) or _lead_region(title) or region
+        else:
+            # (기존) 특정 업종 감시행 — 제목에 그 업종 키워드(별칭 포함)가 없으면 건너뜀.
+            if REQUIRE_KEYWORD and keyword and not _title_matches(keyword, title):
+                _log(f"  ⏭ 키워드('{keyword}') 없는 글 — 건너뜀: #{a['id']} '{title[:22]}'")
+                advanced_to = a["id"]
+                continue
+            art_kw = keyword
+            # ★ 댓글의 지역은 '그 글 제목'에서 뽑는다(안양 글엔 '안양 누수탐지').
+            #   제목에서 못 뽑으면 감시 카페에 등록한 지역으로 폴백.
+            art_region = region_from_title(title, art_kw, region)
         for idx, tname in enumerate(targets):
             try:
                 dup = cc.already_commented(a["url"], account=tname)
@@ -167,7 +181,7 @@ def process_watch(page, w, canon_acct=None):
             #   업종 문구가 등록 안 된 키워드면 예약하지 않는다(엉뚱한 업종 댓글 방지).
             #   기준선도 올리지 않아, 템플릿을 추가하면 다음 크롤에서 다시 잡힌다.
             try:
-                body = build_comment(art_region, keyword, avoid=last_body)
+                body = build_comment(art_region, art_kw, avoid=last_body)
             except Exception as e:
                 _log(f"  ⏸ {str(e)[:110]}")
                 aborted = True

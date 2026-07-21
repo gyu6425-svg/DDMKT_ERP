@@ -27,7 +27,7 @@ import time
 
 import accounts as acct
 import comment_cafe as cc
-from comment_templates import region_from_comment
+from comment_templates import region_from_comment, classify_business
 from reply_templates import build_reply, region_from_text
 
 try:
@@ -123,7 +123,6 @@ def run_once():
 
     if not by_article:
         return
-    watches = _watch_settings()
     queued = 0
     last_body = None
     for akey, cands in by_article.items():
@@ -141,15 +140,16 @@ def run_once():
             # 답글 문구의 지역 — 원댓글에 이미 '<지역> <키워드>' 가 들어 있으므로 거기서 뽑는다.
             #   region_from_text 는 키워드 '바로 앞에 붙은' 한글만 취해, 앞 문장 끝("~갑니다.")이
             #   지역으로 잘못 잡히던 문제를 막는다.
-            w = _match_watch(r.get("body", ""), watches)
-            if w is None:
-                _log(f"  ⏭ 업종 판별 불가(감시 키워드 미포함) — 답글 건너뜀: \"{(r.get('body') or '')[:24]}\"")
+            # 업종은 '원댓글 문구'에서 직접 판별한다 — 우리 댓글엔 항상 '누수탐지'나 '보안(업체)'
+            #   같은 업종어가 들어있어, 감시행 설정에 기대지 않아도 정확하다(게시판 전체잡기 대응).
+            cbody = r.get("body", "")
+            keyword = classify_business(cbody)
+            if keyword is None:
+                _log(f"  ⏭ 업종 판별 불가 — 답글 건너뜀: \"{cbody[:24]}\"")
                 continue
-            keyword = (w.get("keyword") or "").strip()
-            # 1순위: 템플릿 역매칭(정확). 2순위: 정규식 추출(옛 데이터·수동 댓글). 3순위: 감시행 지역.
-            region = region_from_comment(r.get("body", ""), keyword,
-                                         region_from_text(r.get("body", ""), keyword,
-                                                          (w.get("region") or "")))
+            # 1순위: 템플릿 역매칭(정확). 2순위: 정규식 추출(옛 데이터·수동 댓글).
+            region = region_from_comment(cbody, keyword,
+                                         region_from_text(cbody, keyword, ""))
             try:
                 text = build_reply(region, keyword, avoid=last_body)
             except Exception as e:
