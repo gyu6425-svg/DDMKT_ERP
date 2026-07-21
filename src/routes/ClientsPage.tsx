@@ -1121,13 +1121,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                         </span>
                         <span className="text-xs font-semibold text-[#64748b]">매출 요약</span>
                     </div>
-                    <div
-                        className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${
-                            (profile?.email || '').toLowerCase() === 'rlawhddls@ddmkt.com'
-                                ? 'lg:grid-cols-6'
-                                : 'lg:grid-cols-5'
-                        }`}
-                    >
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                         {(
                             [
                                 ['공급가액', revenueSummary.supply, '#334155'],
@@ -1135,16 +1129,13 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                 ['실매출 (VAT 포함)', revenueSummary.total, '#1e40af'],
                                 ['외주비', revenueSummary.outs, '#dc2626'],
                                 ['순매출 (공급가−외주)', revenueSummary.net, '#059669'],
-                                // 남은 차액 = 예상 외주비 − 실제 사용 외주비. 김종인(대표) 계정에서만 노출.
-                                ...((profile?.email || '').toLowerCase() === 'rlawhddls@ddmkt.com'
-                                    ? [
-                                          [
-                                              '남은 차액 (예상−사용)',
-                                              revenueSummary.diff,
-                                              revenueSummary.diff < 0 ? '#dc2626' : '#7c3aed',
-                                          ],
-                                      ]
-                                    : []),
+                                // 남은 차액 = 예상 외주비 − 실제 사용 외주비.
+                                //   전엔 김종인 계정에서만 보였으나, 매출 열람 권한자(canSeeAmounts)면 모두 노출.
+                                [
+                                    '남은 차액 (예상−사용)',
+                                    revenueSummary.diff,
+                                    revenueSummary.diff < 0 ? '#dc2626' : '#7c3aed',
+                                ],
                             ] as [string, number, string][]
                         ).map(([label, val, color]) => (
                             <div

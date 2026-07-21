@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getReports, setReportPaid, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
+import { getReports, setReportPaid, setReportSettled, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
 import { getProfiles } from '../../../api/profiles';
 import { getReporters } from '../../../api/blogRank';
 
@@ -28,10 +28,12 @@ export function ApprovedReportsModal({
     const [nameMap, setNameMap] = useState<Record<string, string>>({}); // 직원(reviewed_by) 이름
     const [reporterMap, setReporterMap] = useState<Record<string, string>>({}); // 기자단(reporter_id) 이름
     const [loading, setLoading] = useState(true);
-    const [typeTab, setTypeTab] = useState<'all' | ReportType>('all');
+    // 탭 — 전체/저장/발행은 '미입금'만 보여주고, 입금 처리된 건은 '입금 완료' 탭으로 이동한다.
+    const [typeTab, setTypeTab] = useState<'all' | ReportType | 'paid'>('all');
     const [blogFilter, setBlogFilter] = useState('all');
     const [reporterFilter, setReporterFilter] = useState('all');
     const [paying, setPaying] = useState<string | null>(null);
+    const [settling, setSettling] = useState<string | null>(null);
 
     useEffect(() => {
         let alive = true;
@@ -64,8 +66,12 @@ export function ApprovedReportsModal({
 
     const typeOf = (r: BlogPostReport): ReportType => r.report_type ?? 'save';
     const reporterNameOf = (r: BlogPostReport) => (r.reporter_id ? reporterMap[r.reporter_id] || '기자단' : '기자단');
-    const nSave = reports.filter((r) => typeOf(r) === 'save').length;
-    const nPub = reports.filter((r) => typeOf(r) === 'publish').length;
+    // 미입금(입금 전) 기준 집계 — 입금 처리하면 '입금 완료' 탭으로 넘어간다.
+    const unpaid = reports.filter((r) => !r.paid);
+    const nUnpaid = unpaid.length;
+    const nSave = unpaid.filter((r) => typeOf(r) === 'save').length;
+    const nPub = unpaid.filter((r) => typeOf(r) === 'publish').length;
+    const nPaid = reports.length - nUnpaid;
 
     // 기자단 드롭다운 옵션 — 목록에 등장하는 기자단만.
     const reporterOpts = useMemo(() => {
@@ -76,12 +82,19 @@ export function ApprovedReportsModal({
 
     const filtered = useMemo(
         () =>
-            reports.filter(
-                (r) =>
-                    (typeTab === 'all' || typeOf(r) === typeTab) &&
+            reports.filter((r) => {
+                // 입금 완료 탭 = 입금된 건만. 그 외 탭 = 미입금 건만(입금하면 목록에서 빠져 입금 완료로 이동).
+                if (typeTab === 'paid') {
+                    if (!r.paid) return false;
+                } else {
+                    if (r.paid) return false;
+                    if (typeTab !== 'all' && typeOf(r) !== typeTab) return false;
+                }
+                return (
                     (blogFilter === 'all' || r.blog_account_id === blogFilter) &&
-                    (reporterFilter === 'all' || r.reporter_id === reporterFilter),
-            ),
+                    (reporterFilter === 'all' || r.reporter_id === reporterFilter)
+                );
+            }),
         [reports, typeTab, blogFilter, reporterFilter],
     );
 
@@ -100,6 +113,19 @@ export function ApprovedReportsModal({
         setReports((prev) => prev.map((x) => (x.id === r.id ? { ...x, paid: next } : x)));
     };
 
+    // 정산 토글(정산/미정산) — 입금의 전 단계 상태 구분. 입금·외주비엔 영향 없음.
+    const toggleSettled = async (r: BlogPostReport) => {
+        setSettling(r.id);
+        const next = !r.settled;
+        const { error } = await setReportSettled(r, next);
+        setSettling(null);
+        if (error) {
+            alert('정산 처리 실패: ' + error.message + '\n(blog_post_reports.settled 컬럼이 없으면 docs/blog-report-settled.sql 실행 필요)');
+            return;
+        }
+        setReports((prev) => prev.map((x) => (x.id === r.id ? { ...x, settled: next } : x)));
+    };
+
     return (
         <div
             className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4"
@@ -110,7 +136,7 @@ export function ApprovedReportsModal({
                     <div>
                         <h3 className="m-0 text-lg font-bold text-[#0f172a]">기자단 승인 처리 내역</h3>
                         <p className="m-0 mt-0.5 text-[12px] text-[#94a3b8]">
-                            승인·발행완료된 기자단 글 전체 · 총 {reports.length}건
+                            승인·발행완료된 기자단 글 · 총 {reports.length}건 (미입금 {nUnpaid} · 입금완료 {nPaid})
                         </p>
                     </div>
                     <button
@@ -126,14 +152,19 @@ export function ApprovedReportsModal({
                 <div className="mb-2 flex gap-1 border-b border-[#e2e8f0]">
                     {(
                         [
-                            ['all', `전체 (${reports.length})`],
+                            ['all', `전체 (${nUnpaid})`],
                             ['save', `저장 (${nSave})`],
                             ['publish', `발행 (${nPub})`],
-                        ] as ['all' | ReportType, string][]
+                            ['paid', `입금 완료 (${nPaid})`],
+                        ] as ['all' | ReportType | 'paid', string][]
                     ).map(([k, label]) => (
                         <button
                             className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
-                                typeTab === k ? 'border-[#16a34a] text-[#16a34a]' : 'border-transparent text-[#94a3b8]'
+                                typeTab === k
+                                    ? k === 'paid'
+                                        ? 'border-[#2563eb] text-[#2563eb]' // 입금 완료 = 파랑(미입금과 구분)
+                                        : 'border-[#16a34a] text-[#16a34a]'
+                                    : 'border-transparent text-[#94a3b8]'
                             }`}
                             key={k}
                             onClick={() => setTypeTab(k)}
@@ -198,6 +229,7 @@ export function ApprovedReportsModal({
                                     <th className="px-2 py-2 font-semibold">제목</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">회차</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">구분</th>
+                                    <th className="whitespace-nowrap px-2 py-2 text-center font-semibold">정산</th>
                                     <th className="whitespace-nowrap px-2 py-2 text-center font-semibold">입금 처리</th>
                                 </tr>
                             </thead>
@@ -238,6 +270,21 @@ export function ApprovedReportsModal({
                                             ) : (
                                                 <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#16a34a]">저장</span>
                                             )}
+                                        </td>
+                                        <td className="whitespace-nowrap px-2 py-2 text-center">
+                                            <button
+                                                className={`rounded-md px-2.5 py-1 text-[11px] font-bold disabled:opacity-50 ${
+                                                    r.settled
+                                                        ? 'bg-[#ede9fe] text-[#6d28d9] hover:bg-[#ddd6fe]'
+                                                        : 'border border-[#cbd5e1] bg-white text-[#64748b] hover:bg-[#f1f5f9]'
+                                                }`}
+                                                disabled={settling === r.id}
+                                                onClick={() => void toggleSettled(r)}
+                                                title={r.settled ? '클릭 시 미정산으로 되돌림' : '정산 처리(입금 전 단계) — 입금·외주비엔 영향 없음'}
+                                                type="button"
+                                            >
+                                                {settling === r.id ? '처리 중…' : r.settled ? '정산' : '미정산'}
+                                            </button>
                                         </td>
                                         <td className="whitespace-nowrap px-2 py-2 text-center">
                                             <button
