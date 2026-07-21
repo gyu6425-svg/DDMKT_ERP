@@ -113,9 +113,10 @@ export async function setReportSettled(report: BlogPostReport, settled: boolean)
     return { error };
 }
 
-// 발행/저장 승인 외주단가 — 대박종합주방만 10,000원, 그 외 8,000원. (브랜드 블로그 고정 규칙)
+// 발행/저장 승인 외주단가 — 아래 업체는 10,000원, 그 외 8,000원. (브랜드 블로그 고정 규칙)
+const OUT_UNIT_10K = ['대박종합주방', '위너키친'];
 export function publishOutUnit(company: string): number {
-    return (company || '').includes('대박종합주방') ? 10000 : 8000;
+    return OUT_UNIT_10K.some((n) => (company || '').includes(n)) ? 10000 : 8000;
 }
 
 // 이 보고의 실제 외주단가 — 브랜드는 항상 회사명 규칙(8,000/10,000)으로 고정(입력값 무시, 조작 방지).
