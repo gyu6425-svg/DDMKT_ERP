@@ -21,6 +21,7 @@ import time
 
 import comment_cafe as cc   # 같은 디렉터리(자립) — cafe_pub 를 import 하지 않음
 import accounts as acct     # 계정 → 크롬 포트(멀티계정)
+import heartbeat as hb      # 살아있음 신호(hang 감지용)
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -110,6 +111,7 @@ def main():
 
     quiet_logged = False
     while True:
+        hb.beat("listener")   # 살아있음 신호(멈추면 워치독이 되살림)
         if _in_quiet():
             if not quiet_logged:
                 print(f"[{datetime.datetime.now():%H:%M}] ⏸ 정지 시간대({QUIET}) — 게시 보류(큐는 유지). "

@@ -50,3 +50,6 @@ public/images/123/
 
 # 개발 중 테스트 스크린샷/배너 (언더스코어 시작) — 커밋 안 함
 public/images/_*.png
+
+# 카페 댓글 자동화 heartbeat(런타임 살아있음 신호 — 커밋 안 함)
+crawler/cafe_cmt/.hb_*

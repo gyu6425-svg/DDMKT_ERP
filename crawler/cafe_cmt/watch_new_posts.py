@@ -26,6 +26,7 @@ from playwright.sync_api import sync_playwright
 
 import comment_cafe as cc
 import accounts as acct     # 계정 → 크롬 포트(멀티계정)
+import heartbeat as hb      # 살아있음 신호(hang 감지용)
 from comment_templates import (build_comment, region_from_title, _lead_region,
                                classify_business)
 
@@ -277,11 +278,12 @@ def main():
         run_once(args.cdp); return
     _log(f"카페 새글 감시 시작 — 주기 {INTERVAL_MIN}분 — Ctrl+C 종료")
     while True:
+        hb.beat("watch")   # 살아있음 신호(멈추면 워치독이 되살림)
         try:
             run_once(args.cdp)
         except Exception as e:
             _log(f"루프 오류: {str(e)[:100]}")
-        time.sleep(INTERVAL_MIN * 60)
+        hb.sleep_beating("watch", INTERVAL_MIN * 60)   # 대기 중에도 60초마다 신호
 
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ import time
 
 import accounts as acct
 import comment_cafe as cc
+import heartbeat as hb      # 살아있음 신호(hang 감지용)
 from comment_templates import region_from_comment, classify_business
 from reply_templates import build_reply, region_from_text
 
@@ -183,11 +184,12 @@ def main():
         run_once(); return
     _log(f"답글 예약기 시작 — 주기 {INTERVAL_MIN}분 · 글당 {REPLY_PER_POST}개 · 계정 {REPLY_ACCOUNT} — Ctrl+C 종료")
     while True:
+        hb.beat("reply")   # 살아있음 신호(멈추면 워치독이 되살림)
         try:
             run_once()
         except Exception as e:
             _log(f"루프 오류: {str(e)[:100]}")
-        time.sleep(INTERVAL_MIN * 60)
+        hb.sleep_beating("reply", INTERVAL_MIN * 60)   # 대기 중에도 60초마다 신호
 
 
 if __name__ == "__main__":
