@@ -43,3 +43,16 @@ alter table public.cafe_publish_queue
   add column if not exists attempts   int not null default 0,
   add column if not exists claimed_at timestamptz;
 -- 롤백: alter table public.cafe_publish_queue drop column attempts, drop column claimed_at;
+
+-- ── 멀티 PC 라우팅 (2026-07-21, 독립검증) ──────────────────────────────────
+--   company: 어느 업체 작업인가(theman|seolgo|leak…). NULL=레거시 누수(company 없이 적재된 기존 행).
+--   region/keyword: 자동발행 대상·같은 지역 재발행 중복방지용.
+--   ⚠️ 순서 중요 — 컬럼을 먼저 add 한 뒤 인덱스를 만든다(인덱스가 company 컬럼을 참조하므로).
+--   ⚠️ 새 PC 설치 시 이 블록도 1회 실행(그동안 라이브 DB에만 수동 반영돼 있던 것을 문서화).
+alter table public.cafe_publish_queue
+  add column if not exists company text,
+  add column if not exists region  text,
+  add column if not exists keyword text;
+create index if not exists cpq_company_status_idx
+  on public.cafe_publish_queue (company, status, created_at);
+-- 롤백: drop index cpq_company_status_idx; alter table ... drop column company, drop column region, drop column keyword;

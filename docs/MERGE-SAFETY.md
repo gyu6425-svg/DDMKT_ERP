@@ -10,7 +10,7 @@
 |---|---|---|
 | **`main`** (이 PC) | ERP·기자단·업체 ERP + **크롤/순위 측정** + 카페 자동발행·원고생성·순위 트래커 | `src/routes/ClientsPage.tsx`·기자단·`crawler/`(크롤러)·`crawler/cafe_pub/`·`src/routes/CafePage.tsx` |
 | **`sub1`** (= 기존 `sub`) | 카페 **댓글 자동화** | `crawler/cafe_cmt/`·`src/api/cafeCommentQueue.ts`·`src/routes/CafeCommentPage.tsx` |
-| **`sub2`** (신규) | **누수탐지** 관련 | ⚠️ 아래 규칙대로 **새 파일**로만. 예: `crawler/leak_*` / `src/routes/Leak*.tsx` / `src/api/leak*.ts` |
+| **`sub2`** (신규) | **누수탐지** 관련 | ⚠️ 새 *기능*을 짜면 **새 파일**로만(`crawler/leak_*` 등). **단 카페 발행은 예외** — 기존 발행 엔진을 코드 수정 없이 `.env`로 운영만 한다(→ `docs/카페발행-멀티PC-라우팅.md`). |
 
 **git 충돌은 "같은 파일의 같은/인접한 줄"을 두 브랜치가 고칠 때만** 난다.
 → 각 sub는 **자기 기능을 신규 파일로** 짓고, 아래 §1 공유 파일 3곳만 규칙대로 최소 편집한다.
