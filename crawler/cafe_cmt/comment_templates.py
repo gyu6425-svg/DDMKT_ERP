@@ -55,6 +55,22 @@ GENERIC_HEAD = {"회사", "사무실", "빌딩", "건물", "공장", "상가", "
                 "아파트", "빌라", "오피스텔", "주택", "우리", "저희", "그", "이", "저"}
 
 
+def _lead_region(title):
+    """제목 맨 앞의 지역 토큰. '광진 천장 누수 …' → '광진', '안산 단원구 …' → '안산 단원구'."""
+    toks = [t for t in (title or "").strip(" \t[]【】「」<>()-–—·,.…‘’\"'").split() if t]
+    toks = [t for t in toks if not t.startswith("[")]     # [테스트] 같은 머리 태그 제거
+    if not toks:
+        return ""
+    cand = toks[0]
+    # 둘째 토큰이 행정구역 접미사(구/시/군/읍/면/동)면 '안산 단원구' 처럼 붙인다
+    if len(toks) >= 2 and toks[1] and toks[1][-1] in "구시군읍면동":
+        cand = toks[0] + " " + toks[1]
+    cand = cand.strip(" ,.·")
+    if 2 <= len(cand) <= 12 and all(("가" <= c <= "힣") or c == " " for c in cand):
+        return cand
+    return ""
+
+
 def region_from_title(title, keyword, fallback=""):
     """글 제목에서 '<지역> <키워드>' 패턴의 지역을 뽑는다.
 
@@ -66,9 +82,14 @@ def region_from_title(title, keyword, fallback=""):
     """
     if not title or not keyword:
         return fallback
+    title = re.sub(r"^\s*\[[^\]]*\]\s*", "", title)   # 머리 태그 '[테스트] ' 제거
     idx = title.find(keyword)
-    if idx <= 0:                     # 키워드가 없거나 맨 앞이면 앞에 지역이 없음
-        return fallback
+    if idx <= 0:
+        # 키워드가 제목에 없거나 맨 앞 → 제목 맨 앞의 '지역 토큰'을 쓴다.
+        #   발행 제목 형식이 '광진 누수탐지 …' 에서 '광진 천장 누수 …' 로 바뀌어(키워드가
+        #   제목에 없음) 지역까지 못 뽑던 문제. 지역은 어느 형식이든 항상 맨 앞에 온다.
+        lead = _lead_region(title)
+        return lead or fallback
     head = title[:idx].strip(" \t[]【】「」<>()-–—·,.…‘’\"'")
     toks = [t for t in head.split() if t]
     # 업종어는 지역이 아니다: '서초 회사 보안' → '서초'
