@@ -164,7 +164,10 @@ def main():
             #   상태를 pending 으로 되돌려 두고(발행 요청 보존), 크롬/로그인 복구되면 자동 재개.
             retryable = any(k in reason for k in (
                 "LOGIN_REQUIRED", "ECONNREFUSED", "connect_over_cdp", "제목 입력칸", "에디터 영역",
+                # 크롬이 죽거나 CDP 가 끊긴 경우 — 실제 Playwright 문구에 맞춰야 재시도로 잡힌다.
+                #   ("Target closed"/"browserContext" 는 요즘 문구와 안 맞아 헛돌았다 → 영구 실패로 새던 버그)
                 "Timeout", "Target closed", "browserContext", "websocket",
+                "has been closed", "Browser closed", "Connection closed", "Protocol error", "net::ERR_",
             ))
             if retryable:
                 pc.sb_patch("cafe_publish_queue", {"id": f"eq.{jid}"}, {"status": "pending", "reason": None})
@@ -176,4 +179,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # 감시 루프 — main() 이 예외로 빠져나가도 프로세스가 죽지 않고 되살아난다.
+    #   (2026-07-20 사고: publish_cafe._on_dialog 가 'No dialog is showing' 으로 크래시 →
+    #    리스너가 통째로 죽었는데 감시 장치가 없어 ~16시간 방치됐다. _on_dialog 자체는
+    #    이후 try/except 로 막혔지만, '다른 이유로 죽어도 살아나는' 안전망은 여기서 보장한다.
+    #    run_cafe_listener.bat 의 :loop 는 프로세스가 통째로 사라졌을 때의 2차 방어선이다.)
+    while True:
+        try:
+            main()
+        except KeyboardInterrupt:
+            print("종료합니다.", flush=True); break
+        except SystemExit:
+            raise                      # 자격증명 누락 등 '정상 종료'는 되살리지 않는다
+        except Exception as e:
+            print(f"[치명적] 발행 리스너 예외 — 20초 뒤 재시작: {str(e)[:200]}", flush=True)
+            time.sleep(20)
