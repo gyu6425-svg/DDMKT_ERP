@@ -28,7 +28,8 @@ export function ApprovedReportsModal({
     const [nameMap, setNameMap] = useState<Record<string, string>>({}); // 직원(reviewed_by) 이름
     const [reporterMap, setReporterMap] = useState<Record<string, string>>({}); // 기자단(reporter_id) 이름
     const [loading, setLoading] = useState(true);
-    const [typeTab, setTypeTab] = useState<'all' | ReportType>('all');
+    // 탭 — 전체/저장/발행은 '미입금'만 보여주고, 입금 처리된 건은 '입금 완료' 탭으로 이동한다.
+    const [typeTab, setTypeTab] = useState<'all' | ReportType | 'paid'>('all');
     const [blogFilter, setBlogFilter] = useState('all');
     const [reporterFilter, setReporterFilter] = useState('all');
     const [paying, setPaying] = useState<string | null>(null);
@@ -64,8 +65,12 @@ export function ApprovedReportsModal({
 
     const typeOf = (r: BlogPostReport): ReportType => r.report_type ?? 'save';
     const reporterNameOf = (r: BlogPostReport) => (r.reporter_id ? reporterMap[r.reporter_id] || '기자단' : '기자단');
-    const nSave = reports.filter((r) => typeOf(r) === 'save').length;
-    const nPub = reports.filter((r) => typeOf(r) === 'publish').length;
+    // 미입금(입금 전) 기준 집계 — 입금 처리하면 '입금 완료' 탭으로 넘어간다.
+    const unpaid = reports.filter((r) => !r.paid);
+    const nUnpaid = unpaid.length;
+    const nSave = unpaid.filter((r) => typeOf(r) === 'save').length;
+    const nPub = unpaid.filter((r) => typeOf(r) === 'publish').length;
+    const nPaid = reports.length - nUnpaid;
 
     // 기자단 드롭다운 옵션 — 목록에 등장하는 기자단만.
     const reporterOpts = useMemo(() => {
@@ -76,12 +81,19 @@ export function ApprovedReportsModal({
 
     const filtered = useMemo(
         () =>
-            reports.filter(
-                (r) =>
-                    (typeTab === 'all' || typeOf(r) === typeTab) &&
+            reports.filter((r) => {
+                // 입금 완료 탭 = 입금된 건만. 그 외 탭 = 미입금 건만(입금하면 목록에서 빠져 입금 완료로 이동).
+                if (typeTab === 'paid') {
+                    if (!r.paid) return false;
+                } else {
+                    if (r.paid) return false;
+                    if (typeTab !== 'all' && typeOf(r) !== typeTab) return false;
+                }
+                return (
                     (blogFilter === 'all' || r.blog_account_id === blogFilter) &&
-                    (reporterFilter === 'all' || r.reporter_id === reporterFilter),
-            ),
+                    (reporterFilter === 'all' || r.reporter_id === reporterFilter)
+                );
+            }),
         [reports, typeTab, blogFilter, reporterFilter],
     );
 
@@ -110,7 +122,7 @@ export function ApprovedReportsModal({
                     <div>
                         <h3 className="m-0 text-lg font-bold text-[#0f172a]">기자단 승인 처리 내역</h3>
                         <p className="m-0 mt-0.5 text-[12px] text-[#94a3b8]">
-                            승인·발행완료된 기자단 글 전체 · 총 {reports.length}건
+                            승인·발행완료된 기자단 글 · 총 {reports.length}건 (미입금 {nUnpaid} · 입금완료 {nPaid})
                         </p>
                     </div>
                     <button
@@ -126,14 +138,19 @@ export function ApprovedReportsModal({
                 <div className="mb-2 flex gap-1 border-b border-[#e2e8f0]">
                     {(
                         [
-                            ['all', `전체 (${reports.length})`],
+                            ['all', `전체 (${nUnpaid})`],
                             ['save', `저장 (${nSave})`],
                             ['publish', `발행 (${nPub})`],
-                        ] as ['all' | ReportType, string][]
+                            ['paid', `입금 완료 (${nPaid})`],
+                        ] as ['all' | ReportType | 'paid', string][]
                     ).map(([k, label]) => (
                         <button
                             className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
-                                typeTab === k ? 'border-[#16a34a] text-[#16a34a]' : 'border-transparent text-[#94a3b8]'
+                                typeTab === k
+                                    ? k === 'paid'
+                                        ? 'border-[#2563eb] text-[#2563eb]' // 입금 완료 = 파랑(미입금과 구분)
+                                        : 'border-[#16a34a] text-[#16a34a]'
+                                    : 'border-transparent text-[#94a3b8]'
                             }`}
                             key={k}
                             onClick={() => setTypeTab(k)}
