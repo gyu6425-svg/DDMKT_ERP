@@ -47,6 +47,8 @@ REPLY_STAGGER_JITTER = float(os.environ.get("CAFE_CMT_REPLY_STAGGER_JITTER", "6"
 # 최근 몇 건의 댓글을 살필지. 60 이면 밀린 글이 많을 때(예: 과거글 일괄 보충) 오래된 댓글이
 #   조회창 밖으로 밀려 영영 답글을 못 받는다. 넉넉히 본다(조회 1회라 비용도 미미).
 LOOKBACK = int(os.environ.get("CAFE_CMT_REPLY_LOOKBACK", "300"))
+# 한 글에 답글이 이만큼 실패하면 그 글은 포기(삭제된 글 등) — 무한 재시도 방지.
+REPLY_FAIL_GIVEUP = int(os.environ.get("CAFE_CMT_REPLY_FAIL_GIVEUP", "3"))
 
 
 def _log(m):
@@ -135,6 +137,14 @@ def run_once():
                    and cc.article_key(r.get("article_url", "")) == akey)
         need = REPLY_PER_POST - have
         if need <= 0:
+            continue
+        # 답글이 계속 실패하는 글 = 글이 삭제됐거나(답글쓰기 버튼 없음) 구조 문제.
+        #   그만 시도한다 — 안 그러면 매 주기 새 답글을 만들어 무한 실패한다
+        #   (2026-07-21 삭제된 #38 에 매시간 답글 시도가 쌓이던 실제 사고).
+        fails = sum(1 for r in rows
+                    if r.get("reply_to_body") and r.get("status") == "fail"
+                    and cc.article_key(r.get("article_url", "")) == akey)
+        if fails >= REPLY_FAIL_GIVEUP:
             continue
         picks = random.sample(cands, min(need, len(cands)))
         for i, r in enumerate(picks):
