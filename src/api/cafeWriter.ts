@@ -142,7 +142,22 @@ export async function generateCafe(input: GenerateCafeInput): Promise<GenerateCa
     return result as GenerateCafeResult;
 }
 
-export type GenerateCafeReviewResult = { title: string; reviewBody: string; topics?: string[]; usage?: CafeTokenUsage | null; model?: string | null };
+export type GenerateCafeReviewResult = { title: string; reviewBody: string; topics?: string[]; usage?: CafeTokenUsage | null; model?: string | null; check?: { ok: boolean; problems: string[] } | null };
+
+// 인기글 필터 — 브라우저는 CORS 로 네이버를 못 부르므로 로컬 서버(:8787)가 대신 검사한다.
+export type PopularReason = 'ok' | 'no_popular' | 'no_review_block' | 'serp_fetch_failed';
+export async function checkPopular(keyword: string, signal?: AbortSignal): Promise<{ hasPopular: boolean; reason: PopularReason }> {
+    const url = import.meta.env.DEV ? 'http://127.0.0.1:8787/api/cafe-popular-check' : '/api/cafe-popular-check';
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword }),
+        signal,
+    });
+    if (!res.ok) throw new Error(`인기글 검사 실패(${res.status})`);
+    const d = await res.json();
+    return { hasPopular: !!d.hasPopular, reason: d.reason as PopularReason };
+}
 
 // GPT 카드 이미지 1장 생성 — 지역/제목/전화/서비스 + 참고사진(refs). 레퍼런스 무드로 렌더.
 export async function generateCafeCard(input: {
@@ -291,6 +306,8 @@ export async function generateCafeReview(
         tone?: CafeReviewTone;
         count?: number;
         layout?: 'markers' | 'bottom';
+        variant?: 'info-guide';   // 더맨시스템 정보형 — 서버가 별도 프롬프트를 탄다
+        facts?: string[];         // 자격·허가 등 '확인된 사실'. 비면 모델이 자격 서술을 못 한다.
     },
 ): Promise<GenerateCafeReviewResult> {
     const result = await postCafe(
@@ -300,12 +317,14 @@ export async function generateCafeReview(
             business: input.business,
             content: input.content,
             count: input.count,
+            facts: input.facts,
             keyword: input.keyword,
             layout: input.layout,
             mode: 'review',
             phone: input.phone,
             region: input.region,
             tone: input.tone || 'review',
+            variant: input.variant,
         },
         input.signal,
     );

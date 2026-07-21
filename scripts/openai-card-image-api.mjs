@@ -4,6 +4,9 @@ import { resolve } from 'node:path';
 import sharp from 'sharp';
 // 순위 즉시검색 파서(단일소스 — Cloudflare 함수와 동일 파일 공유).
 import { rankInPopular, rankInBlogtab, TI_URL, BL_URL, MOBILE_UA, OUT_OF_RANK } from '../functions/lib/naverRank.mjs';
+// 정보형 원고 — 배포본(functions/api/generate-cafe.ts)과 같은 모듈을 써서 프롬프트가 갈라지지 않게 한다.
+import { buildInfoGuidePrompt, validateInfoBody, bodyLen as infoBodyLen, INFO_GUIDE_LEN } from '../functions/lib/cafeInfoGuide.mjs';
+import { hasPopularPc } from '../functions/lib/cafePopular.mjs';
 import {
     parseRss,
     deriveKeyword,
@@ -1281,26 +1284,58 @@ async function generateCafe(payload) {
     }
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) return { body: { message: '.env 의 OPENAI_API_KEY 가 필요합니다.' }, statusCode: 500 };
-    const model = process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
     const isReview = payload.mode === 'review';
-    const prompt = isReview ? buildReviewPrompt(payload) : buildCafePrompt(payload);
-    const apiResponse = await fetch(OPENAI_API_URL, {
-        // reasoning effort 'low' — 후기 원고는 깊은 추론 불필요 → 추론 토큰(=출력가) 크게 절감.
-        body: JSON.stringify({ input: prompt, model, reasoning: { effort: 'low' } }),
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        method: 'POST',
-    });
-    const result = await readJsonResponse(apiResponse);
-    rememberRequest({ ok: apiResponse.ok, route: 'generate-cafe', status: apiResponse.status });
-    if (!apiResponse.ok) {
-        return { body: { message: result?.error?.message || '원고 생성에 실패했습니다.' }, statusCode: apiResponse.status };
+    const isInfoGuide = isReview && payload.variant === 'info-guide';
+    // 후기/정보 원고는 배포본과 같은 저가 모델을 쓴다. 예전엔 여기만 gpt-5.5 로 붙어 있어
+    //   로컬 테스트가 배포본보다 20배 비싸고 결과도 달랐다.
+    const model = isReview
+        ? (process.env.OPENAI_CAFE_TEXT_MODEL || 'gpt-5-mini')
+        : (process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5');
+    const basePrompt = isInfoGuide
+        ? buildInfoGuidePrompt(payload)
+        : isReview ? buildReviewPrompt(payload) : buildCafePrompt(payload);
+    const minLen = isInfoGuide ? INFO_GUIDE_LEN.min : 2000;
+
+    async function callCafeModel(promptStr) {
+        const res = await fetch(OPENAI_API_URL, {
+            // reasoning effort 'low' — 후기 원고는 깊은 추론 불필요 → 추론 토큰(=출력가) 크게 절감.
+            body: JSON.stringify({ input: promptStr, model, reasoning: { effort: 'low' } }),
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            method: 'POST',
+        });
+        const r = await readJsonResponse(res);
+        rememberRequest({ model, ok: res.ok, route: 'generate-cafe', status: res.status, usage: r?.usage ?? null });
+        return { ok: res.ok, parsed: res.ok ? parseCafeJson(extractOutputText(r)) : null, raw: r, status: res.status };
     }
-    const parsed = parseCafeJson(extractOutputText(result));
+
+    let prompt = basePrompt;
+    let a = await callCafeModel(basePrompt);
+    if (!a.ok) return { body: { message: a.raw?.error?.message || '원고 생성에 실패했습니다.' }, statusCode: a.status };
+    let parsed = a.parsed;
+    let usage = a.raw?.usage ?? null;
+    // 재생성 — 분량뿐 아니라 '형식'이 깨져도 다시 시킨다. 정보형은 마커·부제목 개수가 발행 품질을 좌우하는데,
+    //   분량만 보던 기존 방식으로는 마커가 하나 빠진 원고가 그대로 통과했다(실측 준수율 1/3).
+    //   문제를 그대로 알려주고 최대 2회까지 다시 받아, 문제 수가 가장 적은 결과를 채택한다.
+    if (isReview && parsed) {
+        const score = (b) => (isInfoGuide
+            ? validateInfoBody(b, payload.count).problems.length
+            : (infoBodyLen(b) < minLen ? 1 : 0));
+        for (let attempt = 0; attempt < 2 && score(parsed.body) > 0; attempt += 1) {
+            const probs = isInfoGuide
+                ? validateInfoBody(parsed.body, payload.count).problems
+                : [`분량이 ${infoBodyLen(parsed.body)}자로 ${minLen}자 미만`];
+            const retry = `${basePrompt}\n\n[매우 중요] 방금 결과에 아래 문제가 있어 규칙 위반이다. 전부 고쳐서 처음부터 다시 작성하라.\n${probs.map((p) => `- ${p}`).join('\n')}\n특히 「사진 N」 마커 개수와 "부제목 :" 개수를 지시한 수만큼 정확히 맞추고, 각 마커는 그 줄에 홀로 두어라.`;
+            const b = await callCafeModel(retry);
+            if (b.ok && b.parsed?.body && score(b.parsed.body) < score(parsed.body)) { parsed = b.parsed; prompt = retry; }
+        }
+    }
     if (!parsed) return { body: { message: '생성 결과(JSON)를 해석하지 못했습니다. 다시 시도해 주세요.' }, statusCode: 502 };
     if (isReview) {
-        return { body: { title: parsed.title ?? '', reviewBody: parsed.body ?? '', topics: Array.isArray(parsed.topics) ? parsed.topics : [], prompt, usage: result.usage ?? null }, statusCode: 200 };
+        const check = isInfoGuide ? validateInfoBody(parsed.body, payload.count) : null;
+        if (check && !check.ok) console.error('[info-guide] 형식 문제:', check.problems.join(' | '));
+        return { body: { title: parsed.title ?? '', reviewBody: parsed.body ?? '', topics: Array.isArray(parsed.topics) ? parsed.topics : [], prompt, usage, model, check }, statusCode: 200 };
     }
-    return { body: { content: parsed, prompt, usage: result.usage ?? null }, statusCode: 200 };
+    return { body: { content: parsed, prompt, usage }, statusCode: 200 };
 }
 
 // ── 카페 원본 이미지 글자 교체(로컬) — functions/api/generate-cafe-edit.ts 와 동일 ──
@@ -1454,6 +1489,164 @@ async function generateCafeCard(p) {
     };
 }
 
+// ── 보안 배너(로컬) — functions/api/generate-security-banner.ts 와 동일 로직 ──
+//   그쪽은 Cloudflare 배포 전용이라 로컬 dev 서버에는 라우트가 없어 더맨2·3 탭이 404 로 죽어 있었다.
+//   프롬프트 문자열은 원본 그대로 옮긴다(결과물이 달라지면 안 됨).
+const SEC_PRESETS = [
+    { match: ['회사', '건물', '사무', '오피스', '기업', '상가', '아파트'], items: [
+        { title: '24시 관제', subtitle: '실시간 모니터링', icon: 'monitor' },
+        { title: '출입 관리', subtitle: '직원·방문 통제', icon: 'keycard' },
+        { title: '긴급 출동', subtitle: '{region} 신속 대응', icon: 'shield' }] },
+    { match: ['야외', '행사', '축제', '공연', '이벤트', '페스티벌'], items: [
+        { title: '현장 관제', subtitle: '실시간 모니터링', icon: 'monitor' },
+        { title: '관람객 동선', subtitle: '체계적 관리', icon: 'people' },
+        { title: '안전 운영', subtitle: '즉시 대응', icon: 'shield' }] },
+    { match: ['공사', '산업', '현장', '물류', '창고', '공장'], items: [
+        { title: '상시 순찰', subtitle: '24시 감시', icon: 'walk' },
+        { title: '출입 통제', subtitle: '자재·장비 보호', icon: 'lock' },
+        { title: '사고 예방', subtitle: '{region} 신속 대응', icon: 'shield' }] },
+    { match: ['주차', '차량'], items: [
+        { title: '차량 관제', subtitle: '실시간 모니터링', icon: 'car' },
+        { title: '출입 통제', subtitle: '무단주차 차단', icon: 'barrier' },
+        { title: '긴급 출동', subtitle: '{region} 신속 대응', icon: 'shield' }] },
+];
+const SEC_DEFAULT_ITEMS = [
+    { title: '24시 관제', subtitle: '실시간 모니터링', icon: 'monitor' },
+    { title: '출입 관리', subtitle: '철저한 통제', icon: 'keycard' },
+    { title: '긴급 출동', subtitle: '{region} 신속 대응', icon: 'shield' },
+];
+function secPresetFor(secType) {
+    const s = (secType || '').replace(/\s/g, '');
+    for (const p of SEC_PRESETS) if (p.match.some((m) => s.includes(m))) return p.items;
+    return null;
+}
+function secFillRegion(items, region) {
+    return items.map((it) => ({ ...it, subtitle: (it.subtitle || '').replace('{region}', region || '') }));
+}
+// 프리셋 미매칭 시에만 텍스트 모델로 하단 3개 생성(reasoning low · json_object 로 최소 비용).
+async function secGenItems(region, secType, titleLines, model, apiKey) {
+    const prompt = [
+        `너는 한국 지역 보안업체 홍보 배너의 '하단 3개 신뢰 항목'을 만드는 카피라이터다.`,
+        `지역: ${region} / 보안 종류: ${secType} / 배너 제목: "${titleLines.join(' ')}".`,
+        `이 맥락에 딱 맞는 하단 3개 항목을 만들어라. 각 항목 = 굵은 소제목(2~7자) + 작은 설명(4~12자)`,
+        `반드시 JSON만 출력: {"items":[{"title":"..","subtitle":"..","icon":".."}, 3개]}`,
+    ].join('\n');
+    const res = await fetch(OPENAI_API_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }],
+            model, reasoning: { effort: 'low' }, text: { format: { type: 'json_object' } },
+        }),
+    });
+    const result = await readJsonResponse(res);
+    let text = '';
+    for (const it of result?.output || []) for (const c of it.content || []) if (c.type === 'output_text') text += c.text || '';
+    let items = [];
+    try { items = (JSON.parse(text).items || []).slice(0, 3); } catch { items = []; }
+    if (items.length < 3) items = SEC_DEFAULT_ITEMS;   // 파싱 실패 시 안전 프리셋
+    return { items, usage: result?.usage };
+}
+function secVarsBlock(region, secType, titleLines, items) {
+    return ['',
+        `VARIABLES (only these change per banner):`,
+        `- REGION = "${region}"`,
+        `- SECURITY_TYPE = "${secType}"`,
+        `- TITLE_LINES = ${JSON.stringify(titleLines)}`,
+        `- BOTTOM_ITEMS = ${JSON.stringify(items.map((i) => ({ title: i.title, subtitle: i.subtitle, icon: i.icon })))}`,
+    ];
+}
+function buildSecurityPrompt(region, secType, titleLines, items) {
+    return [
+        `Immediately call the image_generation tool. Do NOT write any text, plan, or revised prompt — output the image only.`,
+        `Create a 1024x1024 square Korean corporate/event SECURITY company promotional card.`,
+        `Fixed layout & style (identical for every banner):`,
+        `- Large sweeping DARK FOREST GREEN curved panel on the RIGHT; light green-white on the LEFT.`,
+        `- RIGHT SIDE (~50%): one large realistic photo of a Korean male security guard in a dark suit/security uniform with an earpiece, standing confidently; the background scene fits SECURITY_TYPE (office lobby/glass building for corporate, outdoor festival stage for events, construction site for industrial).`,
+        `- TOP-LEFT: a small dark rounded pill in white text = REGION + " " + SECURITY_TYPE.`,
+        `- Below the pill: the MAIN TITLE, large bold dark-navy Korean text on three lines = the three TITLE_LINES in order. Use a rounded modern Korean gothic font with NORMAL, well-proportioned letters (each character about as wide as it is tall — NOT vertically stretched or condensed), comfortable line spacing, a short green underline accent.`,
+        `- Under the title: "더맨시스템" in medium gray Korean text.`,
+        `- BOTTOM-LEFT: exactly three trust items side by side. Each item = a simple green line ICON inside a rounded dark-green box + a bold navy TITLE + a small gray SUBTITLE, taken in order from BOTTOM_ITEMS.`,
+        `- No company logo or brand lettering at the very top. Green palette, high-contrast, trustworthy Korean marketing look.`,
+        `CRITICAL: render ALL Korean text 100% correctly — exact characters, no garbling, no typos, no fake or English letters, horizontal text only (never vertical).`,
+        ...secVarsBlock(region, secType, titleLines, items),
+    ].join('\n');
+}
+function buildSecurityPromptBlue(region, secType, titleLines, items) {
+    return [
+        `Immediately call the image_generation tool. Do NOT write any text, plan, or revised prompt — output the image only.`,
+        `Create a 1024x1024 square Korean local SECURITY/guard company promotional card (보안·경비 홍보 카드).`,
+        `Fixed layout & style (identical for every banner), bright high-trust local-service look:`,
+        `- Bright clean WHITE/light background with vivid BLUE geometric swoosh accents (a deep-blue curved ribbon along the top-left corner and across the bottom). Palette: vivid blue #1e5bd8, dark navy #0a2a66, white, small highlight.`,
+        `- TOP-LEFT: a small blue SHIELD icon, and to its right ONE short tagline line rendered in a SINGLE UNIFORM font — every character the exact SAME size, SAME semi-bold weight and SAME dark-navy color, evenly spaced on a single line, absolutely no mixed sizes/weights/styles: "믿을 수 있는 보안, 정확한 관리가 답입니다!".`,
+        `- Under the tagline: the MAIN TITLE in HUGE bold Korean text with a thick blue outline and subtle 3D drop-shadow, stacked on the TITLE_LINES in order (first line dark navy, the following lines vivid blue). Use a rounded modern Korean gothic font with NORMAL well-proportioned letters (each character about as wide as it is tall, NOT vertically stretched), comfortable line spacing.`,
+        `- Under the title: a blue rounded pill with a small stopwatch icon reading "빠른 출동 · 정확한 현장 대응".`,
+        `- Below that, one dark-navy line: REGION + " " + SECURITY_TYPE + " 전문 관리".`,
+        `- A white rounded panel with exactly THREE trust items side by side, taken in order from BOTTOM_ITEMS; each item = a blue line ICON + bold navy TITLE + small gray SUBTITLE.`,
+        `- RIGHT SIDE (fills right ~45%): one large realistic photo of a Korean male security guard in a dark navy uniform with an earpiece, alert and professional; the background fits SECURITY_TYPE (office lobby / glass building for corporate, outdoor event stage for events, construction site for industrial, parking lot for parking).`,
+        `- BOTTOM: a wide vivid-BLUE band. Centered white text "24시간 상담 · 신속 출동 · 확실한 대응", and at the far right a round white badge with blue text on two lines "더맨시스템" / "보안 전문".`,
+        `- Do NOT put any phone number anywhere.`,
+        `CRITICAL: render ALL Korean text 100% correctly — exact characters, no garbling, no typos, no fake or English letters, horizontal text only (never vertical).`,
+        ...secVarsBlock(region, secType, titleLines, items),
+    ].join('\n');
+}
+async function generateSecurityBanner(p) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return { statusCode: 500, body: { message: '.env 의 OPENAI_API_KEY 가 필요합니다.' } };
+    const ALLOWED_SEC_MODELS = ['gpt-5.5', 'gpt-5-mini'];
+    const model = ALLOWED_SEC_MODELS.includes(p.model) ? p.model : process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
+    const quality = ['low', 'medium', 'high'].includes(p.quality) ? p.quality : 'low';
+    const region = (p.region || '').trim();
+    const secType = (p.secType || '').trim();
+    const titleLines = (Array.isArray(p.titleLines) ? p.titleLines : []).map((s) => (s || '').trim()).filter(Boolean).slice(0, 3);
+    if (!region || !secType || titleLines.length === 0) {
+        return { statusCode: 400, body: { message: '지역·보안종류·제목(최소 1줄)을 입력하세요.' } };
+    }
+    // ① 하단 3개 — 직접 입력(manual) → 프리셋(0원) → AI 생성(~2원) 순.
+    let items, source, textUsage = null;
+    const manual = (Array.isArray(p.items) ? p.items : [])
+        .map((i) => ({ title: (i.title || '').trim(), subtitle: (i.subtitle || '').trim(), icon: (i.icon || 'shield').trim() }))
+        .filter((i) => i.title);
+    const preset = secPresetFor(secType);
+    if (manual.length === 3) { items = secFillRegion(manual, region); source = 'manual'; }
+    else if (preset) { items = secFillRegion(preset, region); source = 'preset'; }
+    else {
+        const gen = await secGenItems(region, secType, titleLines, model, apiKey);
+        items = secFillRegion(gen.items, region); textUsage = gen.usage; source = 'ai';
+    }
+    // dryRun: 이미지 생성(유료) 없이 하단 3개가 어느 경로로 정해졌는지만 확인 — 프리셋 매칭 점검용.
+    if (p.dryRun) return { statusCode: 200, body: { items, source, model, dryRun: true } };
+    // ② 이미지 생성. style=blue 면 파란 레퍼런스 무드.
+    const prompt = p.style === 'blue'
+        ? buildSecurityPromptBlue(region, secType, titleLines, items)
+        : buildSecurityPrompt(region, secType, titleLines, items);
+    const body = JSON.stringify({
+        input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }],
+        model, reasoning: { effort: 'low' },
+        tools: [{ type: 'image_generation', size: '1024x1024', quality }],
+    });
+    let base64, imageUsage = null, last = { status: 502, message: 'OpenAI 응답에 이미지가 없습니다. 다시 시도해 주세요.' };
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const res = await fetch(OPENAI_API_URL, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            body,
+        });
+        const result = await readJsonResponse(res);
+        rememberRequest({ model, ok: res.ok, quality, route: 'generate-security-banner', status: res.status, usage: result?.usage ?? null });
+        if (!res.ok) {
+            last = { status: res.status, message: result?.error?.message || 'OpenAI 이미지 생성 실패' };
+            if ((res.status === 429 || res.status >= 500) && attempt < 2) continue;
+            return { statusCode: last.status, body: { message: last.message } };
+        }
+        base64 = (result.output || []).find((it) => it.type === 'image_generation_call')?.result;
+        imageUsage = result?.usage ?? null;
+        if (base64) break;
+    }
+    if (!base64) return { statusCode: last.status, body: { message: last.message } };
+    return { statusCode: 200, body: { imageDataUrl: `data:image/png;base64,${base64}`, items, model, source, textUsage, imageUsage } };
+}
+
 loadDotEnv();
 
 const server = createServer(async (request, response) => {
@@ -1535,6 +1728,33 @@ const server = createServer(async (request, response) => {
             const payload = await readJsonBody(request);
             const result = await generateCafeCard(payload);
             sendJson(response, result.statusCode, result.body);
+        } catch (error) {
+            sendJson(response, 500, { message: error instanceof Error ? error.message : '서버 오류가 발생했습니다.' });
+        }
+        return;
+    }
+
+    if (request.method === 'POST' && request.url === '/api/generate-security-banner') {
+        try {
+            const payload = await readJsonBody(request);
+            const result = await generateSecurityBanner(payload);
+            sendJson(response, result.statusCode, result.body);
+        } catch (error) {
+            sendJson(response, 500, { message: error instanceof Error ? error.message : '서버 오류가 발생했습니다.' });
+        }
+        return;
+    }
+
+    if (request.method === 'POST' && request.url === '/api/cafe-popular-check') {
+        try {
+            const { keyword } = await readJsonBody(request);
+            if (!keyword || !String(keyword).trim()) {
+                sendJson(response, 400, { message: 'keyword 가 필요합니다.' });
+                return;
+            }
+            const t0 = Date.now();
+            const { hasPopular, reason } = await hasPopularPc(String(keyword).trim());
+            sendJson(response, 200, { keyword, hasPopular, reason, elapsedMs: Date.now() - t0 });
         } catch (error) {
             sendJson(response, 500, { message: error instanceof Error ? error.message : '서버 오류가 발생했습니다.' });
         }

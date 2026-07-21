@@ -6,11 +6,32 @@ import { computeRecordCostUsd } from '../../lib/apiPricing';
 import { useAuth } from '../../hooks/useAuth';
 import { getCachedCard, setCachedCard, delCachedCard } from './cardCache';
 import { downloadCafeZip } from './cafeExport';
+import { createPublishJob } from '../../api/cafePublishQueue';
 import { saveHistory } from './cafeHistory';
 import { SecItemsEditor, resolveSecItems, EMPTY_SEC_ITEMS, type SecItem } from './SecItemsEditor';
+import { COMPANIES, type CompanyKey } from './companies';
+import { buildImageOrder } from './imageOrder';
+import { AutoPublishPanel } from './AutoPublishPanel';
 
-// 더맨시스템2 탭 — 블루 보안배너(더맨2 방식) + 원고 + 2~7 저장이미지 + 생성 시 ZIP까지.
+// 발행 전 최소 점검 — 상세 규칙은 서버(functions/lib/cafeInfoGuide.mjs validateInfoBody)가 판정하고
+//   여기서는 그 결과 + 생성 후 본문을 손댄 경우를 대비해 마커 개수만 다시 센다.
+//   발행기는 「사진 N」을 줄 전체로만 인식하고, 범위 밖 번호는 조용히 버린다.
+const IMG_LINE = /^\s*[「[]?\s*사진\s*(\d+)\s*[」\]]?\s*$/;
+function checkBeforePublish(body: string, imageCount: number): string[] {
+    const out: string[] = [];
+    const nums = body.split(/\r?\n/).map((l) => IMG_LINE.exec(l)).filter(Boolean).map((m) => Number(m![1]));
+    if (nums.length !== imageCount) out.push(`사진 마커 ${nums.length}개 ≠ 이미지 ${imageCount}장`);
+    if (new Set(nums).size !== nums.length) out.push('사진 번호 중복');
+    if (nums.some((n) => n < 1 || n > imageCount)) out.push('범위를 벗어난 사진 번호');
+    if (/[「[]\s*사진\s*\d+\s*[」\]]/.test(body.split(/\r?\n/).filter((l) => !IMG_LINE.test(l)).join('\n'))) {
+        out.push('문장 안에 섞인 사진 마커');
+    }
+    return out;
+}
+
+// 더맨시스템2 / 3(abModel) 탭 — 블루 보안배너(더맨2 방식) + 원고 + 2~7 저장이미지 + 생성 시 ZIP까지.
 //   배너 = generateSecurityBanner(style:'blue') · 원고 = 키워드 기반 후기. 1·8=배너(북엔드), 2~7=고정이미지(속성변형).
+//   중간 이미지 세트: 더맨2 = cafe-fixed(공유) · 더맨3 = theman(보안 전용).
 
 const TONES: [CafeReviewTone, string][] = [
     ['review', '후기형'],
@@ -25,24 +46,6 @@ const QUALITY_OPTS: [('low' | 'medium' | 'high'), string, number][] = [
     ['high', '고화질', 240],
 ];
 
-// 배너 N장 + 고정 M장 → 1·마지막=배너, 중간은 고정(누수탐지 동일 규칙). N=1 → [b, ...fixed, b].
-function buildImageOrder(banners: string[], fixed: string[]): string[] {
-    if (!banners.length) return [...fixed];
-    if (banners.length === 1) return [banners[0], ...fixed, banners[0]];
-    const first = banners[0];
-    const last = banners[banners.length - 1];
-    const mids = banners.slice(1, -1);
-    const groups = mids.length + 1;
-    const chunks: string[][] = Array.from({ length: groups }, () => []);
-    fixed.forEach((img, i) => chunks[i % groups].push(img));
-    const middle: string[] = [];
-    chunks.forEach((chunk, i) => {
-        middle.push(...chunk);
-        if (i < mids.length) middle.push(mids[i]);
-    });
-    return [first, ...middle, last];
-}
-
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
     return (
         <label className="grid gap-1">
@@ -53,19 +56,22 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
 }
 
 // abModel=true(더맨시스템3)면 카드 모델 A/B 토글(gpt-5.5/mini) 노출. 기본 false(더맨시스템2)는 기존과 100% 동일.
-export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) {
+//   company: 업체 설정(게시판·링크·태그·중간이미지 폴더). 기본 'theman' → 더맨 동작 그대로.
+export function CafeBanner2Tab({ abModel = false, company = 'theman' }: { abModel?: boolean; company?: CompanyKey } = {}) {
+    const cfg = COMPANIES[company];
     const { profile } = useAuth();
     // 원고
-    const [keyword, setKeyword] = useState('일산 회사 보안');
+    const [keyword, setKeyword] = useState(`일산 ${cfg.secType}`);
     const [region, setRegion] = useState('일산');
-    const [business, setBusiness] = useState('보안');
+    const [business, setBusiness] = useState(cfg.business);
     const [phone, setPhone] = useState(DEFAULT_CAFE_CONTENT.phone);
-    const [tone, setTone] = useState<CafeReviewTone>('review');
+    // 더맨3(abModel)은 정보형만 쓴다(사용자 요청 2026-07-20) → 문체 선택 없이 'info' 고정.
+    const [tone, setTone] = useState<CafeReviewTone>(abModel ? 'info' : 'review');
     // 블루 배너(더맨2)
-    const [secType, setSecType] = useState('회사 보안');
-    const [l1, setL1] = useState('건물의');
-    const [l2, setL2] = useState('안전을');
-    const [l3, setL3] = useState('책임지는');
+    const [secType, setSecType] = useState(cfg.secType);
+    const [l1, setL1] = useState(cfg.titleLines[0]);
+    const [l2, setL2] = useState(cfg.titleLines[1]);
+    const [l3, setL3] = useState(cfg.titleLines[2]);
     const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('low');
     const [cardModel, setCardModel] = useState<'gpt-5.5' | 'gpt-5-mini'>('gpt-5-mini'); // 오케스트레이션 모델(A/B). 기본 mini(비용 절감).
     const [manualOn, setManualOn] = useState(false);
@@ -77,6 +83,8 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
     const [reviewBody, setReviewBody] = useState('');
     const [generating, setGenerating] = useState(false);
     const [downloading, setDownloading] = useState(false);
+    const [publishing, setPublishing] = useState(false);
+    const [check, setCheck] = useState<{ ok: boolean; problems: string[] } | null>(null); // 서버 형식검사 결과
     const [copied, setCopied] = useState(false);
     const [msg, setMsg] = useState('');
 
@@ -92,18 +100,29 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
     }, [region, secType, l1, l2, l3, quality, cardModel]);
 
     // 2~7 중간 저장 이미지 — 기본 내장 세트 자동 로드.
+    //   더맨3(abModel)만 보안 전용 세트(cafe-sec-fixed)를 쓴다. cafe-fixed 는 누수탐지·더맨2·배너/테스트 탭이
+    //   공유하는 세트라, 여기서 같이 갈아끼우면 누수탐지 글에 경비원 사진이 붙는다.
     useEffect(() => {
         let alive = true;
-        void fetch('/images/cafe-fixed/manifest.json')
+        const dir = abModel ? cfg.fixedDir : 'cafe-fixed';
+        void fetch(`/images/${dir}/manifest.json`)
             .then((r) => (r.ok ? r.json() : []))
-            .then((list) => alive && Array.isArray(list) && list.length && setFixedImages(list as string[]))
+            .then((list) => {
+                if (!alive) return;
+                if (Array.isArray(list) && list.length) setFixedImages(list as string[]);
+                // 전용 세트가 아직 없으면 공유 세트로 대체하지 않는다 — 조용히 엉뚱한 사진이 붙는 편이 더 위험.
+                else if (abModel) setMsg(`중간 이미지 없음 — public/images/${dir}/ 에 사진과 manifest.json 을 넣으세요`);
+            })
             .catch(() => undefined);
         return () => {
             alive = false;
         };
-    }, []);
+    }, [abModel, cfg.fixedDir]);
 
     const allImages = buildImageOrder(banner ? [banner] : [], fixedImages);
+    // 서버가 마커 개수를 1~9로 제한하므로 여기서 미리 맞춘다. 중간이미지 로드 전(빈 배열)에 생성을 누르면
+    //   2장짜리 원고가 나오므로, 그 경우엔 기본 9로 둔다.
+    const photoCount = fixedImages.length ? Math.max(1, Math.min(9, fixedImages.length + 2)) : 9;
     const ready = !!banner && !!reviewBody;
 
     const readFiles = (files: FileList | null): Promise<string[]> =>
@@ -134,6 +153,8 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
             const merged = mergeCafeContent({ region, phone, business });
             const [bannerR, reviewR] = await Promise.allSettled([
                 (async () => {
+                    // 고정 배너 이미지가 설정된 업체(설고점 등)는 AI 배너 생성을 건너뛴다.
+                    if (cfg.bannerImage) return cfg.bannerImage;
                     const cached = await getCachedCard(bannerKey());
                     if (cached) return cached;
                     const t = Date.now();
@@ -152,7 +173,12 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
                 (async () => {
                     const t = Date.now();
                     // 더맨(보안) 원고 — 누수탐지 소재(content) 대신 빈 소재 + 더맨 브랜드/업종으로 생성(누수 내용 유입 차단).
-                    const rv = await generateCafeReview({ brand: '더맨시스템', business, content: {}, keyword, phone, region, tone });
+                    // count 는 실제 발행 장수와 반드시 같아야 한다. 어긋나면 발행기가 범위 밖 「사진 N」을
+                    //   조용히 버려서 사진이 무증상으로 사라진다(publish_cafe.py 의 1<=n<=len(images) 검사).
+                    const rv = await generateCafeReview({
+                        brand: cfg.brand, business, content: {}, count: photoCount, keyword, phone, region, tone,
+                        ...(abModel ? { facts: cfg.facts, variant: 'info-guide' as const } : {}),
+                    });
                     void logApiUsage({ cost_usd: computeRecordCostUsd({ model: 'gpt-5-mini', provider: 'openai', usage_raw: rv.usage ?? null }), elapsed_ms: Date.now() - t, model: 'cafe-post', operator_name: operatorName, provider: 'openai', status: 'success', total_tokens: rv.usage?.total_tokens ?? null, usage_raw: (rv.usage as never) ?? null, user_email: email });
                     return rv;
                 })(),
@@ -166,6 +192,7 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
                 capTitle = reviewR.value.title || defaultCafeTitle(merged);
                 setReviewBody(capReview);
                 setTitle(capTitle);
+                setCheck((reviewR.value as { check?: { ok: boolean; problems: string[] } }).check ?? null);
             }
             if (reviewR.status === 'rejected') throw reviewR.reason;
             try {
@@ -218,15 +245,46 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
         }
     };
 
+    // 카페 발행 대기열 등록 — 이미지(게시 순서) + 본문을 cafe_publish_queue 에 적재(로컬 발행기가 처리).
+    //   발행기는 「사진 N」·"부제목 :" 두 마커만 해석하고 나머지 줄은 글자 그대로 타이핑하므로,
+    //   형식이 깨진 원고는 마커가 본문에 노출된 채 게시된다 → 등록 전에 막는다.
+    const publishCafe = async () => {
+        if (publishing || !ready) return;
+        const bad = checkBeforePublish(reviewBody, allImages.length);
+        if (bad.length) {
+            setMsg(`발행 보류 — 원고 형식 문제: ${bad.join(' / ')}. “생성”을 다시 눌러주세요.`);
+            return;
+        }
+        setPublishing(true);
+        setMsg('카페 발행 대기열 등록 중… (이미지 업로드)');
+        try {
+            const { error, jobId } = await createPublishJob({
+                board: cfg.board, body: cfg.footer ? `${reviewBody}\n\n${cfg.footer}` : reviewBody,
+                images: allImages, links: cfg.links,
+                tags: cfg.tags(region, secType), title,
+            });
+            if (error) throw error;
+            setMsg(`카페 발행 등록 완료 (#${jobId?.slice(0, 8)}) — 로컬 발행기가 순서대로 게시합니다.`);
+        } catch (e) {
+            setMsg(e instanceof Error ? e.message : '카페 발행 등록 실패');
+        } finally {
+            setPublishing(false);
+        }
+    };
+
     return (
         <div className="grid gap-5">
+            {/* 자동발행 — 키워드+지역 스캔 → 통과 지역 일괄 발행(더맨3/설고 등 abModel 탭만) */}
+            {abModel ? <AutoPublishPanel company={company} /> : null}
+
             <p className="m-0 text-sm text-[#64748b]">
-                <b>더맨2 블루 보안배너</b> + <b>원고</b> 한 번에. 1·8=블루 배너(북엔드), 2~7=저장이미지(속성 변형). <b>생성</b> 시 <b>ZIP까지</b> 자동.
+                <b>수동 1건</b> — 아래에서 키워드·지역을 직접 넣고 생성·발행할 수도 있습니다(단건 테스트용).
             </p>
 
-            {/* 원고 입력 */}
-            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {/* 원고 입력 — 자동발행은 키워드·지역이 자동으로 채워지므로 기본 접힘(수동 조정 시 펼침) */}
+            <details className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <summary className="cursor-pointer text-[12px] font-semibold text-[#475569]">원고 입력 <span className="font-normal text-[#94a3b8]">(펼치기 — 키워드·지역·업종·전화·문체)</span></summary>
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <Field label="키워드(원고 주제)" value={keyword} onChange={setKeyword} />
                     <Field label="지역명" value={region} onChange={setRegion} />
                     <Field label="업종" value={business} onChange={setBusiness} />
@@ -234,17 +292,20 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-1.5">
                     <span className="mr-1 text-[12px] font-semibold text-[#475569]">문체</span>
-                    {TONES.map(([k, label]) => (
+                    {abModel ? (
+                        <span className="rounded-full bg-[#7c3aed] px-3 py-1 text-[12px] font-semibold text-white">정보형</span>
+                    ) : TONES.map(([k, label]) => (
                         <button className={`rounded-full px-3 py-1 text-[12px] font-semibold ${tone === k ? 'bg-[#7c3aed] text-white' : 'border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]'}`} key={k} onClick={() => setTone(k)} type="button">
                             {label}
                         </button>
                     ))}
                 </div>
-            </div>
+            </details>
 
-            {/* 블루 배너 입력 */}
-            <div className="rounded-xl border-2 border-[#1e5bd8] bg-[#eff6ff] p-4">
-                <div className="mb-2 text-[12px] font-semibold text-[#1e5bd8]">블루 보안배너 (1·8번 · 더맨2 방식)</div>
+            {/* 블루 배너 입력 — 자동발행은 내용만 바뀌므로 기본 접힘(필요할 때만 펼침) */}
+            <details className="rounded-xl border-2 border-[#1e5bd8] bg-[#eff6ff] p-4">
+                <summary className="cursor-pointer text-[12px] font-semibold text-[#1e5bd8]">블루 보안배너 설정 <span className="font-normal text-[#94a3b8]">(펼치기 — 보안종류·제목·화질)</span></summary>
+                <div className="mt-3">
                 <Field label="보안 종류 (예: 회사 보안 / 야외행사 / 공사장)" value={secType} onChange={setSecType} />
                 <div className="mt-3">
                     <span className="text-[12px] font-semibold text-[#475569]">제목 (3줄)</span>
@@ -279,7 +340,8 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
                         <span className="ml-1 text-[11px] text-[#94a3b8]">모델 바꿔 각각 생성 → 미리보기·비용 비교(캐시 분리)</span>
                     </div>
                 ) : null}
-            </div>
+                </div>
+            </details>
 
             {/* 실행 */}
             <div className="flex flex-wrap items-center gap-2">
@@ -289,11 +351,26 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
                 <button className="h-10 rounded-md border border-[#4338ca] px-5 text-sm font-bold text-[#4338ca] hover:bg-[#eef2ff] disabled:cursor-not-allowed disabled:opacity-40" disabled={downloading || !ready} onClick={() => void downloadZip()} type="button">
                     {downloading ? 'ZIP 생성 중…' : '다운받기 (ZIP)'}
                 </button>
+                {abModel ? (
+                    <button className="h-10 rounded-md bg-[#0f766e] px-5 text-sm font-bold text-white hover:bg-[#115e59] disabled:cursor-not-allowed disabled:opacity-40" disabled={publishing || !ready} onClick={() => void publishCafe()} type="button">
+                        {publishing ? '발행 등록 중…' : '카페 발행'}
+                    </button>
+                ) : null}
                 {msg ? <span className="text-[13px] text-[#6366f1]">{msg}</span> : null}
             </div>
 
-            {/* 이미지 */}
-            <div className="grid gap-3 rounded-xl border border-[#e2e8f0] bg-white p-4 lg:grid-cols-2">
+            {/* 형식검사 — 발행기가 해석 못 하는 원고를 미리 알려준다(발행하면 마커가 글자로 노출됨) */}
+            {check && !check.ok ? (
+                <div className="rounded-lg border border-[#f59e0b] bg-[#fffbeb] p-3 text-[12px] text-[#92400e]">
+                    <b>원고 형식 경고</b> — {check.problems.join(' · ')}
+                    <div className="mt-1 text-[11px]">그대로 발행하면 마커가 본문에 글자로 노출되거나 사진이 빠질 수 있습니다. “생성”을 다시 눌러보세요.</div>
+                </div>
+            ) : null}
+
+            {/* 이미지 — 자동발행은 고정 세트를 쓰므로 기본 접힘 */}
+            <details className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <summary className="cursor-pointer text-[12px] font-semibold text-[#475569]">배너·중간 이미지 <span className="font-normal text-[#94a3b8]">(펼치기 — 미리보기·사진 추가/삭제)</span></summary>
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 <div>
                     <div className="mb-1.5 text-[12px] font-semibold text-[#475569]">블루 배너 (1·8번) <span className="font-normal text-[#94a3b8]">— 같은 조건 재사용(0원)</span></div>
                     <div className="flex items-center gap-2">
@@ -322,7 +399,8 @@ export function CafeBanner2Tab({ abModel = false }: { abModel?: boolean } = {}) 
                         </label>
                     </div>
                 </div>
-            </div>
+                </div>
+            </details>
 
             {/* 원고 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
