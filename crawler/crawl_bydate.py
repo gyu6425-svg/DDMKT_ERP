@@ -60,6 +60,10 @@ for it in items:
     if pub != cur_day:
         cur_day = pub
         print(f"--- {pub} 글 측정 시작 ---", flush=True)
+    # 글 번호 없는 URL(블로그 대문 주소 등)은 개별 글 특정 불가 → 최신글로 오배정되므로 측정하지 않음.
+    if not c.extract_log_no(it.get("url", "")):
+        done += 1
+        continue
     kw = (row.get("keyword_manual") or "").strip()
     if not kw:
         kw = c._keyword_from_hashtags(it["title"], it["url"], it["rss_tags"])
