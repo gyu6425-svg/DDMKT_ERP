@@ -633,9 +633,13 @@ def publish(page, title, blocks, no_send=False, link_url=None, tags=None, links=
         except Exception as e:
             _log(f"  (대화상자 처리 무시: {str(e)[:50]})")
     page.on("dialog", _on_dialog)
-    if CAFE_WRITE_URL:
-        page.goto(CAFE_WRITE_URL, wait_until="domcontentloaded")
-        page.wait_for_timeout(2500)
+    # 🔴 fail-closed: 발행 대상 URL 이 비어 있으면(빈 문자열은 falsy≠None) 예전엔 이 goto 를 건너뛰고
+    #   '열려 있는 아무 페이지'에 그대로 발행돼 오발행 사고가 났다. 이제는 오발행 대신 중단한다.
+    #   (리스너가 'CAFE_URL_MISSING' 을 환경오류로 분류해 job 을 pending 으로 되돌린다 → .env 고치면 자동 재개)
+    if not CAFE_WRITE_URL:
+        raise RuntimeError("CAFE_URL_MISSING: 발행 대상 카페(CAFE_WRITE_URL) 미설정 — 오발행 방지로 중단")
+    page.goto(CAFE_WRITE_URL, wait_until="domcontentloaded")
+    page.wait_for_timeout(2500)
     # 로그인 만료 감지 — 글쓰기 URL 이 로그인 페이지로 튕기면 재시도 대상(리스너가 대기로 되돌림).
     if re.search(r"nid\.naver\.com|nidlogin", page.url or ""):
         raise RuntimeError("LOGIN_REQUIRED: 네이버 로그인 필요 — 크롬 9223 에서 로그인하세요")

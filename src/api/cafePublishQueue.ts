@@ -63,6 +63,7 @@ export async function createPublishJob(input: {
             company: input.company ?? null,
             region: input.region ?? null,
             keyword: input.keyword ?? null,
+            board: input.board ?? null,   // 게시판 파티션 키(멀티PC 라우팅). 비면 DB 트리거가 manifest 에서 채움.
         });
         if (error) throw error;
         return { error: null, jobId };

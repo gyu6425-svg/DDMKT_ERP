@@ -128,7 +128,8 @@ def _info_prompt(region, count, ending="총정리"):
         '- 도입부는 **정확히 두 문단**으로 쓰고 사이에 빈 줄을 하나 넣어라. 한 덩어리로 붙이면 글이 벽처럼 읽힌다.'
         f'  첫 문단 = "{region} {BUSINESS}"로 시작하는 명제 + 구체적 상황 3가지 열거. '
         '  둘째 문단 = "~만으로는 충분하지 않습니다" 리프레임 + 이 글에서 무엇을 다루는지("~설명하겠습니다").',
-        f'- 도입 두 문단 다음에 「사진 1」~「사진 {count}」 각 한 줄 단독(정확히 {count}개).',
+        f'- 도입 두 문단 다음부터는 여러 개의 "섹션"으로 구성한다. **각 섹션은 반드시 "부제목 : <소제목>" 한 줄로 시작**하고, '
+        f'  그 바로 아래에 「사진 N」과 본문 문단을 넣는다(한 섹션에 사진 1~2개). 「사진 1」~「사진 {count}」를 정확히 {count}개 쓰되 섹션들에 고루 나눠 담아라.',
         '- 각 「사진」 뒤 본문 문단(5문장 이상) 필수. 부제목만 있는 사진 없게. 문단과 문단 사이는 빈 줄 하나로 띄워라(가독성).',
         '- 글 뒷부분에 "부제목 : 자주 묻는 질문" 한 줄을 두고 그 아래 Q&A를 1~3쌍 넣어라(가급적 1쌍 이상). '
         '  억지로 채우지 말고 실제로 자주 나올 질문만 쓴다. 쓸 만한 게 없으면 이 섹션을 생략해도 된다. '
@@ -147,6 +148,8 @@ def _info_prompt(region, count, ending="총정리"):
         # 부제목이 1개만 나와 인용구 구획이 사라지는 일이 잦았다 → 개수를 명시(사용자 요청 2026-07-20).
         f'- 부제목: "부제목 : <내용>" 형식으로 **글 전체에 5~7개**, 각각 한 줄 단독. '
         f'  (본문 섹션 4~6개 + "부제목 : 자주 묻는 질문" 1개). 이보다 적으면 규칙 위반이다. '
+        f'  ⚠️ [매우 중요] 각 부제목은 반드시 자기 섹션의 「사진」 **바로 앞 줄**에 놓아라. '
+        f'  부제목들을 본문 다 쓴 뒤 글 끝에 모아서 나열하는 것은 절대 금지(가장 흔한 실수다). '
         f'  각 부제목은 13~29자, 서로 모두 달라야 하고 본문 문단의 어느 줄과도 글자가 같으면 안 된다. '
         f'  단순 명사 금지 — 위험이나 이득의 각도를 담아라. 1~2개에는 지역({region})+키워드를 넣어라. '
         f'  "부제목"이라는 단어를 한 줄에 두 번 쓰지 마라.',
@@ -228,6 +231,42 @@ def _norm_body(body):
     return "\n".join(res).strip("\n")
 
 
+def _redistribute_subtitles(body):
+    """부제목(소제목)이 글 끝에 몰려 나온 경우(모델이 자주 실패하는 패턴) → 각 사진 섹션 앞으로 고루 재분배.
+    이미 섹션 사이에 흩어져 있으면(연속 부제목 없음) 그대로 둔다. 순수 텍스트 재배치 — OpenAI 재호출 없음."""
+    lines = body.split("\n")
+    sub_pos = [i for i, l in enumerate(lines) if l.strip().startswith("부제목")]
+    if len(sub_pos) < 2:
+        return body
+    # 클러스터 감지: 두 부제목 사이에 (빈 줄 제외) 실제 내용이 없으면 '몰린' 것.
+    clustered = any(not [x for x in lines[a + 1:b] if x.strip()]
+                    for a, b in zip(sub_pos, sub_pos[1:]))
+    if not clustered:
+        return body
+    subs = [lines[i].strip() for i in sub_pos]
+    rest = [l for i, l in enumerate(lines) if i not in set(sub_pos)]
+    img_pos = [i for i, l in enumerate(rest) if IMG_MARK_RE.match(l.strip())]
+    if not img_pos:
+        return body                                   # 사진이 없으면 재배치 근거가 없다 → 원본 유지
+    faq = next((s for s in subs if "자주 묻는 질문" in s), None)
+    content = [s for s in subs if s != faq]           # FAQ 부제목은 Q&A 앞에 따로 둔다
+    inserts = {}                                      # rest 인덱스 → 그 앞에 넣을 부제목 줄들
+    n = len(img_pos)
+    for j, s in enumerate(content):                   # 부제목을 사진 섹션들에 고루 분배(순서 유지)
+        inserts.setdefault(img_pos[(j * n) // len(content)], []).append(s)
+    if faq:
+        q = next((i for i, l in enumerate(rest) if re.match(r'^\s*Q[\s.．:).]', l.strip())), len(rest))
+        inserts.setdefault(q, []).append(faq)
+    out = []
+    for i, l in enumerate(rest):
+        for s in inserts.get(i, []):
+            out += ["", s, ""]
+        out.append(l)
+    for s in inserts.get(len(rest), []):              # FAQ 가 맨 끝일 때
+        out += ["", s, ""]
+    return "\n".join(out).strip("\n")
+
+
 _PHONE_RE = re.compile(r'0\d{1,2}[-\s.]?\d{3,4}[-\s.]?\d{4}')
 
 def _strip_phone(body):
@@ -289,6 +328,7 @@ def gen_review(region, count, tone=None):
             best = p
     title = _fix_title(region, best.get("title", ""))
     body = _norm_body(best.get("body", ""))        # 사진 마커·부제목을 독립 줄로 교정
+    body = _redistribute_subtitles(body)           # 부제목이 끝에 몰렸으면 각 섹션 앞으로 재분배(안전망, 비용 0)
     if info:
         body = _strip_phone(body)                  # 프롬프트로 막아도 새는 경우가 있어 한 번 더 걷어낸다
     body = body.rstrip()                           # 태그/링크는 본문이 아니라 별도 블록으로 처리
@@ -356,10 +396,15 @@ def upload_image(job_id, idx, jpg):
         headers={**sb_headers(), "Content-Type": "image/jpeg", "x-upsert": "true"}, data=jpg, timeout=120, verify=False)
     return path if r.ok else None
 
-def queue_job(job_id, title, blocks):
+def queue_job(job_id, title, blocks, company=None, region=None, keyword=None, board=None):
+    payload = {"id": job_id, "title": title, "manifest": blocks, "status": "pending"}
+    # 멀티PC 라우팅(board)·중복차단(company/region/keyword) 키 — 값이 있을 때만 넣는다(구스키마 하위호환).
+    for k, v in (("company", company), ("region", region), ("keyword", keyword), ("board", board)):
+        if v:
+            payload[k] = v
     r = requests.post(f"{SUPABASE_URL}/rest/v1/cafe_publish_queue",
         headers={**sb_headers(), "Content-Type": "application/json", "Prefer": "return=minimal"},
-        data=json.dumps({"id": job_id, "title": title, "manifest": blocks, "status": "pending"}), timeout=30, verify=False)
+        data=json.dumps(payload), timeout=30, verify=False)
     return r.ok, (r.text[:200] if not r.ok else "")
 
 
@@ -383,7 +428,11 @@ def make_and_queue(region, fixed):
     # 본문 뒤: 홈페이지 링크(썸네일 카드로 삽입) + 하단 태그칩(에디터 태그칸)
     blocks.append({"type": "link", "url": BUSINESS_URL})
     blocks.append({"type": "tags", "tags": _tags(region)})
-    ok, err = queue_job(job_id, title, blocks)
+    # 게시판 파티션/중복차단 메타 — 누수 자동발행 기본값. board 블록을 넣어 발행기가 정확한 게시판을 고르게 한다.
+    company = os.environ.get("CAFE_COMPANY", "leak")
+    board = os.environ.get("CAFE_BOARD", "누수")
+    blocks.append({"type": "board", "name": board})
+    ok, err = queue_job(job_id, title, blocks, company=company, region=region, board=board)
     if not ok: raise RuntimeError(f"큐 적재 실패: {err}")
     _log(f"  ✅ 큐 등록 완료: {job_id[:8]} (이미지 {count} + 본문)")
     return job_id
