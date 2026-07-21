@@ -344,9 +344,12 @@ export async function approveReport(
     const bookReport: BlogPostReport = { ...report, out_amount: outAmount ?? report.out_amount };
 
     // 2) 추적글 생성(같은 URL 이미 추적 중이면 재사용) → blog_post_id 연결.
+    //    개별 글 주소(글 번호 포함)일 때만 만든다. 저장(빈 URL)이나 블로그 대문 주소(글 번호 없음)는
+    //    순위 트래커가 최신글로 오배정되므로 추적글을 만들지 않는다(측정대기·오배정 원천 차단).
     const base = (report.post_url || '').split('?')[0];
+    const hasArticle = /\/\d{6,}/.test(base); // blog.naver.com/아이디/224xxxxx 형태만
     let postId: string | null = null;
-    if (base) {
+    if (hasArticle) {
         const { data: existing } = await supabase
             .from('blog_posts')
             .select('id,post_url')
@@ -354,7 +357,7 @@ export async function approveReport(
         const hit = (existing ?? []).find((p) => (p.post_url || '').split('?')[0] === base);
         if (hit) postId = (hit as { id: string }).id;
     }
-    if (!postId) {
+    if (hasArticle && !postId) {
         const { data: post } = await supabase
             .from('blog_posts')
             .insert({
@@ -378,12 +381,22 @@ export async function approveReport(
     return { error: err, processed, outUnit, mode };
 }
 
-// 기자단 '발행' 처리 — 저장으로 보고한 글을 발행했을 때. report_type만 publish로 + published_at.
+// 기자단 '발행' 처리 — 저장으로 보고한 글을 발행했을 때. report_type을 publish로 + published_at + 실제 글 주소.
 //   계약/카운트는 승인 시 이미 1회 처리되므로 여기서는 재계상하지 않는다(중복 방지). RLS: 본인 보고만.
-export async function markPublished(reportId: string) {
+//   저장 보고는 링크를 안 받으므로, 발행 시점에 실제 글 주소(글 번호 포함)를 넣는다 → 그 뒤 크롤러가
+//   공개된 글을 잡아 순위 추적. postUrl 미지정이면 기존 URL 유지.
+export async function markPublished(reportId: string, postUrl?: string) {
     // RPC(SECURITY DEFINER)로 발행 이동. 기자단의 직접 UPDATE는 RLS상 status='rejected'만 허용돼
     //   저장(pending/confirmed)건이 0행 업데이트로 조용히 실패하던 문제를 해결(권한 상승 없이 발행 이동만).
-    const { error } = await supabase.rpc('mark_report_published', { p_report_id: reportId });
+    const { error } = await supabase.rpc('mark_report_published', {
+        p_report_id: reportId,
+        p_post_url: postUrl?.trim() || null,
+    });
+    // 마이그레이션(reporter-publish-url.sql) 실행 전이면 2-인자 RPC가 없다 → 구 1-인자로 폴백(발행 이동만).
+    if (error && /PGRST202|Could not find the function|does not exist|schema cache/i.test(error.message || '')) {
+        const { error: e2 } = await supabase.rpc('mark_report_published', { p_report_id: reportId });
+        return { error: e2 };
+    }
     return { error };
 }
 

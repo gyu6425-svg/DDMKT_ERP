@@ -1541,6 +1541,10 @@ def _process_blog(acc, kw_by_acc, force=False):
         for post in upserted:
             if post.get("excluded"):
                 continue  # 순위 트래커에서 삭제한 글 — 측정 안 함(재등록돼도 excluded 유지)
+            # 글 번호 없는 URL(블로그 대문 주소 등) = 개별 글이 특정 안 됨 → 최신글로 오배정되므로 측정하지 않음.
+            #   저장 보고는 링크를 안 받아 이런 글이 생기지 않지만, 과거 대문 URL 데이터도 무조건 스킵.
+            if not extract_log_no(post.get("post_url", "")):
+                continue
             keyword = post.get("keyword_manual") or post.get("keyword") or ""
             if not keyword:
                 continue
@@ -1700,7 +1704,9 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
         have = {it["url"] for it in b["posts"]}
         for p in posts_by_acc.get(b["acc"]["id"], []):
             u = p.get("post_url")
-            if u and u not in have:
+            # 글 번호 없는 URL(블로그 대문 주소 등)은 개별 글 특정 불가 → 최신글로 오배정되므로 측정 대상에서 제외.
+            #   저장 보고는 링크를 안 받아 새로 안 생기지만, 과거 대문 URL 추적글도 무조건 제외.
+            if u and u not in have and extract_log_no(u):
                 b["posts"].append({"row": p, "rss_tags": [], "url": u, "title": p.get("title") or ""})
                 have.add(u)
         # 최신순(발행일 내림차순) — 최신 글부터 측정.
@@ -1719,6 +1725,10 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
                 continue
             item, acc, blog_id = b["posts"][i], b["acc"], b["blog_id"]
             row = item["row"]
+            # 방어: 글 번호 없는 URL(대문 주소)은 측정하지 않음(오배정 방지). 병합 단계에서 이미 걸러지지만 이중 안전판.
+            if not extract_log_no(item.get("url", "")):
+                done += 1
+                continue
             tr = next((r for r in (row.get("measurements") or []) if r.get("date") == TODAY), None)
             if not force and tr and tr.get("ti_status") != "fail" and tr.get("bl_status") != "fail":
                 done += 1

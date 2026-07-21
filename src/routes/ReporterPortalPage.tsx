@@ -33,6 +33,11 @@ const URL_PREFIX = 'https://';
 const hasScheme = (u: string) => /^https?:\/\/.+/.test(u.trim());
 const URL_HINT = '블로그 주소는 https:// 로 시작해야 합니다 · 주소 앞에 https:// 를 붙여주세요';
 
+// 발행 보고/발행 전환의 글 주소 — 개별 글 주소(글 번호 포함)만 허용.
+//   대문 주소(blog.naver.com/아이디)는 순위 트래커가 최신글로 오배정되므로 거부한다.
+const hasArticleNo = (u: string) => /\/\d{6,}/.test(u.trim());
+const ARTICLE_HINT = '개별 글 주소를 넣어주세요 (대문 주소가 아니라 글 번호가 포함된 주소, 예: blog.naver.com/아이디/224…)';
+
 // 기자단 글 보고 탭 — 본인 담당 블로그에 쓴 글 URL을 보고. 내부(김다영 등)에게 알림이 감.
 function ReportSubmitTab() {
     const { accounts, showToast } = useBlogRank();
@@ -45,6 +50,9 @@ function ReportSubmitTab() {
     const [keyword, setKeyword] = useState('');
     const [saving, setSaving] = useState<ReportType | null>(null);
     const [publishing, setPublishing] = useState<string | null>(null);
+    // 발행 전환 시 실제 글 주소 입력 — 저장은 링크가 없으므로 '발행' 버튼에서 그때 받는다.
+    const [pubId, setPubId] = useState<string | null>(null);
+    const [pubUrl, setPubUrl] = useState('');
     const [mine, setMine] = useState<BlogPostReport[]>([]);
     // 내 보고 내역 필터 — 저장/발행 탭 + 블로그별 탭
     const [histTab, setHistTab] = useState<ReportType>('save');
@@ -90,14 +98,19 @@ function ReportSubmitTab() {
 
     const submit = async (type: ReportType) => {
         if (!blogId) return showToast('블로그를 선택하세요');
-        if (!url.trim()) return showToast('글 주소(URL)를 입력하세요');
         if (!title.trim()) return showToast('제목을 입력하세요(필수)');
+        // 저장은 링크를 받지 않는다(발행 전 초안이라 실제 글 주소가 없음 → 대문 주소 오배정 방지).
+        //   발행은 개별 글 주소(글 번호 포함) 필수.
+        if (type === 'publish') {
+            if (!url.trim()) return showToast('발행 글 주소(URL)를 입력하세요');
+            if (!hasArticleNo(url)) return showToast(ARTICLE_HINT);
+        }
         if (!profile?.id) return showToast('계정 정보를 확인할 수 없습니다');
         setSaving(type);
         const { error, duplicate } = await createReport({
             blog_account_id: blogId,
             reporter_id: profile.id,
-            post_url: url.trim(),
+            post_url: type === 'publish' ? url.trim() : '', // 저장은 링크 없음
             title: title.trim(),
             report_type: type,
             keyword: keyword.trim() || null,
@@ -122,13 +135,18 @@ function ReportSubmitTab() {
         loadMine();
     };
 
-    // 기자단 '발행' 처리 — 저장으로 보고한 글을 발행쪽 히스토리로 이동(재카운트 없음).
-    const doPublish = async (r: BlogPostReport) => {
+    // 기자단 '발행' 처리 — 저장으로 보고한 글을 발행쪽 히스토리로 이동(재카운트 없음) + 실제 글 주소 저장.
+    //   저장 보고는 링크가 없으니 여기서 개별 글 주소(글 번호 포함)를 받아 저장 → 크롤러가 공개된 글을 잡아 순위 추적.
+    const doPublish = async (r: BlogPostReport, articleUrl: string) => {
+        if (!articleUrl.trim()) return showToast('발행한 글의 주소를 입력하세요');
+        if (!hasArticleNo(articleUrl)) return showToast(ARTICLE_HINT);
         setPublishing(r.id);
-        const { error } = await markPublished(r.id);
+        const { error } = await markPublished(r.id, articleUrl.trim());
         setPublishing(null);
         if (error) return showToast('발행 처리 실패: ' + error.message);
-        showToast('발행으로 이동됨 · 발행 히스토리에 표시됩니다');
+        setPubId(null);
+        setPubUrl('');
+        showToast('발행 처리 완료 · 글 주소가 저장되어 순위 추적이 시작됩니다');
         loadMine();
     };
 
@@ -200,13 +218,16 @@ function ReportSubmitTab() {
                     />
                 </label>
                 <label className="text-xs font-semibold text-[#475569]">
-                    글 주소(URL)
+                    글 주소(URL) · 발행 시에만
                     <input
                         className={inputCls}
                         onChange={(e) => setUrl(e.target.value)}
-                        placeholder="https://blog.naver.com/..."
+                        placeholder="발행 글의 개별 주소 (저장은 비워두세요)"
                         value={url}
                     />
+                    <span className="mt-1 block text-[11px] font-normal text-[#94a3b8]">
+                        저장으로 보고할 땐 링크를 넣지 마세요. 발행 시 개별 글 주소(글 번호 포함)를 넣습니다.
+                    </span>
                 </label>
                 <label className="text-xs font-semibold text-[#475569]">
                     키워드(선택)
@@ -319,13 +340,16 @@ function ReportSubmitTab() {
                                             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${st.c}`}>
                                                 {st.t}
                                             </span>
-                                            {/* 저장 탭 항목엔 '발행' 버튼 — 눌러 발행 히스토리로 이동(재카운트 없음) */}
+                                            {/* 저장 탭 항목엔 '발행' 버튼 — 누르면 실제 글 주소 입력받아 발행 처리 */}
                                             {histTab === 'save' && r.status !== 'rejected' ? (
                                                 <button
                                                     className="rounded bg-[#059669] px-2 py-0.5 text-[11px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
                                                     disabled={publishing === r.id}
-                                                    onClick={() => void doPublish(r)}
-                                                    title="이 글을 발행했다면 눌러 발행 히스토리로 이동"
+                                                    onClick={() => {
+                                                        setPubId(pubId === r.id ? null : r.id);
+                                                        setPubUrl('');
+                                                    }}
+                                                    title="이 글을 발행했다면 눌러 글 주소를 입력하세요"
                                                     type="button"
                                                 >
                                                     {publishing === r.id ? '…' : '발행'}
@@ -342,6 +366,36 @@ function ReportSubmitTab() {
                                             ) : null}
                                         </div>
                                     </div>
+                                    {pubId === r.id ? (
+                                        <div className="mt-2 grid gap-2 rounded-md border border-[#a7f3d0] bg-[#ecfdf5] p-2">
+                                            <div className="text-[12px] font-semibold text-[#047857]">
+                                                발행한 글의 주소를 넣어주세요 (글 번호 포함 · 대문 주소 X)
+                                            </div>
+                                            <input
+                                                className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                                onChange={(e) => setPubUrl(e.target.value)}
+                                                placeholder="https://blog.naver.com/아이디/224…"
+                                                value={pubUrl}
+                                            />
+                                            <div className="flex gap-2">
+                                                <button
+                                                    className="rounded-md bg-[#059669] px-3 py-1.5 text-[12px] font-bold text-white disabled:opacity-50"
+                                                    disabled={publishing === r.id}
+                                                    onClick={() => void doPublish(r, pubUrl)}
+                                                    type="button"
+                                                >
+                                                    {publishing === r.id ? '처리 중…' : '발행 확정'}
+                                                </button>
+                                                <button
+                                                    className="rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-[12px] font-bold text-[#475569]"
+                                                    onClick={() => setPubId(null)}
+                                                    type="button"
+                                                >
+                                                    취소
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : null}
                                     {editing ? (
                                         <div className="mt-2 grid gap-2 rounded-md border border-[#c7d2fe] bg-[#eef2ff] p-2">
                                             <select
