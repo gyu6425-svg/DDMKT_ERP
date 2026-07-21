@@ -37,14 +37,24 @@
 
 ### sub2 PC 셋업 절차
 
-1. **코드 받기**
+1. **코드 받기** — ⚠️ **그냥 `git pull` 하지 말 것.** sub2 PC에 예전 로컬 커밋/수정이 남아 있으면
+   pull 이 머지하다 충돌난다. `git status` 로 먼저 확인하고 `origin/main` 기준으로 깨끗하게 세운다.
    ```bash
    git fetch origin
-   git checkout -B sub2 origin/main     # 최신 main 위에 sub2 세움 (이 세션 작업 e2acf13 포함)
+   git status                           # (A) 깨끗함(nothing to commit) 이면 아래 진행
+                                        # (B) 로컬 변경/커밋이 보이면 → 먼저 처리(아래 참고) 후 진행
+   git checkout -B sub2 origin/main     # 최신 main 위에 sub2 세움 (이 세션 작업 포함). pull 아님
    npm install
    pip install playwright requests pillow truststore
    python -m playwright install chromium
    ```
+   **(B) 로컬에 미커밋/미푸시가 있을 때** — 버릴지 남길지 정한 뒤:
+   ```bash
+   git stash                            # 임시 보관(나중에 git stash pop 으로 복원 가능)  ─ 또는
+   git commit -am "wip: sub2 로컬 작업"  # 남길 커밋이면 커밋 후 checkout
+   ```
+   그다음 위 `git checkout -B sub2 origin/main` 을 실행한다. (판단이 서지 않으면 `git status` 결과를 공유할 것.)
+   > `checkout -B` 는 작업파일을 origin/main 상태로 맞춘다. 위에서 stash/commit 으로 **먼저 정리했으면** 잃을 것이 없다.
 
 2. **`.env` (gitignore — 이 PC에서 복사하거나 새로 작성. 채팅/메일로 키 보내지 말 것)**
    | 파일 | 키 |
