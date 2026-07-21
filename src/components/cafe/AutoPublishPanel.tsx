@@ -15,7 +15,7 @@ const MAX_GEN_ATTEMPTS = 3; // 원고가 형식검사(check.ok)를 통과할 때
 type Pair = { region: string; keyword: string };
 // scans = 인기글 검사에 시도할 변형들(예 ['광진','광진구']) — 하나라도 뜨면 통과.
 type ScanRow = Pair & { scans: string[]; status: '대기' | '검사중' | '통과' | '없음' | '오류'; reason?: string };
-type GenRow = Pair & { status: string; url?: string; jobId?: string };
+type GenRow = Pair & { status: string; url?: string; jobId?: string; reason?: string };
 type Phase = 'idle' | 'scanning' | 'scanned' | 'generating' | 'done';
 
 async function loadFixed(dir: string): Promise<string[]> {
