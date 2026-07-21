@@ -40,6 +40,8 @@ export type BlogPostReport = {
     blog_post_id: string | null;
     paid: boolean; // 외주비 입금 여부(미입금/입금). 승인=미입금, '외주비 정산' 시 입금.
     paid_at: string | null; // 정산(입금) 처리 시각
+    settled?: boolean | null; // 정산 여부(정산/미정산) — 입금의 '전 단계' 상태 구분용. 회계/외주비에는 영향 없음.
+    settled_at?: string | null; // 정산 처리 시각
 };
 
 // (내부) 이 보고에 대응하는 계약 진행이력(week=rpt-id) 로그의 paid를 동기화. 매칭 로그 없으면 no-op.
@@ -97,6 +99,18 @@ export async function setReportPaid(report: BlogPostReport, paid: boolean) {
     // 2) 계약 진행이력(week=rpt-id) 로그 paid 동기화 — 실패 시 오류 표면화(반쪽 동기화 방지).
     const e2 = await syncContractLogPaid(report, paid);
     return { error: e2 };
+}
+
+// 기자단 보고 '정산' 토글(정산/미정산) — 입금의 전 단계 상태 구분용.
+//   입금(paid)·계약 진행이력·외주비에는 전혀 영향 없음. 순수 상태 플래그.
+//   ※ blog_post_reports.settled 컬럼 필요(docs/blog-report-settled.sql). 없으면 update 가 오류 반환.
+export async function setReportSettled(report: BlogPostReport, settled: boolean) {
+    const { error } = await supabase
+        .from('blog_post_reports')
+        .update({ settled, settled_at: settled ? new Date().toISOString() : null })
+        .eq('id', report.id)
+        .in('status', ['confirmed', 'published']);
+    return { error };
 }
 
 // 발행/저장 승인 외주단가 — 대박종합주방만 10,000원, 그 외 8,000원. (브랜드 블로그 고정 규칙)

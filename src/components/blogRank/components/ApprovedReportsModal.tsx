@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getReports, setReportPaid, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
+import { getReports, setReportPaid, setReportSettled, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
 import { getProfiles } from '../../../api/profiles';
 import { getReporters } from '../../../api/blogRank';
 
@@ -33,6 +33,7 @@ export function ApprovedReportsModal({
     const [blogFilter, setBlogFilter] = useState('all');
     const [reporterFilter, setReporterFilter] = useState('all');
     const [paying, setPaying] = useState<string | null>(null);
+    const [settling, setSettling] = useState<string | null>(null);
 
     useEffect(() => {
         let alive = true;
@@ -110,6 +111,19 @@ export function ApprovedReportsModal({
             return;
         }
         setReports((prev) => prev.map((x) => (x.id === r.id ? { ...x, paid: next } : x)));
+    };
+
+    // 정산 토글(정산/미정산) — 입금의 전 단계 상태 구분. 입금·외주비엔 영향 없음.
+    const toggleSettled = async (r: BlogPostReport) => {
+        setSettling(r.id);
+        const next = !r.settled;
+        const { error } = await setReportSettled(r, next);
+        setSettling(null);
+        if (error) {
+            alert('정산 처리 실패: ' + error.message + '\n(blog_post_reports.settled 컬럼이 없으면 docs/blog-report-settled.sql 실행 필요)');
+            return;
+        }
+        setReports((prev) => prev.map((x) => (x.id === r.id ? { ...x, settled: next } : x)));
     };
 
     return (
@@ -215,6 +229,7 @@ export function ApprovedReportsModal({
                                     <th className="px-2 py-2 font-semibold">제목</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">회차</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">구분</th>
+                                    <th className="whitespace-nowrap px-2 py-2 text-center font-semibold">정산</th>
                                     <th className="whitespace-nowrap px-2 py-2 text-center font-semibold">입금 처리</th>
                                 </tr>
                             </thead>
@@ -255,6 +270,21 @@ export function ApprovedReportsModal({
                                             ) : (
                                                 <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#16a34a]">저장</span>
                                             )}
+                                        </td>
+                                        <td className="whitespace-nowrap px-2 py-2 text-center">
+                                            <button
+                                                className={`rounded-md px-2.5 py-1 text-[11px] font-bold disabled:opacity-50 ${
+                                                    r.settled
+                                                        ? 'bg-[#ede9fe] text-[#6d28d9] hover:bg-[#ddd6fe]'
+                                                        : 'border border-[#cbd5e1] bg-white text-[#64748b] hover:bg-[#f1f5f9]'
+                                                }`}
+                                                disabled={settling === r.id}
+                                                onClick={() => void toggleSettled(r)}
+                                                title={r.settled ? '클릭 시 미정산으로 되돌림' : '정산 처리(입금 전 단계) — 입금·외주비엔 영향 없음'}
+                                                type="button"
+                                            >
+                                                {settling === r.id ? '처리 중…' : r.settled ? '정산' : '미정산'}
+                                            </button>
                                         </td>
                                         <td className="whitespace-nowrap px-2 py-2 text-center">
                                             <button
