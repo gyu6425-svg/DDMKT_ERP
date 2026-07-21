@@ -130,7 +130,6 @@ def process_watch(page, w, canon_acct=None):
         return 0
     news = news[:MAX_NEW_PER_RUN]   # 폭주 방지 상한
     queued = 0
-    last_body = None
 
     # 이 카페에 댓글 달 계정 목록.
     #   감시행에 account 가 지정돼 있으면 그 계정만, 비어 있으면 accounts.txt 의 '모든 계정'.
@@ -151,6 +150,7 @@ def process_watch(page, w, canon_acct=None):
     aborted = False
     for a in news:
         title = a.get("title") or ""
+        used_bodies = set()   # 이 글에 이미 쓴 문구 — 계정끼리 같은 문구 안 나가게(글마다 초기화)
         if catch_all:
             # 게시판 전체 잡기: 제목으로 업종 자동판별.
             #   ⚠️ 못 정하면 '기본 업종으로 우기지' 않는다 — 소방업체 글에 '누수탐지' 댓글이
@@ -185,12 +185,12 @@ def process_watch(page, w, canon_acct=None):
             #   업종 문구가 등록 안 된 키워드면 예약하지 않는다(엉뚱한 업종 댓글 방지).
             #   기준선도 올리지 않아, 템플릿을 추가하면 다음 크롤에서 다시 잡힌다.
             try:
-                body = build_comment(art_region, art_kw, avoid=last_body)
+                body = build_comment(art_region, art_kw, avoid=used_bodies)
             except Exception as e:
                 _log(f"  ⏸ {str(e)[:110]}")
                 aborted = True
                 break
-            last_body = body
+            used_bodies.add(body)
             # 같은 글에 여러 계정이 동시에 달리면 티가 나므로 계정마다 시차를 둔다.
             #   n번째 계정 = 기준시각 + (n × STAGGER_MIN) ± 지터. 리스너가 이 시각 전엔 처리하지 않는다.
             delay = idx * STAGGER_MIN + random.uniform(-STAGGER_JITTER, STAGGER_JITTER)

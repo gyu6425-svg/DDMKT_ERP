@@ -37,17 +37,17 @@ TEMPLATES_SECURITY = [
     '{지역}에서 건물보안 맡길 곳 고민이었는데 도움 많이 됐습니다 감사합니다',
 ]
 
-# 더맨시스템 톤을 그대로 딴 소방(소방시설·소방점검) 전용 — '{지역} 소방업체 …' 스타일.
+# 소방(소방시설·소방점검) 전용 — '지역+키워드' 를 항상 붙여 쓰는 누수 스타일.
 #   ⚠️ 임시 문구다(사장님 확정 원본 없음). 확정 문구 받으면 교체.
 TEMPLATES_FIRE = [
-    '{지역}에서 믿고 맡길 소방업체를 찾고있었는데 정보 감사합니다',
-    '{지역}에서 소방점검 업체 알아보고 있었는데 도움 많이 됐습니다',
-    '{지역} 쪽에 소방시설 점검 맡길 데 찾고 있었는데 좋은 정보 감사합니다',
-    '{지역}에서 소방점검 어디 맡길지 고민이었는데 참고하겠습니다',
-    '{지역} 소방업체 후기가 별로 없었는데 깔끔하게 정리해주셔서 잘 읽었습니다',
-    '{지역}에서 소방점검 업체 알아보는 중이었는데 잘 보고 갑니다',
-    '{지역} 쪽 소방시설 관리 정보 찾고 있었는데 딱 필요한 내용이었어요',
-    '{지역}에서 소방 점검 맡길 곳 고민이었는데 도움 많이 됐습니다 감사합니다',
+    '{지역} 소방점검의 좋은 후기 잘 보고갑니다.',
+    '{지역} 소방점검 알아보려고 하다가 보니까 큰 도움되는 정보였어요.',
+    '{지역} 소방업체 후기 잘 봤습니다. 꼼꼼하게 잘 해주시나 봐요!',
+    '안그래도 {지역} 소방점검 알아보고 있었는데! 기억하고 있다가 꼭 써먹어야겠어요.',
+    '필요한 정보였는데 {지역} 소방점검에 대해서 깔끔하게 정리해주셔서 잘 읽었습니다. 감사합니다!',
+    '이런 정보 찾고 있었는데 잘 보고 갑니다. {지역} 소방시설 점검 참고할게요!',
+    '{지역} 소방점검 후기가 별로 없었는데 깔끔하게 정리해주셔서 잘 읽었습니다.',
+    '정리 깔끔하게 잘 해주셨네요. {지역} 소방점검 필요하면 참고하겠습니다.',
 ]
 
 # 업종(키워드) → 문구 풀. 감시행의 keyword 로 고른다.
@@ -185,11 +185,25 @@ def pool_for(keyword):
 
 
 def build_comment(region, keyword, avoid=None):
-    """랜덤 댓글 1건 — 오프너+템플릿+클로저 조합. avoid 와 같으면 몇 번 다시 뽑음."""
+    """랜덤 댓글 1건 — 오프너+템플릿+클로저 조합.
+
+    avoid: 피할 문구. 문자열 하나 또는 여러 개(리스트/셋). 같은 글에 여러 계정이 달 때
+      '직전 하나'만 피하면 1번째와 3번째가 같아질 수 있으므로, 그 글에 이미 쓴 문구를
+      전부 넘겨 피한다. 오프너/클로저만 다른 '사실상 같은 문장'도 막으려고 템플릿(base)
+      단위로도 비교한다(2026-07-21 dog6425·kkfesh 문구가 거의 같게 나간 사고 방지)."""
     pool = pool_for(keyword)
     if pool is None:
         # 업종 문구가 없는데 아무거나 쓰면 보안 글에 '아래층 젖으면…' 이 달린다.
         raise RuntimeError(f"댓글 템플릿 없음: 키워드 '{keyword}' — comment_templates.POOLS 에 추가 필요")
+
+    if avoid is None:
+        avoid_set = set()
+    elif isinstance(avoid, str):
+        avoid_set = {avoid.strip()}
+    else:
+        avoid_set = {a.strip() for a in avoid if a}
+    # 피할 문구들의 '핵심 문장'(오프너/클로저 뗀 base) 집합 — 사실상 같은 문장 차단용.
+    avoid_bases = {_strip_affix(a) for a in avoid_set}
 
     def compose():
         opener = random.choice(OPENERS)
@@ -204,8 +218,23 @@ def build_comment(region, keyword, avoid=None):
         return re.sub(r'\s{2,}', ' ', (opener + base + closer)).strip()
 
     out = compose()
-    for _ in range(6):
-        if not avoid or out != avoid.strip():
+    for _ in range(12):
+        # 완성문구가 겹치지 않고, 오프너/클로저 뗀 '핵심 문장'도 겹치지 않아야 통과.
+        if out not in avoid_set and _strip_affix(out) not in avoid_bases:
             break
         out = compose()
     return out
+
+
+def _strip_affix(text):
+    """오프너/클로저를 떼어 '핵심 문장'만 남긴다 — 사실상 같은 문장 비교용."""
+    t = (text or '').strip()
+    for op in sorted((o for o in OPENERS if o), key=len, reverse=True):
+        if t.startswith(op):
+            t = t[len(op):].strip()
+            break
+    for cl in sorted((c for c in CLOSERS if c), key=len, reverse=True):
+        if t.endswith(cl.strip()):
+            t = t[:len(t) - len(cl.strip())].strip()
+            break
+    return t
