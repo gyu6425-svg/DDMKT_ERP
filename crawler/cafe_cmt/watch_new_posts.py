@@ -27,7 +27,7 @@ from playwright.sync_api import sync_playwright
 import comment_cafe as cc
 import accounts as acct     # 계정 → 크롬 포트(멀티계정)
 from comment_templates import (build_comment, region_from_title, _lead_region,
-                               classify_business, DEFAULT_BUSINESS)
+                               classify_business)
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -152,11 +152,15 @@ def process_watch(page, w, canon_acct=None):
     for a in news:
         title = a.get("title") or ""
         if catch_all:
-            # 게시판 전체 잡기: 제목으로 업종 자동판별. 못 정하면 기본 업종으로(다 잡으라는 요청).
+            # 게시판 전체 잡기: 제목으로 업종 자동판별.
+            #   ⚠️ 못 정하면 '기본 업종으로 우기지' 않는다 — 소방업체 글에 '누수탐지' 댓글이
+            #   달리는 사고가 났었다(2026-07-21). 새 업종은 건너뛰고 경고 → 템플릿 추가 후 다시 잡음.
             art_kw = classify_business(title)
             if art_kw is None:
-                art_kw = DEFAULT_BUSINESS
-                _log(f"  ℹ️ 업종 미분류 → 기본('{art_kw}') 적용: #{a['id']} '{title[:22]}'")
+                _log(f"  ⚠️ 업종 미분류 — 건너뜀(새 업종?): #{a['id']} '{title[:26]}' "
+                     f"→ comment_templates 에 업종 추가 필요")
+                advanced_to = a["id"]
+                continue
             art_region = region_from_title(title, art_kw, region) or _lead_region(title) or region
         else:
             # (기존) 특정 업종 감시행 — 제목에 그 업종 키워드(별칭 포함)가 없으면 건너뜀.
