@@ -14,7 +14,12 @@ type GenerateCafePayload = {
     tone?: string; // review 톤: review(후기)·info(정보)·story(스토리)·talk(대화)·notice(공지)
     count?: number; // 카드(이미지) 장수 = 본문 「사진 N」 마커 개수
     layout?: 'markers' | 'bottom'; // markers=본문에 「사진 N」 인터리브 / bottom=이미지 상단 일괄 + 본문 하단(마커 없음, [출처] 끝)
+    variant?: 'info-guide'; // 더맨시스템 정보형 — 별도 프롬프트(functions/lib/cafeInfoGuide.mjs). 없으면 기존 경로 그대로.
+    facts?: string[];       // 사용자가 확인해 준 사실(허가·자격 등). 모델이 자격을 지어내지 못하게 하는 근거 블록.
 };
+
+// 정보형은 별도 모듈 — 배포본과 로컬 dev 서버가 같은 프롬프트를 쓰게 하기 위함(복붙 드리프트 방지).
+import { buildInfoGuidePrompt, bodyLen as infoBodyLen, INFO_GUIDE_LEN } from '../lib/cafeInfoGuide.mjs';
 
 // 후기 본문 톤 5종 — 시작 말투/문체 지시. 기본 review(후기형).
 export const REVIEW_TONES: Record<string, { name: string; guide: string }> = {
@@ -207,7 +212,12 @@ export async function generateCafe(payload: GenerateCafePayload, env: FunctionCo
     const model = isReview
         ? (env.OPENAI_CAFE_TEXT_MODEL || 'gpt-5-mini')
         : (env.OPENAI_TEXT_MODEL || env.OPENAI_IMAGE_MODEL || 'gpt-5.5');
-    const basePrompt = isReview ? buildReviewPrompt(payload) : buildCafePrompt(payload);
+    const isInfoGuide = isReview && payload.variant === 'info-guide';
+    const basePrompt = isInfoGuide
+        ? buildInfoGuidePrompt(payload)
+        : isReview ? buildReviewPrompt(payload) : buildCafePrompt(payload);
+    // 정보형은 구조 제약이 많아 기존 하한(2,000)으로는 짧게 끝난다 → 자체 하한을 쓴다.
+    const minLen = isInfoGuide ? INFO_GUIDE_LEN.min : 2000;
 
     // OpenAI 1회 호출 + 파싱. reasoning 'low'.
     async function callModel(promptStr: string) {
@@ -246,8 +256,8 @@ export async function generateCafe(payload: GenerateCafePayload, env: FunctionCo
     let usage = r1.usage;
     let prompt = basePrompt;
     // 후기 원고 최소 분량 보장(사용자: 2,000자 미만 금지) — 짧으면 1회 재생성 후 더 긴 쪽 채택.
-    if (isReview && parsed && bodyLen(parsed) < 2000) {
-        const longer = basePrompt + '\n\n[매우 중요] 방금 결과가 2,000자 미만이면 규칙 위반이다. 각 「사진」 뒤 본문을 4~5문장으로 더 길고 구체적으로 늘려서 반드시 공백 포함 2,000자 이상(2,200자 내외)으로 다시 작성하라.';
+    if (isReview && parsed && bodyLen(parsed) < minLen) {
+        const longer = basePrompt + `\n\n[매우 중요] 방금 결과가 ${bodyLen(parsed)}자로 ${minLen.toLocaleString()}자 미만이라 규칙 위반이다. 형식(사진 마커 개수·부제목 개수)은 그대로 두고, 각 「사진」 뒤 본문만 4~5문장으로 더 길고 구체적으로 늘려서 반드시 공백 포함 ${minLen.toLocaleString()}자 이상으로 다시 작성하라.`;
         const r2 = await callModel(longer);
         if (!('error' in r2) && r2.parsed && bodyLen(r2.parsed) > bodyLen(parsed)) {
             parsed = r2.parsed; usage = sumUsage(usage, r2.usage); prompt = longer;
