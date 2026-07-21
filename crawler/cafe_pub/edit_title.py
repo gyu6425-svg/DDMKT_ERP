@@ -19,7 +19,14 @@ def edit_title(art, new_title, apply=False):
         browser = p.chromium.connect_over_cdp(pc.DEFAULT_CDP)
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         page = ctx.new_page()   # 전용 새 탭(다른 탭 안 건드림)
-        page.on("dialog", lambda d: d.accept())   # 저장 확인창 승인
+        # 대화상자가 우리가 처리하기 전에 스스로 닫히면 accept()가 "No dialog is showing" 예외를 던져
+        #   콜백 안에서 프로세스를 죽인다(publish_cafe 에서 겪은 크래시) → 삼킨다.
+        def _safe_accept(d):
+            try:
+                d.accept()
+            except Exception:
+                pass
+        page.on("dialog", _safe_accept)   # 저장 확인창 승인
         try:
             page.goto(f"https://cafe.naver.com/ca-fe/cafes/{CLUB}/articles/{art}/modify",
                       wait_until="domcontentloaded")

@@ -33,3 +33,13 @@ create policy "storage cafe 내부" on storage.objects
     for all to authenticated
     using (bucket_id = 'cafe-images' and public.is_internal())
     with check (bucket_id = 'cafe-images' and public.is_internal());
+
+-- ── 발행 중복/좀비 방어 (2026-07-21, 독립검증) ────────────────────────────
+--   claimed_at: 워커가 processing 으로 집은 시각. 청소기가 좀비(중단된 processing)를 판별하는 근거.
+--   attempts  : 원고성 일시오류 재시도 횟수. CAFE_MAX_ATTEMPTS(기본 3) 넘으면 fail.
+--   상태값에 'posted' 추가(등록 클릭됨·done 확정 전) — CHECK 제약 없어 별도 DDL 불필요.
+--   ⚠️ 새 PC 설치 시 반드시 이 두 줄을 Supabase 편집기에서 1회 실행할 것(없으면 리스너가 claim 단계에서 실패).
+alter table public.cafe_publish_queue
+  add column if not exists attempts   int not null default 0,
+  add column if not exists claimed_at timestamptz;
+-- 롤백: alter table public.cafe_publish_queue drop column attempts, drop column claimed_at;
