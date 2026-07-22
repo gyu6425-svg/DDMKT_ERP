@@ -6,7 +6,7 @@ import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { useAuth } from '../hooks/useAuth';
 import { useAsParam } from './CustomerCategoryPage';
-import { BLOG_KINDS, createReport, getReports, markPublished, reportOutUnit, resubmitReport, type BlogPostReport, type ReportType } from '../api/blogPostReports';
+import { BLOG_KINDS, createReport, getReports, markPublished, reportOutUnit, resubmitReport, updatePendingReport, type BlogPostReport, type ReportType } from '../api/blogPostReports';
 import { getReporters } from '../api/blogRank';
 import {
     createAccountRequest,
@@ -57,12 +57,13 @@ function ReportSubmitTab() {
     // 내 보고 내역 필터 — 저장/발행 탭 + 블로그별 탭
     const [histTab, setHistTab] = useState<ReportType>('save');
     const [blogFilter, setBlogFilter] = useState('all');
-    // 재보고(반려 건 다시 보내기)
+    // 편집 폼 — 재보고(반려 건 다시 보내기) + 수정(검토 중 건 수정) 공용.
     const [reId, setReId] = useState<string | null>(null);
     const [reBlogId, setReBlogId] = useState('');
     const [reUrl, setReUrl] = useState('');
     const [reTitle, setReTitle] = useState('');
     const [reKeyword, setReKeyword] = useState('');
+    const [reRound, setReRound] = useState('');
     const [reSaving, setReSaving] = useState(false);
 
     const loadMine = () => void getReports().then(({ data }) => setMine(data));
@@ -76,23 +77,35 @@ function ReportSubmitTab() {
         setReUrl(r.post_url);
         setReTitle(r.title ?? '');
         setReKeyword(r.keyword || '');
+        setReRound(r.round == null ? '' : String(r.round));
     };
+    // 편집 저장 — 검토 중(pending)은 수정(상태 유지), 반려(rejected)는 재보고(다시 대기로).
+    //   발행 보고만 URL(글번호 포함) 필수, 저장 보고는 링크 없음.
     const doRe = async (r: BlogPostReport) => {
         if (!reBlogId) return showToast('블로그를 선택하세요');
-        if (!reUrl.trim()) return showToast('글 주소(URL)를 입력하세요');
         if (!reTitle.trim()) return showToast('제목을 입력하세요(필수)');
+        const isPub = typeOf(r) === 'publish';
+        if (isPub) {
+            if (!reUrl.trim()) return showToast('발행 글 주소(URL)를 입력하세요');
+            if (!hasArticleNo(reUrl)) return showToast(ARTICLE_HINT);
+        }
+        const pending = r.status === 'pending';
         setReSaving(true);
-        const { error } = await resubmitReport(r.id, {
+        const payload = {
             blog_account_id: reBlogId,
-            post_url: reUrl.trim(),
+            post_url: isPub ? reUrl.trim() : '',
             keyword: reKeyword.trim() || null,
             title: reTitle.trim(),
             report_type: typeOf(r),
-        });
+            round: reRound.trim() ? Number(reRound) : null,
+        };
+        const { error } = pending
+            ? await updatePendingReport(r.id, payload)
+            : await resubmitReport(r.id, payload);
         setReSaving(false);
-        if (error) return showToast('재보고 실패: ' + error.message);
+        if (error) return showToast((pending ? '수정' : '재보고') + ' 실패: ' + error.message);
         setReId(null);
-        showToast('재보고 완료 · 다시 검토중으로 전환됩니다');
+        showToast(pending ? '수정 완료' : '재보고 완료 · 다시 검토중으로 전환됩니다');
         loadMine();
     };
 
@@ -319,14 +332,16 @@ function ReportSubmitTab() {
                                                 {nameOf(r.blog_account_id)}
                                                 {r.round ? ` · ${r.round}회차` : ''} · {r.title || '제목 없음'}
                                             </div>
-                                            <a
-                                                className="block truncate text-xs text-[#7c3aed] hover:underline"
-                                                href={r.post_url}
-                                                rel="noopener noreferrer"
-                                                target="_blank"
-                                            >
-                                                {r.post_url}
-                                            </a>
+                                            {r.post_url ? (
+                                                <a
+                                                    className="block truncate text-xs text-[#7c3aed] hover:underline"
+                                                    href={r.post_url}
+                                                    rel="noopener noreferrer"
+                                                    target="_blank"
+                                                >
+                                                    {r.post_url}
+                                                </a>
+                                            ) : null}
                                             {r.status === 'rejected' && r.note ? (
                                                 <div className="mt-0.5 text-[11px] font-semibold text-[#dc2626]">
                                                     반려 사유: {r.note}
@@ -340,8 +355,8 @@ function ReportSubmitTab() {
                                             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${st.c}`}>
                                                 {st.t}
                                             </span>
-                                            {/* 저장 탭 항목엔 '발행' 버튼 — 누르면 실제 글 주소 입력받아 발행 처리 */}
-                                            {histTab === 'save' && r.status !== 'rejected' ? (
+                                            {/* '발행' 버튼 — 승인됨(confirmed)일 때만. 누르면 실제 글 주소 입력받아 발행 처리 */}
+                                            {histTab === 'save' && r.status === 'confirmed' ? (
                                                 <button
                                                     className="rounded bg-[#059669] px-2 py-0.5 text-[11px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
                                                     disabled={publishing === r.id}
@@ -353,6 +368,16 @@ function ReportSubmitTab() {
                                                     type="button"
                                                 >
                                                     {publishing === r.id ? '…' : '발행'}
+                                                </button>
+                                            ) : null}
+                                            {/* '수정' 버튼 — 검토 중(pending)일 때만. 승인 전이라 내용 수정 가능 */}
+                                            {r.status === 'pending' && !editing ? (
+                                                <button
+                                                    className="rounded border border-[#1e40af] px-2 py-0.5 text-[11px] font-semibold text-[#1e40af] hover:bg-[#eff6ff]"
+                                                    onClick={() => startRe(r)}
+                                                    type="button"
+                                                >
+                                                    수정
                                                 </button>
                                             ) : null}
                                             {r.status === 'rejected' && !editing ? (
@@ -410,18 +435,30 @@ function ReportSubmitTab() {
                                                     </option>
                                                 ))}
                                             </select>
-                                            <input
-                                                className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
-                                                onChange={(e) => setReTitle(e.target.value)}
-                                                placeholder="제목(필수)"
-                                                value={reTitle}
-                                            />
-                                            <input
-                                                className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
-                                                onChange={(e) => setReUrl(e.target.value)}
-                                                placeholder="글 주소(URL)"
-                                                value={reUrl}
-                                            />
+                                            <div className="grid grid-cols-[1fr_auto] gap-2">
+                                                <input
+                                                    className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                                    onChange={(e) => setReTitle(e.target.value)}
+                                                    placeholder="제목(필수)"
+                                                    value={reTitle}
+                                                />
+                                                <input
+                                                    className="h-9 w-20 rounded-md border border-[#cbd5e1] px-2 text-right text-sm"
+                                                    inputMode="numeric"
+                                                    onChange={(e) => setReRound(e.target.value.replace(/[^0-9]/g, ''))}
+                                                    placeholder="회차"
+                                                    value={reRound}
+                                                />
+                                            </div>
+                                            {/* 발행 보고만 글 주소 — 저장 보고는 링크 없음 */}
+                                            {typeOf(r) === 'publish' ? (
+                                                <input
+                                                    className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                                    onChange={(e) => setReUrl(e.target.value)}
+                                                    placeholder="발행 글 주소 (글 번호 포함)"
+                                                    value={reUrl}
+                                                />
+                                            ) : null}
                                             <input
                                                 className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
                                                 onChange={(e) => setReKeyword(e.target.value)}
@@ -442,7 +479,13 @@ function ReportSubmitTab() {
                                                     onClick={() => void doRe(r)}
                                                     type="button"
                                                 >
-                                                    {reSaving ? '보고 중…' : '재보고'}
+                                                    {r.status === 'pending'
+                                                        ? reSaving
+                                                            ? '수정 중…'
+                                                            : '수정 저장'
+                                                        : reSaving
+                                                          ? '보고 중…'
+                                                          : '재보고'}
                                                 </button>
                                             </div>
                                         </div>

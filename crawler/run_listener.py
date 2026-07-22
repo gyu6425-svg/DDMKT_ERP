@@ -49,7 +49,20 @@ def _age_min(created_at):
 def main():
     c.need_config()
     print(f"[리스너 시작] {datetime.datetime.now():%H:%M:%S} — measure_requests 폴링 (간격 {POLL_SEC}s)", flush=True)
+    _reap_at = [0.0]
     while True:
+        # ★ orphan 'processing' 청소(H4/2026-07-22 하드닝) — 리스너가 처리 중 죽으면 그 행이 processing 으로
+        #   영원히 남고, 크롤의 _yield_to_immediate_search 가 그 행 때문에 매 요청 최대 45초씩 양보 → 크롤 10배 감속·마감초과.
+        #   pending 만 보던 기존 로직은 이 orphan 을 못 치웠다. 여기서 STALE_MIN 초과 processing 을 fail 로 정리.
+        if time.time() - _reap_at[0] > 30:
+            _reap_at[0] = time.time()
+            try:
+                for s in (c.sb_get("measure_requests", {"status": "eq.processing", "select": "id,created_at", "limit": "20"}) or []):
+                    if _age_min(s.get("created_at", "")) > STALE_MIN:
+                        c.sb_patch("measure_requests", {"id": f"eq.{s['id']}"}, {"status": "fail"})
+                        print(f"  ♻ orphan processing 정리(fail): {s['id'][:8]}", flush=True)
+            except Exception:
+                pass
         try:
             reqs = c.sb_get("measure_requests", {
                 "status": "eq.pending", "order": "created_at.asc", "limit": "3", "select": "*",
