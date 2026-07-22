@@ -15,6 +15,7 @@ export type CafeRankPost = {
     keyword: string | null;
     keyword_manual: string | null;
     published_date: string | null;
+    board: string | null; // 게시판(누수 / 설고점 / 더맨시스템 / 더티클리닉…) — 동일 카페 내 게시판 구분
     excluded: boolean;
     measurements: CafeMeasurement[];
 };
@@ -51,6 +52,7 @@ export async function upsertCafeRankPost(input: {
     title: string | null;
     keyword: string | null;
     published_date: string | null;
+    board?: string | null;
 }) {
     const { error } = await supabase
         .from('cafe_rank_posts')
