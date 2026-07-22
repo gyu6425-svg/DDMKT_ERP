@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
     excludeCafeRankPost,
     getCafeRankPosts,
@@ -14,6 +14,21 @@ import {
 // 카페 vanity → 업체(카페) 표시명. 새 카페 추가 시 여기 매핑(크롤러 CLUB_TO_VANITY 와 짝).
 const CAFE_LABEL: Record<string, string> = { ddmkt2: '마이클의 정보 세상' };
 const cafeLabel = (vanity?: string | null) => (vanity && CAFE_LABEL[vanity]) || vanity || '';
+
+// 게시판(board) — 동일 카페 안에서 게시판별 구분. 표시 순서·색. 새 게시판은 자동으로 뒤에 붙는다.
+const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템'];
+const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
+    누수: { bg: '#eff6ff', fg: '#1d4ed8' },
+    더티클리닉: { bg: '#f0fdfa', fg: '#0d9488' },
+    설고점: { bg: '#fff7ed', fg: '#c2410c' },
+    더맨시스템: { bg: '#faf5ff', fg: '#7c3aed' },
+};
+const boardKey = (p: CafeRankPost) => p.board || '미분류';
+const boardRank = (b: string) => {
+    const i = BOARD_ORDER.indexOf(b);
+    return i >= 0 ? i : b === '미분류' ? 999 : 500;
+};
+const boardStyle = (b: string) => BOARD_STYLE[b] || { bg: '#f1f5f9', fg: '#475569' };
 
 // 순위 셀 — 인기글 테마 섹션 내 순위. 측정없음=측정대기, fail=실패, no_section=측정불가(섹션없음), out=권외.
 //   인기글 섹션은 보통 5~10개 → ≤3 초록(상위), ≤7 파랑, 그외 회색.
@@ -53,6 +68,7 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
     const [search, setSearch] = useState('');
     const [showAdd, setShowAdd] = useState(false);
     const [deleting, setDeleting] = useState<string | null>(null);
+    const [boardFilter, setBoardFilter] = useState('전체');
 
     const reload = async () => {
         setLoading(true);
@@ -135,6 +151,31 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
         );
     }, [posts, q, search]);
 
+    // 게시판 필터 버튼 목록(전체 + 데이터에 있는 게시판을 순서대로). 각 게시판 글 수 포함.
+    const boards = useMemo(() => {
+        const cnt = new Map<string, number>();
+        for (const p of posts) cnt.set(boardKey(p), (cnt.get(boardKey(p)) || 0) + 1);
+        return [...cnt.entries()].sort((a, b) => boardRank(a[0]) - boardRank(b[0]) || a[0].localeCompare(b[0]));
+    }, [posts]);
+
+    // 게시판별 그룹 — 검색/필터 적용 후 게시판 순서대로 묶는다. '다 구분되어서' 보기 위함.
+    const groups = useMemo(() => {
+        const map = new Map<string, CafeRankPost[]>();
+        for (const p of rows) {
+            if (boardFilter !== '전체' && boardKey(p) !== boardFilter) continue;
+            const b = boardKey(p);
+            (map.get(b) || map.set(b, []).get(b)!).push(p);
+        }
+        return [...map.entries()].sort((a, b) => boardRank(a[0]) - boardRank(b[0]) || a[0].localeCompare(b[0]));
+    }, [rows, boardFilter]);
+
+    const shownCount = useMemo(() => groups.reduce((n, g) => n + g[1].length, 0), [groups]);
+
+    // 선택한 게시판이 더 이상 존재하지 않으면(모두 삭제/필터됨) '전체'로 되돌려 빈 화면에 갇히지 않게.
+    useEffect(() => {
+        if (boardFilter !== '전체' && !boards.some(([b]) => b === boardFilter)) setBoardFilter('전체');
+    }, [boards, boardFilter]);
+
     return (
         <div className="grid gap-3">
             {/* 상단 안내 + 액션 바 (블로그 관리시트 스타일) */}
@@ -145,7 +186,7 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
                     placeholder="업체·제목·키워드 검색..."
                     value={search}
                 />
-                <span className="ml-auto text-xs text-[#64748b]">{rows.length}개</span>
+                <span className="ml-auto text-xs text-[#64748b]">{shownCount}개</span>
                 <button
                     className="inline-flex h-9 items-center rounded-md border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9]"
                     onClick={() => void reload()}
@@ -204,7 +245,34 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
 
             {err ? <div className="rounded-md bg-[#fef2f2] px-3 py-2 text-[13px] text-[#b91c1c]">{err}</div> : null}
 
-            {/* 순위 표 — 블로그 관리시트 스타일 */}
+            {/* 게시판 필터 — 동일 카페 안의 게시판(누수 / 설고점 / 더맨시스템 / 더티클리닉…)별로 나눠 보기 */}
+            {boards.length > 1 ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="mr-1 text-[11px] font-semibold text-[#94a3b8]">게시판</span>
+                    {[['전체', posts.length] as [string, number], ...boards].map(([b, c]) => {
+                        const on = boardFilter === b;
+                        const st = b === '전체' ? { bg: '#1e293b', fg: '#ffffff' } : boardStyle(b);
+                        return (
+                            <button
+                                className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[12px] font-bold"
+                                key={b}
+                                onClick={() => setBoardFilter(b)}
+                                style={
+                                    on
+                                        ? { background: st.bg, color: st.fg, borderColor: st.fg }
+                                        : { background: '#ffffff', color: '#64748b', borderColor: '#e2e8f0' }
+                                }
+                                type="button"
+                            >
+                                {b}
+                                <span className={`text-[10px] font-semibold ${on ? 'opacity-80' : 'text-[#94a3b8]'}`}>{c}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            ) : null}
+
+            {/* 순위 표 — 블로그 관리시트 스타일 · 게시판별 그룹 */}
             <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
                 <table className="w-full border-collapse text-left text-sm">
                     <thead>
@@ -221,12 +289,26 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
                     <tbody>
                         {loading ? (
                             <tr><td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={external ? 6 : 7}>불러오는 중…</td></tr>
-                        ) : !rows.length ? (
-                            <tr><td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={external ? 6 : 7}>등록된 카페 글이 없습니다 · '시트 붙여넣기 등록'으로 추가하세요</td></tr>
+                        ) : !shownCount ? (
+                            <tr><td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={external ? 6 : 7}>{posts.length ? '검색·게시판 필터 결과가 없습니다' : "등록된 카페 글이 없습니다 · '시트 붙여넣기 등록'으로 추가하세요"}</td></tr>
                         ) : (
-                            rows.map((p) => {
-                                const last = p.measurements?.[p.measurements.length - 1];
-                                return (
+                            groups.map(([groupBoard, groupPosts]) => (
+                                <Fragment key={groupBoard}>
+                                    {boardFilter === '전체' && boards.length > 1 ? (
+                                        <tr>
+                                            <td
+                                                className="border-b border-[#e2e8f0] px-3 py-1.5 text-[12px] font-bold"
+                                                colSpan={external ? 6 : 7}
+                                                style={{ background: boardStyle(groupBoard).bg, color: boardStyle(groupBoard).fg }}
+                                            >
+                                                {groupBoard}
+                                                <span className="ml-1 text-[11px] font-semibold opacity-70">{groupPosts.length}개</span>
+                                            </td>
+                                        </tr>
+                                    ) : null}
+                                    {groupPosts.map((p) => {
+                                        const last = p.measurements?.[p.measurements.length - 1];
+                                        return (
                                     <tr className="border-b border-[#e2e8f0]" key={p.id}>
                                         <td className="px-3 py-2 text-xs font-semibold text-[#475569]">
                                             {p.published_date
@@ -295,8 +377,10 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
                                             </td>
                                         ) : null}
                                     </tr>
-                                );
-                            })
+                                        );
+                                    })}
+                                </Fragment>
+                            ))
                         )}
                     </tbody>
                 </table>
