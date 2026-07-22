@@ -41,7 +41,8 @@ function RankCell({ ms }: { ms: CafeMeasurement[] }) {
     );
 }
 
-export function CafeTrackerTab() {
+export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}) {
+    const external = readOnly; // 고객/기자단 뷰용(현재 미연결) — true면 삭제·키워드수정 숨김
     const [posts, setPosts] = useState<CafeRankPost[]>([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -51,6 +52,7 @@ export function CafeTrackerTab() {
     const [msg, setMsg] = useState('');
     const [search, setSearch] = useState('');
     const [showAdd, setShowAdd] = useState(false);
+    const [deleting, setDeleting] = useState<string | null>(null);
 
     const reload = async () => {
         setLoading(true);
@@ -99,7 +101,12 @@ export function CafeTrackerTab() {
         await setCafeKeywordManual(id, v);
     };
     const remove = async (id: string) => {
-        await excludeCafeRankPost(id);
+        if (deleting) return;
+        if (!window.confirm('이 글을 순위 추적에서 삭제할까요? (측정 중단 · 다시 등록 가능)')) return;
+        setDeleting(id);
+        const { error } = await excludeCafeRankPost(id);
+        setDeleting(null);
+        if (error) { alert('삭제 실패: ' + error.message); return; }
         setPosts((prev) => prev.filter((p) => p.id !== id));
     };
 
@@ -119,7 +126,13 @@ export function CafeTrackerTab() {
                 (p.keyword_manual || p.keyword || '').includes(s),
             );
         }
-        return r.sort((a, b) => (b.published_date || '').localeCompare(a.published_date || ''));
+        // 결정적 정렬(블로그와 동일 의도) — published_date 는 카페에서 거의 null 이라 created_at 기준 + id tiebreaker.
+        //   키워드 수정·재조회로 재로딩돼도 행 위치가 안 바뀌게.
+        return r.sort(
+            (a, b) =>
+                (b.created_at || '').localeCompare(a.created_at || '') ||
+                String(a.id).localeCompare(String(b.id)),
+        );
     }, [posts, q, search]);
 
     return (
@@ -196,28 +209,33 @@ export function CafeTrackerTab() {
                 <table className="w-full border-collapse text-left text-sm">
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
+                            <th className="px-3 py-2 font-semibold">발행</th>
                             <th className="px-3 py-2 font-semibold">업체(카페)</th>
-                            <th className="px-3 py-2 font-semibold">제목</th>
-                            <th className="px-3 py-2 text-center font-semibold">글번호</th>
                             <th className="px-3 py-2 font-semibold">키워드</th>
-                            <th className="px-3 py-2 text-center font-semibold">인기글 순위</th>
+                            <th className="px-3 py-2 font-semibold">제목 · 자동 키워드</th>
+                            <th className="px-3 py-2 text-center font-bold text-[#059669]">인기글 순위</th>
                             <th className="px-3 py-2 text-center font-semibold">최근 측정</th>
-                            <th className="px-3 py-2 text-center font-semibold">관리</th>
+                            {!external ? <th className="px-2 py-2 text-center font-semibold">삭제</th> : null}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={7}>불러오는 중…</td></tr>
+                            <tr><td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={external ? 6 : 7}>불러오는 중…</td></tr>
                         ) : !rows.length ? (
-                            <tr><td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={7}>등록된 카페 글이 없습니다 · '시트 붙여넣기 등록'으로 추가하세요</td></tr>
+                            <tr><td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={external ? 6 : 7}>등록된 카페 글이 없습니다 · '시트 붙여넣기 등록'으로 추가하세요</td></tr>
                         ) : (
                             rows.map((p) => {
                                 const last = p.measurements?.[p.measurements.length - 1];
                                 return (
-                                    <tr className="border-b border-[#e2e8f0] hover:bg-[#f8fafc]" key={p.id}>
-                                        <td className="px-3 py-3">
+                                    <tr className="border-b border-[#e2e8f0]" key={p.id}>
+                                        <td className="px-3 py-2 text-xs font-semibold text-[#475569]">
+                                            {p.published_date
+                                                ? new Date(p.published_date).toLocaleDateString('ko-KR', { day: '2-digit', month: '2-digit' })
+                                                : '—'}
+                                        </td>
+                                        <td className="px-3 py-2 text-[13px] font-semibold text-[#475569]">
                                             <a
-                                                className="font-semibold text-[#0f172a] hover:text-[#1e40af] hover:underline"
+                                                className="hover:text-[#1e40af] hover:underline"
                                                 href={`https://cafe.naver.com/${p.cafe_name || ''}`}
                                                 rel="noreferrer"
                                                 target="_blank"
@@ -226,31 +244,56 @@ export function CafeTrackerTab() {
                                                 {cafeLabel(p.cafe_name) || p.club_id}
                                             </a>
                                         </td>
-                                        <td className="max-w-[280px] truncate px-3 py-3">
-                                            {p.post_url ? (
-                                                <a className="font-semibold text-[#0f172a] hover:text-[#1e40af] hover:underline" href={p.post_url} rel="noreferrer" target="_blank">{p.title || '(제목없음)'}</a>
-                                            ) : <span className="font-semibold text-[#0f172a]">{p.title || '(제목없음)'}</span>}
+                                        <td className="px-3 py-2">
+                                            {external ? (
+                                                <span className="text-[12px] text-[#475569]">{p.keyword_manual || p.keyword || '—'}</span>
+                                            ) : (
+                                                <input
+                                                    className="h-7 w-32 rounded border border-[#e2e8f0] px-1.5 text-[12px]"
+                                                    defaultValue={p.keyword_manual || p.keyword || ''}
+                                                    onBlur={(e) => void saveKeyword(p.id, e.target.value)}
+                                                    onChange={(e) => void onKeyword(p.id, e.target.value)}
+                                                    placeholder="측정 키워드"
+                                                />
+                                            )}
                                         </td>
-                                        <td className="px-3 py-3 text-center text-xs text-[#94a3b8]">{p.article_id}</td>
-                                        <td className="px-3 py-3">
-                                            <input
-                                                className="h-7 w-32 rounded border border-[#e2e8f0] px-1.5 text-[12px]"
-                                                defaultValue={p.keyword_manual || p.keyword || ''}
-                                                onBlur={(e) => void saveKeyword(p.id, e.target.value)}
-                                                onChange={(e) => void onKeyword(p.id, e.target.value)}
-                                                placeholder="측정 키워드"
-                                            />
+                                        <td className="px-3 py-2">
+                                            {(() => {
+                                                const inner = (
+                                                    <>
+                                                        <div className="max-w-[360px] truncate text-[13px] font-medium text-[#0f172a] group-hover:text-[#7c3aed] group-hover:underline">
+                                                            {p.title || '제목 없음'}
+                                                        </div>
+                                                        {p.keyword_manual || p.keyword ? (
+                                                            <span className="mt-1 inline-block rounded bg-[#ede9fe] px-1.5 py-0.5 text-[12px] font-semibold text-[#7c3aed]">
+                                                                #{p.keyword_manual || p.keyword}
+                                                                {p.keyword_manual ? ' (수정됨)' : ''}
+                                                            </span>
+                                                        ) : null}
+                                                    </>
+                                                );
+                                                return p.post_url ? (
+                                                    <a className="group block cursor-pointer" href={p.post_url} rel="noopener noreferrer" target="_blank" title="실제 카페 글로 이동">
+                                                        {inner}
+                                                    </a>
+                                                ) : (
+                                                    <div>{inner}</div>
+                                                );
+                                            })()}
                                         </td>
-                                        <td className="px-3 py-3 text-center"><RankCell ms={p.measurements} /></td>
-                                        <td className="px-3 py-3 text-center text-[11px] text-[#94a3b8]">{last?.date?.slice(5) || '—'}</td>
-                                        <td className="px-3 py-3 text-center">
-                                            <button
-                                                className="rounded border border-[#fca5a5] bg-white px-2 py-1 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]"
-                                                onClick={() => void remove(p.id)}
-                                                title="삭제(측정 제외)"
-                                                type="button"
-                                            >삭제</button>
-                                        </td>
+                                        <td className="px-3 py-2 text-center"><RankCell ms={p.measurements} /></td>
+                                        <td className="px-3 py-2 text-center text-[11px] text-[#94a3b8]">{last?.date?.slice(5) || '—'}</td>
+                                        {!external ? (
+                                            <td className="px-2 py-2 text-center">
+                                                <button
+                                                    className="rounded-md border border-[#fca5a5] px-2 py-1 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
+                                                    disabled={deleting === p.id}
+                                                    onClick={() => void remove(p.id)}
+                                                    title="삭제(측정 제외)"
+                                                    type="button"
+                                                >{deleting === p.id ? '삭제 중…' : '삭제'}</button>
+                                            </td>
+                                        ) : null}
                                     </tr>
                                 );
                             })
