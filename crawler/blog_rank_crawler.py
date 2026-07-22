@@ -29,6 +29,13 @@ import datetime
 from urllib.parse import quote, unquote, urlparse
 
 import requests
+import socket
+
+# ⚠️ 전역 소켓 타임아웃 — feedparser.parse(url) 는 내부적으로 urllib 로 가져오는데 timeout 인자가 없어
+#    네이버 RSS 소켓이 멈추면 '영원히' 대기한다(2026-07-22 실제 사고: 17:35 RSS 대기로 크롤 전체 정지,
+#    공유 crawler.log 핸들까지 물려 16시간 outage). requests 는 각자 timeout 을 두지만 feedparser 는
+#    이 전역값에 의존하므로 반드시 설정. (requests 의 명시 timeout 이 이 값보다 우선하니 영향 없음.)
+socket.setdefaulttimeout(25)
 
 # Windows 백신/방화벽이 TLS를 가로채(자체 루트 CA 주입) certifi 검증이 실패하는 환경 대응.
 # OS(윈도) 신뢰 저장소를 그대로 쓰게 해 SSL CERTIFICATE_VERIFY_FAILED 를 막는다. 없으면 무시.
