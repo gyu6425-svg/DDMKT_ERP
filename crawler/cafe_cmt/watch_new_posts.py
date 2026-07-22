@@ -56,7 +56,7 @@ def _title_matches(keyword, title):
     return any(a in (title or "") for a in aliases)
 # 계정 간 시차(분) — 같은 글에 여러 계정이 동시에 달리면 티가 나므로 계정 순서대로 늦춘다.
 #   n번째 계정 지연 = n × STAGGER_MIN ± JITTER. 기본 10±5 → 1번째 즉시, 2번째 5~15분, 3번째 15~25분.
-STAGGER_MIN = float(os.environ.get("CAFE_CMT_STAGGER_MIN", "10"))
+STAGGER_MIN = float(os.environ.get("CAFE_CMT_STAGGER_MIN", "5"))
 STAGGER_JITTER = float(os.environ.get("CAFE_CMT_STAGGER_JITTER", "5"))
 # ⚠️ 답글 전용 계정(=글 작성자)은 일반 댓글 대상에서 제외한다.
 #   작성자가 자기 글에 "저도 알아보던 중이었는데" 같은 댓글을 달면 명백히 어색하다.
