@@ -286,8 +286,15 @@ def _find_in_frames(page, selectors, timeout=4000):
 def _goto_article(page, url):
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_timeout(2500)
-    if re.search(r"nid\.naver\.com|nidlogin", page.url or ""):
+    cur = page.url or ""
+    if re.search(r"nid\.naver\.com|nidlogin", cur):
         raise RuntimeError("LOGIN_REQUIRED: 네이버 로그인 필요 — 크롬 9224 에서 로그인하세요")
+    # 삭제/비공개 글: 그 글 주소로 갔는데 글번호가 사라지고 카페 홈으로 튕기면 = 글 없음.
+    #   댓글창이 없어 '입력창 못 찾음'으로 5번 재시도하던 걸(삭제된 #54 실측) 즉시 포기시킨다.
+    #   정상 글은 최종 URL 에 글번호가 남아(article_key 일치) 오탐 없음(실측: #55 유지 / #54 홈).
+    aid = article_key(url)
+    if aid and aid.isdigit() and article_key(cur) != aid:
+        raise RuntimeError(f"글 없음(삭제/비공개): #{aid} — 재시도 안 함")
 
 
 def diag(page, url):
