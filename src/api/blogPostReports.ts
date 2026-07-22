@@ -400,27 +400,53 @@ export async function markPublished(reportId: string, postUrl?: string) {
     return { error };
 }
 
+export type ReportEditPayload = {
+    blog_account_id: string;
+    post_url: string;
+    keyword?: string | null;
+    title: string;
+    report_type: ReportType;
+    round?: number | null;
+};
+
 // 재보고(기자단) — 반려된 본인 보고를 수정해 다시 대기(pending)로. type/제목 유지·수정.
-export async function resubmitReport(
-    id: string,
-    payload: { blog_account_id: string; post_url: string; keyword?: string | null; title: string; report_type: ReportType },
-) {
-    const { error } = await supabase
-        .from('blog_post_reports')
-        .update({
-            blog_account_id: payload.blog_account_id,
-            post_url: payload.post_url,
-            keyword: payload.keyword ?? null,
-            title: payload.title,
-            report_type: payload.report_type,
-            status: 'pending',
-            note: null,
-            reviewed_at: null,
-            reviewed_by: null,
-            blog_post_id: null,
-        })
-        .eq('id', id);
+export async function resubmitReport(id: string, payload: ReportEditPayload) {
+    // 드리프트 대응 — round 등 새 컬럼이 없을 수 있어 bprUpdate 로 재시도.
+    const { error } = await bprUpdate(id, {
+        blog_account_id: payload.blog_account_id,
+        post_url: payload.post_url,
+        keyword: payload.keyword ?? null,
+        title: payload.title,
+        report_type: payload.report_type,
+        round: payload.round ?? null,
+        status: 'pending',
+        note: null,
+        reviewed_at: null,
+        reviewed_by: null,
+        blog_post_id: null,
+    });
     return { error };
+}
+
+// 대기(pending) 보고 수정(기자단) — 검토 중인 본인 보고를 수정하되 상태는 대기 그대로 유지.
+//   RLS 'bpr 기자단 대기수정'(docs/reporter-report-edit.sql) 필요 — 없으면 0행(조용히 미반영).
+//   status/reviewed_* 는 건드리지 않는다(대기 유지). blog_post_id 도 그대로(대기라 애초에 null).
+export async function updatePendingReport(id: string, payload: ReportEditPayload) {
+    const { data, error } = await bprUpdate(id, {
+        blog_account_id: payload.blog_account_id,
+        post_url: payload.post_url,
+        keyword: payload.keyword ?? null,
+        title: payload.title,
+        report_type: payload.report_type,
+        round: payload.round ?? null,
+    });
+    if (error) return { error };
+    // 0행 반영 = RLS 정책(reporter-report-edit.sql) 미적용이거나 대기 상태가 아님 → 조용한 실패 방지.
+    if (!data || data.length === 0)
+        return {
+            error: { message: '수정이 반영되지 않았습니다 · 검토 중 보고만 수정 가능(회사 승인 SQL 미실행 여부 확인)' },
+        };
+    return { error: null };
 }
 
 // 반려(회사) — 대기(pending) 건만. 이미 승인된 건을 반려로 되돌릴 수 없게 막는다.
