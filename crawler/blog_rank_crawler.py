@@ -1844,6 +1844,12 @@ def run_spread(force=False, max_posts=None, chunk_size=5, gap_min=6, deadline=No
     for i, group in enumerate(groups):
         if not group:
             continue
+        # ★ 하드 마감(H8/2026-07-22 하드닝) — deadline 은 원래 '청크 시작 간격'만 벌려서, 마지막 청크가
+        #   느리면 08:30 을 넘겨 09:05 당일글·09:20 플레이스와 겹친다(같은 IP 동시요청 → 소프트차단).
+        #   여기서 마감(end) 을 넘겼으면 남은 청크를 아예 시작하지 않는다(진행 중 청크는 마치되 새로 안 시작).
+        if end is not None and datetime.datetime.now() >= end:
+            print(f"  ⏹ 마감({deadline}) 초과 — 남은 {nch - i}청크 중단(다음 크롤과 겹침 방지)", flush=True)
+            break
         print(f"[청크 {i + 1}/{nch}] 블로그 {len(group)}개 측정", flush=True)
         run_breadth(force=force, only_ids=set(group))
         ETA_HINT = _eta_hint(i + 1)                        # 청크 완료마다 예상 완료시각 갱신
