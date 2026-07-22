@@ -245,7 +245,7 @@ def run_once(cdp_url=None):
                 continue
             url = cdp_url or ("http://127.0.0.1:%d" % a["port"])
             try:
-                browser = p.chromium.connect_over_cdp(url)
+                browser = p.chromium.connect_over_cdp(url, timeout=20000)   # 좀비 크롬에 180초 멈춤 방지
             except Exception as e:
                 _log(f"[{a['name']}:{a['port']}] 크롬 접속 실패(꺼짐?): {str(e)[:80]}")
                 continue

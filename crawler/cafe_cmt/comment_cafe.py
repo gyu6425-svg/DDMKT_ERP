@@ -242,7 +242,10 @@ def _posted_check(scope, box, body):
 
 
 def _connect(p, cdp_url):
-    browser = p.chromium.connect_over_cdp(cdp_url)
+    # timeout 을 짧게(기본 180초 → 20초). 크롬이 좀비(포트는 열렸는데 CDP 무응답)면
+    #   기본값으로는 180초씩 멈춰 데몬 전체가 마비된다(2026-07-22 실제 사고). 빨리 실패시켜
+    #   재시도 대상으로 돌리고, 워치독이 크롬을 되살리게 한다.
+    browser = p.chromium.connect_over_cdp(cdp_url, timeout=20000)
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
     # 도우미 프로세스가 잠깐 여는 탭은 작업 탭으로 오인·선택하지 않는다.
     #   keep_alive.py → #keepalive, watch_new_posts.py → #watch.
