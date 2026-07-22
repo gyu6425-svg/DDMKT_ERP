@@ -46,6 +46,35 @@ def _age_min(created_at):
         return 0
 
 
+def _process_cafe():
+    """카페 재검색 큐(cafe_measure_requests) 처리 — measure_cafe_rank 로 인기글 섹션 순위 측정.
+    블로그 measure_requests 와 완전 분리(별도 테이블). 테이블 없으면(SQL 미적용) 조용히 통과."""
+    try:
+        creqs = c.sb_get("cafe_measure_requests", {
+            "status": "eq.pending", "order": "created_at.asc", "limit": "3", "select": "*",
+        })
+    except Exception:
+        return  # 테이블 없음/조회 실패 → 통과(블로그 처리에 영향 없음)
+    for r in (creqs or []):
+        rid = r["id"]
+        kw = (r.get("keyword") or "").strip()
+        if _age_min(r.get("created_at", "")) > STALE_MIN:
+            c.sb_patch("cafe_measure_requests", {"id": f"eq.{rid}"}, {"status": "fail"})
+            continue
+        c.sb_patch("cafe_measure_requests", {"id": f"eq.{rid}"}, {"status": "processing"})
+        try:
+            cafe_name = (r.get("cafe_name") or "").strip() or None
+            club_id = str(r.get("club_id")).strip() if r.get("club_id") else None
+            ti, ti_s = c.measure_cafe_rank(kw, cafe_name, str(r.get("article_id") or "").strip(), club_id=club_id)
+            c.sb_patch("cafe_measure_requests", {"id": f"eq.{rid}"}, {
+                "status": "done", "ti": ti, "ti_status": ti_s, "done_at": _now().isoformat(),
+            })
+            print(f"  ✓카페 '{kw}'(#{r.get('article_id')}) → 인기글 {ti}({ti_s})", flush=True)
+        except Exception as exc:
+            c.sb_patch("cafe_measure_requests", {"id": f"eq.{rid}"}, {"status": "fail"})
+            print(f"  ✗카페 '{kw}': {exc}", flush=True)
+
+
 def main():
     c.need_config()
     print(f"[리스너 시작] {datetime.datetime.now():%H:%M:%S} — measure_requests 폴링 (간격 {POLL_SEC}s)", flush=True)
@@ -63,6 +92,13 @@ def main():
                         print(f"  ♻ orphan processing 정리(fail): {s['id'][:8]}", flush=True)
             except Exception:
                 pass
+            try:  # 카페 재검색 큐 orphan 도 함께 정리
+                for s in (c.sb_get("cafe_measure_requests", {"status": "eq.processing", "select": "id,created_at", "limit": "20"}) or []):
+                    if _age_min(s.get("created_at", "")) > STALE_MIN:
+                        c.sb_patch("cafe_measure_requests", {"id": f"eq.{s['id']}"}, {"status": "fail"})
+            except Exception:
+                pass
+        _process_cafe()  # ★ 카페 재검색 큐 처리(블로그 pending 유무와 무관하게 매 루프)
         try:
             reqs = c.sb_get("measure_requests", {
                 "status": "eq.pending", "order": "created_at.asc", "limit": "3", "select": "*",

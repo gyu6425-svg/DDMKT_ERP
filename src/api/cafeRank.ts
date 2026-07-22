@@ -16,6 +16,8 @@ export type CafeRankPost = {
     keyword_manual: string | null;
     published_date: string | null;
     board: string | null; // 게시판(누수 / 설고점 / 더맨시스템 / 더티클리닉…) — 동일 카페 내 게시판 구분
+    cafe_account_id?: string | null;
+    cafe_accounts?: { company_key: string; display_name: string; board_short: string } | null;
     excluded: boolean;
     measurements: CafeMeasurement[];
 };
@@ -35,12 +37,20 @@ export function parseCafeUrl(url: string): { clubId: string | null; cafeName: st
 }
 
 export async function getCafeRankPosts() {
-    const { data, error } = await supabase
+    const joined = await supabase
+        .from('cafe_rank_posts')
+        .select('*,cafe_accounts(company_key,display_name,board_short)')
+        .eq('excluded', false)
+        .order('published_date', { ascending: false, nullsFirst: false });
+    if (!joined.error) return { data: (joined.data ?? []) as unknown as CafeRankPost[], error: null };
+
+    // SQL 적용 전에도 기존 트래커는 계속 보이게 하는 레거시 폴백.
+    const legacy = await supabase
         .from('cafe_rank_posts')
         .select('*')
         .eq('excluded', false)
         .order('published_date', { ascending: false, nullsFirst: false });
-    return { data: (data ?? []) as CafeRankPost[], error };
+    return { data: (legacy.data ?? []) as CafeRankPost[], error: legacy.error };
 }
 
 // 등록 — (cafe_name, article_id) 유니크. 이미 있으면 keyword/title/url 갱신(measurements 보존).
@@ -53,6 +63,7 @@ export async function upsertCafeRankPost(input: {
     keyword: string | null;
     published_date: string | null;
     board?: string | null;
+    cafe_account_id?: string | null;
 }) {
     const { error } = await supabase
         .from('cafe_rank_posts')
@@ -70,4 +81,17 @@ export async function excludeCafeRankPost(id: string) {
 export async function setCafeKeywordManual(id: string, keyword_manual: string) {
     const { error } = await supabase.from('cafe_rank_posts').update({ keyword_manual }).eq('id', id);
     return { error };
+}
+
+// 재검색 결과를 measurements 에 반영(오늘자 1건 교체). 크롤값과 동일 스키마.
+export async function setCafeMeasurements(id: string, measurements: CafeMeasurement[]) {
+    const { error } = await supabase.from('cafe_rank_posts').update({ measurements }).eq('id', id);
+    return { error };
+}
+
+// KST 오늘 날짜(YYYY-MM-DD) — 크롤러/측정과 동일 기준.
+export function cafeTodayKST(): string {
+    const now = new Date();
+    const kst = new Date(now.getTime() + (now.getTimezoneOffset() + 540) * 60000);
+    return kst.toISOString().slice(0, 10);
 }

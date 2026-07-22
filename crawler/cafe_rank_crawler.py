@@ -23,6 +23,11 @@ def main():
     if today_only:
         params["published_date"] = f"eq.{TODAY}"
     posts = c.sb_get("cafe_rank_posts", params)
+    try:
+        account_rows = c.sb_get("cafe_accounts", {"select": "id,company_key,display_name", "active": "eq.true"})
+    except Exception:
+        account_rows = []  # SQL 적용 전 레거시 폴백: board를 업체 표시명으로 사용
+    account_by_id = {a["id"]: a for a in account_rows}
     print(f"=== 카페 순위 크롤 {TODAY} · 대상 {len(posts)}글{' (오늘분)' if today_only else ''} ===", flush=True)
     ok = fail = 0
     for p in posts:
@@ -30,6 +35,8 @@ def main():
         cafe_name = (p.get("cafe_name") or "").strip()
         club_id = (p.get("club_id") or "").strip() or None
         article_id = str(p.get("article_id") or "").strip()
+        account = account_by_id.get(p.get("cafe_account_id")) or {}
+        company = account.get("display_name") or p.get("board") or "미분류"
         if not kw or not article_id:
             print(f"  [스킵] 키워드/글번호 없음: {p.get('title', '')[:20]}", flush=True)
             continue
@@ -44,7 +51,7 @@ def main():
         ok += 0 if bad else 1
         fail += 1 if bad else 0
         tg = f"{ti}위" if ti_s == "ok" else ("권외" if ti_s == "out" else ("측정불가(섹션없음)" if ti_s == "no_section" else "실패"))
-        print(f"  [{p.get('published_date')}] {cafe_name}/{article_id} · '{kw}' → 통합 {tg}", flush=True)
+        print(f"  [{company} · {p.get('published_date')}] {cafe_name}/{article_id} · '{kw}' → 통합 {tg}", flush=True)
         c._pause(c.REQUEST_DELAY)   # 차단회피 + 즉시검색 양보
     print(f"=== 완료: {len(posts)}글 측정 (ok {ok} / fail {fail}) ===", flush=True)
     try:

@@ -3,11 +3,11 @@ import {
     excludeCafeRankPost,
     getCafeRankPosts,
     parseCafeUrl,
-    setCafeKeywordManual,
     upsertCafeRankPost,
     type CafeMeasurement,
     type CafeRankPost,
 } from '../../../api/cafeRank';
+import { CafeSearchCell } from '../components/CafeSearchCell';
 
 // 카페 · 순위 트래커 — 자사 카페 글의 네이버 '인기글 테마 섹션' 내 순위. 측정은 PC 크롤러(cafe_rank_crawler.py)가 기록.
 
@@ -23,7 +23,8 @@ const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
     설고점: { bg: '#fff7ed', fg: '#c2410c' },
     더맨시스템: { bg: '#faf5ff', fg: '#7c3aed' },
 };
-const boardKey = (p: CafeRankPost) => p.board || '미분류';
+const boardKey = (p: CafeRankPost) => p.board || p.cafe_accounts?.board_short || '미분류';
+const companyLabel = (p: CafeRankPost) => p.cafe_accounts?.display_name || boardKey(p);
 const boardRank = (b: string) => {
     const i = BOARD_ORDER.indexOf(b);
     return i >= 0 ? i : b === '미분류' ? 999 : 500;
@@ -110,12 +111,6 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
         void reload();
     };
 
-    const onKeyword = async (id: string, v: string) => {
-        setPosts((prev) => prev.map((p) => (p.id === id ? { ...p, keyword_manual: v } : p)));
-    };
-    const saveKeyword = async (id: string, v: string) => {
-        await setCafeKeywordManual(id, v);
-    };
     const remove = async (id: string) => {
         if (deleting) return;
         if (!window.confirm('이 글을 순위 추적에서 삭제할까요? (측정 중단 · 다시 등록 가능)')) return;
@@ -127,9 +122,12 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
     };
 
     // 관리 시트에서 업체 클릭(?q=업체명) 시 그 업체만 필터. 업체명/카페명(vanity) 둘 다 매칭.
-    const q = new URLSearchParams(window.location.search).get('q') || '';
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get('q') || '';
+    const company = params.get('company') || '';
     const rows = useMemo(() => {
         let r = [...posts];
+        if (company) r = r.filter((p) => p.cafe_accounts?.company_key === company);
         if (q) {
             const qq = q.trim();
             r = r.filter((p) => cafeLabel(p.cafe_name).includes(qq) || (p.cafe_name || '').includes(qq));
@@ -138,23 +136,26 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
             const s = search.trim();
             r = r.filter((p) =>
                 cafeLabel(p.cafe_name).includes(s) ||
+                companyLabel(p).includes(s) ||
+                boardKey(p).includes(s) ||
                 (p.title || '').includes(s) ||
                 (p.keyword_manual || p.keyword || '').includes(s),
             );
         }
-        // 결정적 정렬(블로그와 동일 의도) — published_date 는 카페에서 거의 null 이라 created_at 기준 + id tiebreaker.
-        //   키워드 수정·재조회로 재로딩돼도 행 위치가 안 바뀌게.
+        // 발행 최신순. 발행일이 없는 수동 등록분만 created_at으로 보완하고 id로 순서를 고정한다.
         return r.sort(
             (a, b) =>
+                (b.published_date || '').localeCompare(a.published_date || '') ||
                 (b.created_at || '').localeCompare(a.created_at || '') ||
                 String(a.id).localeCompare(String(b.id)),
         );
-    }, [posts, q, search]);
+    }, [posts, q, company, search]);
 
-    // 게시판 필터 버튼 목록(전체 + 데이터에 있는 게시판을 순서대로). 각 게시판 글 수 포함.
+    // 기본 게시판은 0건이어도 탭을 항상 표시하고, 새 게시판은 데이터에 발견되면 뒤에 자동 추가한다.
     const boards = useMemo(() => {
         const cnt = new Map<string, number>();
         for (const p of posts) cnt.set(boardKey(p), (cnt.get(boardKey(p)) || 0) + 1);
+        for (const b of BOARD_ORDER) if (!cnt.has(b)) cnt.set(b, 0);
         return [...cnt.entries()].sort((a, b) => boardRank(a[0]) - boardRank(b[0]) || a[0].localeCompare(b[0]));
     }, [posts]);
 
@@ -323,21 +324,12 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
                                                 target="_blank"
                                                 title="카페로 이동"
                                             >
-                                                {cafeLabel(p.cafe_name) || p.club_id}
+                                                {companyLabel(p)}
                                             </a>
+                                            <div className="text-[10px] font-normal text-[#94a3b8]">{cafeLabel(p.cafe_name) || p.club_id}</div>
                                         </td>
                                         <td className="px-3 py-2">
-                                            {external ? (
-                                                <span className="text-[12px] text-[#475569]">{p.keyword_manual || p.keyword || '—'}</span>
-                                            ) : (
-                                                <input
-                                                    className="h-7 w-32 rounded border border-[#e2e8f0] px-1.5 text-[12px]"
-                                                    defaultValue={p.keyword_manual || p.keyword || ''}
-                                                    onBlur={(e) => void saveKeyword(p.id, e.target.value)}
-                                                    onChange={(e) => void onKeyword(p.id, e.target.value)}
-                                                    placeholder="측정 키워드"
-                                                />
-                                            )}
+                                            <CafeSearchCell external={external} onSaved={reload} post={p} />
                                         </td>
                                         <td className="px-3 py-2">
                                             {(() => {
