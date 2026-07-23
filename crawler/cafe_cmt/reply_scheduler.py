@@ -39,6 +39,15 @@ except Exception:
 INTERVAL_MIN = int(os.environ.get("CAFE_CMT_REPLY_MIN", "20"))      # 예약기 주기(분)
 REPLY_PER_POST = int(os.environ.get("CAFE_CMT_REPLY_PER_POST", "2"))  # 글당 답글 수
 REPLY_ACCOUNT = os.environ.get("CAFE_CMT_REPLY_ACCOUNT", "rlawhddls25")
+# 답글은 '대댓글 계정(rlawhddls25)이 작성자/회원인 카페'에서만 단다.
+#   그 계정은 ddmkt2 발행 정체성이라, 남의 카페(예: thebanclean=더반클린)에 답글을 달면
+#   ①회원이 아니라 실패하고 ②'작성자 응답' 톤이 안 맞는다. 여기 토큰이 URL 에 있어야만 답글.
+REPLY_CAFES = {x.strip() for x in os.environ.get("CAFE_CMT_REPLY_CAFES", "ddmkt2,31754130").split(",") if x.strip()}
+
+
+def _reply_allowed(url):
+    u = url or ""
+    return any(tok in u for tok in REPLY_CAFES)
 # 답글이 댓글 직후에 바로 달리면 티가 나므로 최소 이만큼 지난 댓글에만 답글을 단다(분).
 REPLY_AFTER_MIN = int(os.environ.get("CAFE_CMT_REPLY_AFTER_MIN", "20"))
 # 답글끼리도 시차를 둔다(분).
@@ -109,6 +118,8 @@ def run_once():
             continue
         if r.get("status") != "done":       # 실제로 달린 댓글만
             continue
+        if not _reply_allowed(r.get("article_url", "")):
+            continue                        # 대댓글 계정이 회원/작성자인 카페에서만(thebanclean 등 제외)
         body = (r.get("body") or "").strip()
         if not body or body in replied:
             continue
