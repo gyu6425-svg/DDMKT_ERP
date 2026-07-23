@@ -5,6 +5,32 @@ import { supabase } from '../lib/supabase';
 
 export type CafeRankSearchResult = { ti: number; ti_status: 'ok' | 'out' | 'no_section' | 'fail' };
 
+// 전체 재검색(대량) — 큐에 여러 건을 한 번에 등록만 하고 끝낸다.
+//   실제 측정은 PC 리스너가 1건씩 간격을 두고 순차 처리(블로그 크롤 중엔 자동 대기) → 네이버 차단·크롤 충돌 방지.
+//   post_id 를 함께 넣어 리스너가 순위를 글에 직접 저장하므로, 브라우저를 닫아도 계속 진행된다.
+export type CafeMeasureJob = {
+    post_id: string;
+    keyword: string;
+    cafe_name: string | null;
+    article_id: string;
+    club_id: string | null;
+};
+
+export async function enqueueCafeRankMeasures(items: CafeMeasureJob[]) {
+    if (!items.length) return { error: null };
+    const { error } = await supabase.from('cafe_measure_requests').insert(items);
+    return { error };
+}
+
+// 남은(대기+처리중) 카페 측정 건수 — 진행률 표시용.
+export async function countCafePendingMeasures() {
+    const { count, error } = await supabase
+        .from('cafe_measure_requests')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['pending', 'processing']);
+    return { count: count ?? 0, error };
+}
+
 export async function searchCafeRankPC(
     keyword: string,
     cafeName: string | null,

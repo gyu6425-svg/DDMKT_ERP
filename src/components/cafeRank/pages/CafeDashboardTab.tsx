@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { getCafeRankPosts, type CafeRankPost } from '../../../api/cafeRank';
 
 // 카페 · 대시보드 — 업체(게시판)별 성과를 한눈에. 각 카드: 글 수 · 인기글 진입 · 최고순위 · 상위 키워드.
-const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템'];
+const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템', '더반클린'];
 const boardKey = (p: CafeRankPost) => p.board || p.cafe_accounts?.board_short || '미분류';
 const companyName = (p: CafeRankPost) => p.cafe_accounts?.display_name || boardKey(p);
 const boardRank = (b: string) => {
@@ -14,6 +14,7 @@ const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
     더티클리닉: { bg: '#f0fdfa', fg: '#0d9488' },
     설고점: { bg: '#fff7ed', fg: '#c2410c' },
     더맨시스템: { bg: '#faf5ff', fg: '#7c3aed' },
+    더반클린: { bg: '#fdf2f8', fg: '#be185d' },
 };
 
 function todayKST(): string {

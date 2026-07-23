@@ -19,6 +19,9 @@ import cafe_rank_sync
 import cafe_board_crawl
 
 INTERVAL = int(sys.argv[1]) if len(sys.argv) > 1 else 1800   # 기본 30분
+# 블로그 크롤에 막혔을 때는 30분을 통째로 기다리지 않고 짧게 재시도한다.
+#   당일 크롤이 :05/:35 마다 돌아서 주기가 물리면(위상 겹침) 매번 건너뛰어 신규글이 계속 밀리던 문제 해결.
+RETRY_SEC = 240
 BUSY_START, BUSY_END = datetime.time(2, 50), datetime.time(9, 30)   # 새벽 블로그/카페 크롤 구간 = 측정 금지
 
 _seen = {"ua": None, "since": 0.0}
@@ -84,8 +87,10 @@ def main():
     while True:
         # 게이트: 블로그 크롤 중이거나 새벽 바쁜 시간대면 네이버 접촉 전부 건너뜀(겹침 방지)
         if _blog_active():
-            print(f"[{datetime.datetime.now():%H:%M}] 블로그 크롤 진행 중 — 건너뜀", flush=True)
-        elif _in_busy_band():
+            print(f"[{datetime.datetime.now():%H:%M}] 블로그 크롤 중 — {RETRY_SEC // 60}분 뒤 재시도", flush=True)
+            time.sleep(RETRY_SEC)   # 당일크롤은 금방 끝나므로 짧게 재시도(위상 겹침 방지)
+            continue
+        if _in_busy_band():
             print(f"[{datetime.datetime.now():%H:%M}] 새벽 크롤 시간대(02:50~09:30) — 건너뜀", flush=True)
         else:
             # 1) 게시판 직접 수집(네이버 API) — 발행경로 무관하게 신규글 등록
