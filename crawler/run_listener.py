@@ -46,19 +46,61 @@ def _age_min(created_at):
         return 0
 
 
+CAFE_STALE_MIN = 90        # 카페 큐 만료(분) — '전체 재검색'으로 수십 건이 대기해도 안 죽게 넉넉히(블로그는 STALE_MIN 유지).
+CAFE_BATCH = 2             # 한 루프에 처리할 카페 건수 — 순차 + 간격으로 네이버 차단 예방.
+_blog_seen = {"ua": None, "since": 0.0}
+
+
+def _blog_crawl_alive():
+    """블로그 크롤(전체/당일/플레이스)이 '살아서' 도는가 — 도는 동안 카페 대량측정을 멈춰 같은 IP 동시요청을 막는다.
+    running=True 이고 updated_at 이 갱신되면 alive. 같은 값이 15분 넘게 굳으면 좀비로 보고 False(진행)."""
+    try:
+        rows = c.sb_get("crawl_status", {"id": "eq.1", "select": "running,updated_at"})
+    except Exception:
+        return False
+    r = (rows or [{}])[0]
+    if not r.get("running"):
+        _blog_seen["ua"] = None
+        return False
+    ua = r.get("updated_at")
+    now = time.time()
+    if ua != _blog_seen["ua"]:
+        _blog_seen["ua"] = ua
+        _blog_seen["since"] = now
+        return True
+    return (now - _blog_seen["since"]) <= 900
+
+
+def _apply_to_post(post_id, ti, ti_s):
+    """측정 결과를 글(cafe_rank_posts.measurements)에 직접 반영 — 브라우저를 닫아도 순위가 저장되게."""
+    if not post_id:
+        return
+    try:
+        rows = c.sb_get("cafe_rank_posts", {"id": f"eq.{post_id}", "select": "measurements"})
+        today = datetime.date.today().isoformat()
+        recs = [m for m in ((rows or [{}])[0].get("measurements") or []) if m.get("date") != today]
+        recs.append({"date": today, "ti": ti, "ti_status": ti_s})
+        c.sb_patch("cafe_rank_posts", {"id": f"eq.{post_id}"}, {"measurements": recs})
+    except Exception as exc:
+        print(f"    [글 반영 실패] {post_id}: {exc}", flush=True)
+
+
 def _process_cafe():
     """카페 재검색 큐(cafe_measure_requests) 처리 — measure_cafe_rank 로 인기글 섹션 순위 측정.
-    블로그 measure_requests 와 완전 분리(별도 테이블). 테이블 없으면(SQL 미적용) 조용히 통과."""
+    블로그 measure_requests 와 완전 분리(별도 테이블). 테이블 없으면(SQL 미적용) 조용히 통과.
+    ★ 블로그 크롤 중이면 통째로 건너뛰고(겹침 방지), 건마다 간격을 둬 순차 처리한다(차단 예방)."""
+    if _blog_crawl_alive():
+        return  # 블로그 크롤 진행 중 — 카페 측정 보류(다음 루프에 재시도)
     try:
         creqs = c.sb_get("cafe_measure_requests", {
-            "status": "eq.pending", "order": "created_at.asc", "limit": "3", "select": "*",
+            "status": "eq.pending", "order": "created_at.asc", "limit": str(CAFE_BATCH), "select": "*",
         })
     except Exception:
         return  # 테이블 없음/조회 실패 → 통과(블로그 처리에 영향 없음)
     for r in (creqs or []):
         rid = r["id"]
         kw = (r.get("keyword") or "").strip()
-        if _age_min(r.get("created_at", "")) > STALE_MIN:
+        if _age_min(r.get("created_at", "")) > CAFE_STALE_MIN:
             c.sb_patch("cafe_measure_requests", {"id": f"eq.{rid}"}, {"status": "fail"})
             continue
         c.sb_patch("cafe_measure_requests", {"id": f"eq.{rid}"}, {"status": "processing"})
@@ -69,10 +111,14 @@ def _process_cafe():
             c.sb_patch("cafe_measure_requests", {"id": f"eq.{rid}"}, {
                 "status": "done", "ti": ti, "ti_status": ti_s, "done_at": _now().isoformat(),
             })
+            _apply_to_post(r.get("post_id"), ti, ti_s)   # 글에 바로 반영
             print(f"  ✓카페 '{kw}'(#{r.get('article_id')}) → 인기글 {ti}({ti_s})", flush=True)
         except Exception as exc:
             c.sb_patch("cafe_measure_requests", {"id": f"eq.{rid}"}, {"status": "fail"})
             print(f"  ✗카페 '{kw}': {exc}", flush=True)
+        c._pause(c.REQUEST_DELAY)   # 건 사이 간격 — 동시요청 없이 순차(차단 예방)
+        if _blog_crawl_alive():
+            break                   # 처리 도중 블로그 크롤이 시작되면 즉시 중단
 
 
 def main():

@@ -8,6 +8,7 @@ import {
     type CafeRankPost,
 } from '../../../api/cafeRank';
 import { CafeSearchCell } from '../components/CafeSearchCell';
+import { countCafePendingMeasures, enqueueCafeRankMeasures } from '../../../api/cafeRankSearch';
 
 // 카페 · 순위 트래커 — 자사 카페 글의 네이버 '인기글 테마 섹션' 내 순위. 측정은 PC 크롤러(cafe_rank_crawler.py)가 기록.
 
@@ -173,6 +174,46 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
     }, [rows, boardFilter]);
 
     const shownCount = useMemo(() => groups.reduce((n, g) => n + g[1].length, 0), [groups]);
+    const shownPosts = useMemo(() => groups.flatMap((g) => g[1]), [groups]);
+
+    // 전체 재검색 — 지금 보이는 게시판(탭)의 글을 큐에 일괄 등록. 측정은 PC가 순차 처리(진행률만 폴링).
+    const [bulk, setBulk] = useState<{ busy: boolean; left: number; msg: string }>({ busy: false, left: 0, msg: '' });
+    const bulkResearch = async () => {
+        if (bulk.busy) return;
+        const targets = shownPosts.filter((p) => (p.keyword_manual || p.keyword || '').trim());
+        if (!targets.length) { setBulk({ busy: false, left: 0, msg: '재검색할 글이 없습니다' }); return; }
+        const where = boardFilter === '전체' ? '전체' : boardFilter;
+        if (!window.confirm(
+            `${where} ${targets.length}건을 전체 재검색합니다.\n\n` +
+            `· PC가 1건씩 간격을 두고 순차 측정합니다(약 ${Math.ceil((targets.length * 3) / 60)}분)\n` +
+            `· 블로그 크롤이 돌면 자동으로 멈췄다 재개합니다\n` +
+            `· 이 창을 닫아도 계속 진행됩니다`,
+        )) return;
+        setBulk({ busy: true, left: targets.length, msg: '큐에 등록 중…' });
+        const { error } = await enqueueCafeRankMeasures(
+            targets.map((p) => ({
+                post_id: p.id,
+                keyword: (p.keyword_manual || p.keyword || '').trim(),
+                cafe_name: p.cafe_name,
+                article_id: p.article_id,
+                club_id: p.club_id,
+            })),
+        );
+        if (error) {
+            setBulk({ busy: false, left: 0, msg: `등록 실패: ${error.message} (docs/cafe-research-bulk.sql 실행 필요)` });
+            return;
+        }
+        setBulk({ busy: true, left: targets.length, msg: '측정 중…' });
+        // 남은 건수를 폴링해 진행률 표시 → 0이 되면 목록 새로고침.
+        for (let i = 0; i < 400; i += 1) {
+            await new Promise((r) => setTimeout(r, 4000));
+            const { count } = await countCafePendingMeasures();
+            setBulk({ busy: true, left: count, msg: '측정 중…' });
+            if (count === 0) break;
+        }
+        await reload();
+        setBulk({ busy: false, left: 0, msg: '전체 재검색 완료' });
+    };
 
     // 선택한 게시판이 더 이상 존재하지 않으면(모두 삭제/필터됨) '전체'로 되돌려 빈 화면에 갇히지 않게.
     useEffect(() => {
@@ -197,6 +238,17 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
                 >
                     새로고침
                 </button>
+                {!external ? (
+                    <button
+                        className="inline-flex h-9 items-center rounded-md bg-[#0f766e] px-3 text-xs font-bold text-white hover:bg-[#115e59] disabled:opacity-50"
+                        disabled={bulk.busy || !shownCount}
+                        onClick={() => void bulkResearch()}
+                        title="지금 보이는 게시판 글을 전부 재검색(PC가 순차 측정 · 블로그 크롤과 자동 비겹침)"
+                        type="button"
+                    >
+                        {bulk.busy ? `측정 중… 남은 ${bulk.left}` : `전체 재검색 ${shownCount}`}
+                    </button>
+                ) : null}
                 <button
                     className="inline-flex h-9 items-center rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
                     onClick={() => setShowAdd((v) => !v)}
@@ -247,6 +299,11 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
             ) : null}
 
             {err ? <div className="rounded-md bg-[#fef2f2] px-3 py-2 text-[13px] text-[#b91c1c]">{err}</div> : null}
+            {bulk.msg ? (
+                <div className="rounded-md bg-[#f0fdfa] px-3 py-2 text-[13px] font-semibold text-[#0f766e]">
+                    {bulk.msg}{bulk.busy ? ` · 남은 ${bulk.left}건 (블로그 크롤 중이면 자동 대기)` : ''}
+                </div>
+            ) : null}
 
             {/* 게시판 필터 — 동일 카페 안의 게시판(누수 / 설고점 / 더맨시스템 / 더티클리닉…)별로 나눠 보기 */}
             {boards.length > 1 ? (
