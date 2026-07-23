@@ -96,7 +96,7 @@ def run_once():
         return
     try:
         rows = cc.sb_get("cafe_comment_queue", {
-            "select": "id,account,article_url,body,status,reply_to_body,done_at,created_at",
+            "select": "id,account,article_url,body,status,reply_to_body,done_at,created_at,reason",
             "order": "created_at.desc", "limit": str(LOOKBACK),
         })
     except Exception as e:
@@ -152,6 +152,10 @@ def run_once():
         # 답글이 계속 실패하는 글 = 글이 삭제됐거나(답글쓰기 버튼 없음) 구조 문제.
         #   그만 시도한다 — 안 그러면 매 주기 새 답글을 만들어 무한 실패한다
         #   (2026-07-21 삭제된 #38 에 매시간 답글 시도가 쌓이던 실제 사고).
+        # 삭제/비공개 글은 즉시 포기(한 번이라도 '글 없음' 이 뜨면 그 글은 사라진 것).
+        if any(("글 없음" in (r.get("reason") or "") or "삭제" in (r.get("reason") or ""))
+               and cc.article_key(r.get("article_url", "")) == akey for r in rows):
+            continue
         fails = sum(1 for r in rows
                     if r.get("reply_to_body") and r.get("status") == "fail"
                     and cc.article_key(r.get("article_url", "")) == akey)
