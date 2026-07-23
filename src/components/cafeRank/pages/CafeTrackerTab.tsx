@@ -17,6 +17,8 @@ const cafeLabel = (vanity?: string | null) => (vanity && CAFE_LABEL[vanity]) || 
 
 // 게시판(board) — 동일 카페 안에서 게시판별 구분. 표시 순서·색. 새 게시판은 자동으로 뒤에 붙는다.
 const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템'];
+// 관리시트 '순위 보기'(?company=)로 진입 시, 그 업체의 게시판 탭을 초기 선택.
+const COMPANY_BOARD: Record<string, string> = { leak: '누수', dirty: '더티클리닉', seolgo: '설고점', theman: '더맨시스템' };
 const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
     누수: { bg: '#eff6ff', fg: '#1d4ed8' },
     더티클리닉: { bg: '#f0fdfa', fg: '#0d9488' },
@@ -69,7 +71,9 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
     const [search, setSearch] = useState('');
     const [showAdd, setShowAdd] = useState(false);
     const [deleting, setDeleting] = useState<string | null>(null);
-    const [boardFilter, setBoardFilter] = useState('전체');
+    const [boardFilter, setBoardFilter] = useState(
+        () => COMPANY_BOARD[new URLSearchParams(window.location.search).get('company') || ''] || '전체',
+    );
 
     const reload = async () => {
         setLoading(true);
@@ -124,10 +128,8 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
     // 관리 시트에서 업체 클릭(?q=업체명) 시 그 업체만 필터. 업체명/카페명(vanity) 둘 다 매칭.
     const params = new URLSearchParams(window.location.search);
     const q = params.get('q') || '';
-    const company = params.get('company') || '';
     const rows = useMemo(() => {
         let r = [...posts];
-        if (company) r = r.filter((p) => p.cafe_accounts?.company_key === company);
         if (q) {
             const qq = q.trim();
             r = r.filter((p) => cafeLabel(p.cafe_name).includes(qq) || (p.cafe_name || '').includes(qq));
@@ -149,7 +151,7 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
                 (b.created_at || '').localeCompare(a.created_at || '') ||
                 String(a.id).localeCompare(String(b.id)),
         );
-    }, [posts, q, company, search]);
+    }, [posts, q, search]);
 
     // 기본 게시판은 0건이어도 탭을 항상 표시하고, 새 게시판은 데이터에 발견되면 뒤에 자동 추가한다.
     const boards = useMemo(() => {
