@@ -263,6 +263,11 @@ const BUY_KEY = '__idbuy__';
 const BUY_LABEL = '아이디 구매';
 const BUY_CAT = { key: BUY_KEY, label: BUY_LABEL, path: '', ready: false, subs: [] as string[] };
 
+// 랜딩페이지 — 아이디 구매와 완전히 동일한 방식(상품명·수량·금액 → 전액 외주비, 매출 0).
+const LAND_KEY = '__landing__';
+const LAND_LABEL = '랜딩페이지';
+const LAND_CAT = { key: LAND_KEY, label: LAND_LABEL, path: '', ready: false, subs: [] as string[] };
+
 // 계약 추가 모달 — 카테고리 → 세부유형 → 건수·금액·계약일.
 //   boostPrefix 지정 시 = 상위노출 보장형 2차 등록: 카테고리 고정, subtype 앞에 접두 부착.
 function ContractAddModal({
@@ -298,9 +303,11 @@ function ContractAddModal({
     const isEtc = catKey === ETC_KEY; // 기타 = 상품명 자유 입력(종합광고 2차)
     const isFee = catKey === FEE_KEY; // 대행수수료 = 건수·금액만, 카테고리 미귀속
     const isBuy = catKey === BUY_KEY; // 아이디 구매 = 상품명·수량·금액만, 금액 전액 외주비
+    const isLand = catKey === LAND_KEY; // 랜딩페이지 = 아이디 구매와 동일 방식
+    const isOutOnly = isBuy || isLand; // 외주비 전용 항목(매출 0)
     const cat =
         PRODUCT_CATEGORIES.find((c) => c.key === catKey) ??
-        (isFee ? FEE_CAT : isBuy ? BUY_CAT : isEtc ? ETC_CAT : PRODUCT_CATEGORIES[0]);
+        (isFee ? FEE_CAT : isBuy ? BUY_CAT : isLand ? LAND_CAT : isEtc ? ETC_CAT : PRODUCT_CATEGORIES[0]);
     // 2차 등록에선 컨테이너형(상위노출 보장형·종합광고) 자기 자신은 하위로 못 넣게 제외.
     const subOptions = boostPrefix ? cat.subs.filter((s) => !CONTAINER_SUBS.includes(s)) : cat.subs;
     // 카테고리 칩 표시: 일반 등록 또는 종합광고 2차(picking)에서. 종합광고 2차에서만 자기(종합광고)를 칩에서 제외.
@@ -311,7 +318,7 @@ function ContractAddModal({
         ? [...PRODUCT_CATEGORIES.filter((c) => c.label !== '종합광고'), ETC_CAT]
         : boostPrefix
           ? PRODUCT_CATEGORIES
-          : [...PRODUCT_CATEGORIES, FEE_CAT, BUY_CAT];
+          : [...PRODUCT_CATEGORIES, FEE_CAT, BUY_CAT, LAND_CAT];
     const [subtype, setSubtype] = useState(subOptions[0]);
     const [count, setCount] = useState('');
     const [perDay, setPerDay] = useState('');
@@ -335,8 +342,8 @@ function ContractAddModal({
         ? (Number(onlyDigits(perDay)) || 0) * (Number(onlyDigits(days)) || 0)
         : Number(onlyDigits(count)) || 0;
     // 기타·대행수수료는 금액 직접 입력, 서비스는 입력 금액을 매출에 −로, 그 외는 단가 × 수량.
-    //   아이디 구매는 매출 0 — 입력 금액을 전액 외주비로만 잡는다.
-    const amt = isBuy
+    //   아이디 구매·랜딩페이지는 매출 0 — 입력 금액을 전액 외주비로만 잡는다.
+    const amt = isOutOnly
         ? 0
         : isEtc || isFee
           ? Number(onlyDigits(amountInput)) || 0
@@ -345,7 +352,7 @@ function ContractAddModal({
             : (Number(onlyDigits(unit)) || 0) * cnt;
     // 외주비: 총액을 직접 입력하면 그 값을 우선 사용(기존 등록 건). 없으면 외주단가 × 수량.
     const outDirect = Number(onlyDigits(outTotal)) || 0;
-    const outAmt = isBuy
+    const outAmt = isOutOnly
         ? Number(onlyDigits(amountInput)) || 0
         : outDirect > 0
           ? outDirect
@@ -361,8 +368,8 @@ function ContractAddModal({
             setSubtype(FEE_LABEL); // 대행수수료 = 세부유형 고정
             return;
         }
-        if (key === BUY_KEY) {
-            setSubtype(''); // 아이디 구매 = 상품명 직접 입력
+        if (key === BUY_KEY || key === LAND_KEY) {
+            setSubtype(''); // 아이디 구매·랜딩페이지 = 상품명 직접 입력
             return;
         }
         const c = PRODUCT_CATEGORIES.find((x) => x.key === key);
@@ -379,15 +386,15 @@ function ContractAddModal({
             onToast('서비스 금액을 입력하세요');
             return;
         }
-        if (isBuy && !subtype.trim()) {
+        if (isOutOnly && !subtype.trim()) {
             onToast('상품명을 입력하세요');
             return;
         }
-        if (isBuy && outAmt <= 0) {
+        if (isOutOnly && outAmt <= 0) {
             onToast('금액을 입력하세요');
             return;
         }
-        if (!isService && !isBuy && !n && !amt) {
+        if (!isService && !isOutOnly && !n && !amt) {
             onToast('수량 또는 단가를 입력하세요');
             return;
         }
@@ -546,17 +553,17 @@ function ContractAddModal({
                                 />
                             </label>
                         </>
-                    ) : isBuy ? (
+                    ) : isOutOnly ? (
                         <>
                             <div className="rounded-md bg-[#ecfeff] px-3 py-2 text-xs font-semibold text-[#0e7490]">
-                                아이디 구매 — 카테고리에 잡히지 않고, 입력 금액이 <b>전액 외주비</b>로 기록됩니다(매출 반영 없음).
+                                {cat.label} — 카테고리에 잡히지 않고, 입력 금액이 <b>전액 외주비</b>로 기록됩니다(매출 반영 없음).
                             </div>
                             <label className="block text-xs font-semibold text-[#475569]">
                                 상품명
                                 <input
                                     className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
                                     onChange={(e) => setSubtype(e.target.value)}
-                                    placeholder="예: 네이버 아이디"
+                                    placeholder={isLand ? '예: 상세 랜딩페이지 제작' : '예: 네이버 아이디'}
                                     type="text"
                                     value={subtype}
                                 />
@@ -2802,6 +2809,7 @@ export function ClientDetail({
         ...PRODUCT_CATEGORIES.filter((c) => contracts.some((ct) => ct.category === c.label)),
         ...(contracts.some((ct) => ct.category === FEE_LABEL) ? [FEE_CAT] : []),
         ...(contracts.some((ct) => ct.category === BUY_LABEL) ? [BUY_CAT] : []),
+        ...(contracts.some((ct) => ct.category === LAND_LABEL) ? [LAND_CAT] : []),
     ];
 
     return (
