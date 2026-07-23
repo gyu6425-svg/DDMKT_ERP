@@ -1273,6 +1273,37 @@ def _is_popular_section(j):
     return found[0]
 
 
+# 인기글 섹션 안 '광고' 카드 — 네이버 광고는 이동링크가 ader.naver.com 으로 나간다.
+#   (2026-07-23 실측: '강남 입주청소' 인기글 r=1~3 이 전부 ader.naver.com 광고, r=4 부터 실제 글.
+#    광고를 순위에 세면 실제 4위가 7위로 밀려 보임 → 사용자 요청으로 광고 제외 후 다시 센다.)
+_AD_HOST_RE = re.compile(r"https?://ader\.naver\.com/", re.I)
+
+
+def _ad_ranks_cafe(j):
+    """이 섹션 블록에서 '광고' 카드의 r 집합. 같은 r 에 실제 링크도 있으면 광고로 보지 않는다(보수적)."""
+    ads, real = set(), set()
+
+    def w(o):
+        if isinstance(o, dict):
+            r = _node_min_r(o)
+            if isinstance(r, (int, float)) and not isinstance(r, bool) and r != 0:
+                ri = int(r)
+                for k in _PRIMARY_NAV_FIELDS:
+                    v = o.get(k)
+                    if isinstance(v, str) and v:
+                        (ads if _AD_HOST_RE.search(v) else real).add(ri)
+            for k, v in o.items():
+                if k in _PRIMARY_EXCLUDE_KEYS:
+                    continue
+                w(v)
+        elif isinstance(o, list):
+            for x in o:
+                w(x)
+
+    w(j)
+    return ads - real
+
+
 def _rank_in_cafe_section(html_text, cafe_name, article_id, club_id=None):
     """통합검색 HTML → 카페 글의 '인기글 테마 섹션 내 순위'(clickLog.r). (2026-07-16 기준 변경)
     status: ok=섹션 내 순위 / out=섹션은 있으나 우리 글 없음(권외) / no_section=인기글 섹션 자체 없음(측정불가) / fail=차단."""
@@ -1289,10 +1320,18 @@ def _rank_in_cafe_section(html_text, cafe_name, article_id, club_id=None):
         if not _is_popular_section(j):
             continue
         saw_section = True
-        for r, ids in _ugb_cards_cafe(j).items():
+        cards = _ugb_cards_cafe(j)
+        ad_rs = _ad_ranks_cafe(j)                       # 광고 카드의 r
+        # 광고를 뺀 나머지를 화면 위에서부터 다시 1,2,3… 으로 센다(사용자 기준: 광고 제외 순위).
+        organic = sorted(r for r in cards if r not in ad_rs)
+        pos = {r: i + 1 for i, r in enumerate(organic)}
+        for r, ids in cards.items():
+            if r in ad_rs:
+                continue
             if _cafe_id_match(ids, cafe_name, club_id, article_id):
-                if best is None or r < best:
-                    best = r
+                rk = pos.get(r, r)
+                if best is None or rk < best:
+                    best = rk
     if best is not None:
         return int(best), "ok"
     if not saw_section:
