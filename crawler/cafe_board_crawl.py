@@ -42,8 +42,8 @@ WEB = {
 
 
 def derive_kw(subject):
-    # 제목 앞 2어절(지역+제품키워드) — 콤마·가운뎃점 제거. UI 재검색으로 보정 가능.
-    t = re.sub(r"[,·|/]", " ", subject or "").strip()
+    # 제목 앞 2어절(지역+제품키워드) — 문장부호 제거(콜론 등이 붙으면 네이버 검색 깨짐). UI 재검색으로 보정 가능.
+    t = re.sub(r"[,·|/:;~!?\"'()\[\]<>]", " ", subject or "").strip()
     return " ".join(t.split()[:2]).strip() or (subject or "")[:12]
 
 
