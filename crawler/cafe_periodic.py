@@ -22,7 +22,9 @@ INTERVAL = int(sys.argv[1]) if len(sys.argv) > 1 else 1800   # 기본 30분
 # 블로그 크롤에 막혔을 때는 30분을 통째로 기다리지 않고 짧게 재시도한다.
 #   당일 크롤이 :05/:35 마다 돌아서 주기가 물리면(위상 겹침) 매번 건너뛰어 신규글이 계속 밀리던 문제 해결.
 RETRY_SEC = 240
-BUSY_START, BUSY_END = datetime.time(2, 50), datetime.time(9, 30)   # 새벽 블로그/카페 크롤 구간 = 측정 금지
+# 새벽 블로그/카페 크롤 구간 = 측정 금지. Full 이 01:00 시작이므로 00:50 부터 막아 구간 전체를 덮는다
+#   (01:00~08:30 Full → 체인 카페측정 → 09:05 당일건 → 09:20 플레이스까지).
+BUSY_START, BUSY_END = datetime.time(0, 50), datetime.time(9, 30)
 
 _seen = {"ua": None, "since": 0.0}
 
