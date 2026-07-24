@@ -131,7 +131,7 @@ def run_once():
                     continue                 # 너무 최근 댓글 — 조금 묵혔다가
         except Exception:
             pass
-        by_article.setdefault(cc.article_key(r.get("article_url", "")), []).append(r)
+        by_article.setdefault(cc.article_uid(r.get("article_url", "")), []).append(r)
 
     if not by_article:
         return
@@ -148,7 +148,7 @@ def run_once():
         #   그 글은 have=2 가 되어 다시는 답글을 못 받았다(replied 집합과 판정이 어긋났음).
         have = sum(1 for r in rows
                    if r.get("reply_to_body") and r.get("status") != "fail"
-                   and cc.article_key(r.get("article_url", "")) == akey)
+                   and cc.article_uid(r.get("article_url", "")) == akey)
         need = REPLY_PER_POST - have
         if need <= 0:
             continue
@@ -157,11 +157,11 @@ def run_once():
         #   (2026-07-21 삭제된 #38 에 매시간 답글 시도가 쌓이던 실제 사고).
         # 삭제/비공개 글은 즉시 포기(한 번이라도 '글 없음' 이 뜨면 그 글은 사라진 것).
         if any(("글 없음" in (r.get("reason") or "") or "삭제" in (r.get("reason") or ""))
-               and cc.article_key(r.get("article_url", "")) == akey for r in rows):
+               and cc.article_uid(r.get("article_url", "")) == akey for r in rows):
             continue
         fails = sum(1 for r in rows
                     if r.get("reply_to_body") and r.get("status") == "fail"
-                    and cc.article_key(r.get("article_url", "")) == akey)
+                    and cc.article_uid(r.get("article_url", "")) == akey)
         if fails >= REPLY_FAIL_GIVEUP:
             continue
         picks = random.sample(cands, min(need, len(cands)))

@@ -139,6 +139,23 @@ def article_key(url):
     return m.group(1) if m else (url or "").strip()
 
 
+def club_id(url):
+    """URL 에서 카페 식별자(clubid 숫자, 없으면 카페 영문명)."""
+    u = url or ""
+    m = re.search(r'clubid=(\d+)', u)
+    if m:
+        return m.group(1)
+    m = re.search(r'cafe\.naver\.com/([^/?#]+)', u)
+    return m.group(1) if m else ""
+
+
+def article_uid(url):
+    """카페까지 구분하는 글 고유키 = '카페:글번호'.
+    ⚠️ article_key(글번호만)는 카페가 달라도 번호가 같으면 충돌한다(ddnusu#2 vs thebanclean#2).
+       중복 판정·글별 그룹핑은 이 uid 로 해야 다른 카페의 같은 번호 글을 안 섞는다."""
+    return f"{club_id(url)}:{article_key(url)}"
+
+
 def already_commented(url, exclude_id=None, account=None):
     """이 글에 이미 (완료/처리중) 댓글 잡이 있으면 True — 중복 댓글 방지.
 
@@ -149,6 +166,7 @@ def already_commented(url, exclude_id=None, account=None):
     key = article_key(url)
     if not key:
         return False
+    uid = article_uid(url)   # 카페까지 구분(다른 카페의 같은 번호 글과 충돌 방지)
     params = {
         "status": "in.(done,processing)", "select": "id,article_url,account",
         "order": "created_at.desc", "limit": "500",
@@ -173,7 +191,7 @@ def already_commented(url, exclude_id=None, account=None):
     for r in rows:
         if exclude_id and r.get("id") == exclude_id:
             continue
-        if article_key(r.get("article_url", "")) == key:
+        if article_uid(r.get("article_url", "")) == uid:
             return True
     return False
 
