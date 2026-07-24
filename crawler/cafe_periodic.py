@@ -54,6 +54,23 @@ def _in_busy_band():
     return BUSY_START <= t <= BUSY_END
 
 
+# 카페 '당일 크롤' 고정 슬롯 — 매시 :20 / :50.
+#   블로그 당일크롤이 :05/:35 이므로 정확히 15분 어긋나 시간대가 절대 겹치지 않는다.
+#   (기존 '시작 시각 기준 30분마다'는 시간이 흐르며 위상이 물려 매번 건너뛰던 문제가 있었음.)
+SLOT_MINUTES = (20, 50)
+
+
+def _sleep_to_next_slot():
+    now = datetime.datetime.now()
+    cands = [now.replace(minute=m, second=0, microsecond=0) for m in SLOT_MINUTES]
+    future = [t for t in cands if t > now]
+    nxt = future[0] if future else (now + datetime.timedelta(hours=1)).replace(
+        minute=SLOT_MINUTES[0], second=0, microsecond=0)
+    wait = max(5.0, (nxt - now).total_seconds())
+    print(f"[{now:%H:%M}] 다음 카페 당일크롤 {nxt:%H:%M} 대기({int(wait // 60)}분)", flush=True)
+    time.sleep(wait)
+
+
 def _measure_new():
     today = datetime.date.today().isoformat()
     posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*"})
@@ -93,7 +110,7 @@ def main():
             time.sleep(RETRY_SEC)   # 당일크롤은 금방 끝나므로 짧게 재시도(위상 겹침 방지)
             continue
         if _in_busy_band():
-            print(f"[{datetime.datetime.now():%H:%M}] 새벽 크롤 시간대(02:50~09:30) — 건너뜀", flush=True)
+            print(f"[{datetime.datetime.now():%H:%M}] 새벽 크롤 시간대({BUSY_START:%H:%M}~{BUSY_END:%H:%M}) — 건너뜀", flush=True)
         else:
             # 1) 게시판 직접 수집(네이버 API) — 발행경로 무관하게 신규글 등록
             try:
@@ -114,7 +131,7 @@ def main():
                 _measure_new()
             except Exception as exc:
                 print(f"  측정 오류: {exc}", flush=True)
-        time.sleep(INTERVAL)
+        _sleep_to_next_slot()   # 다음 고정 슬롯(:20/:50)까지 — 블로그 당일크롤(:05/:35)과 15분 어긋남
 
 
 if __name__ == "__main__":
