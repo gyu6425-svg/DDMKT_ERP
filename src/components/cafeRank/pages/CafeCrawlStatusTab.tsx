@@ -3,14 +3,14 @@ import { getCafeRankPosts, type CafeRankPost } from '../../../api/cafeRank';
 
 // 카페 · 크롤링 현황 — 업체(게시판)별 '오늘 측정' 진행·순위 요약을 실시간으로. 60초마다 자동 새로고침.
 //   측정은 PC(cafe_rank_crawler / cafe_periodic)가 기록 → 이 화면은 그 결과를 집계만.
-const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템', '더반클린'];
+const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템', '더반클린', '누수상담소'];
 const boardKey = (p: CafeRankPost) => p.board || p.cafe_accounts?.board_short || '미분류';
 const companyName = (p: CafeRankPost) => p.cafe_accounts?.display_name || boardKey(p);
 const boardRank = (b: string) => {
     const i = BOARD_ORDER.indexOf(b);
     return i >= 0 ? i : b === '미분류' ? 999 : 500;
 };
-const BOARD_FG: Record<string, string> = { 누수: '#1d4ed8', 더티클리닉: '#0d9488', 설고점: '#c2410c', 더맨시스템: '#7c3aed', 더반클린: '#be185d' };
+const BOARD_FG: Record<string, string> = { 누수: '#1d4ed8', 더티클리닉: '#0d9488', 설고점: '#c2410c', 더맨시스템: '#7c3aed', 더반클린: '#be185d', 누수상담소: '#0369a1' };
 
 function todayKST(): string {
     const now = new Date();
