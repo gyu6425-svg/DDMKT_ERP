@@ -37,6 +37,7 @@ TARGETS = [
     ("31754130", "ddmkt2", "3", "더맨시스템", "theman"),
     ("31754130", "ddmkt2", "5", "더티클리닉", "dirty"),
     ("31761053", "thebanclean", "2", "더반클린", "theban"),   # 더반클린 - 청소 솔루션
+    ("31762300", "ddnusu", "2", "누수상담소", "nusu"),         # 누수탐지 상담소 - 후기·시공사례
 ]
 PER_PAGE = 50
 PAGES = int(sys.argv[1]) if len(sys.argv) > 1 else 2

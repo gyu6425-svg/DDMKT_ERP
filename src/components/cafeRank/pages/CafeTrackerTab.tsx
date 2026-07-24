@@ -13,14 +13,14 @@ import { countCafePendingMeasures, enqueueCafeRankMeasures } from '../../../api/
 // 카페 · 순위 트래커 — 자사 카페 글의 네이버 '인기글 테마 섹션' 내 순위. 측정은 PC 크롤러(cafe_rank_crawler.py)가 기록.
 
 // 카페 vanity → 업체(카페) 표시명. 새 카페 추가 시 여기 매핑(크롤러 CLUB_TO_VANITY 와 짝).
-const CAFE_LABEL: Record<string, string> = { ddmkt2: '마이클의 정보 세상', thebanclean: '더반클린' };
+const CAFE_LABEL: Record<string, string> = { ddmkt2: '마이클의 정보 세상', thebanclean: '더반클린', ddnusu: '누수탐지 상담소' };
 const cafeLabel = (vanity?: string | null) => (vanity && CAFE_LABEL[vanity]) || vanity || '';
 
 // 게시판(board) — 동일 카페 안에서 게시판별 구분. 표시 순서·색. 새 게시판은 자동으로 뒤에 붙는다.
-const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템', '더반클린'];
+const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템', '더반클린', '누수상담소'];
 // 관리시트 '순위 보기'(?company=)로 진입 시, 그 업체의 게시판 탭을 초기 선택.
 const COMPANY_BOARD: Record<string, string> = {
-    leak: '누수', dirty: '더티클리닉', seolgo: '설고점', theman: '더맨시스템', theban: '더반클린',
+    leak: '누수', dirty: '더티클리닉', seolgo: '설고점', theman: '더맨시스템', theban: '더반클린', nusu: '누수상담소',
 };
 const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
     누수: { bg: '#eff6ff', fg: '#1d4ed8' },
@@ -28,6 +28,7 @@ const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
     설고점: { bg: '#fff7ed', fg: '#c2410c' },
     더맨시스템: { bg: '#faf5ff', fg: '#7c3aed' },
     더반클린: { bg: '#fdf2f8', fg: '#be185d' },
+    누수상담소: { bg: '#f0f9ff', fg: '#0369a1' },
 };
 const boardKey = (p: CafeRankPost) => p.board || p.cafe_accounts?.board_short || '미분류';
 const companyLabel = (p: CafeRankPost) => p.cafe_accounts?.display_name || boardKey(p);
