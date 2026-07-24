@@ -137,12 +137,15 @@ def process_watch(page, w, canon_acct=None):
     # 이 카페에 댓글 달 계정 목록.
     #   감시행에 account 가 지정돼 있으면 그 계정만, 비어 있으면 accounts.txt 의 '모든 계정'.
     #   → 새 글 하나당 계정 수만큼 댓글이 달린다(계정별 중복판정이라 계정당 1개씩).
+    # 이 카페의 '작성자=대댓글' 계정은 자기 글에 댓글을 달면 안 되니 제외한다.
+    #   마이클 → rlawhddls25 제외, ddnusu → dog6425 제외, 더반 → 제외 없음(댓글만).
+    cafe_reply = (acct.reply_account_for(cafe_url) or "").lower()
     if w.get("account"):
         targets = [canon_acct]
     else:
-        # 답글 전용 계정(작성자)은 제외 — 자기 글에 일반 댓글을 달면 안 된다.
         targets = [x["name"] for x in acct.load_accounts()
-                   if x["name"].lower() not in REPLY_ONLY]
+                   if x["name"].lower() not in REPLY_ONLY
+                   and x["name"].lower() != cafe_reply]
     if not targets:
         _log("⚠️ 댓글 달 계정이 없음(전부 답글 전용?) — 건너뜀")
         return 0

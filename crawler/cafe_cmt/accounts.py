@@ -105,3 +105,22 @@ def cdp_for(name=None):
 
 def account_names():
     return [a["name"] for a in load_accounts()]
+
+
+# 카페별 '작성자 = 대댓글' 계정. 그 카페에선 이 계정은 (자기 글이라) 댓글은 안 달고 대댓글만 단다.
+#   여기 없는 카페(예: thebanclean=더반)는 대댓글 없이 댓글만.
+#   URL 에 토큰(카페 영문명 또는 club_id)이 들어있으면 그 계정으로 본다.
+REPLY_ACCOUNT_BY_CAFE = {
+    "ddmkt2": "rlawhddls25", "31754130": "rlawhddls25",   # 마이클의 정보 세상
+    "ddnusu": "dog6425",     "31762300": "dog6425",        # 누수탐지 상담소(주인 dog6425)
+    # thebanclean(31761053): 없음 → 댓글만
+}
+
+
+def reply_account_for(url):
+    """그 글이 올라온 카페의 '작성자=대댓글' 계정명. 없으면 None(대댓글 안 함)."""
+    u = (url or "").lower()
+    for tok, acc in REPLY_ACCOUNT_BY_CAFE.items():
+        if tok.lower() in u:
+            return acc
+    return None

@@ -90,10 +90,8 @@ def _match_watch(body, watches):
 
 
 def run_once():
-    a = acct.find_account(REPLY_ACCOUNT)
-    if a is None:
-        _log(f"❌ 답글 계정 '{REPLY_ACCOUNT}' 가 accounts.txt 에 없음 — 등록 후 로그인 필요")
-        return
+    # 대댓글 계정은 '카페별 작성자'로 정한다(마이클→rlawhddls25, ddnusu→dog6425).
+    #   아래 글별 루프에서 그 글의 카페에 맞는 계정을 고른다.
     try:
         rows = cc.sb_get("cafe_comment_queue", {
             "select": "id,account,article_url,body,status,reply_to_body,done_at,created_at,reason",
@@ -118,8 +116,8 @@ def run_once():
             continue
         if r.get("status") != "done":       # 실제로 달린 댓글만
             continue
-        if not _reply_allowed(r.get("article_url", "")):
-            continue                        # 대댓글 계정이 회원/작성자인 카페에서만(thebanclean 등 제외)
+        if acct.reply_account_for(r.get("article_url", "")) is None:
+            continue                        # 대댓글 계정 없는 카페(더반 등)는 댓글만 — 대댓글 안 함
         body = (r.get("body") or "").strip()
         if not body or body in replied:
             continue
@@ -140,6 +138,11 @@ def run_once():
     queued = 0
     last_body = None
     for akey, cands in by_article.items():
+        # 이 글의 카페에 맞는 대댓글 계정(작성자). 미등록이면 건너뜀.
+        a = acct.find_account(acct.reply_account_for(cands[0].get("article_url", "")))
+        if a is None:
+            _log(f"  ⏭ 대댓글 계정 미등록 — 글#{akey} 건너뜀")
+            continue
         # 이 글에 이미 달린 답글 수 만큼 빼서 목표치를 채운다
         # 실패한 답글은 할당량에서 빼야 한다. 예전엔 fail 도 세서, 두 번 실패하면
         #   그 글은 have=2 가 되어 다시는 답글을 못 받았다(replied 집합과 판정이 어긋났음).
