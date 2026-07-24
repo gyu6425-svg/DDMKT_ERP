@@ -56,8 +56,10 @@ def _title_matches(keyword, title):
     return any(a in (title or "") for a in aliases)
 # 계정 간 시차(분) — 같은 글에 여러 계정이 동시에 달리면 티가 나므로 계정 순서대로 늦춘다.
 #   n번째 계정 지연 = n × STAGGER_MIN ± JITTER. 기본 10±5 → 1번째 즉시, 2번째 5~15분, 3번째 15~25분.
-STAGGER_MIN = float(os.environ.get("CAFE_CMT_STAGGER_MIN", "5"))
-STAGGER_JITTER = float(os.environ.get("CAFE_CMT_STAGGER_JITTER", "5"))
+STAGGER_MIN = float(os.environ.get("CAFE_CMT_STAGGER_MIN", "8"))
+STAGGER_JITTER = float(os.environ.get("CAFE_CMT_STAGGER_JITTER", "4"))
+# 첫 댓글도 발행 직후 바로 달리면 티가 난다 → 최소 이만큼(분) 뒤부터 시작(사장님: 너무 빠르지 않게).
+STAGGER_BASE = float(os.environ.get("CAFE_CMT_STAGGER_BASE", "6"))
 # ⚠️ 답글 전용 계정(=글 작성자)은 일반 댓글 대상에서 제외한다.
 #   작성자가 자기 글에 "저도 알아보던 중이었는데" 같은 댓글을 달면 명백히 어색하다.
 #   accounts.txt 에는 답글을 달기 위해 등록돼 있을 뿐이므로 여기서 걸러야 한다.
@@ -194,7 +196,7 @@ def process_watch(page, w, canon_acct=None):
             used_bodies.add(body)
             # 같은 글에 여러 계정이 동시에 달리면 티가 나므로 계정마다 시차를 둔다.
             #   n번째 계정 = 기준시각 + (n × STAGGER_MIN) ± 지터. 리스너가 이 시각 전엔 처리하지 않는다.
-            delay = idx * STAGGER_MIN + random.uniform(-STAGGER_JITTER, STAGGER_JITTER)
+            delay = STAGGER_BASE + idx * STAGGER_MIN + random.uniform(-STAGGER_JITTER, STAGGER_JITTER)
             # astimezone(): 오프셋을 붙여 저장해야 DB(timestamptz)가 UTC 로 오해하지 않는다.
             when = datetime.datetime.now().astimezone() + datetime.timedelta(minutes=max(0.0, delay))
             try:

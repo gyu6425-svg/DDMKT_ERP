@@ -35,9 +35,9 @@ BATCH = int(os.environ.get("CAFE_CMT_BATCH", "60"))
 MAX_TRY = int(os.environ.get("CAFE_CMT_MAX_TRY", "5"))            # 재시도 한도(초과 시 영구 실패)
 RETRY_BACKOFF_MIN = float(os.environ.get("CAFE_CMT_RETRY_BACKOFF_MIN", "3"))
 RETRY_TAG = "재시도 "                                              # reason 에 남겨 횟수를 추적
-MIN_GAP_MIN = int(os.environ.get("CAFE_CMT_MIN_GAP_MIN", "8"))     # 댓글 최소 간격(분) — 계정별
-#  20 → 8: 발행량이 많아 뒷 계정(kkfesh·st7al)이 20분 간격에 막혀 한참 뒤에 달리던 문제.
-#  8분이면 계정당 시간당 ~7건까지 가능해 새 글마다 세 계정이 비슷하게 따라붙는다(도배 아님).
+MIN_GAP_MIN = int(os.environ.get("CAFE_CMT_MIN_GAP_MIN", "15"))    # 댓글 최소 간격(분) — 계정별
+#  ⚠️ 실제 운영값은 cafe_cmt/.env 의 CAFE_CMT_MIN_GAP_MIN 이 우선(현재 15).
+#  20→15: 20분은 뒷 계정이 처지고, 8분은 너무 빨라 보여서 15분으로(사장님: 적당히).
 # 답글 전용 계정(글 작성자)의 간격 — 자기 글 관리라 짧게 둬도 자연스럽다.
 REPLY_GAP_MIN = int(os.environ.get("CAFE_CMT_REPLY_GAP_MIN", "10"))
 REPLY_ACCOUNTS = {x.strip().lower() for x in
