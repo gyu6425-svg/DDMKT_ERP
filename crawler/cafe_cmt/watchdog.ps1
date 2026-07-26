@@ -23,7 +23,8 @@ $STALE_SEC = 480   # 8분 — 정상 1주기(크롤 최대 수분)보다 넉넉�
 $DAEMONS = @(
     @{ script = 'comment_listener.py'; hb = 'listener' },
     @{ script = 'watch_new_posts.py';  hb = 'watch' },
-    @{ script = 'reply_scheduler.py';  hb = 'reply' }
+    @{ script = 'reply_scheduler.py';  hb = 'reply' },
+    @{ script = 'keep_alive.py';       hb = 'keepalive' }
 )
 $procs = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='py.exe'"
 $nowEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()

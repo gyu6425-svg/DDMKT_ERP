@@ -51,11 +51,16 @@ start "cafe-cmt-watcher" /min py watch_new_posts.py
 
 REM Reply scheduler was missing here, so after any reboot replies stopped silently
 REM while comments kept working - and nothing reported it.
-echo [4/4] starting reply scheduler...
+echo [4/5] starting reply scheduler...
 start "cafe-cmt-reply" /min py reply_scheduler.py
 
+REM keep-alive touches every account's Chrome so idle ones (esp. the reply account
+REM when no ddmkt2 posts) don't go zombie. Watchdog also supervises it.
+echo [5/5] starting keep-alive...
+start "cafe-cmt-keepalive" /min py keep_alive.py
+
 echo.
-echo Started: Chrome per account + comment listener + watcher + reply scheduler.
+echo Started: Chrome per account + comment listener + watcher + reply scheduler + keep-alive.
 echo You may close this window. Use stop_all.bat to stop.
 ping -n 4 127.0.0.1 >nul 2>&1
 endlocal
