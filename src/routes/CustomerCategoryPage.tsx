@@ -5,6 +5,10 @@ import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { CustomerReportsTab } from '../components/blogRank/pages/CustomerReportsTab';
 import { categoryByKey, type CategoryKey } from '../components/categoryRank/categories';
 import { CustomerPlaceRank } from './CustomerPlaceRank';
+import { CafeTrackerTab } from '../components/cafeRank/pages/CafeTrackerTab';
+import { CafeSheetTab } from '../components/cafeRank/pages/CafeSheetTab';
+import { getCafeAccounts } from '../api/cafeAccounts';
+import { useAuth } from '../hooks/useAuth';
 
 export function useAsParam(): string {
     const [as, setAs] = useState(() => new URLSearchParams(window.location.search).get('as') || '');
@@ -51,6 +55,61 @@ function BlogCustomerView() {
     );
 }
 
+// 카페 고객 뷰 — 본인 업체(client_id) 카페의 순위 트래커 + 관리 시트(읽기전용).
+//   client_id → cafe_accounts.company_key 매핑 후 그 업체로 스코프.
+function CafeCustomerView({ previewClientId }: { previewClientId: string | null }) {
+    const { profile } = useAuth();
+    const scopedClientId = previewClientId ?? (profile?.client_id ?? null);
+    const [companyKey, setCompanyKey] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [view, setView] = useState<'tracker' | 'sheet'>('tracker');
+
+    useEffect(() => {
+        let alive = true;
+        setLoading(true);
+        void getCafeAccounts().then(({ data }) => {
+            if (!alive) return;
+            const acc = scopedClientId ? data.find((a) => a.client_id === scopedClientId) : null;
+            setCompanyKey(acc?.company_key ?? null);
+            setLoading(false);
+        });
+        return () => { alive = false; };
+    }, [scopedClientId]);
+
+    if (loading) {
+        return <div className="rounded-xl border border-[#e2e8f0] bg-white px-6 py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
+    }
+    if (!companyKey) {
+        return (
+            <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-6 py-16 text-center">
+                <div className="text-base font-semibold text-[#475569]">등록된 카페 배포가 없습니다</div>
+                <p className="mx-auto mt-2 max-w-md text-sm text-[#94a3b8]">본 업체로 연결된 카페 계정이 아직 없습니다. 담당자에게 문의해 주세요.</p>
+            </div>
+        );
+    }
+    return (
+        <>
+            <div className="flex gap-1 border-b border-[#e2e8f0]">
+                {([['tracker', '순위 트래커'], ['sheet', '카페 관리 시트']] as const).map(([k, name]) => (
+                    <button
+                        className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
+                            view === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
+                        }`}
+                        key={k}
+                        onClick={() => setView(k)}
+                        type="button"
+                    >
+                        {name}
+                    </button>
+                ))}
+            </div>
+            {view === 'tracker'
+                ? <CafeTrackerTab lockCompany={companyKey} />
+                : <CafeSheetTab scopeCompanyKey={companyKey} readOnly />}
+        </>
+    );
+}
+
 function CustomerCategoryPage() {
     const key = (window.location.pathname.split('/')[2] || 'blog') as CategoryKey;
     const def = categoryByKey(key);
@@ -70,6 +129,8 @@ function CustomerCategoryPage() {
                 </BlogRankProvider>
             ) : key === 'place' ? (
                 <CustomerPlaceRank previewClientId={as || null} />
+            ) : key === 'cafe' ? (
+                <CafeCustomerView previewClientId={as || null} />
             ) : (
                 <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-6 py-16 text-center">
                     <div className="text-base font-semibold text-[#475569]">{def.label} 준비 중</div>

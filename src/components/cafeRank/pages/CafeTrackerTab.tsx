@@ -65,8 +65,12 @@ function RankCell({ ms }: { ms: CafeMeasurement[] }) {
     );
 }
 
-export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}) {
-    const external = readOnly; // 고객/기자단 뷰용(현재 미연결) — true면 삭제·키워드수정 숨김
+export function CafeTrackerTab({
+    readOnly = false,
+    lockCompany = null,
+}: { readOnly?: boolean; lockCompany?: string | null } = {}) {
+    // lockCompany: 고객 뷰 — 이 업체(company_key) 글만. 자동으로 읽기전용(등록·삭제·재검색 숨김).
+    const external = readOnly || !!lockCompany;
     const [posts, setPosts] = useState<CafeRankPost[]>([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -86,7 +90,7 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
         setLoading(true);
         const { data, error } = await getCafeRankPosts();
         if (error) setErr(error.message || 'cafe_rank_posts 조회 실패 — docs/cafe-rank-tables.sql 실행 필요');
-        else { setErr(''); setPosts(data); }
+        else { setErr(''); setPosts(lockCompany ? data.filter((p) => p.cafe_accounts?.company_key === lockCompany) : data); }
         setLoading(false);
     };
     useEffect(() => { void reload(); }, []);
@@ -264,13 +268,15 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
                         {bulk.busy ? `측정 중… 남은 ${bulk.left}` : `전체 재검색 ${shownCount}`}
                     </button>
                 ) : null}
-                <button
-                    className="inline-flex h-9 items-center rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
-                    onClick={() => setShowAdd((v) => !v)}
-                    type="button"
-                >
-                    시트 붙여넣기 등록
-                </button>
+                {!external ? (
+                    <button
+                        className="inline-flex h-9 items-center rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
+                        onClick={() => setShowAdd((v) => !v)}
+                        type="button"
+                    >
+                        시트 붙여넣기 등록
+                    </button>
+                ) : null}
             </div>
 
             <p className="m-0 text-xs text-[#94a3b8]">
