@@ -60,7 +60,6 @@ export async function createPublishJob(input: {
             title: input.title,
             manifest: blocks,
             status: 'pending',
-            board: input.board ?? null,
             company: input.company ?? null,
             region: input.region ?? null,
             keyword: input.keyword ?? null,
