@@ -15,8 +15,8 @@ returns uuid language sql security definer set search_path = public as $$
   select client_id from public.profiles where user_id = auth.uid() and is_active = true limit 1;
 $$;
 
--- 1) 'RLS 켜짐 + 정책 0개'인 모든 public 테이블에 내부 전체 정책 복구
---    (정책이 이미 있는 테이블은 건드리지 않음 → 정상 테이블 안전)
+-- 1) RLS 켜진 모든 public 테이블에 '복구 내부 전체' 내부정책 보장(멱등)
+--    다른 정책은 건드리지 않고, 내부정책만 얹어 정책0개/잔존정책 모두 커버.
 do $$
 declare r record;
 begin
@@ -25,14 +25,12 @@ begin
     from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity
-      and not exists (
-        select 1 from pg_policies p
-        where p.schemaname = 'public' and p.tablename = c.relname)
   loop
+    execute format('drop policy if exists "복구 내부 전체" on public.%I', r.relname);
     execute format(
       'create policy "복구 내부 전체" on public.%I for all to authenticated '
       'using (public.is_internal()) with check (public.is_internal())', r.relname);
-    raise notice '복구: %', r.relname;
+    raise notice '내부정책 보장: %', r.relname;
   end loop;
 end $$;
 
