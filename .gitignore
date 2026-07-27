@@ -15,6 +15,9 @@ dist-ssr
 .env.*
 !.env.example
 !**/.env.example
+# 고객 에이전트 실제 설정(비번·키 포함) — 견본(agent.env.example)만 추적
+agent.env
+**/agent.env
 
 # Editor directories and files
 .vscode/*
