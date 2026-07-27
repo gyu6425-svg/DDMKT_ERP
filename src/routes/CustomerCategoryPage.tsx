@@ -7,7 +7,7 @@ import { categoryByKey, type CategoryKey } from '../components/categoryRank/cate
 import { CustomerPlaceRank } from './CustomerPlaceRank';
 import { CafeTrackerTab } from '../components/cafeRank/pages/CafeTrackerTab';
 import { CafeSheetTab } from '../components/cafeRank/pages/CafeSheetTab';
-import { CafeCustomerPublish } from '../components/cafe/CafeCustomerPublish';
+import { CafeCustomerStudio } from '../components/cafe/CafeCustomerStudio';
 import { getCafeAccounts } from '../api/cafeAccounts';
 import { useAuth } from '../hooks/useAuth';
 
@@ -108,7 +108,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
                 ? <CafeTrackerTab lockCompany={companyKey} />
                 : view === 'sheet'
                     ? <CafeSheetTab scopeCompanyKey={companyKey} readOnly />
-                    : <CafeCustomerPublish companyKey={companyKey} />}
+                    : <CafeCustomerStudio companyKey={companyKey} />}
         </>
     );
 }
