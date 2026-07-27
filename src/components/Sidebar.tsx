@@ -157,11 +157,14 @@ function Sidebar() {
                 ) : isCustomerView ? (
                     <>
                         {/* 통합 대시보드 + 계약(승인)된 카테고리·하위유형만 */}
-                        {renderNavItem({ path: '/portal', label: '통합 대시보드' })}
+                        {renderNavItem({ path: previewAs ? `/portal?as=${previewAs}` : '/portal', label: '통합 대시보드' })}
                         {[...custCatMap.entries()].map(([catLabel, subSet]) => {
                             const scat = SIDEBAR_CATEGORIES.find((c) => c.label === catLabel);
                             if (!scat) return null;
                             const base = `/portal/${scat.key}`;
+                            // 내부(관리자) 미리보기(?as=업체)면 카테고리·하위 링크에도 as를 유지 → 스코프 유실 방지.
+                            const asQ = previewAs ? `?as=${previewAs}` : '';
+                            const baseHref = `${base}${asQ}`;
                             const subs = [...subSet];
                             return (
                                 <div key={scat.key}>
@@ -172,15 +175,15 @@ function Sidebar() {
                                                 ? 'font-semibold text-[#FF6000]'
                                                 : 'font-normal text-[#777777] hover:text-[#000000]'
                                         }`}
-                                        href={base}
-                                        onClick={(event) => navigate(event, base)}
+                                        href={baseHref}
+                                        onClick={(event) => navigate(event, baseHref)}
                                     >
                                         {catLabel}
                                     </a>
                                     {subs.length ? (
                                         <div className="ml-2 mt-2 grid gap-2 border-l border-[#eef0f2] pl-3">
                                             {subs.map((s) => {
-                                                const href = `${base}?sub=${encodeURIComponent(s)}`;
+                                                const href = `${baseHref}${asQ ? '&' : '?'}sub=${encodeURIComponent(s)}`;
                                                 const active =
                                                     currentPath === base &&
                                                     new URLSearchParams(loc.search).get('sub') === s;
