@@ -6,9 +6,53 @@
 멱등: 전체 글을 매번 훑어 변경분만 patch. 측정 직후(cafe_periodic/cafe_rank_crawler)에서 호출.
 """
 import datetime
+import collections
 import blog_rank_crawler as c
 
 HOLD = datetime.timedelta(hours=23, minutes=30)   # 24h - 여유(슬롯 지터로 하루 밀리는 것 방지)
+
+
+def _auto_by_account():
+    """업체(계정)별 자동 달성 수(top5_achieved_at 있고 seeded 아님). top5 컬럼 없으면 전부 0."""
+    try:
+        posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "cafe_account_id,board,top5_achieved_at,top5_seeded"})
+    except Exception:
+        return {}
+    accts = c.sb_get("cafe_accounts", {"select": "id,board_short"})
+    by_board = {a["board_short"]: a["id"] for a in accts}
+    auto = collections.Counter()
+    for p in posts:
+        if p.get("top5_achieved_at") and not p.get("top5_seeded"):
+            aid = p.get("cafe_account_id") or by_board.get(p.get("board"))
+            if aid:
+                auto[aid] += 1
+    return auto
+
+
+def sync_contracts():
+    """카페 업체 실적(done_count 베이스라인 + 자동달성)을 계약관리 '카페' 계약의 진행(remain_count)에 반영.
+    계약 카드는 완료=목표-잔여 로 계산하므로, 잔여=목표-실적 으로 맞추면 카드 카운트가 카페 대시보드와 일치."""
+    accounts = c.sb_get("cafe_accounts", {"select": "id,client_id,display_name,done_count"})
+    auto = _auto_by_account()
+    n = 0
+    for a in accounts:
+        cid = a.get("client_id")
+        if not cid:
+            continue
+        realized = (a.get("done_count") or 0) + auto.get(a["id"], 0)
+        try:
+            cons = c.sb_get("client_contracts", {"client_id": f"eq.{cid}", "category": "eq.카페", "select": "id,goal_count,remain_count"})
+        except Exception:
+            continue
+        for ct in (cons or []):
+            goal = ct.get("goal_count") or 0
+            remain = max(0, goal - realized)
+            if ct.get("remain_count") != remain:
+                c.sb_patch("client_contracts", {"id": f"eq.{ct['id']}"}, {"remain_count": remain})
+                n += 1
+                print(f"  {a['display_name']} 실적 {realized}/{goal} → 계약 잔여 {remain}", flush=True)
+    if n:
+        print(f"[top5] 계약 진행 동기화 {n}건", flush=True)
 
 
 def _now():
@@ -61,6 +105,7 @@ def run():
                 print(f"  [갱신실패] {p.get('id')}: {exc}", flush=True)
     if changed or achieved:
         print(f"[top5 tracker] {changed}글 상태 갱신 · 신규 달성 {achieved}", flush=True)
+    sync_contracts()   # 실적을 계약 진행에 반영(카드 카운트 일치)
 
 
 if __name__ == "__main__":
