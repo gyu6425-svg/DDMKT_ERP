@@ -35,8 +35,10 @@ Source: "dist\DDMKT-Agent\*"; DestDir: "{app}"; Flags: recursesubdirs createalls
 Source: "agent.env.example"; DestDir: "{app}"; Flags: ignoreversion
 ; 실제 설정 — 없을 때만 견본으로 생성(업그레이드 시 고객 값 보존).
 Source: "agent.env.example"; DestDir: "{app}"; DestName: "agent.env"; Flags: onlyifdoesntexist
-; 설치 안내 문서(선택).
-Source: "..\..\docs\고객에이전트-설치.md"; DestDir: "{app}"; DestName: "설치안내.md"; Flags: ignoreversion skipifsourcedoesntexist
+; 고객용 더블클릭 실행 도우미 + 사용법.
+Source: "1-로그인.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "2-시작.bat";   DestDir: "{app}"; Flags: ignoreversion
+Source: "사용법.txt";    DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 ; 런타임 데이터 폴더(로그인 세션·자산·로그). exe 옆에 두어 CAFE_DATA_DIR 이 잡는다.
@@ -45,12 +47,15 @@ Name: "{app}\assets"
 Name: "{app}\logs"
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+; 고객은 이 두 바로가기만 쓴다: 최초 로그인 → 발행 시작.
+Name: "{autoprograms}\{#AppName}\1. 네이버 로그인"; Filename: "{app}\1-로그인.bat"
+Name: "{autoprograms}\{#AppName}\2. 발행 시작";     Filename: "{app}\2-시작.bat"
+Name: "{autodesktop}\카페발행 로그인"; Filename: "{app}\1-로그인.bat"; Tasks: desktopicon
+Name: "{autodesktop}\카페발행 시작";   Filename: "{app}\2-시작.bat"; Tasks: desktopicon
 
 [Run]
-; 설치 후 설정 파일 열기(고객이 값 채우게).
-Filename: "notepad.exe"; Parameters: """{app}\agent.env"""; Description: "설정(agent.env) 열기"; Flags: postinstall shellexec skipifsilent
+; 설치 후 사용법 안내 표시.
+Filename: "notepad.exe"; Parameters: """{app}\사용법.txt"""; Description: "사용법 보기"; Flags: postinstall shellexec skipifsilent
 
 [UninstallDelete]
 ; chrome_profile/logs 는 남길지 지울지 정책에 따라. 기본은 로그만 정리.

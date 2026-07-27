@@ -75,6 +75,66 @@ export async function createPublishJob(input: {
     }
 }
 
+// 고객 셀프 발행 — 고객(client_id) 계정이 '본인 업체'로만 큐 적재.
+//   company/board 는 클라이언트가 못 정한다 → 내 cafe_accounts(RLS 로 본인 것만 조회)에서 서버 진실값을 강제.
+//   전제: docs/cafe-customer-publish-rls.sql 적용(publish_enabled 승인 + 큐/스토리지 고객 정책).
+//   내부 createPublishJob 과 분리 — 내부 경로(company 폴더 없음)는 무변경.
+export async function createCustomerPublishJob(input: {
+    title: string;
+    body: string;
+    images: string[];
+    links?: string[];
+    tags?: string[];
+}) {
+    // 내 카페 계정(RLS: client_id = my_client_id 인 행만). 승인 = active + publish_enabled.
+    //   ⚠️ publish_enabled 컬럼이 아직 없을 수 있어 select('*') 로 받는다(없으면 undefined).
+    //      게이트: active && publish_enabled!==false → 컬럼 없으면 active 로 폴백, 있으면 false 면 차단.
+    //      (권장: publish_enabled 기본 false 컬럼 추가 — active 는 기본 true 라 승인 게이트로 부적합.)
+    const { data: accts, error: aerr } = await supabase
+        .from('cafe_accounts')
+        .select('*');
+    if (aerr) return { error: aerr as { message: string }, jobId: null };
+    const acct = (accts ?? []).find(
+        (a) => a.active && (a as { publish_enabled?: boolean }).publish_enabled !== false,
+    ) as { company_key: string; board_name: string } | undefined;
+    if (!acct) {
+        return { error: { message: '카페 자동발행이 아직 승인되지 않았습니다. 담당자에게 문의해 주세요.' }, jobId: null };
+    }
+
+    const jobId = crypto.randomUUID();
+    const blocks: PublishBlock[] = [];
+    const seedBase = Math.floor(Math.random() * 1e9);
+    try {
+        for (let i = 0; i < input.images.length; i += 1) {
+            const varied = await varyImage(input.images[i], seedBase + i * 7919 + 1);
+            const blob = await toBlob(varied);
+            // ★ 스토리지 RLS 스코프: company_key 를 최상위 폴더로(내부 '<jobId>/..' 경로와 구분·격리).
+            const path = `${acct.company_key}/${jobId}/${String(i).padStart(2, '0')}.jpg`;
+            const { error } = await supabase.storage.from(CAFE_BUCKET).upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+            if (error) throw error;
+            blocks.push({ type: 'image', path });
+        }
+        blocks.push({ type: 'text', text: input.body });
+        for (const url of input.links || []) if (url) blocks.push({ type: 'link', url });
+        if (input.tags?.length) blocks.push({ tags: input.tags.slice(0, 10), type: 'tags' });
+        blocks.push({ name: acct.board_name, type: 'board' });   // 게시판 = 서버 진실값(위조 불가)
+        const { error } = await supabase.from('cafe_publish_queue').insert({
+            id: jobId,
+            title: input.title,
+            manifest: blocks,
+            status: 'pending',
+            company: acct.company_key,   // RLS WITH CHECK 가 my_publish_companies + board 일치 검증
+            board: acct.board_name,
+        });
+        if (error) throw error;
+        return { error: null, jobId };
+    } catch (e) {
+        const paths = blocks.filter((b): b is { type: 'image'; path: string } => b.type === 'image').map((b) => b.path);
+        if (paths.length) await supabase.storage.from(CAFE_BUCKET).remove(paths);
+        return { error: e as { message: string }, jobId: null };
+    }
+}
+
 // 이미 발행(또는 대기)한 지역+키워드 쌍 — 중복 발행 방지용. { error } 가 있으면 호출부가 발행을 중단해야 한다(fail-closed).
 export async function listPublishedPairs(company: string) {
     const { data, error } = await supabase
