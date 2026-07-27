@@ -17,6 +17,7 @@ truststore.inject_into_ssl()
 import blog_rank_crawler as c
 import cafe_rank_sync
 import cafe_board_crawl
+import cafe_top5_tracker
 
 INTERVAL = int(sys.argv[1]) if len(sys.argv) > 1 else 1800   # 기본 30분
 # 블로그 크롤에 막혔을 때는 30분을 통째로 기다리지 않고 짧게 재시도한다.
@@ -54,12 +55,35 @@ def _in_busy_band():
     return BUSY_START <= t <= BUSY_END
 
 
+# 카페 '당일 크롤' 고정 슬롯 — 매시 :20 / :50.
+#   블로그 당일크롤이 :05/:35 이므로 정확히 15분 어긋나 시간대가 절대 겹치지 않는다.
+#   (기존 '시작 시각 기준 30분마다'는 시간이 흐르며 위상이 물려 매번 건너뛰던 문제가 있었음.)
+SLOT_MINUTES = (20, 50)
+
+
+def _sleep_to_next_slot():
+    now = datetime.datetime.now()
+    cands = [now.replace(minute=m, second=0, microsecond=0) for m in SLOT_MINUTES]
+    future = [t for t in cands if t > now]
+    nxt = future[0] if future else (now + datetime.timedelta(hours=1)).replace(
+        minute=SLOT_MINUTES[0], second=0, microsecond=0)
+    wait = max(5.0, (nxt - now).total_seconds())
+    print(f"[{now:%H:%M}] 다음 카페 당일크롤 {nxt:%H:%M} 대기({int(wait // 60)}분)", flush=True)
+    time.sleep(wait)
+
+
 def _measure_new():
     today = datetime.date.today().isoformat()
     posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*"})
-    todo = [p for p in posts if not any((m.get("date") == today) for m in (p.get("measurements") or []))]
+    # 대상 = ① 오늘 미측정 글 + ② 현재 5위 안인 글(30분마다 재측정해 24h 유지 여부 확인 — 사용자 선택).
+    def _top5(p):
+        ms = p.get("measurements") or []
+        cur = ms[-1] if ms else {}
+        return cur.get("ti_status") == "ok" and isinstance(cur.get("ti"), (int, float)) and not isinstance(cur.get("ti"), bool) and cur.get("ti") <= 5
+    todo = [p for p in posts
+            if (not any((m.get("date") == today) for m in (p.get("measurements") or []))) or _top5(p)]
     if not todo:
-        print(f"[{datetime.datetime.now():%H:%M}] 미측정 없음 — {len(posts)}글 모두 오늘 측정됨", flush=True)
+        print(f"[{datetime.datetime.now():%H:%M}] 재측정 대상 없음 — {len(posts)}글", flush=True)
         return
     print(f"[{datetime.datetime.now():%H:%M}] 미측정 {len(todo)}글 측정 시작", flush=True)
     for p in todo:
@@ -93,7 +117,7 @@ def main():
             time.sleep(RETRY_SEC)   # 당일크롤은 금방 끝나므로 짧게 재시도(위상 겹침 방지)
             continue
         if _in_busy_band():
-            print(f"[{datetime.datetime.now():%H:%M}] 새벽 크롤 시간대(02:50~09:30) — 건너뜀", flush=True)
+            print(f"[{datetime.datetime.now():%H:%M}] 새벽 크롤 시간대({BUSY_START:%H:%M}~{BUSY_END:%H:%M}) — 건너뜀", flush=True)
         else:
             # 1) 게시판 직접 수집(네이버 API) — 발행경로 무관하게 신규글 등록
             try:
@@ -109,12 +133,17 @@ def main():
                 pass
             except Exception as exc:
                 print(f"  sync 오류: {exc}", flush=True)
-            # 3) 신규 포함 미측정 글 측정
+            # 3) 신규 포함 미측정 글 + 현재 5위 글 재측정
             try:
                 _measure_new()
             except Exception as exc:
                 print(f"  측정 오류: {exc}", flush=True)
-        time.sleep(INTERVAL)
+            # 4) 5위 24h 유지 실적 집계(글별 상태만 갱신, done_count 미변경)
+            try:
+                cafe_top5_tracker.run()
+            except Exception as exc:
+                print(f"  top5 집계 오류: {exc}", flush=True)
+        _sleep_to_next_slot()   # 다음 고정 슬롯(:20/:50)까지 — 블로그 당일크롤(:05/:35)과 15분 어긋남
 
 
 if __name__ == "__main__":

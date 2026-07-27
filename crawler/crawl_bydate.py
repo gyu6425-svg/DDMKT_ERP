@@ -14,7 +14,32 @@ NDAYS = int(sys.argv[1]) if len(sys.argv) > 1 else 3
 TARGET = [(d0 - datetime.timedelta(days=k)).isoformat() for k in range(NDAYS)]
 RANK = {d: i for i, d in enumerate(TARGET)}   # 작을수록 먼저(26=0,25=1,24=2)
 
+# ── 새벽 Full 크롤 구간에는 당일크롤을 절대 돌리지 않는다(같은 IP 동시요청 → 네이버 차단 방지) ──
+#   ⚠ 주말 당일크롤(DDMKT-Crawl-Today-WE)은 00:00부터 90분마다라 01:30·03:00·04:30·06:00·07:30 이
+#     Full(01:00~08:30) 한복판에 걸린다. 평일(WD)은 09:05 시작이라 안 겹쳐 그동안 드러나지 않았음.
+#   시간대로 확실히 차단(DB 조회 실패해도 무조건 동작) + running 플래그로 2차 확인.
+FULL_START, FULL_END = datetime.time(0, 50), datetime.time(8, 40)
+_now = datetime.datetime.now()
+if FULL_START <= _now.time() <= FULL_END:
+    print(f"⏭ 새벽 Full 크롤 구간({FULL_START:%H:%M}~{FULL_END:%H:%M}) — 당일크롤 건너뜀(겹침 방지) {_now:%H:%M}", flush=True)
+    sys.exit(0)
+
 c.need_config()
+
+# 2차 방어: 다른 크롤이 실제로 돌고 있으면(살아있는 running) 이번 실행은 건너뛴다.
+try:
+    _cs = (c.sb_get("crawl_status", {"id": "eq.1", "select": "running,updated_at,current_blog"}) or [{}])[0]
+    if _cs.get("running"):
+        _ua = _cs.get("updated_at")
+        time.sleep(25)   # 갱신되면 = 살아있는 크롤
+        _cs2 = (c.sb_get("crawl_status", {"id": "eq.1", "select": "running,updated_at"}) or [{}])[0]
+        if _cs2.get("running") and _cs2.get("updated_at") != _ua:
+            print(f"⏭ 다른 크롤 진행 중({_cs.get('current_blog','')}) — 당일크롤 건너뜀", flush=True)
+            sys.exit(0)
+except SystemExit:
+    raise
+except Exception:
+    pass   # 상태 조회 실패는 무시(시간대 차단이 1차 방어)
 accounts = c.sb_get("blog_accounts", {"is_active": "eq.true", "select": "*"})
 print(f"=== 날짜우선 크롤 시작 {TODAY} · 대상 {TARGET} (오늘→어제→그제) ===", flush=True)
 

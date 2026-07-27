@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
 import type { Tab } from '../components/blogRank/lib/helpers';
 import { DashboardTab } from '../components/blogRank/pages/DashboardTab';
@@ -7,7 +7,7 @@ import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { useAuth } from '../hooks/useAuth';
 import { useAsParam } from './CustomerCategoryPage';
 import { BLOG_KINDS, createReport, getReports, markPublished, reportOutUnit, resubmitReport, updatePendingReport, type BlogPostReport, type ReportType } from '../api/blogPostReports';
-import { getReporters } from '../api/blogRank';
+import { canonicalBlogPostUrl, getReporters } from '../api/blogRank';
 import {
     createAccountRequest,
     getAccountRequests,
@@ -35,8 +35,9 @@ const URL_HINT = '블로그 주소는 https:// 로 시작해야 합니다 · 주
 
 // 발행 보고/발행 전환의 글 주소 — 개별 글 주소(글 번호 포함)만 허용.
 //   대문 주소(blog.naver.com/아이디)는 순위 트래커가 최신글로 오배정되므로 거부한다.
-const hasArticleNo = (u: string) => /\/\d{6,}/.test(u.trim());
-const ARTICLE_HINT = '개별 글 주소를 넣어주세요 (대문 주소가 아니라 글 번호가 포함된 주소, 예: blog.naver.com/아이디/224…)';
+//   경로형(/224…) + 모바일 PostView(?logNo=224…) 둘 다 허용.
+const hasArticleNo = (u: string) => /\/\d{6,}/.test(u.trim()) || /[?&]logNo=\d{6,}/i.test(u.trim());
+const ARTICLE_HINT = '개별 글 주소를 넣어주세요 (대문 주소가 아니라 글 번호가 포함된 주소 · PC/모바일 주소 모두 가능)';
 
 // 기자단 글 보고 탭 — 본인 담당 블로그에 쓴 글 URL을 보고. 내부(김다영 등)에게 알림이 감.
 function ReportSubmitTab() {
@@ -93,7 +94,7 @@ function ReportSubmitTab() {
         setReSaving(true);
         const payload = {
             blog_account_id: reBlogId,
-            post_url: isPub ? reUrl.trim() : '',
+            post_url: isPub ? canonicalBlogPostUrl(reUrl) : '',
             keyword: reKeyword.trim() || null,
             title: reTitle.trim(),
             report_type: typeOf(r),
@@ -123,7 +124,7 @@ function ReportSubmitTab() {
         const { error, duplicate } = await createReport({
             blog_account_id: blogId,
             reporter_id: profile.id,
-            post_url: type === 'publish' ? url.trim() : '', // 저장은 링크 없음
+            post_url: type === 'publish' ? canonicalBlogPostUrl(url) : '', // 저장은 링크 없음 · 발행은 표준 경로형으로 정규화
             title: title.trim(),
             report_type: type,
             keyword: keyword.trim() || null,
@@ -154,7 +155,7 @@ function ReportSubmitTab() {
         if (!articleUrl.trim()) return showToast('발행한 글의 주소를 입력하세요');
         if (!hasArticleNo(articleUrl)) return showToast(ARTICLE_HINT);
         setPublishing(r.id);
-        const { error } = await markPublished(r.id, articleUrl.trim());
+        const { error } = await markPublished(r.id, canonicalBlogPostUrl(articleUrl));
         setPublishing(null);
         if (error) return showToast('발행 처리 실패: ' + error.message);
         setPubId(null);
@@ -511,6 +512,8 @@ function SettlementTab() {
     // 기자단이 '업체 등록'으로 승인받은 블로그 — 외주비를 잡지 않으므로 정산에서도 0원 처리.
     const [ownBlogIds, setOwnBlogIds] = useState<Set<string>>(new Set());
     const [ownErr, setOwnErr] = useState(false); // 등록업체 판정 조회 실패 — 금액이 부정확할 수 있음
+    const [blogFilter, setBlogFilter] = useState('all'); // 업체별 필터(정산 행이 있는 업체만)
+    const [roundSort, setRoundSort] = useState<'asc' | 'desc' | null>(null); // 회차 정렬(헤더 클릭 토글)
 
     useEffect(() => {
         let alive = true;
@@ -544,8 +547,22 @@ function SettlementTab() {
     //   (계약 관리와 합칠 때 별도 등록 예정. 그 외 블로그는 기존 규칙 그대로 8,000/10,000)
     const amountOf = (r: BlogPostReport) =>
         ownBlogIds.has(r.blog_account_id) ? 0 : reportOutUnit(r, companyOf(r.blog_account_id));
-    const total = rows.reduce((s, r) => s + amountOf(r), 0);
-    const unpaidTotal = rows.filter((r) => !r.paid).reduce((s, r) => s + amountOf(r), 0);
+    // 업체 드롭다운 옵션 — 정산 행이 실제 있는 업체만(중복 제거·이름순).
+    const blogOptions = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const r of rows) m.set(r.blog_account_id, companyOf(r.blog_account_id));
+        return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1], 'ko'));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rows, accounts]);
+    // 선택 업체로 필터 — 합계도 필터된 행 기준. 회차 정렬(선택 시)도 적용.
+    const visible = useMemo(() => {
+        const list = blogFilter === 'all' ? rows : rows.filter((r) => r.blog_account_id === blogFilter);
+        if (!roundSort) return list;
+        const dir = roundSort === 'asc' ? 1 : -1;
+        return [...list].sort((a, b) => ((a.round ?? -1) - (b.round ?? -1)) * dir);
+    }, [rows, blogFilter, roundSort]);
+    const total = visible.reduce((s, r) => s + amountOf(r), 0);
+    const unpaidTotal = visible.filter((r) => !r.paid).reduce((s, r) => s + amountOf(r), 0);
 
     return (
         <div className="grid gap-3">
@@ -555,10 +572,26 @@ function SettlementTab() {
                         ⚠ 등록 업체 정보를 불러오지 못해 금액이 정확하지 않을 수 있습니다. 새로고침해 주세요.
                     </p>
                 ) : null}
-                <div className="flex items-center justify-between">
-                    <div className="text-sm font-bold text-[#0f172a]">정산 내역</div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                        <div className="text-sm font-bold text-[#0f172a]">정산 내역</div>
+                        {/* 업체별 필터 드롭다운 — 정산 행이 있는 업체만 */}
+                        <select
+                            className="h-8 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                            onChange={(e) => setBlogFilter(e.target.value)}
+                            title="업체별 보기"
+                            value={blogFilter}
+                        >
+                            <option value="all">전체 업체</option>
+                            {blogOptions.map(([id, name]) => (
+                                <option key={id} value={id}>
+                                    {name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                     <div className="text-sm text-[#64748b]">
-                        누적 외주비 <b className="text-[#1e40af]">{total.toLocaleString('ko-KR')}원</b> · {rows.length}건
+                        누적 외주비 <b className="text-[#1e40af]">{total.toLocaleString('ko-KR')}원</b> · {visible.length}건
                         {' · '}미입금 <b className="text-[#b45309]">{unpaidTotal.toLocaleString('ko-KR')}원</b>
                     </div>
                 </div>
@@ -568,7 +601,18 @@ function SettlementTab() {
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-4 py-2 font-semibold">입금</th>
-                            <th className="whitespace-nowrap px-4 py-2 font-semibold">회차</th>
+                            <th className="whitespace-nowrap px-4 py-2 font-semibold">
+                                <button
+                                    className="inline-flex items-center gap-0.5 font-semibold text-[#64748b] hover:text-[#1e40af]"
+                                    onClick={() =>
+                                        setRoundSort((s) => (s === 'asc' ? 'desc' : s === 'desc' ? null : 'asc'))
+                                    }
+                                    title="회차 정렬 (오름차순 ↔ 내림차순)"
+                                    type="button"
+                                >
+                                    회차 {roundSort === 'asc' ? '▲' : roundSort === 'desc' ? '▼' : '↕'}
+                                </button>
+                            </th>
                             <th className="px-4 py-2 font-semibold">성함</th>
                             <th className="px-4 py-2 font-semibold">업체</th>
                             <th className="px-4 py-2 font-semibold">글 제목</th>
@@ -583,8 +627,8 @@ function SettlementTab() {
                                     불러오는 중…
                                 </td>
                             </tr>
-                        ) : rows.length ? (
-                            rows.map((r) => (
+                        ) : visible.length ? (
+                            visible.map((r) => (
                                 <tr className="border-b border-[#f1f5f9] last:border-b-0" key={r.id}>
                                     <td className="px-4 py-2">
                                         {r.paid ? (
@@ -616,7 +660,9 @@ function SettlementTab() {
                         ) : (
                             <tr>
                                 <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={7}>
-                                    아직 승인되어 정산된 글이 없습니다.
+                                    {blogFilter === 'all'
+                                        ? '아직 승인되어 정산된 글이 없습니다.'
+                                        : '이 업체의 정산 내역이 없습니다.'}
                                 </td>
                             </tr>
                         )}

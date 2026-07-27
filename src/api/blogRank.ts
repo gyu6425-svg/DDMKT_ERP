@@ -107,10 +107,15 @@ export type BlogPost = {
     measurements: BlogMeasurement[];
 };
 
-// URL에서 네이버 블로그 아이디 추출 (https://blog.naver.com/puleenbe → puleenbe)
+// URL에서 네이버 블로그 아이디 추출 — 경로형(blog.naver.com/puleenbe/…) + 모바일 PostView(?blogId=…) 둘 다.
 export function extractBlogId(url: string): string {
-    const match = url.match(/blog\.naver\.com\/([^/?#]+)/i);
-    return match ? match[1] : '';
+    const s = String(url || '');
+    // 모바일 PostView: m.blog.naver.com/PostView.naver?blogId=xxx&logNo=nnn
+    const q = s.match(/[?&]blogId=([^&#]+)/i);
+    if (q) return q[1];
+    // 경로형 — PostView.naver 는 아이디가 아니므로 제외.
+    const m = s.match(/blog\.naver\.com\/(?!PostView\.naver)([^/?#]+)/i);
+    return m ? m[1] : '';
 }
 
 // ── 관리 블로그 ─────────────────────────────────────────
@@ -346,9 +351,23 @@ export function todayKST(): string {
 }
 
 // blog.naver.com/{id}/{logNo} → logNo. 글 단위 블로그탭 측정에 사용(없으면 빈 문자열).
+//   경로형 + 모바일 PostView(?logNo=…) 둘 다 인식.
 export function extractLogNo(url: string): string {
-    const m = String(url || '').match(/(?:m\.)?blog\.naver\.com\/[^/?#]+\/(\d{6,})/);
-    return m ? m[1] : '';
+    const s = String(url || '');
+    const m = s.match(/(?:m\.)?blog\.naver\.com\/[^/?#]+\/(\d{6,})/);
+    if (m) return m[1];
+    const q = s.match(/[?&]logNo=(\d{6,})/i); // PostView.naver?...&logNo=nnn
+    return q ? q[1] : '';
+}
+
+// 다양한 네이버 블로그 주소를 표준 경로형(https://blog.naver.com/{id}/{logNo})으로 정규화.
+//   모바일 PostView(?blogId=&logNo=)·쿼리스트링 붙은 주소를 하나의 형태로 통일 → 보고·크롤·중복판정 일관성.
+//   아이디·글번호를 못 뽑으면 원본을 그대로 돌려준다(대문 주소 등).
+export function canonicalBlogPostUrl(url: string): string {
+    const bid = extractBlogId(url);
+    const lno = extractLogNo(url);
+    if (bid && lno) return `https://blog.naver.com/${bid}/${lno}`;
+    return String(url || '').trim();
 }
 
 // ── 대표키워드 ──────────────────────────────────────────

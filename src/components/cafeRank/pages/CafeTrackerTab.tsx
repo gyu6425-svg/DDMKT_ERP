@@ -9,6 +9,7 @@ import {
 } from '../../../api/cafeRank';
 import { CafeSearchCell } from '../components/CafeSearchCell';
 import { countCafePendingMeasures, enqueueCafeRankMeasures } from '../../../api/cafeRankSearch';
+import { cafeNameRank } from '../../../lib/cafeAccounts';
 
 // 카페 · 순위 트래커 — 자사 카페 글의 네이버 '인기글 테마 섹션' 내 순위. 측정은 PC 크롤러(cafe_rank_crawler.py)가 기록.
 
@@ -79,6 +80,7 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
     const [boardFilter, setBoardFilter] = useState(
         () => COMPANY_BOARD[new URLSearchParams(window.location.search).get('company') || ''] || '전체',
     );
+    const [cafeFilter, setCafeFilter] = useState('전체'); // 카페(vanity)별 필터
 
     const reload = async () => {
         setLoading(true);
@@ -135,6 +137,7 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
     const q = params.get('q') || '';
     const rows = useMemo(() => {
         let r = [...posts];
+        if (cafeFilter !== '전체') r = r.filter((p) => (p.cafe_name || '기타') === cafeFilter);
         if (q) {
             const qq = q.trim();
             r = r.filter((p) => cafeLabel(p.cafe_name).includes(qq) || (p.cafe_name || '').includes(qq));
@@ -156,15 +159,23 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
                 (b.created_at || '').localeCompare(a.created_at || '') ||
                 String(a.id).localeCompare(String(b.id)),
         );
-    }, [posts, q, search]);
+    }, [posts, q, search, cafeFilter]);
 
-    // 기본 게시판은 0건이어도 탭을 항상 표시하고, 새 게시판은 데이터에 발견되면 뒤에 자동 추가한다.
-    const boards = useMemo(() => {
+    // 카페(vanity) 필터 목록 — 전체 + 데이터에 있는 카페. 순서는 cafeNameRank.
+    const cafes = useMemo(() => {
         const cnt = new Map<string, number>();
-        for (const p of posts) cnt.set(boardKey(p), (cnt.get(boardKey(p)) || 0) + 1);
-        for (const b of BOARD_ORDER) if (!cnt.has(b)) cnt.set(b, 0);
-        return [...cnt.entries()].sort((a, b) => boardRank(a[0]) - boardRank(b[0]) || a[0].localeCompare(b[0]));
+        for (const p of posts) { const k = p.cafe_name || '기타'; cnt.set(k, (cnt.get(k) || 0) + 1); }
+        return [...cnt.entries()].sort((a, b) => cafeNameRank(a[0]) - cafeNameRank(b[0]) || a[0].localeCompare(b[0]));
     }, [posts]);
+
+    // 게시판 탭은 선택한 카페의 게시판만 보인다. 전체 카페일 때만 기본 게시판(0건)도 함께 노출.
+    const boards = useMemo(() => {
+        const scoped = cafeFilter === '전체' ? posts : posts.filter((p) => (p.cafe_name || '기타') === cafeFilter);
+        const cnt = new Map<string, number>();
+        for (const p of scoped) cnt.set(boardKey(p), (cnt.get(boardKey(p)) || 0) + 1);
+        if (cafeFilter === '전체') for (const b of BOARD_ORDER) if (!cnt.has(b)) cnt.set(b, 0);
+        return [...cnt.entries()].sort((a, b) => boardRank(a[0]) - boardRank(b[0]) || a[0].localeCompare(b[0]));
+    }, [posts, cafeFilter]);
 
     // 게시판별 그룹 — 검색/필터 적용 후 게시판 순서대로 묶는다. '다 구분되어서' 보기 위함.
     const groups = useMemo(() => {
@@ -263,7 +274,7 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
             </div>
 
             <p className="m-0 text-xs text-[#94a3b8]">
-                자사 카페(<b className="text-[#64748b]">마이클의 정보 세상 · ddmkt2</b>) 글의 <b className="text-[#64748b]">네이버 인기글 테마 섹션</b>(예: 인테리어·DIY 인기글) 내 순위.
+                자사 카페 글의 <b className="text-[#64748b]">네이버 인기글 테마 섹션</b> 내 순위(광고 제외 기준). 카페·게시판 필터로 나눠 볼 수 있습니다.
                 PC의 <code className="rounded bg-[#f1f5f9] px-1">cafe_rank_crawler.py</code> 가 매일 측정. 섹션 없는 키워드는 ‘측정불가’.
             </p>
 
@@ -309,11 +320,35 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
                 </div>
             ) : null}
 
+            {/* 카페 필터 — 카페(마이클의 정보 세상 / 더반클린 / 누수탐지 상담소)별로 나눠 보기 */}
+            {cafes.length > 1 ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="mr-1 text-[11px] font-semibold text-[#94a3b8]">카페</span>
+                    {[['전체', posts.length] as [string, number], ...cafes].map(([cf, c]) => {
+                        const on = cafeFilter === cf;
+                        return (
+                            <button
+                                className="inline-flex items-center gap-1 rounded-md border px-3 py-1 text-[12px] font-bold"
+                                key={cf}
+                                onClick={() => { setCafeFilter(cf); setBoardFilter('전체'); }}
+                                style={on
+                                    ? { background: '#0f172a', color: '#ffffff', borderColor: '#0f172a' }
+                                    : { background: '#ffffff', color: '#334155', borderColor: '#e2e8f0' }}
+                                type="button"
+                            >
+                                {cf === '전체' ? '전체' : cafeLabel(cf)}
+                                <span className={`text-[10px] font-semibold ${on ? 'opacity-80' : 'text-[#94a3b8]'}`}>{c}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            ) : null}
+
             {/* 게시판 필터 — 동일 카페 안의 게시판(누수 / 설고점 / 더맨시스템 / 더티클리닉…)별로 나눠 보기 */}
             {boards.length > 1 ? (
                 <div className="flex flex-wrap items-center gap-1.5">
                     <span className="mr-1 text-[11px] font-semibold text-[#94a3b8]">게시판</span>
-                    {[['전체', posts.length] as [string, number], ...boards].map(([b, c]) => {
+                    {[['전체', cafeFilter === '전체' ? posts.length : (cafes.find(([c]) => c === cafeFilter)?.[1] ?? 0)] as [string, number], ...boards].map(([b, c]) => {
                         const on = boardFilter === b;
                         const st = b === '전체' ? { bg: '#1e293b', fg: '#ffffff' } : boardStyle(b);
                         return (

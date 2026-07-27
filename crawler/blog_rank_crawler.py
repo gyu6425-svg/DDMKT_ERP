@@ -132,8 +132,15 @@ TODAY = datetime.date.today().isoformat()
 
 # ── 공용 유틸 ────────────────────────────────────────────
 def parse_blog_url(url: str):
-    """blog.naver.com/{id}/{logNo} → (id, logNo). 둘 다 없으면 (None, None)."""
-    m = re.search(r"(?:m\.)?blog\.naver\.com/([^/?#]+)(?:/(\d{6,}))?", url or "")
+    """blog.naver.com/{id}/{logNo} → (id, logNo). 둘 다 없으면 (None, None).
+    경로형 + 모바일 PostView(?blogId=&logNo=) 둘 다 인식."""
+    u = url or ""
+    # 모바일 PostView: m.blog.naver.com/PostView.naver?blogId=xxx&logNo=nnn (쿼리에 아이디·글번호)
+    q_bid = re.search(r"[?&]blogId=([^&#]+)", u)
+    q_lno = re.search(r"[?&]logNo=(\d{6,})", u)
+    if q_bid or q_lno:
+        return (q_bid.group(1) if q_bid else None), (q_lno.group(1) if q_lno else None)
+    m = re.search(r"(?:m\.)?blog\.naver\.com/([^/?#]+)(?:/(\d{6,}))?", u)
     if not m:
         return None, None
     return m.group(1), m.group(2)

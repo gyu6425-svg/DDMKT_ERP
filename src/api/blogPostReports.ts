@@ -346,8 +346,10 @@ export async function approveReport(
     // 2) 추적글 생성(같은 URL 이미 추적 중이면 재사용) → blog_post_id 연결.
     //    개별 글 주소(글 번호 포함)일 때만 만든다. 저장(빈 URL)이나 블로그 대문 주소(글 번호 없음)는
     //    순위 트래커가 최신글로 오배정되므로 추적글을 만들지 않는다(측정대기·오배정 원천 차단).
-    const base = (report.post_url || '').split('?')[0];
-    const hasArticle = /\/\d{6,}/.test(base); // blog.naver.com/아이디/224xxxxx 형태만
+    const full = report.post_url || '';
+    const base = full.split('?')[0];
+    // 경로형(/224…) + 모바일 PostView(?logNo=224…) 둘 다 개별 글로 인정.
+    const hasArticle = /\/\d{6,}/.test(base) || /[?&]logNo=\d{6,}/i.test(full);
     let postId: string | null = null;
     if (hasArticle) {
         const { data: existing } = await supabase

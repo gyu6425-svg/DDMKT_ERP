@@ -5,7 +5,7 @@ import { PRODUCT_CATEGORIES } from '../lib/products';
 // 세금계산서 요청 가이드라인 붙여넣기 → 기본/업종 정보 자동 입력 + (상품/외주 있으면) 계약 생성.
 //   상호명→업체명 · 사업자등록번호→사업자 · 광고주 성함→담당자(+광고주) · 광고주 휴대폰→연락처
 //   사업장 주소→주소 · 업종/업태→업종 · 이메일→이메일. 상품 금액=공급가, 외주=외주단가.
-export type PaymentMethod = 'card' | null;
+export type PaymentMethod = 'card' | 'cash' | null;
 export type ParsedProduct = {
     name: string;
     category: string;
@@ -15,7 +15,7 @@ export type ParsedProduct = {
     amount: number; // 공급가
     outUnit: number; // 외주단가
     outAmt: number; // 외주비
-    payment?: PaymentMethod; // 카드결제면 'card'(카드매출)
+    payment?: PaymentMethod; // 'card'=카드매출 · 'cash'=현금매출(부가세 없음) · null=세금계산서(부가세 있음)
 };
 
 const digits = (s: string) => Number((s || '').replace(/[^\d]/g, '')) || 0;
@@ -106,6 +106,9 @@ export function parseTaxGuideline(text: string): {
     // 카드 결제 양식 — "결제 : 카드결제" 감지. 상품/외주 섹션 없이 결제상품·순매출로 계약 1건 생성.
     const isCard = /카드/.test(fields['결제'] || '') || /카드\s*결제/.test(text);
     if (isCard) return parseCardForm(fields);
+    // 현금매출 — "결제 : 현금" 또는 "현금매출" 감지. 세금계산서 양식 그대로 파싱하되 부가세 없음(no_vat)으로 등록.
+    const isCash = /현금/.test(fields['결제'] || '') || /현금\s*결제/.test(text) || /현금매출/.test(text);
+    const payMethod: PaymentMethod = isCash ? 'cash' : null;
 
     const g = (...keys: string[]) => {
         for (const k of keys) if (fields[k]) return fields[k];
@@ -151,13 +154,17 @@ export function parseTaxGuideline(text: string): {
             amount: p.amt,
             outUnit: o ? o.unit : 0,
             outAmt: o ? o.amt : 0,
-            payment: null,
+            payment: payMethod,
         };
     });
     const supply = products.reduce((s, p) => s + p.amount, 0);
     const outsource = products.reduce((s, p) => s + p.outAmt, 0);
-    const vatTotal = parseKoWon(fields['부가세포함금액'] || fields['부가세포함결제금액'] || '') || Math.round(supply * 1.1);
-    return { clientPatch, products, supply, outsource, net: supply - outsource, payment: null, vatTotal };
+    // 현금매출은 부가세 없음 → 실매출(vatTotal) = 공급가. 그 외는 부가세포함금액(있으면) 또는 공급가×1.1.
+    const vatTotal =
+        payMethod === 'cash'
+            ? supply
+            : parseKoWon(fields['부가세포함금액'] || fields['부가세포함결제금액'] || '') || Math.round(supply * 1.1);
+    return { clientPatch, products, supply, outsource, net: supply - outsource, payment: payMethod, vatTotal };
 }
 
 // 카드 결제 양식 파싱 — 업체명·휴대폰·결제상품(수량)·부가세포함 결제금액·순매출 → 카드매출 계약 1건.
@@ -244,8 +251,8 @@ export default function TaxGuidelineModal({
                 </div>
                 <p className="mt-0 mb-2 text-xs text-[#94a3b8]">
                     상호명·사업자번호·광고주·주소·업종·이메일이 기본/업종 정보로 들어갑니다. 상품·외주가 있으면 계약도
-                    생성됩니다. <b className="text-[#7c3aed]">“결제 : 카드결제”</b>가 있으면 <b>카드매출</b>로 등록됩니다
-                    (업체명·결제상품·순매출 인식).
+                    생성됩니다. 결제 방식은 <b className="text-[#7c3aed]">“결제 : 카드”</b> → <b>카드매출</b> ·{' '}
+                    <b className="text-[#15803d]">“결제 : 현금”</b> → <b>현금매출(부가세 없음)</b> · 없으면 <b>세금계산서(부가세 10%)</b>.
                 </p>
                 <textarea
                     className="min-h-[220px] w-full resize-y rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
@@ -282,6 +289,8 @@ export default function TaxGuidelineModal({
                                     생성될 계약 {parsed.products.length}건
                                     {parsed.payment === 'card' ? (
                                         <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px] font-bold text-[#7c3aed]">카드매출</span>
+                                    ) : parsed.payment === 'cash' ? (
+                                        <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[10px] font-bold text-[#15803d]">현금매출 · 부가세 없음</span>
                                     ) : null}
                                 </div>
                                 {parsed.products.map((p, i) => (
@@ -302,6 +311,10 @@ export default function TaxGuidelineModal({
                                     </span>
                                     <span>
                                         순매출 <b className="text-[#059669]">{won(parsed.net)}</b>
+                                    </span>
+                                    <span>
+                                        실매출(VAT{parsed.payment === 'cash' ? ' 없음' : ' 포함'}){' '}
+                                        <b className="text-[#0f172a]">{won(parsed.vatTotal)}</b>
                                     </span>
                                 </div>
                             </div>
