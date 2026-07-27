@@ -86,12 +86,17 @@ export async function createCustomerPublishJob(input: {
     links?: string[];
     tags?: string[];
 }) {
-    // 내 카페 계정(RLS: client_id = my_client_id 인 행만). 승인(publish_enabled)+active 인 것.
+    // 내 카페 계정(RLS: client_id = my_client_id 인 행만). 승인 = active + publish_enabled.
+    //   ⚠️ publish_enabled 컬럼이 아직 없을 수 있어 select('*') 로 받는다(없으면 undefined).
+    //      게이트: active && publish_enabled!==false → 컬럼 없으면 active 로 폴백, 있으면 false 면 차단.
+    //      (권장: publish_enabled 기본 false 컬럼 추가 — active 는 기본 true 라 승인 게이트로 부적합.)
     const { data: accts, error: aerr } = await supabase
         .from('cafe_accounts')
-        .select('company_key, board_name, publish_enabled, active');
+        .select('*');
     if (aerr) return { error: aerr as { message: string }, jobId: null };
-    const acct = (accts ?? []).find((a) => a.active && a.publish_enabled);
+    const acct = (accts ?? []).find(
+        (a) => a.active && (a as { publish_enabled?: boolean }).publish_enabled !== false,
+    ) as { company_key: string; board_name: string } | undefined;
     if (!acct) {
         return { error: { message: '카페 자동발행이 아직 승인되지 않았습니다. 담당자에게 문의해 주세요.' }, jobId: null };
     }

@@ -7,6 +7,7 @@ import { categoryByKey, type CategoryKey } from '../components/categoryRank/cate
 import { CustomerPlaceRank } from './CustomerPlaceRank';
 import { CafeTrackerTab } from '../components/cafeRank/pages/CafeTrackerTab';
 import { CafeSheetTab } from '../components/cafeRank/pages/CafeSheetTab';
+import { CafeCustomerPublish } from '../components/cafe/CafeCustomerPublish';
 import { getCafeAccounts } from '../api/cafeAccounts';
 import { useAuth } from '../hooks/useAuth';
 
@@ -62,7 +63,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const scopedClientId = previewClientId ?? (profile?.client_id ?? null);
     const [companyKey, setCompanyKey] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState<'tracker' | 'sheet'>('tracker');
+    const [view, setView] = useState<'tracker' | 'sheet' | 'publish'>('tracker');
 
     useEffect(() => {
         let alive = true;
@@ -90,7 +91,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     return (
         <>
             <div className="flex gap-1 border-b border-[#e2e8f0]">
-                {([['tracker', '순위 트래커'], ['sheet', '카페 관리 시트']] as const).map(([k, name]) => (
+                {([['tracker', '순위 트래커'], ['sheet', '카페 관리 시트'], ['publish', '카페 자동화 발행']] as const).map(([k, name]) => (
                     <button
                         className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
                             view === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
@@ -105,7 +106,9 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
             </div>
             {view === 'tracker'
                 ? <CafeTrackerTab lockCompany={companyKey} />
-                : <CafeSheetTab scopeCompanyKey={companyKey} readOnly />}
+                : view === 'sheet'
+                    ? <CafeSheetTab scopeCompanyKey={companyKey} readOnly />
+                    : <CafeCustomerPublish companyKey={companyKey} />}
         </>
     );
 }
