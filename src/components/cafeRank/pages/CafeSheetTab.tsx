@@ -106,7 +106,9 @@ export function CafeSheetTab() {
             defaultValue={a[key] != null ? fmtWon(a[key]) : ''}
             onBlur={(e) => {
                 const v = onlyDigits(e.target.value);
-                void saveField(a.id, { [key]: v ? Number(v) : null } as Partial<CafeAccount>);
+                // done_count 는 NOT NULL(기본 0) 컬럼 → 빈 칸은 null 대신 0으로(제약 위반 방지).
+                const next = v ? Number(v) : key === 'done_count' ? 0 : null;
+                void saveField(a.id, { [key]: next } as Partial<CafeAccount>);
             }}
             onClick={(e) => e.stopPropagation()}
             placeholder={ph}
