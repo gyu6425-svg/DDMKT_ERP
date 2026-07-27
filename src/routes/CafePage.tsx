@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { CafeBannerTab } from '../components/cafe/CafeBannerTab';
 import { CafeBanner2Tab } from '../components/cafe/CafeBanner2Tab';
 import { PublishHistory } from '../components/cafe/PublishHistory';
 
@@ -39,7 +38,7 @@ function CafePage() {
                 ))}
             </div>
 
-            {activeTab === 'leak3' ? <CafeBannerTab abModel /> : activeTab === 'seolgo' ? <CafeBanner2Tab abModel company="seolgo" /> : <CafeBanner2Tab abModel />}
+            {activeTab === 'leak3' ? <CafeBanner2Tab abModel company="leak" /> : activeTab === 'seolgo' ? <CafeBanner2Tab abModel company="seolgo" /> : <CafeBanner2Tab abModel />}
 
             <PublishHistory />
         </section>

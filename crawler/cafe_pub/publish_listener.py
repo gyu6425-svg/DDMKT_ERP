@@ -44,7 +44,9 @@ KEEPALIVE_MIN = int(os.environ.get("CAFE_KEEPALIVE_MIN", "9"))  # 유휴 시 세
 REAP_MIN = int(os.environ.get("CAFE_REAP_MIN", "30"))
 MAX_ATTEMPTS = int(os.environ.get("CAFE_MAX_ATTEMPTS", "3"))    # 원고결함성 재시도 상한 → 넘으면 fail
 STUCK_POSTED_MIN = int(os.environ.get("CAFE_STUCK_POSTED_MIN", "20"))  # posted 로 이만큼 방치되면 사람에게 경고(자동 재발행 X)
-_EXPIRE_FLAG_STR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".session_expired")
+# 크롬 포트(9223 누수 / 9224 더맨 …) — 스택별로 세션 플래그를 분리해 두 리스너가 서로의 만료 플래그를 밟지 않게.
+_CDP_PORT = pc.DEFAULT_CDP.rsplit(":", 1)[-1].split("/")[0]
+_EXPIRE_FLAG_STR = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".session_expired_{_CDP_PORT}")
 
 # ── 게시판 소유 필터 — 여러 PC가 같은 카페를 게시판별로 나눠 발행(작업분담·중복회피). 2026-07-21 독립검증 ──
 #   CAFE_BOARDS="누수" 처럼 이 PC가 맡을 게시판 이름을 콤마로 나열 → 소유 게시판 행만 집는다.
@@ -77,7 +79,7 @@ def _now_iso():
 _last_pub = [0.0]
 _last_touch = [0.0]   # 크롬과 마지막 상호작용(발행/핑) 시각 — 세션 유지 판단용
 _stopped = [False]    # CAFE_STOP_AT 지나 발행 중단됨(로그 1회만)
-_EXPIRE_FLAG = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".session_expired")
+_EXPIRE_FLAG = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".session_expired_{_CDP_PORT}")
 
 
 def _keepalive():
@@ -107,7 +109,7 @@ def _init_last_pub_from_db():
     try:
         # done 뿐 아니라 posted(등록됐으나 done 확정 전)도 '발행됨'으로 쳐서 간격을 지킨다.
         rows = pc.sb_get("cafe_publish_queue",
-                         {"status": "in.(done,posted)", "order": "done_at.desc.nullslast", "limit": "1", "select": "done_at,claimed_at"})
+                         {"status": "in.(done,posted)", **_owned_filter(), "order": "done_at.desc.nullslast", "limit": "1", "select": "done_at,claimed_at"})
         if not rows or not rows[0].get("done_at"):
             return
         # ⚠️ 이 리스너는 done_at 에 datetime.now()(KST, tz없음)를 넣는다. 컬럼이 timestamptz 라
@@ -207,6 +209,16 @@ def main():
                         print(f"[{now_dt:%H:%M:%S}] ⏹ 발행 종료 시각({stop_at}) 지남 — 남은 {len(reqs)}건은 발행하지 않고 대기", flush=True)
                         _stopped[0] = True
                     time.sleep(POLL_SEC); continue
+            except Exception:
+                pass
+        # 발행 시작 시각(CAFE_START_AT=HH:MM) 이전이면 발행 안 함(매일 이 시각부터 시작 — 새벽 발행 방지).
+        start_at = os.environ.get("CAFE_START_AT", "").strip()
+        if start_at and reqs:
+            try:
+                th, tm = (int(x) for x in start_at.split(":"))
+                now_dt = datetime.datetime.now()
+                if (now_dt.hour, now_dt.minute) < (th, tm):
+                    time.sleep(POLL_SEC); continue      # 아직 시작 전 → 대기(세션핑만)
             except Exception:
                 pass
         gap_wait = (not NO_SEND) and (time.time() - _last_pub[0]) < _gap_min[0] * 60

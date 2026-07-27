@@ -1419,6 +1419,31 @@ function buildCafeCardPrompt(p) {
             `No English words, no watermark, no logo lettering. Bold, high-contrast, trustworthy Korean marketing look.`,
         ].join('\n');
     }
+    // 'edit-region' — 첨부된 완성 배너(theban_banner01)에서 '지역줄 텍스트만' 바꾸고 나머지는 그대로. (OpenAI 편집)
+    if (p.mode === 'edit-region') {
+        return [
+            `You are given ONE finished Korean promotional banner image (attached). This is a targeted TEXT EDIT, not a redesign.`,
+            `- Change ONLY the location/region line — the line marked with a 📍 pin that currently reads "경기 · 인천 · 서울 · 충청" — to exactly "${region}".`,
+            `- Keep EVERYTHING else 100% identical to the attached image: the same photo of the person cleaning, the "더반클린" logo, the big red/blue "더 반하다" headline, the "깨끗함은 기본, 위생과 감동까지!" pill, the "입주·이사·상업공간 전문 직영 청소" text, the three bottom service cards, all colors, fonts, sizes, icons, and positions. Do not move, restyle, recolor, redraw, or regenerate anything else.`,
+            `- Render the new "${region}" in the same font, size, weight, color, and position as the original region line (keep the 📍 pin).`,
+            `Output ONE image that looks pixel-identical to the attached banner except that single line. All Korean must be exact — no garbling, no typos, no English.`,
+        ].join('\n');
+    }
+    // 'clean-hero' 템플릿 — 누수 hero 를 입주청소(더반클린)로 이식. 지역명만 바꿔 재생성.
+    if (p.mode === 'clean-hero') {
+        return [
+            `Create a 1024x1024 square Korean local move-in cleaning (입주청소) promotional card. Reproduce this EXACT layout and style:`,
+            `- Bright clean white/light background with fresh accents. Palette: dark navy (#0a2a66), vivid blue (#1e6fff), white, small red highlight (#e63946).`,
+            `- RIGHT SIDE (fills right ~45%): one large realistic photo of a professional cleaner wearing a navy apron and blue rubber gloves, smiling and wiping a spotless kitchen countertop with a microfiber cloth and a spray bottle, inside a bright freshly-cleaned Korean apartment.`,
+            `- TOP-LEFT: the MAIN TITLE in VERY large bold Korean text on two lines with a thick 3D outline and drop shadow — first line the region "${region}" in dark navy, second line "입주청소" in vivid blue. A small blue sparkle/clean icon next to the title.`,
+            `- Under the title: a blue rounded pill reading "입주 · 이사 · 상업공간 전문 직영 청소".`,
+            `- Below that, one line in dark navy: "깨끗함은 기본, 위생과 감동까지".`,
+            `- A white rounded panel with THREE trust items side by side, each = a blue line icon + bold navy title + small gray subtitle: "정기 청소 관리 / 체계적인 관리", "입주·이사 청소 / 완벽한 첫걸음", "상업공간 청소 / 맞춤 서비스".`,
+            `- BOTTOM blue band: center white text "새 공간의 시작, 완벽한 첫 청소" (the word 완벽 highlighted yellow).`,
+            ``,
+            `CRITICAL: Render ALL Korean text 100% correctly (exact characters, no garbling, no typos, no fake or English letters). Do NOT include any phone number or address. Only change the region word "${region}" — keep everything else identical in style. High-contrast, trustworthy Korean cleaning-service marketing look.`,
+        ].join('\n');
+    }
     // 'hero' 템플릿(테스트2): 큰 인물 사진 + 대형 구/동 타이틀 + 신뢰 3항목 + 하단 문구 + 전화번호.
     if (p.mode === 'hero') {
         return [

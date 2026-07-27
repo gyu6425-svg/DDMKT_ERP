@@ -41,7 +41,7 @@ except Exception:
 requests.packages.urllib3.disable_warnings()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CDP = "http://127.0.0.1:9223"
+DEFAULT_CDP = "http://127.0.0.1:9223"   # 기본 크롬(누수). 멀티 스택은 아래 _load_env 후 CAFE_CDP 로 덮는다.
 CAFE_BUCKET = "cafe-images"
 # 등록 클릭 후 글 상세로 이동했는지 확인하는 시간(초). 느린 카페에서 12초는 짧아 오탐이 났다.
 CAFE_CONFIRM_SEC = int(os.environ.get("CAFE_CONFIRM_SEC", "60"))
@@ -70,6 +70,7 @@ def _load_env():
         except Exception:
             pass
 _load_env()
+DEFAULT_CDP = os.environ.get("CAFE_CDP", DEFAULT_CDP)   # 스택마다 다른 크롬 포트(예: 더맨 9224) — 누수(9223)와 크롬 분리
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 CAFE_WRITE_URL = os.environ.get("CAFE_WRITE_URL", "")  # 카페 글쓰기 페이지 주소
@@ -585,7 +586,9 @@ def _select_board_and_prefix(page, board=None):
     try:
         bsel.click(); page.wait_for_timeout(700)
         opts = page.locator("ul.option_list button.option")
-        texts = [(opts.nth(i).inner_text() or "").strip() for i in range(opts.count())]
+        # 옵션 텍스트 첫 줄만 사용 — /menus/N/ URL 로 이미 선택된 게시판은 "이름\n선택됨" 으로 떠서
+        #   정확일치가 깨진다(더반 카페). 첫 줄(게시판명)만 비교하면 누수(단일줄)엔 영향 없다.
+        texts = [((opts.nth(i).inner_text() or "").strip().split("\n")[0].strip()) for i in range(opts.count())]
         idx = _pick_exact_option(texts, board)
         if idx < 0:
             raise BoardError(f"게시판 '{board}' 정확일치 없음 — 후보: {texts[:8]}")
