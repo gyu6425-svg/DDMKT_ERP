@@ -10,6 +10,7 @@ import {
     type RewardWeeklyLog,
 } from '../api/clientContracts';
 import { ensureClientBlogAccount, getBlogAccounts, syncBlogAccountFromContract, updateBlogAccount } from '../api/blogRank';
+import { getCafeAccounts, type CafeAccount } from '../api/cafeAccounts';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import {
     PRODUCT_CATEGORIES,
@@ -2497,6 +2498,26 @@ export function ClientDetail({
     const { isAdmin, profile } = useAuth();
     // 고객 ERP 발급/계정정보/재발급 UI — 관리자 또는 허용 계정(조재현).
     const canIssueAcct = isAdmin || canIssueClientAccount(profile?.email);
+    // 이 고객사의 카페 계정(있으면) — '카페' 계약 섹션에 순위 트래커·관리 시트 딥링크 노출용.
+    const [cafeAcct, setCafeAcct] = useState<CafeAccount | null>(null);
+    useEffect(() => {
+        let alive = true;
+        void getCafeAccounts().then(({ data }) => {
+            if (alive) setCafeAcct(data.find((a) => a.client_id === client.id) || null);
+        });
+        return () => {
+            alive = false;
+        };
+    }, [client.id]);
+    // SPA 내비게이션(카페 대시보드 딥링크) — pushState + app:navigate 이벤트.
+    const goCafe = (tab: 'tracker' | 'sheet') => {
+        const path =
+            tab === 'tracker' && cafeAcct
+                ? `/cafe-rank?tab=tracker&company=${encodeURIComponent(cafeAcct.company_key)}`
+                : '/cafe-rank?tab=sheet';
+        window.history.pushState(null, '', path);
+        window.dispatchEvent(new Event('app:navigate'));
+    };
     // 세금계산서 붙여넣기 적용 — 기본/업종 정보 저장 + (상품 있으면) 계약 생성.
     const applyTax = async (patch: Partial<ErpClient>, products: ParsedProduct[]) => {
         if (Object.keys(patch).length) onSave(patch);
@@ -3152,6 +3173,24 @@ export function ClientDetail({
                                 <span className="rounded-full bg-[#e0e7ff] px-2.5 py-0.5 text-xs font-bold text-[#4338ca]">
                                     {c.label}
                                 </span>
+                                {c.label === '카페' && cafeAcct ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => goCafe('tracker')}
+                                            className="rounded-full border border-[#c7d2fe] bg-white px-2.5 py-0.5 text-xs font-semibold text-[#4338ca] hover:bg-[#eef2ff]"
+                                        >
+                                            순위 트래커
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => goCafe('sheet')}
+                                            className="rounded-full border border-[#c7d2fe] bg-white px-2.5 py-0.5 text-xs font-semibold text-[#4338ca] hover:bg-[#eef2ff]"
+                                        >
+                                            관리 시트
+                                        </button>
+                                    </>
+                                ) : null}
                             </div>
                             {(() => {
                                 // 세부유형별 그룹 → 각 유형을 별도 그리드로(다음 유형은 새 줄부터 시작).
