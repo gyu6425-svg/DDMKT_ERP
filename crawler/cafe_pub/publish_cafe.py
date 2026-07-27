@@ -41,7 +41,9 @@ except Exception:
     pass
 requests.packages.urllib3.disable_warnings()
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# 데이터 폴더 — 프리즈(PyInstaller) 시 agent_main 이 CAFE_DATA_DIR 로 exe 옆 폴더를 넘긴다.
+#   env 없으면(개발·라이브) 이 파일 위치 = 기존과 동일(무변경).
+HERE = os.environ.get("CAFE_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CDP = "http://127.0.0.1:9223"   # 기본 크롬(누수). 멀티 스택은 아래 _load_env 후 CAFE_CDP 로 덮는다.
 CAFE_BUCKET = "cafe-images"
 # 등록 클릭 후 글 상세로 이동했는지 확인하는 시간(초). 느린 카페에서 12초는 짧아 오탐이 났다.

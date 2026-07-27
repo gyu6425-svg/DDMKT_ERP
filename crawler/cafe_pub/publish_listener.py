@@ -24,6 +24,9 @@ try:
 except Exception:
     pass
 
+# 데이터 폴더 — 프리즈 시 agent_main 이 CAFE_DATA_DIR(exe 옆) 로 넘긴다. 없으면 이 파일 위치(무변경).
+_DATA_DIR = os.environ.get("CAFE_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+
 POLL_SEC = 6
 MIN_GAP_MIN = int(os.environ.get("CAFE_MIN_GAP_MIN", "20"))  # 발행 최소 간격(분) — 계정 안전
 # 최대 간격 — MIN~MAX 사이에서 매번 새로 뽑아 발행 간격을 불규칙하게 만든다(같은 간격 반복은 봇 티가 남).
@@ -46,7 +49,7 @@ MAX_ATTEMPTS = int(os.environ.get("CAFE_MAX_ATTEMPTS", "3"))    # 원고결함�
 STUCK_POSTED_MIN = int(os.environ.get("CAFE_STUCK_POSTED_MIN", "20"))  # posted 로 이만큼 방치되면 사람에게 경고(자동 재발행 X)
 # 크롬 포트(9223 누수 / 9224 더맨 …) — 스택별로 세션 플래그를 분리해 두 리스너가 서로의 만료 플래그를 밟지 않게.
 _CDP_PORT = pc.DEFAULT_CDP.rsplit(":", 1)[-1].split("/")[0]
-_EXPIRE_FLAG_STR = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".session_expired_{_CDP_PORT}")
+_EXPIRE_FLAG_STR = os.path.join(_DATA_DIR, f".session_expired_{_CDP_PORT}")
 
 # ── 게시판 소유 필터 — 여러 PC가 같은 카페를 게시판별로 나눠 발행(작업분담·중복회피). 2026-07-21 독립검증 ──
 #   CAFE_BOARDS="누수" 처럼 이 PC가 맡을 게시판 이름을 콤마로 나열 → 소유 게시판 행만 집는다.
@@ -79,7 +82,7 @@ def _now_iso():
 _last_pub = [0.0]
 _last_touch = [0.0]   # 크롬과 마지막 상호작용(발행/핑) 시각 — 세션 유지 판단용
 _stopped = [False]    # CAFE_STOP_AT 지나 발행 중단됨(로그 1회만)
-_EXPIRE_FLAG = os.path.join(os.path.dirname(os.path.abspath(__file__)), f".session_expired_{_CDP_PORT}")
+_EXPIRE_FLAG = os.path.join(_DATA_DIR, f".session_expired_{_CDP_PORT}")
 
 
 def _keepalive():

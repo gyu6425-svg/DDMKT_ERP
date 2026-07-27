@@ -18,7 +18,20 @@ import time
 import threading
 import subprocess
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+
+def _base_dir():
+    """데이터 폴더(agent.env·chrome_profile·assets·logs 위치).
+    · PyInstaller onedir 로 얼리면 __file__ 은 _internal 안이라 쓸 수 없다 → exe 옆 폴더를 쓴다.
+    · 개발(비프리즈)에선 이 파일이 있는 cafe_pub 폴더 = 기존과 동일."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+HERE = _base_dir()
+# 하위 모듈(publish_cafe·nusu2_api·publish_listener)이 같은 데이터 폴더를 쓰도록 env 로 넘긴다.
+#   ⚠️ 비프리즈에선 아래 모듈들이 이 env 없으면 dirname(__file__) 로 폴백 → 라이브 동작 무변경.
+os.environ.setdefault("CAFE_DATA_DIR", HERE)
 os.chdir(HERE)
 sys.path.insert(0, HERE)
 
@@ -70,14 +83,16 @@ def ensure_publish_chrome():
 
 
 def run_listener_loop():
-    """publish_listener 를 자동재시작 루프로 실행(크래시/종료 시 30초 후 재기동)."""
-    import runpy
+    """publish_listener 를 자동재시작 루프로 실행(크래시/종료 시 30초 후 재기동).
+    ⚠️ runpy.run_path(.py) 대신 모듈 import 로 호출한다 — 프리즈(onedir)엔 .py 파일이 없어
+       run_path 가 깨지기 때문. publish_listener.main() 은 내부에 폴링 루프를 가져 정상시 반환하지 않고,
+       예외로 빠지면 아래 30초 재시작이 받는다(기존 watchdog 과 동일 동작)."""
+    import publish_listener   # 모듈 최상단(OWNED_BOARDS 검사)은 env 로딩 이후라 안전
     while True:
         ensure_publish_chrome()
         print("[agent] listener 시작", flush=True)
         try:
-            sys.argv = ["publish_listener.py"]
-            runpy.run_path(os.path.join(HERE, "publish_listener.py"), run_name="__main__")
+            publish_listener.main()
         except SystemExit:
             pass
         except Exception as e:
