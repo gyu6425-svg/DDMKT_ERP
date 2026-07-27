@@ -49,7 +49,7 @@ def _log(m):
 def touch(cdp_url):
     """별도 탭으로 인증 페이지를 열어 로그인 상태만 확인하고 닫는다. True=로그인유지, False=만료."""
     with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(cdp_url)
+        browser = p.chromium.connect_over_cdp(cdp_url, timeout=20000)   # 좀비 크롬에 180초 멈춤 방지
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         page = ctx.new_page()   # ★리스너 탭 보존: 새 탭에서만 확인
         try:

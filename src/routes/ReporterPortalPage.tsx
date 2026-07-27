@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
 import type { Tab } from '../components/blogRank/lib/helpers';
 import { DashboardTab } from '../components/blogRank/pages/DashboardTab';
@@ -6,8 +6,8 @@ import { SheetTab } from '../components/blogRank/pages/SheetTab';
 import { TrackerTab } from '../components/blogRank/pages/TrackerTab';
 import { useAuth } from '../hooks/useAuth';
 import { useAsParam } from './CustomerCategoryPage';
-import { BLOG_KINDS, createReport, getReports, markPublished, reportOutUnit, resubmitReport, type BlogPostReport, type ReportType } from '../api/blogPostReports';
-import { getReporters } from '../api/blogRank';
+import { BLOG_KINDS, createReport, getReports, markPublished, reportOutUnit, resubmitReport, updatePendingReport, type BlogPostReport, type ReportType } from '../api/blogPostReports';
+import { canonicalBlogPostUrl, getReporters } from '../api/blogRank';
 import {
     createAccountRequest,
     getAccountRequests,
@@ -33,6 +33,12 @@ const URL_PREFIX = 'https://';
 const hasScheme = (u: string) => /^https?:\/\/.+/.test(u.trim());
 const URL_HINT = '블로그 주소는 https:// 로 시작해야 합니다 · 주소 앞에 https:// 를 붙여주세요';
 
+// 발행 보고/발행 전환의 글 주소 — 개별 글 주소(글 번호 포함)만 허용.
+//   대문 주소(blog.naver.com/아이디)는 순위 트래커가 최신글로 오배정되므로 거부한다.
+//   경로형(/224…) + 모바일 PostView(?logNo=224…) 둘 다 허용.
+const hasArticleNo = (u: string) => /\/\d{6,}/.test(u.trim()) || /[?&]logNo=\d{6,}/i.test(u.trim());
+const ARTICLE_HINT = '개별 글 주소를 넣어주세요 (대문 주소가 아니라 글 번호가 포함된 주소 · PC/모바일 주소 모두 가능)';
+
 // 기자단 글 보고 탭 — 본인 담당 블로그에 쓴 글 URL을 보고. 내부(김다영 등)에게 알림이 감.
 function ReportSubmitTab() {
     const { accounts, showToast } = useBlogRank();
@@ -45,16 +51,20 @@ function ReportSubmitTab() {
     const [keyword, setKeyword] = useState('');
     const [saving, setSaving] = useState<ReportType | null>(null);
     const [publishing, setPublishing] = useState<string | null>(null);
+    // 발행 전환 시 실제 글 주소 입력 — 저장은 링크가 없으므로 '발행' 버튼에서 그때 받는다.
+    const [pubId, setPubId] = useState<string | null>(null);
+    const [pubUrl, setPubUrl] = useState('');
     const [mine, setMine] = useState<BlogPostReport[]>([]);
     // 내 보고 내역 필터 — 저장/발행 탭 + 블로그별 탭
     const [histTab, setHistTab] = useState<ReportType>('save');
     const [blogFilter, setBlogFilter] = useState('all');
-    // 재보고(반려 건 다시 보내기)
+    // 편집 폼 — 재보고(반려 건 다시 보내기) + 수정(검토 중 건 수정) 공용.
     const [reId, setReId] = useState<string | null>(null);
     const [reBlogId, setReBlogId] = useState('');
     const [reUrl, setReUrl] = useState('');
     const [reTitle, setReTitle] = useState('');
     const [reKeyword, setReKeyword] = useState('');
+    const [reRound, setReRound] = useState('');
     const [reSaving, setReSaving] = useState(false);
 
     const loadMine = () => void getReports().then(({ data }) => setMine(data));
@@ -68,36 +78,53 @@ function ReportSubmitTab() {
         setReUrl(r.post_url);
         setReTitle(r.title ?? '');
         setReKeyword(r.keyword || '');
+        setReRound(r.round == null ? '' : String(r.round));
     };
+    // 편집 저장 — 검토 중(pending)은 수정(상태 유지), 반려(rejected)는 재보고(다시 대기로).
+    //   발행 보고만 URL(글번호 포함) 필수, 저장 보고는 링크 없음.
     const doRe = async (r: BlogPostReport) => {
         if (!reBlogId) return showToast('블로그를 선택하세요');
-        if (!reUrl.trim()) return showToast('글 주소(URL)를 입력하세요');
         if (!reTitle.trim()) return showToast('제목을 입력하세요(필수)');
+        const isPub = typeOf(r) === 'publish';
+        if (isPub) {
+            if (!reUrl.trim()) return showToast('발행 글 주소(URL)를 입력하세요');
+            if (!hasArticleNo(reUrl)) return showToast(ARTICLE_HINT);
+        }
+        const pending = r.status === 'pending';
         setReSaving(true);
-        const { error } = await resubmitReport(r.id, {
+        const payload = {
             blog_account_id: reBlogId,
-            post_url: reUrl.trim(),
+            post_url: isPub ? canonicalBlogPostUrl(reUrl) : '',
             keyword: reKeyword.trim() || null,
             title: reTitle.trim(),
             report_type: typeOf(r),
-        });
+            round: reRound.trim() ? Number(reRound) : null,
+        };
+        const { error } = pending
+            ? await updatePendingReport(r.id, payload)
+            : await resubmitReport(r.id, payload);
         setReSaving(false);
-        if (error) return showToast('재보고 실패: ' + error.message);
+        if (error) return showToast((pending ? '수정' : '재보고') + ' 실패: ' + error.message);
         setReId(null);
-        showToast('재보고 완료 · 다시 검토중으로 전환됩니다');
+        showToast(pending ? '수정 완료' : '재보고 완료 · 다시 검토중으로 전환됩니다');
         loadMine();
     };
 
     const submit = async (type: ReportType) => {
         if (!blogId) return showToast('블로그를 선택하세요');
-        if (!url.trim()) return showToast('글 주소(URL)를 입력하세요');
         if (!title.trim()) return showToast('제목을 입력하세요(필수)');
+        // 저장은 링크를 받지 않는다(발행 전 초안이라 실제 글 주소가 없음 → 대문 주소 오배정 방지).
+        //   발행은 개별 글 주소(글 번호 포함) 필수.
+        if (type === 'publish') {
+            if (!url.trim()) return showToast('발행 글 주소(URL)를 입력하세요');
+            if (!hasArticleNo(url)) return showToast(ARTICLE_HINT);
+        }
         if (!profile?.id) return showToast('계정 정보를 확인할 수 없습니다');
         setSaving(type);
         const { error, duplicate } = await createReport({
             blog_account_id: blogId,
             reporter_id: profile.id,
-            post_url: url.trim(),
+            post_url: type === 'publish' ? canonicalBlogPostUrl(url) : '', // 저장은 링크 없음 · 발행은 표준 경로형으로 정규화
             title: title.trim(),
             report_type: type,
             keyword: keyword.trim() || null,
@@ -122,13 +149,18 @@ function ReportSubmitTab() {
         loadMine();
     };
 
-    // 기자단 '발행' 처리 — 저장으로 보고한 글을 발행쪽 히스토리로 이동(재카운트 없음).
-    const doPublish = async (r: BlogPostReport) => {
+    // 기자단 '발행' 처리 — 저장으로 보고한 글을 발행쪽 히스토리로 이동(재카운트 없음) + 실제 글 주소 저장.
+    //   저장 보고는 링크가 없으니 여기서 개별 글 주소(글 번호 포함)를 받아 저장 → 크롤러가 공개된 글을 잡아 순위 추적.
+    const doPublish = async (r: BlogPostReport, articleUrl: string) => {
+        if (!articleUrl.trim()) return showToast('발행한 글의 주소를 입력하세요');
+        if (!hasArticleNo(articleUrl)) return showToast(ARTICLE_HINT);
         setPublishing(r.id);
-        const { error } = await markPublished(r.id);
+        const { error } = await markPublished(r.id, canonicalBlogPostUrl(articleUrl));
         setPublishing(null);
         if (error) return showToast('발행 처리 실패: ' + error.message);
-        showToast('발행으로 이동됨 · 발행 히스토리에 표시됩니다');
+        setPubId(null);
+        setPubUrl('');
+        showToast('발행 처리 완료 · 글 주소가 저장되어 순위 추적이 시작됩니다');
         loadMine();
     };
 
@@ -200,13 +232,16 @@ function ReportSubmitTab() {
                     />
                 </label>
                 <label className="text-xs font-semibold text-[#475569]">
-                    글 주소(URL)
+                    글 주소(URL) · 발행 시에만
                     <input
                         className={inputCls}
                         onChange={(e) => setUrl(e.target.value)}
-                        placeholder="https://blog.naver.com/..."
+                        placeholder="발행 글의 개별 주소 (저장은 비워두세요)"
                         value={url}
                     />
+                    <span className="mt-1 block text-[11px] font-normal text-[#94a3b8]">
+                        저장으로 보고할 땐 링크를 넣지 마세요. 발행 시 개별 글 주소(글 번호 포함)를 넣습니다.
+                    </span>
                 </label>
                 <label className="text-xs font-semibold text-[#475569]">
                     키워드(선택)
@@ -298,14 +333,16 @@ function ReportSubmitTab() {
                                                 {nameOf(r.blog_account_id)}
                                                 {r.round ? ` · ${r.round}회차` : ''} · {r.title || '제목 없음'}
                                             </div>
-                                            <a
-                                                className="block truncate text-xs text-[#7c3aed] hover:underline"
-                                                href={r.post_url}
-                                                rel="noopener noreferrer"
-                                                target="_blank"
-                                            >
-                                                {r.post_url}
-                                            </a>
+                                            {r.post_url ? (
+                                                <a
+                                                    className="block truncate text-xs text-[#7c3aed] hover:underline"
+                                                    href={r.post_url}
+                                                    rel="noopener noreferrer"
+                                                    target="_blank"
+                                                >
+                                                    {r.post_url}
+                                                </a>
+                                            ) : null}
                                             {r.status === 'rejected' && r.note ? (
                                                 <div className="mt-0.5 text-[11px] font-semibold text-[#dc2626]">
                                                     반려 사유: {r.note}
@@ -319,16 +356,29 @@ function ReportSubmitTab() {
                                             <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${st.c}`}>
                                                 {st.t}
                                             </span>
-                                            {/* 저장 탭 항목엔 '발행' 버튼 — 눌러 발행 히스토리로 이동(재카운트 없음) */}
-                                            {histTab === 'save' && r.status !== 'rejected' ? (
+                                            {/* '발행' 버튼 — 승인됨(confirmed)일 때만. 누르면 실제 글 주소 입력받아 발행 처리 */}
+                                            {histTab === 'save' && r.status === 'confirmed' ? (
                                                 <button
                                                     className="rounded bg-[#059669] px-2 py-0.5 text-[11px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
                                                     disabled={publishing === r.id}
-                                                    onClick={() => void doPublish(r)}
-                                                    title="이 글을 발행했다면 눌러 발행 히스토리로 이동"
+                                                    onClick={() => {
+                                                        setPubId(pubId === r.id ? null : r.id);
+                                                        setPubUrl('');
+                                                    }}
+                                                    title="이 글을 발행했다면 눌러 글 주소를 입력하세요"
                                                     type="button"
                                                 >
                                                     {publishing === r.id ? '…' : '발행'}
+                                                </button>
+                                            ) : null}
+                                            {/* '수정' 버튼 — 검토 중(pending)일 때만. 승인 전이라 내용 수정 가능 */}
+                                            {r.status === 'pending' && !editing ? (
+                                                <button
+                                                    className="rounded border border-[#1e40af] px-2 py-0.5 text-[11px] font-semibold text-[#1e40af] hover:bg-[#eff6ff]"
+                                                    onClick={() => startRe(r)}
+                                                    type="button"
+                                                >
+                                                    수정
                                                 </button>
                                             ) : null}
                                             {r.status === 'rejected' && !editing ? (
@@ -342,6 +392,36 @@ function ReportSubmitTab() {
                                             ) : null}
                                         </div>
                                     </div>
+                                    {pubId === r.id ? (
+                                        <div className="mt-2 grid gap-2 rounded-md border border-[#a7f3d0] bg-[#ecfdf5] p-2">
+                                            <div className="text-[12px] font-semibold text-[#047857]">
+                                                발행한 글의 주소를 넣어주세요 (글 번호 포함 · 대문 주소 X)
+                                            </div>
+                                            <input
+                                                className="h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                                onChange={(e) => setPubUrl(e.target.value)}
+                                                placeholder="https://blog.naver.com/아이디/224…"
+                                                value={pubUrl}
+                                            />
+                                            <div className="flex gap-2">
+                                                <button
+                                                    className="rounded-md bg-[#059669] px-3 py-1.5 text-[12px] font-bold text-white disabled:opacity-50"
+                                                    disabled={publishing === r.id}
+                                                    onClick={() => void doPublish(r, pubUrl)}
+                                                    type="button"
+                                                >
+                                                    {publishing === r.id ? '처리 중…' : '발행 확정'}
+                                                </button>
+                                                <button
+                                                    className="rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-[12px] font-bold text-[#475569]"
+                                                    onClick={() => setPubId(null)}
+                                                    type="button"
+                                                >
+                                                    취소
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : null}
                                     {editing ? (
                                         <div className="mt-2 grid gap-2 rounded-md border border-[#c7d2fe] bg-[#eef2ff] p-2">
                                             <select
@@ -356,18 +436,30 @@ function ReportSubmitTab() {
                                                     </option>
                                                 ))}
                                             </select>
-                                            <input
-                                                className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
-                                                onChange={(e) => setReTitle(e.target.value)}
-                                                placeholder="제목(필수)"
-                                                value={reTitle}
-                                            />
-                                            <input
-                                                className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
-                                                onChange={(e) => setReUrl(e.target.value)}
-                                                placeholder="글 주소(URL)"
-                                                value={reUrl}
-                                            />
+                                            <div className="grid grid-cols-[1fr_auto] gap-2">
+                                                <input
+                                                    className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                                    onChange={(e) => setReTitle(e.target.value)}
+                                                    placeholder="제목(필수)"
+                                                    value={reTitle}
+                                                />
+                                                <input
+                                                    className="h-9 w-20 rounded-md border border-[#cbd5e1] px-2 text-right text-sm"
+                                                    inputMode="numeric"
+                                                    onChange={(e) => setReRound(e.target.value.replace(/[^0-9]/g, ''))}
+                                                    placeholder="회차"
+                                                    value={reRound}
+                                                />
+                                            </div>
+                                            {/* 발행 보고만 글 주소 — 저장 보고는 링크 없음 */}
+                                            {typeOf(r) === 'publish' ? (
+                                                <input
+                                                    className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                                                    onChange={(e) => setReUrl(e.target.value)}
+                                                    placeholder="발행 글 주소 (글 번호 포함)"
+                                                    value={reUrl}
+                                                />
+                                            ) : null}
                                             <input
                                                 className="h-9 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
                                                 onChange={(e) => setReKeyword(e.target.value)}
@@ -388,7 +480,13 @@ function ReportSubmitTab() {
                                                     onClick={() => void doRe(r)}
                                                     type="button"
                                                 >
-                                                    {reSaving ? '보고 중…' : '재보고'}
+                                                    {r.status === 'pending'
+                                                        ? reSaving
+                                                            ? '수정 중…'
+                                                            : '수정 저장'
+                                                        : reSaving
+                                                          ? '보고 중…'
+                                                          : '재보고'}
                                                 </button>
                                             </div>
                                         </div>
@@ -414,6 +512,8 @@ function SettlementTab() {
     // 기자단이 '업체 등록'으로 승인받은 블로그 — 외주비를 잡지 않으므로 정산에서도 0원 처리.
     const [ownBlogIds, setOwnBlogIds] = useState<Set<string>>(new Set());
     const [ownErr, setOwnErr] = useState(false); // 등록업체 판정 조회 실패 — 금액이 부정확할 수 있음
+    const [blogFilter, setBlogFilter] = useState('all'); // 업체별 필터(정산 행이 있는 업체만)
+    const [roundSort, setRoundSort] = useState<'asc' | 'desc' | null>(null); // 회차 정렬(헤더 클릭 토글)
 
     useEffect(() => {
         let alive = true;
@@ -447,8 +547,22 @@ function SettlementTab() {
     //   (계약 관리와 합칠 때 별도 등록 예정. 그 외 블로그는 기존 규칙 그대로 8,000/10,000)
     const amountOf = (r: BlogPostReport) =>
         ownBlogIds.has(r.blog_account_id) ? 0 : reportOutUnit(r, companyOf(r.blog_account_id));
-    const total = rows.reduce((s, r) => s + amountOf(r), 0);
-    const unpaidTotal = rows.filter((r) => !r.paid).reduce((s, r) => s + amountOf(r), 0);
+    // 업체 드롭다운 옵션 — 정산 행이 실제 있는 업체만(중복 제거·이름순).
+    const blogOptions = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const r of rows) m.set(r.blog_account_id, companyOf(r.blog_account_id));
+        return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1], 'ko'));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rows, accounts]);
+    // 선택 업체로 필터 — 합계도 필터된 행 기준. 회차 정렬(선택 시)도 적용.
+    const visible = useMemo(() => {
+        const list = blogFilter === 'all' ? rows : rows.filter((r) => r.blog_account_id === blogFilter);
+        if (!roundSort) return list;
+        const dir = roundSort === 'asc' ? 1 : -1;
+        return [...list].sort((a, b) => ((a.round ?? -1) - (b.round ?? -1)) * dir);
+    }, [rows, blogFilter, roundSort]);
+    const total = visible.reduce((s, r) => s + amountOf(r), 0);
+    const unpaidTotal = visible.filter((r) => !r.paid).reduce((s, r) => s + amountOf(r), 0);
 
     return (
         <div className="grid gap-3">
@@ -458,10 +572,26 @@ function SettlementTab() {
                         ⚠ 등록 업체 정보를 불러오지 못해 금액이 정확하지 않을 수 있습니다. 새로고침해 주세요.
                     </p>
                 ) : null}
-                <div className="flex items-center justify-between">
-                    <div className="text-sm font-bold text-[#0f172a]">정산 내역</div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                        <div className="text-sm font-bold text-[#0f172a]">정산 내역</div>
+                        {/* 업체별 필터 드롭다운 — 정산 행이 있는 업체만 */}
+                        <select
+                            className="h-8 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                            onChange={(e) => setBlogFilter(e.target.value)}
+                            title="업체별 보기"
+                            value={blogFilter}
+                        >
+                            <option value="all">전체 업체</option>
+                            {blogOptions.map(([id, name]) => (
+                                <option key={id} value={id}>
+                                    {name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                     <div className="text-sm text-[#64748b]">
-                        누적 외주비 <b className="text-[#1e40af]">{total.toLocaleString('ko-KR')}원</b> · {rows.length}건
+                        누적 외주비 <b className="text-[#1e40af]">{total.toLocaleString('ko-KR')}원</b> · {visible.length}건
                         {' · '}미입금 <b className="text-[#b45309]">{unpaidTotal.toLocaleString('ko-KR')}원</b>
                     </div>
                 </div>
@@ -471,7 +601,18 @@ function SettlementTab() {
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-4 py-2 font-semibold">입금</th>
-                            <th className="whitespace-nowrap px-4 py-2 font-semibold">회차</th>
+                            <th className="whitespace-nowrap px-4 py-2 font-semibold">
+                                <button
+                                    className="inline-flex items-center gap-0.5 font-semibold text-[#64748b] hover:text-[#1e40af]"
+                                    onClick={() =>
+                                        setRoundSort((s) => (s === 'asc' ? 'desc' : s === 'desc' ? null : 'asc'))
+                                    }
+                                    title="회차 정렬 (오름차순 ↔ 내림차순)"
+                                    type="button"
+                                >
+                                    회차 {roundSort === 'asc' ? '▲' : roundSort === 'desc' ? '▼' : '↕'}
+                                </button>
+                            </th>
                             <th className="px-4 py-2 font-semibold">성함</th>
                             <th className="px-4 py-2 font-semibold">업체</th>
                             <th className="px-4 py-2 font-semibold">글 제목</th>
@@ -486,8 +627,8 @@ function SettlementTab() {
                                     불러오는 중…
                                 </td>
                             </tr>
-                        ) : rows.length ? (
-                            rows.map((r) => (
+                        ) : visible.length ? (
+                            visible.map((r) => (
                                 <tr className="border-b border-[#f1f5f9] last:border-b-0" key={r.id}>
                                     <td className="px-4 py-2">
                                         {r.paid ? (
@@ -519,7 +660,9 @@ function SettlementTab() {
                         ) : (
                             <tr>
                                 <td className="px-4 py-10 text-center text-sm text-[#94a3b8]" colSpan={7}>
-                                    아직 승인되어 정산된 글이 없습니다.
+                                    {blogFilter === 'all'
+                                        ? '아직 승인되어 정산된 글이 없습니다.'
+                                        : '이 업체의 정산 내역이 없습니다.'}
                                 </td>
                             </tr>
                         )}

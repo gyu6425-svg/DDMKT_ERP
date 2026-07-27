@@ -26,6 +26,7 @@ from playwright.sync_api import sync_playwright
 
 import comment_cafe as cc
 import accounts as acct     # 계정 → 크롬 포트(멀티계정)
+import heartbeat as hb      # 살아있음 신호(hang 감지용)
 from comment_templates import (build_comment, region_from_title, _lead_region,
                                classify_business)
 
@@ -55,8 +56,10 @@ def _title_matches(keyword, title):
     return any(a in (title or "") for a in aliases)
 # 계정 간 시차(분) — 같은 글에 여러 계정이 동시에 달리면 티가 나므로 계정 순서대로 늦춘다.
 #   n번째 계정 지연 = n × STAGGER_MIN ± JITTER. 기본 10±5 → 1번째 즉시, 2번째 5~15분, 3번째 15~25분.
-STAGGER_MIN = float(os.environ.get("CAFE_CMT_STAGGER_MIN", "10"))
-STAGGER_JITTER = float(os.environ.get("CAFE_CMT_STAGGER_JITTER", "5"))
+STAGGER_MIN = float(os.environ.get("CAFE_CMT_STAGGER_MIN", "8"))
+STAGGER_JITTER = float(os.environ.get("CAFE_CMT_STAGGER_JITTER", "4"))
+# 첫 댓글도 발행 직후 바로 달리면 티가 난다 → 최소 이만큼(분) 뒤부터 시작(사장님: 너무 빠르지 않게).
+STAGGER_BASE = float(os.environ.get("CAFE_CMT_STAGGER_BASE", "6"))
 # ⚠️ 답글 전용 계정(=글 작성자)은 일반 댓글 대상에서 제외한다.
 #   작성자가 자기 글에 "저도 알아보던 중이었는데" 같은 댓글을 달면 명백히 어색하다.
 #   accounts.txt 에는 답글을 달기 위해 등록돼 있을 뿐이므로 여기서 걸러야 한다.
@@ -134,12 +137,15 @@ def process_watch(page, w, canon_acct=None):
     # 이 카페에 댓글 달 계정 목록.
     #   감시행에 account 가 지정돼 있으면 그 계정만, 비어 있으면 accounts.txt 의 '모든 계정'.
     #   → 새 글 하나당 계정 수만큼 댓글이 달린다(계정별 중복판정이라 계정당 1개씩).
+    # 이 카페의 '작성자=대댓글' 계정은 자기 글에 댓글을 달면 안 되니 제외한다.
+    #   마이클 → rlawhddls25 제외, ddnusu → dog6425 제외, 더반 → 제외 없음(댓글만).
+    cafe_reply = (acct.reply_account_for(cafe_url) or "").lower()
     if w.get("account"):
         targets = [canon_acct]
     else:
-        # 답글 전용 계정(작성자)은 제외 — 자기 글에 일반 댓글을 달면 안 된다.
         targets = [x["name"] for x in acct.load_accounts()
-                   if x["name"].lower() not in REPLY_ONLY]
+                   if x["name"].lower() not in REPLY_ONLY
+                   and x["name"].lower() != cafe_reply]
     if not targets:
         _log("⚠️ 댓글 달 계정이 없음(전부 답글 전용?) — 건너뜀")
         return 0
@@ -193,7 +199,7 @@ def process_watch(page, w, canon_acct=None):
             used_bodies.add(body)
             # 같은 글에 여러 계정이 동시에 달리면 티가 나므로 계정마다 시차를 둔다.
             #   n번째 계정 = 기준시각 + (n × STAGGER_MIN) ± 지터. 리스너가 이 시각 전엔 처리하지 않는다.
-            delay = idx * STAGGER_MIN + random.uniform(-STAGGER_JITTER, STAGGER_JITTER)
+            delay = STAGGER_BASE + idx * STAGGER_MIN + random.uniform(-STAGGER_JITTER, STAGGER_JITTER)
             # astimezone(): 오프셋을 붙여 저장해야 DB(timestamptz)가 UTC 로 오해하지 않는다.
             when = datetime.datetime.now().astimezone() + datetime.timedelta(minutes=max(0.0, delay))
             try:
@@ -244,7 +250,7 @@ def run_once(cdp_url=None):
                 continue
             url = cdp_url or ("http://127.0.0.1:%d" % a["port"])
             try:
-                browser = p.chromium.connect_over_cdp(url)
+                browser = p.chromium.connect_over_cdp(url, timeout=20000)   # 좀비 크롬에 180초 멈춤 방지
             except Exception as e:
                 _log(f"[{a['name']}:{a['port']}] 크롬 접속 실패(꺼짐?): {str(e)[:80]}")
                 continue
@@ -277,11 +283,12 @@ def main():
         run_once(args.cdp); return
     _log(f"카페 새글 감시 시작 — 주기 {INTERVAL_MIN}분 — Ctrl+C 종료")
     while True:
+        hb.beat("watch")   # 살아있음 신호(멈추면 워치독이 되살림)
         try:
             run_once(args.cdp)
         except Exception as e:
             _log(f"루프 오류: {str(e)[:100]}")
-        time.sleep(INTERVAL_MIN * 60)
+        hb.sleep_beating("watch", INTERVAL_MIN * 60)   # 대기 중에도 60초마다 신호
 
 
 if __name__ == "__main__":

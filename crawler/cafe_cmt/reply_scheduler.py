@@ -27,6 +27,7 @@ import time
 
 import accounts as acct
 import comment_cafe as cc
+import heartbeat as hb      # 살아있음 신호(hang 감지용)
 from comment_templates import region_from_comment, classify_business
 from reply_templates import build_reply, region_from_text
 
@@ -38,6 +39,15 @@ except Exception:
 INTERVAL_MIN = int(os.environ.get("CAFE_CMT_REPLY_MIN", "20"))      # 예약기 주기(분)
 REPLY_PER_POST = int(os.environ.get("CAFE_CMT_REPLY_PER_POST", "2"))  # 글당 답글 수
 REPLY_ACCOUNT = os.environ.get("CAFE_CMT_REPLY_ACCOUNT", "rlawhddls25")
+# 답글은 '대댓글 계정(rlawhddls25)이 작성자/회원인 카페'에서만 단다.
+#   그 계정은 ddmkt2 발행 정체성이라, 남의 카페(예: thebanclean=더반클린)에 답글을 달면
+#   ①회원이 아니라 실패하고 ②'작성자 응답' 톤이 안 맞는다. 여기 토큰이 URL 에 있어야만 답글.
+REPLY_CAFES = {x.strip() for x in os.environ.get("CAFE_CMT_REPLY_CAFES", "ddmkt2,31754130").split(",") if x.strip()}
+
+
+def _reply_allowed(url):
+    u = url or ""
+    return any(tok in u for tok in REPLY_CAFES)
 # 답글이 댓글 직후에 바로 달리면 티가 나므로 최소 이만큼 지난 댓글에만 답글을 단다(분).
 REPLY_AFTER_MIN = int(os.environ.get("CAFE_CMT_REPLY_AFTER_MIN", "20"))
 # 답글끼리도 시차를 둔다(분).
@@ -46,6 +56,8 @@ REPLY_STAGGER_JITTER = float(os.environ.get("CAFE_CMT_REPLY_STAGGER_JITTER", "6"
 # 최근 몇 건의 댓글을 살필지. 60 이면 밀린 글이 많을 때(예: 과거글 일괄 보충) 오래된 댓글이
 #   조회창 밖으로 밀려 영영 답글을 못 받는다. 넉넉히 본다(조회 1회라 비용도 미미).
 LOOKBACK = int(os.environ.get("CAFE_CMT_REPLY_LOOKBACK", "300"))
+# 한 글에 답글이 이만큼 실패하면 그 글은 포기(삭제된 글 등) — 무한 재시도 방지.
+REPLY_FAIL_GIVEUP = int(os.environ.get("CAFE_CMT_REPLY_FAIL_GIVEUP", "3"))
 
 
 def _log(m):
@@ -78,13 +90,11 @@ def _match_watch(body, watches):
 
 
 def run_once():
-    a = acct.find_account(REPLY_ACCOUNT)
-    if a is None:
-        _log(f"❌ 답글 계정 '{REPLY_ACCOUNT}' 가 accounts.txt 에 없음 — 등록 후 로그인 필요")
-        return
+    # 대댓글 계정은 '카페별 작성자'로 정한다(마이클→rlawhddls25, ddnusu→dog6425).
+    #   아래 글별 루프에서 그 글의 카페에 맞는 계정을 고른다.
     try:
         rows = cc.sb_get("cafe_comment_queue", {
-            "select": "id,account,article_url,body,status,reply_to_body,done_at,created_at",
+            "select": "id,account,article_url,body,status,reply_to_body,done_at,created_at,reason",
             "order": "created_at.desc", "limit": str(LOOKBACK),
         })
     except Exception as e:
@@ -106,6 +116,8 @@ def run_once():
             continue
         if r.get("status") != "done":       # 실제로 달린 댓글만
             continue
+        if acct.reply_account_for(r.get("article_url", "")) is None:
+            continue                        # 대댓글 계정 없는 카페(더반 등)는 댓글만 — 대댓글 안 함
         body = (r.get("body") or "").strip()
         if not body or body in replied:
             continue
@@ -119,21 +131,38 @@ def run_once():
                     continue                 # 너무 최근 댓글 — 조금 묵혔다가
         except Exception:
             pass
-        by_article.setdefault(cc.article_key(r.get("article_url", "")), []).append(r)
+        by_article.setdefault(cc.article_uid(r.get("article_url", "")), []).append(r)
 
     if not by_article:
         return
     queued = 0
     last_body = None
     for akey, cands in by_article.items():
+        # 이 글의 카페에 맞는 대댓글 계정(작성자). 미등록이면 건너뜀.
+        a = acct.find_account(acct.reply_account_for(cands[0].get("article_url", "")))
+        if a is None:
+            _log(f"  ⏭ 대댓글 계정 미등록 — 글#{akey} 건너뜀")
+            continue
         # 이 글에 이미 달린 답글 수 만큼 빼서 목표치를 채운다
         # 실패한 답글은 할당량에서 빼야 한다. 예전엔 fail 도 세서, 두 번 실패하면
         #   그 글은 have=2 가 되어 다시는 답글을 못 받았다(replied 집합과 판정이 어긋났음).
         have = sum(1 for r in rows
                    if r.get("reply_to_body") and r.get("status") != "fail"
-                   and cc.article_key(r.get("article_url", "")) == akey)
+                   and cc.article_uid(r.get("article_url", "")) == akey)
         need = REPLY_PER_POST - have
         if need <= 0:
+            continue
+        # 답글이 계속 실패하는 글 = 글이 삭제됐거나(답글쓰기 버튼 없음) 구조 문제.
+        #   그만 시도한다 — 안 그러면 매 주기 새 답글을 만들어 무한 실패한다
+        #   (2026-07-21 삭제된 #38 에 매시간 답글 시도가 쌓이던 실제 사고).
+        # 삭제/비공개 글은 즉시 포기(한 번이라도 '글 없음' 이 뜨면 그 글은 사라진 것).
+        if any(("글 없음" in (r.get("reason") or "") or "삭제" in (r.get("reason") or ""))
+               and cc.article_uid(r.get("article_url", "")) == akey for r in rows):
+            continue
+        fails = sum(1 for r in rows
+                    if r.get("reply_to_body") and r.get("status") == "fail"
+                    and cc.article_uid(r.get("article_url", "")) == akey)
+        if fails >= REPLY_FAIL_GIVEUP:
             continue
         picks = random.sample(cands, min(need, len(cands)))
         for i, r in enumerate(picks):
@@ -183,11 +212,12 @@ def main():
         run_once(); return
     _log(f"답글 예약기 시작 — 주기 {INTERVAL_MIN}분 · 글당 {REPLY_PER_POST}개 · 계정 {REPLY_ACCOUNT} — Ctrl+C 종료")
     while True:
+        hb.beat("reply")   # 살아있음 신호(멈추면 워치독이 되살림)
         try:
             run_once()
         except Exception as e:
             _log(f"루프 오류: {str(e)[:100]}")
-        time.sleep(INTERVAL_MIN * 60)
+        hb.sleep_beating("reply", INTERVAL_MIN * 60)   # 대기 중에도 60초마다 신호
 
 
 if __name__ == "__main__":

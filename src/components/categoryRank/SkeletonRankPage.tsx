@@ -77,12 +77,14 @@ export function CategoryDashPage({
     dashboard,
     tracker,
     crawl,
+    sheet: customSheet,
 }: {
     category: string;
     label: string;
     dashboard?: ReactNode;
     tracker?: ReactNode;
     crawl?: ReactNode;
+    sheet?: ReactNode;
 }) {
     const href = useLocHref();
     const displayLabel = subLabelOf(href, `${label} 대시보드`);
@@ -91,7 +93,7 @@ export function CategoryDashPage({
     if (hasSub) {
         const scope = resolveScope(href);
         const sheet = scope ? (
-            <ContractSheetTab category={scope.category} subtype={scope.subtype} />
+            customSheet ?? <ContractSheetTab category={scope.category} subtype={scope.subtype} />
         ) : (
             <Placeholder name={displayLabel} />
         );
@@ -113,7 +115,7 @@ export function CategoryDashPage({
             label={`${label} 대시보드`}
             tabs={[
                 { name: '대시보드', el: dashboard ?? <Placeholder name={`${label} 대시보드`} />, slug: 'dashboard' },
-                { name: '관리 시트', el: <ContractSheetTab category={category} />, slug: 'sheet' },
+                { name: '관리 시트', el: customSheet ?? <ContractSheetTab category={category} />, slug: 'sheet' },
                 { name: '순위 트래커', el: tracker ?? <Placeholder name="순위 트래커" />, slug: 'tracker' },
                 { name: '크롤링 현황', el: crawl ?? <Placeholder name="크롤링 현황" />, slug: 'crawl' },
             ]}

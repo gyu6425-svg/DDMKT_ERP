@@ -29,6 +29,13 @@ import datetime
 from urllib.parse import quote, unquote, urlparse
 
 import requests
+import socket
+
+# ⚠️ 전역 소켓 타임아웃 — feedparser.parse(url) 는 내부적으로 urllib 로 가져오는데 timeout 인자가 없어
+#    네이버 RSS 소켓이 멈추면 '영원히' 대기한다(2026-07-22 실제 사고: 17:35 RSS 대기로 크롤 전체 정지,
+#    공유 crawler.log 핸들까지 물려 16시간 outage). requests 는 각자 timeout 을 두지만 feedparser 는
+#    이 전역값에 의존하므로 반드시 설정. (requests 의 명시 timeout 이 이 값보다 우선하니 영향 없음.)
+socket.setdefaulttimeout(25)
 
 # Windows 백신/방화벽이 TLS를 가로채(자체 루트 CA 주입) certifi 검증이 실패하는 환경 대응.
 # OS(윈도) 신뢰 저장소를 그대로 쓰게 해 SSL CERTIFICATE_VERIFY_FAILED 를 막는다. 없으면 무시.
@@ -125,8 +132,15 @@ TODAY = datetime.date.today().isoformat()
 
 # ── 공용 유틸 ────────────────────────────────────────────
 def parse_blog_url(url: str):
-    """blog.naver.com/{id}/{logNo} → (id, logNo). 둘 다 없으면 (None, None)."""
-    m = re.search(r"(?:m\.)?blog\.naver\.com/([^/?#]+)(?:/(\d{6,}))?", url or "")
+    """blog.naver.com/{id}/{logNo} → (id, logNo). 둘 다 없으면 (None, None).
+    경로형 + 모바일 PostView(?blogId=&logNo=) 둘 다 인식."""
+    u = url or ""
+    # 모바일 PostView: m.blog.naver.com/PostView.naver?blogId=xxx&logNo=nnn (쿼리에 아이디·글번호)
+    q_bid = re.search(r"[?&]blogId=([^&#]+)", u)
+    q_lno = re.search(r"[?&]logNo=(\d{6,})", u)
+    if q_bid or q_lno:
+        return (q_bid.group(1) if q_bid else None), (q_lno.group(1) if q_lno else None)
+    m = re.search(r"(?:m\.)?blog\.naver\.com/([^/?#]+)(?:/(\d{6,}))?", u)
     if not m:
         return None, None
     return m.group(1), m.group(2)
@@ -1266,6 +1280,37 @@ def _is_popular_section(j):
     return found[0]
 
 
+# 인기글 섹션 안 '광고' 카드 — 네이버 광고는 이동링크가 ader.naver.com 으로 나간다.
+#   (2026-07-23 실측: '강남 입주청소' 인기글 r=1~3 이 전부 ader.naver.com 광고, r=4 부터 실제 글.
+#    광고를 순위에 세면 실제 4위가 7위로 밀려 보임 → 사용자 요청으로 광고 제외 후 다시 센다.)
+_AD_HOST_RE = re.compile(r"https?://ader\.naver\.com/", re.I)
+
+
+def _ad_ranks_cafe(j):
+    """이 섹션 블록에서 '광고' 카드의 r 집합. 같은 r 에 실제 링크도 있으면 광고로 보지 않는다(보수적)."""
+    ads, real = set(), set()
+
+    def w(o):
+        if isinstance(o, dict):
+            r = _node_min_r(o)
+            if isinstance(r, (int, float)) and not isinstance(r, bool) and r != 0:
+                ri = int(r)
+                for k in _PRIMARY_NAV_FIELDS:
+                    v = o.get(k)
+                    if isinstance(v, str) and v:
+                        (ads if _AD_HOST_RE.search(v) else real).add(ri)
+            for k, v in o.items():
+                if k in _PRIMARY_EXCLUDE_KEYS:
+                    continue
+                w(v)
+        elif isinstance(o, list):
+            for x in o:
+                w(x)
+
+    w(j)
+    return ads - real
+
+
 def _rank_in_cafe_section(html_text, cafe_name, article_id, club_id=None):
     """통합검색 HTML → 카페 글의 '인기글 테마 섹션 내 순위'(clickLog.r). (2026-07-16 기준 변경)
     status: ok=섹션 내 순위 / out=섹션은 있으나 우리 글 없음(권외) / no_section=인기글 섹션 자체 없음(측정불가) / fail=차단."""
@@ -1282,10 +1327,18 @@ def _rank_in_cafe_section(html_text, cafe_name, article_id, club_id=None):
         if not _is_popular_section(j):
             continue
         saw_section = True
-        for r, ids in _ugb_cards_cafe(j).items():
+        cards = _ugb_cards_cafe(j)
+        ad_rs = _ad_ranks_cafe(j)                       # 광고 카드의 r
+        # 광고를 뺀 나머지를 화면 위에서부터 다시 1,2,3… 으로 센다(사용자 기준: 광고 제외 순위).
+        organic = sorted(r for r in cards if r not in ad_rs)
+        pos = {r: i + 1 for i, r in enumerate(organic)}
+        for r, ids in cards.items():
+            if r in ad_rs:
+                continue
             if _cafe_id_match(ids, cafe_name, club_id, article_id):
-                if best is None or r < best:
-                    best = r
+                rk = pos.get(r, r)
+                if best is None or rk < best:
+                    best = rk
     if best is not None:
         return int(best), "ok"
     if not saw_section:
@@ -1541,6 +1594,10 @@ def _process_blog(acc, kw_by_acc, force=False):
         for post in upserted:
             if post.get("excluded"):
                 continue  # 순위 트래커에서 삭제한 글 — 측정 안 함(재등록돼도 excluded 유지)
+            # 글 번호 없는 URL(블로그 대문 주소 등) = 개별 글이 특정 안 됨 → 최신글로 오배정되므로 측정하지 않음.
+            #   저장 보고는 링크를 안 받아 이런 글이 생기지 않지만, 과거 대문 URL 데이터도 무조건 스킵.
+            if not extract_log_no(post.get("post_url", "")):
+                continue
             keyword = post.get("keyword_manual") or post.get("keyword") or ""
             if not keyword:
                 continue
@@ -1700,7 +1757,9 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
         have = {it["url"] for it in b["posts"]}
         for p in posts_by_acc.get(b["acc"]["id"], []):
             u = p.get("post_url")
-            if u and u not in have:
+            # 글 번호 없는 URL(블로그 대문 주소 등)은 개별 글 특정 불가 → 최신글로 오배정되므로 측정 대상에서 제외.
+            #   저장 보고는 링크를 안 받아 새로 안 생기지만, 과거 대문 URL 추적글도 무조건 제외.
+            if u and u not in have and extract_log_no(u):
                 b["posts"].append({"row": p, "rss_tags": [], "url": u, "title": p.get("title") or ""})
                 have.add(u)
         # 최신순(발행일 내림차순) — 최신 글부터 측정.
@@ -1719,6 +1778,10 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
                 continue
             item, acc, blog_id = b["posts"][i], b["acc"], b["blog_id"]
             row = item["row"]
+            # 방어: 글 번호 없는 URL(대문 주소)은 측정하지 않음(오배정 방지). 병합 단계에서 이미 걸러지지만 이중 안전판.
+            if not extract_log_no(item.get("url", "")):
+                done += 1
+                continue
             tr = next((r for r in (row.get("measurements") or []) if r.get("date") == TODAY), None)
             if not force and tr and tr.get("ti_status") != "fail" and tr.get("bl_status") != "fail":
                 done += 1
@@ -1827,6 +1890,12 @@ def run_spread(force=False, max_posts=None, chunk_size=5, gap_min=6, deadline=No
     for i, group in enumerate(groups):
         if not group:
             continue
+        # ★ 하드 마감(H8/2026-07-22 하드닝) — deadline 은 원래 '청크 시작 간격'만 벌려서, 마지막 청크가
+        #   느리면 08:30 을 넘겨 09:05 당일글·09:20 플레이스와 겹친다(같은 IP 동시요청 → 소프트차단).
+        #   여기서 마감(end) 을 넘겼으면 남은 청크를 아예 시작하지 않는다(진행 중 청크는 마치되 새로 안 시작).
+        if end is not None and datetime.datetime.now() >= end:
+            print(f"  ⏹ 마감({deadline}) 초과 — 남은 {nch - i}청크 중단(다음 크롤과 겹침 방지)", flush=True)
+            break
         print(f"[청크 {i + 1}/{nch}] 블로그 {len(group)}개 측정", flush=True)
         run_breadth(force=force, only_ids=set(group))
         ETA_HINT = _eta_hint(i + 1)                        # 청크 완료마다 예상 완료시각 갱신

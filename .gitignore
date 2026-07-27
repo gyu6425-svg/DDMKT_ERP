@@ -53,3 +53,5 @@ public/images/_*.png
 
 # codex 로컬 훅(머신 경로 박힘) — 커밋 제외
 .codex/
+# 카페 댓글 자동화 heartbeat(런타임 살아있음 신호 — 커밋 안 함)
+crawler/cafe_cmt/.hb_*

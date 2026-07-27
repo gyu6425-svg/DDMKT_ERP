@@ -344,9 +344,14 @@ export async function approveReport(
     const bookReport: BlogPostReport = { ...report, out_amount: outAmount ?? report.out_amount };
 
     // 2) 추적글 생성(같은 URL 이미 추적 중이면 재사용) → blog_post_id 연결.
-    const base = (report.post_url || '').split('?')[0];
+    //    개별 글 주소(글 번호 포함)일 때만 만든다. 저장(빈 URL)이나 블로그 대문 주소(글 번호 없음)는
+    //    순위 트래커가 최신글로 오배정되므로 추적글을 만들지 않는다(측정대기·오배정 원천 차단).
+    const full = report.post_url || '';
+    const base = full.split('?')[0];
+    // 경로형(/224…) + 모바일 PostView(?logNo=224…) 둘 다 개별 글로 인정.
+    const hasArticle = /\/\d{6,}/.test(base) || /[?&]logNo=\d{6,}/i.test(full);
     let postId: string | null = null;
-    if (base) {
+    if (hasArticle) {
         const { data: existing } = await supabase
             .from('blog_posts')
             .select('id,post_url')
@@ -354,7 +359,7 @@ export async function approveReport(
         const hit = (existing ?? []).find((p) => (p.post_url || '').split('?')[0] === base);
         if (hit) postId = (hit as { id: string }).id;
     }
-    if (!postId) {
+    if (hasArticle && !postId) {
         const { data: post } = await supabase
             .from('blog_posts')
             .insert({
@@ -378,36 +383,72 @@ export async function approveReport(
     return { error: err, processed, outUnit, mode };
 }
 
-// 기자단 '발행' 처리 — 저장으로 보고한 글을 발행했을 때. report_type만 publish로 + published_at.
+// 기자단 '발행' 처리 — 저장으로 보고한 글을 발행했을 때. report_type을 publish로 + published_at + 실제 글 주소.
 //   계약/카운트는 승인 시 이미 1회 처리되므로 여기서는 재계상하지 않는다(중복 방지). RLS: 본인 보고만.
-export async function markPublished(reportId: string) {
+//   저장 보고는 링크를 안 받으므로, 발행 시점에 실제 글 주소(글 번호 포함)를 넣는다 → 그 뒤 크롤러가
+//   공개된 글을 잡아 순위 추적. postUrl 미지정이면 기존 URL 유지.
+export async function markPublished(reportId: string, postUrl?: string) {
     // RPC(SECURITY DEFINER)로 발행 이동. 기자단의 직접 UPDATE는 RLS상 status='rejected'만 허용돼
     //   저장(pending/confirmed)건이 0행 업데이트로 조용히 실패하던 문제를 해결(권한 상승 없이 발행 이동만).
-    const { error } = await supabase.rpc('mark_report_published', { p_report_id: reportId });
+    const { error } = await supabase.rpc('mark_report_published', {
+        p_report_id: reportId,
+        p_post_url: postUrl?.trim() || null,
+    });
+    // 마이그레이션(reporter-publish-url.sql) 실행 전이면 2-인자 RPC가 없다 → 구 1-인자로 폴백(발행 이동만).
+    if (error && /PGRST202|Could not find the function|does not exist|schema cache/i.test(error.message || '')) {
+        const { error: e2 } = await supabase.rpc('mark_report_published', { p_report_id: reportId });
+        return { error: e2 };
+    }
     return { error };
 }
 
+export type ReportEditPayload = {
+    blog_account_id: string;
+    post_url: string;
+    keyword?: string | null;
+    title: string;
+    report_type: ReportType;
+    round?: number | null;
+};
+
 // 재보고(기자단) — 반려된 본인 보고를 수정해 다시 대기(pending)로. type/제목 유지·수정.
-export async function resubmitReport(
-    id: string,
-    payload: { blog_account_id: string; post_url: string; keyword?: string | null; title: string; report_type: ReportType },
-) {
-    const { error } = await supabase
-        .from('blog_post_reports')
-        .update({
-            blog_account_id: payload.blog_account_id,
-            post_url: payload.post_url,
-            keyword: payload.keyword ?? null,
-            title: payload.title,
-            report_type: payload.report_type,
-            status: 'pending',
-            note: null,
-            reviewed_at: null,
-            reviewed_by: null,
-            blog_post_id: null,
-        })
-        .eq('id', id);
+export async function resubmitReport(id: string, payload: ReportEditPayload) {
+    // 드리프트 대응 — round 등 새 컬럼이 없을 수 있어 bprUpdate 로 재시도.
+    const { error } = await bprUpdate(id, {
+        blog_account_id: payload.blog_account_id,
+        post_url: payload.post_url,
+        keyword: payload.keyword ?? null,
+        title: payload.title,
+        report_type: payload.report_type,
+        round: payload.round ?? null,
+        status: 'pending',
+        note: null,
+        reviewed_at: null,
+        reviewed_by: null,
+        blog_post_id: null,
+    });
     return { error };
+}
+
+// 대기(pending) 보고 수정(기자단) — 검토 중인 본인 보고를 수정하되 상태는 대기 그대로 유지.
+//   RLS 'bpr 기자단 대기수정'(docs/reporter-report-edit.sql) 필요 — 없으면 0행(조용히 미반영).
+//   status/reviewed_* 는 건드리지 않는다(대기 유지). blog_post_id 도 그대로(대기라 애초에 null).
+export async function updatePendingReport(id: string, payload: ReportEditPayload) {
+    const { data, error } = await bprUpdate(id, {
+        blog_account_id: payload.blog_account_id,
+        post_url: payload.post_url,
+        keyword: payload.keyword ?? null,
+        title: payload.title,
+        report_type: payload.report_type,
+        round: payload.round ?? null,
+    });
+    if (error) return { error };
+    // 0행 반영 = RLS 정책(reporter-report-edit.sql) 미적용이거나 대기 상태가 아님 → 조용한 실패 방지.
+    if (!data || data.length === 0)
+        return {
+            error: { message: '수정이 반영되지 않았습니다 · 검토 중 보고만 수정 가능(회사 승인 SQL 미실행 여부 확인)' },
+        };
+    return { error: null };
 }
 
 // 반려(회사) — 대기(pending) 건만. 이미 승인된 건을 반려로 되돌릴 수 없게 막는다.

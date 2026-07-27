@@ -139,6 +139,23 @@ def article_key(url):
     return m.group(1) if m else (url or "").strip()
 
 
+def club_id(url):
+    """URL 에서 카페 식별자(clubid 숫자, 없으면 카페 영문명)."""
+    u = url or ""
+    m = re.search(r'clubid=(\d+)', u)
+    if m:
+        return m.group(1)
+    m = re.search(r'cafe\.naver\.com/([^/?#]+)', u)
+    return m.group(1) if m else ""
+
+
+def article_uid(url):
+    """카페까지 구분하는 글 고유키 = '카페:글번호'.
+    ⚠️ article_key(글번호만)는 카페가 달라도 번호가 같으면 충돌한다(ddnusu#2 vs thebanclean#2).
+       중복 판정·글별 그룹핑은 이 uid 로 해야 다른 카페의 같은 번호 글을 안 섞는다."""
+    return f"{club_id(url)}:{article_key(url)}"
+
+
 def already_commented(url, exclude_id=None, account=None):
     """이 글에 이미 (완료/처리중) 댓글 잡이 있으면 True — 중복 댓글 방지.
 
@@ -149,6 +166,7 @@ def already_commented(url, exclude_id=None, account=None):
     key = article_key(url)
     if not key:
         return False
+    uid = article_uid(url)   # 카페까지 구분(다른 카페의 같은 번호 글과 충돌 방지)
     params = {
         "status": "in.(done,processing)", "select": "id,article_url,account",
         "order": "created_at.desc", "limit": "500",
@@ -173,7 +191,7 @@ def already_commented(url, exclude_id=None, account=None):
     for r in rows:
         if exclude_id and r.get("id") == exclude_id:
             continue
-        if article_key(r.get("article_url", "")) == key:
+        if article_uid(r.get("article_url", "")) == uid:
             return True
     return False
 
@@ -242,7 +260,10 @@ def _posted_check(scope, box, body):
 
 
 def _connect(p, cdp_url):
-    browser = p.chromium.connect_over_cdp(cdp_url)
+    # timeout 을 짧게(기본 180초 → 20초). 크롬이 좀비(포트는 열렸는데 CDP 무응답)면
+    #   기본값으로는 180초씩 멈춰 데몬 전체가 마비된다(2026-07-22 실제 사고). 빨리 실패시켜
+    #   재시도 대상으로 돌리고, 워치독이 크롬을 되살리게 한다.
+    browser = p.chromium.connect_over_cdp(cdp_url, timeout=20000)
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
     # 도우미 프로세스가 잠깐 여는 탭은 작업 탭으로 오인·선택하지 않는다.
     #   keep_alive.py → #keepalive, watch_new_posts.py → #watch.
@@ -283,8 +304,15 @@ def _find_in_frames(page, selectors, timeout=4000):
 def _goto_article(page, url):
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_timeout(2500)
-    if re.search(r"nid\.naver\.com|nidlogin", page.url or ""):
+    cur = page.url or ""
+    if re.search(r"nid\.naver\.com|nidlogin", cur):
         raise RuntimeError("LOGIN_REQUIRED: 네이버 로그인 필요 — 크롬 9224 에서 로그인하세요")
+    # 삭제/비공개 글: 그 글 주소로 갔는데 글번호가 사라지고 카페 홈으로 튕기면 = 글 없음.
+    #   댓글창이 없어 '입력창 못 찾음'으로 5번 재시도하던 걸(삭제된 #54 실측) 즉시 포기시킨다.
+    #   정상 글은 최종 URL 에 글번호가 남아(article_key 일치) 오탐 없음(실측: #55 유지 / #54 홈).
+    aid = article_key(url)
+    if aid and aid.isdigit() and article_key(cur) != aid:
+        raise RuntimeError(f"글 없음(삭제/비공개): #{aid} — 재시도 안 함")
 
 
 def diag(page, url):

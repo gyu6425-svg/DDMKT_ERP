@@ -21,6 +21,7 @@ import time
 
 import comment_cafe as cc   # 같은 디렉터리(자립) — cafe_pub 를 import 하지 않음
 import accounts as acct     # 계정 → 크롬 포트(멀티계정)
+import heartbeat as hb      # 살아있음 신호(hang 감지용)
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -34,17 +35,19 @@ BATCH = int(os.environ.get("CAFE_CMT_BATCH", "60"))
 MAX_TRY = int(os.environ.get("CAFE_CMT_MAX_TRY", "5"))            # 재시도 한도(초과 시 영구 실패)
 RETRY_BACKOFF_MIN = float(os.environ.get("CAFE_CMT_RETRY_BACKOFF_MIN", "3"))
 RETRY_TAG = "재시도 "                                              # reason 에 남겨 횟수를 추적
-MIN_GAP_MIN = int(os.environ.get("CAFE_CMT_MIN_GAP_MIN", "20"))    # 댓글 최소 간격(분) — 계정별
+MIN_GAP_MIN = int(os.environ.get("CAFE_CMT_MIN_GAP_MIN", "15"))    # 댓글 최소 간격(분) — 계정별
+#  ⚠️ 실제 운영값은 cafe_cmt/.env 의 CAFE_CMT_MIN_GAP_MIN 이 우선(현재 15).
+#  20→15: 20분은 뒷 계정이 처지고, 8분은 너무 빨라 보여서 15분으로(사장님: 적당히).
 # 답글 전용 계정(글 작성자)의 간격 — 자기 글 관리라 짧게 둬도 자연스럽다.
 REPLY_GAP_MIN = int(os.environ.get("CAFE_CMT_REPLY_GAP_MIN", "10"))
 REPLY_ACCOUNTS = {x.strip().lower() for x in
                   os.environ.get("CAFE_CMT_REPLY_ACCOUNT", "rlawhddls25").split(",") if x.strip()}
 NO_SEND = os.environ.get("CAFE_CMT_NO_SEND", "1") != "0"           # 기본 수동보조(등록 직전까지)
-# 작업 정지 시간대(HH:MM-HH:MM). 두 가지 이유로 둔다.
-#   1) 다른 PC의 전체크롤이 평일 03:00~09:00 에 돌아, 겹치지 않게 비워둔다(docs/크롤링-운영.md).
-#   2) 새벽 4시에 댓글이 달리는 것 자체가 부자연스럽다.
-#   이 시간엔 게시만 멈추고 큐는 그대로 쌓인다(끝나면 이어서 처리).
-QUIET = os.environ.get("CAFE_CMT_QUIET", "03:00-09:00").strip()
+# 작업 정지 시간대(HH:MM-HH:MM). 자정(00:00) 넘어가면 게시 멈추고 아침 09:00 에 재개.
+#   1) 새벽에 댓글이 달리는 것 자체가 부자연스럽고, 사장님 요청(00시 이후 정지).
+#   2) 다른 PC 전체크롤(평일 03:00~09:00)도 이 구간에 포함돼 겹치지 않는다.
+#   이 시간엔 게시만 멈추고 큐는 그대로 쌓인다(09시에 이어서 처리).
+QUIET = os.environ.get("CAFE_CMT_QUIET", "00:00-09:00").strip()
 _last = {}                                                        # 계정별 마지막 게시 시각(멀티계정 처리량 확보)
 
 
@@ -110,6 +113,7 @@ def main():
 
     quiet_logged = False
     while True:
+        hb.beat("listener")   # 살아있음 신호(멈추면 워치독이 되살림)
         if _in_quiet():
             if not quiet_logged:
                 print(f"[{datetime.datetime.now():%H:%M}] ⏸ 정지 시간대({QUIET}) — 게시 보류(큐는 유지). "
