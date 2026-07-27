@@ -2511,10 +2511,12 @@ export function ClientDetail({
     }, [client.id]);
     // SPA 내비게이션(카페 대시보드 딥링크) — pushState + app:navigate 이벤트.
     const goCafe = (tab: 'tracker' | 'sheet') => {
-        const path =
-            tab === 'tracker' && cafeAcct
+        let path = '/cafe-rank?tab=sheet';
+        if (tab === 'tracker') {
+            path = cafeAcct
                 ? `/cafe-rank?tab=tracker&company=${encodeURIComponent(cafeAcct.company_key)}`
-                : '/cafe-rank?tab=sheet';
+                : '/cafe-rank?tab=tracker';
+        }
         window.history.pushState(null, '', path);
         window.dispatchEvent(new Event('app:navigate'));
     };
@@ -3173,7 +3175,7 @@ export function ClientDetail({
                                 <span className="rounded-full bg-[#e0e7ff] px-2.5 py-0.5 text-xs font-bold text-[#4338ca]">
                                     {c.label}
                                 </span>
-                                {c.label === '카페' && cafeAcct ? (
+                                {c.label === '카페' ? (
                                     <>
                                         <button
                                             type="button"
