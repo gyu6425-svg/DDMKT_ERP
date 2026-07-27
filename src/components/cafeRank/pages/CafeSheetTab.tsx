@@ -164,7 +164,7 @@ export function CafeSheetTab() {
                         ) : rows.length ? rows.map((a) => {
                             const st = statByAccount.get(a.id) || { total: 0, ranked: 0 };
                             const goal = a.goal_count || 0;
-                            const done = a.done_count || 0;
+                            const done = st.total; // 발행완료 = 실제 추적(발행)된 글 수 — 자동
                             const pct = goal ? Math.min(100, Math.round((done / goal) * 100)) : 0;
                             const pc = !goal ? '#cbd5e1' : pct >= 70 ? '#059669' : pct >= 40 ? '#d97706' : '#dc2626';
                             const remain = goal ? Math.max(0, goal - done) : null;
@@ -207,10 +207,10 @@ export function CafeSheetTab() {
                                         />
                                     </td>
                                     <td className="px-3 py-2">
-                                        <div className="flex items-center gap-1.5">
-                                            {numCell(a, 'done_count', '0', 'w-12')}
+                                        <div className="flex items-center gap-1.5 text-[12px]">
+                                            <span className="font-semibold text-[#0f172a]">{done}</span>
                                             <span className="text-[11px] text-[#94a3b8]">/</span>
-                                            {numCell(a, 'goal_count', '건수', 'w-12')}
+                                            {numCell(a, 'goal_count', '목표', 'w-14')}
                                         </div>
                                         <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-[#f1f5f9]">
                                             <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pc }} />
