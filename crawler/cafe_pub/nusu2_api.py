@@ -16,7 +16,8 @@
 import os, sys, json, threading, subprocess, socket, glob as _glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-CAFE = os.path.dirname(os.path.abspath(__file__))
+# 데이터 폴더 — 프리즈 시 agent_main 이 CAFE_DATA_DIR(exe 옆) 로 넘긴다. 없으면 이 파일 위치(무변경).
+CAFE = os.environ.get("CAFE_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
 
 
 def _chrome_path():

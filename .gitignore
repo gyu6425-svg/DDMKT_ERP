@@ -18,6 +18,9 @@ dist-ssr
 # 고객 에이전트 실제 설정(비번·키 포함) — 견본(agent.env.example)만 추적
 agent.env
 **/agent.env
+# 에이전트 빌드 산출물(PyInstaller)
+crawler/cafe_pub/build/
+crawler/cafe_pub/dist/
 
 # Editor directories and files
 .vscode/*
