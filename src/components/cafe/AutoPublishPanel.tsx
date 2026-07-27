@@ -162,12 +162,39 @@ export function AutoPublishPanel({ company }: { company: CompanyKey }) {
         let failed = 0;
         let skipped = 0;
 
+        // 누수(leak)는 스캔 통과 지역을 nusu2 브릿지로 생성한다(위치스택 제목+동·지역CTA·실사페어·
+        //   카드·존댓말). 스캔 자체가 인기글 검증이므로 popular_verified 로 넘어간다. JS 생성/배너 미사용.
+        if (company === 'leak') {
+            if (!(await nusu2Health())) {
+                setBridgeUp(false);
+                setPhase('scanned');
+                return setMsg('브릿지 서버(8788) 꺼짐 — run_nusu2_api.bat 실행 후 다시 시도');
+            }
+            for (let i = 0; i < rows.length; i += 1) {
+                if (abort) break;
+                rows[i] = { ...rows[i], status: 'nusu2 생성·큐 등록중…' };
+                setGen([...rows]);
+                try {
+                    const r = await queueNusu2({ region: rows[i].region, kind: 'nusu', company, board: cfg.board });
+                    rows[i] = { ...rows[i], status: `큐 등록 완료 — ${r.title}`, jobId: r.job_id };
+                    queued += 1;
+                } catch (e) {
+                    rows[i] = { ...rows[i], status: `실패: ${e instanceof Error ? e.message : String(e)}` };
+                    failed += 1;
+                }
+                setGen([...rows]);
+            }
+            setReport({ queued, failed, skipped });
+            setPhase('done');
+            return;
+        }
+
         for (let i = 0; i < rows.length; i += 1) {
             if (abort) break;
             const region = rows[i].region;
             const kw = rows[i].keyword;
-            // 누수: 제목을 "{지역} 누수탐지 {SEO 세컨}" 으로. 세컨은 SEO 찾기로 넣은 키워드들을 글마다 돌려쓴다.
-            const scenes = company === 'leak' ? kws : [];
+            // leak 은 위 브릿지 분기에서 처리·반환됨 → 여기는 theman/seolgo 만. 세컨 키워드 미사용.
+            const scenes: string[] = [];
             const scene = scenes.length ? scenes[i % scenes.length] : '';
             const fullKw = scene ? `${region} ${kw} ${scene}` : `${region} ${kw}`;
 

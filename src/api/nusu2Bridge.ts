@@ -32,6 +32,42 @@ export async function queueNusu2(input: Nusu2QueueInput): Promise<Nusu2QueueResu
     return data as Nusu2QueueResult;
 }
 
+// 온보딩 — 브릿지가 그 PC에서 '보이는 크롬'을 remote-debugging 포트로 띄운다(네이버 로그인용).
+//   웹UI는 로컬 크롬을 직접 못 띄우므로, 그 PC에서 도는 브릿지가 대신 실행 → 사용자가 창에서 직접 로그인.
+export async function launchLogin(profile: string, port: string, url?: string): Promise<{ ok: boolean; already?: boolean; error?: string }> {
+    try {
+        const r = await fetch(`${BRIDGE}/api/login/launch`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profile, port, url }),
+        });
+        return await r.json();
+    } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+}
+
+// 로그인 크롬(포트)이 떠 있는지 확인.
+export async function loginPing(port: string): Promise<boolean> {
+    try {
+        const r = await fetch(`${BRIDGE}/api/login/ping?port=${encodeURIComponent(port)}`);
+        const d = await r.json();
+        return Boolean(d && d.alive);
+    } catch {
+        return false;
+    }
+}
+
+// 계층 스캔용 — 지역의 실재 동 목록 + 구 형태(서울 자치구)를 브릿지(python 단일소스)에서 받는다.
+export async function fetchDongs(region: string): Promise<{ dongs: string[]; gu: string[] }> {
+    try {
+        const r = await fetch(`${BRIDGE}/api/nusu2/dongs?region=${encodeURIComponent(region)}`);
+        const d = await r.json();
+        return { dongs: Array.isArray(d.dongs) ? d.dongs : [], gu: Array.isArray(d.gu) ? d.gu : [] };
+    } catch {
+        return { dongs: [], gu: [] };
+    }
+}
+
 // 브릿지 서버가 켜져 있는지 확인(끄져 있으면 UI에서 안내).
 export async function nusu2Health(): Promise<boolean> {
     try {
