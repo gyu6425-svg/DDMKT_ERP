@@ -29,11 +29,15 @@ import truststore
 truststore.inject_into_ssl()
 from PIL import Image, ImageEnhance, ImageOps
 
+import sb_auth   # Supabase 인증(서비스키 레거시 / publishable+내부JWT). 라이브 sub2 는 서비스키 그대로.
+
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 requests.packages.urllib3.disable_warnings()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+# 자산 루트 — 기본은 repo public/images(레이아웃 유지 시). 패키징/고객 배포는 CAFE_ASSETS_DIR 로 덮어쓴다.
+ASSETS_DIR = os.environ.get("CAFE_ASSETS_DIR") or os.path.join(ROOT, "public", "images")
 CAFE_BUCKET = "cafe-images"
 UA_PC = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36"
 
@@ -50,7 +54,7 @@ ADD_LINK = os.environ.get("CAFE_ADD_LINK", "1") == "1"   # 0이면 링크카드 
 
 # 실사 현장사진 풀(개별 사진, 글마다 2장씩 깔끔하게 좌우로 붙여 삽입 → 유사문서 회피).
 #  ※고정 HERO(원고 캡처) 폐기. ※'누수탐지_real'은 검정 합성 없는 개별 사진 폴더(사용자 제공 2026-07-24).
-REAL_DIR = "C:/Users/rlawh/sub2/public/images/누수탐지_real/"
+REAL_DIR = os.path.join(ASSETS_DIR, "누수탐지_real")
 REAL_PER_POST = (2, 3)          # 글당 삽입할 '2장 페어' 슬롯 수(랜덤). 슬롯당 사진 2장 사용.
 
 def _real_photos():
@@ -75,11 +79,11 @@ def _pair_photos(p2):
     b = io.BytesIO(); canvas.save(b, format="JPEG", quality=90)
     return b.getvalue()
 
-CTA_DIR = "C:/Users/rlawh/sub2/public/images/nusu2-cta/"
+CTA_DIR = os.path.join(ASSETS_DIR, "nusu2-cta")
 CTA_FILES = {"서울": "서울.png", "경기": "경기.png", "인천": "인천.png"}
 
 # 내장 배너 카드 세트(누수탐지 '기본 내장 2~8', 1254×1254) — 실사와 섞어 본문에 삽입.
-CARDS_DIR = "C:/Users/rlawh/sub2/public/images/cafe-fixed/"
+CARDS_DIR = os.path.join(ASSETS_DIR, "cafe-fixed")
 CARDS_PER_POST = 3              # 글당 삽입할 카드 배너 수(7장 중 랜덤)
 
 def _fixed_cards():
@@ -103,9 +107,14 @@ _load_env()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
+# 원고 생성 CF 엔드포인트 — 설정하면 CF 경유(로컬 OpenAI 키 불필요), 미설정이면 레거시 직접호출(OPENAI_KEY).
+#   배포 에이전트는 배포된 /api/generate-cafe URL 로 지정한다. 라이브 sub2 는 미설정 → 직접호출 유지.
+GENERATE_API = os.environ.get("CAFE_GENERATE_API", "").strip()
+BUSINESS_KIND = "leak"   # CF 롱폼 프롬프트 선택(누수탐지). ddclean 은 'clean'.
 
 def sb_headers():
-    return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+    # 서비스키 또는 publishable+내부JWT — sb_auth 가 env 로 판정. 라이브(env 미설정)=서비스키 그대로.
+    return sb_auth.headers()
 
 def _log(m): print(m, flush=True)
 
@@ -430,9 +439,33 @@ def _clean_endings(body):
     return body
 
 
+def _cf_generate(region, dong=None, note=""):
+    """원고 1회 생성을 CF(/api/generate-cafe, variant=longform)로 위임 → {title, body}.
+    프롬프트·시드풀은 서버(functions/lib/cafeLongform.mjs)가 만든다 → 로컬 OpenAI 키 불필요."""
+    payload = {"variant": "longform", "businessKind": BUSINESS_KIND,
+               "region": region, "dong": dong or "", "retryNote": note}
+    r = requests.post(GENERATE_API, headers={"Content-Type": "application/json"},
+                      data=json.dumps(payload), timeout=150)
+    d = r.json()
+    if not r.ok:
+        raise RuntimeError(f"CF 원고 생성 실패({r.status_code}): {d.get('message', '')[:120]}")
+    u = d.get("usage") or {}
+    if u:
+        _log(f"    [사용량] 입력 {u.get('input_tokens', '?')} · 출력 {u.get('output_tokens', '?')} 토큰")
+    return {"title": d.get("title", ""), "body": d.get("body", "")}
+
+
+def _generate_once(region, dong=None, note=""):
+    """원고 1회 생성 → {title, body}. GENERATE_API 설정 시 CF 경유(로컬 키 0),
+    미설정이면 레거시 직접 OpenAI 호출(OPENAI_KEY). note = 재생성 시 위반 지적 문구."""
+    if GENERATE_API:
+        return _cf_generate(region, dong, note)
+    return _openai_review(_body_prompt(region, dong) + note)
+
+
 def gen_nusu2(region, dong=None):
     """후기형 롱폼 순수텍스트 본문 생성. 1,800자 미만 또는 평서체 다수면 최대 3회 재생성."""
-    best = _openai_review(_body_prompt(region, dong))
+    best = _generate_once(region, dong)
     for _ in range(3):   # 길이(1,800+) & 존댓말 어투 둘 다 만족할 때까지(더 긴/깨끗한 쪽 유지)
         if _blen(best.get("body", "")) >= 1800 and _plain_count(best.get("body", "")) <= 1:
             break
@@ -441,8 +474,8 @@ def gen_nusu2(region, dong=None):
             reason.append(f'{_blen(best.get("body",""))}자로 1,800자 미만')
         if _plain_count(best.get("body", "")) > 1:
             reason.append('평서체(~다/~했다) 문장이 섞임 → 전부 존댓말(~했습니다/~어요)로')
-        p = _openai_review(_body_prompt(region, dong) +
-            f'\n\n[매우 중요] 방금 원고가 {" · ".join(reason)} 규칙 위반이다. '
+        p = _generate_once(region, dong,
+            note=f'\n\n[매우 중요] 방금 원고가 {" · ".join(reason)} 규칙 위반이다. '
             '모든 문장을 존댓말 후기체로 끝내고(평서체 절대 금지), 공백 포함 2,000~3,000자로 다시 작성하라.')
         # 존댓말이면서 충분히 긴 쪽을 우선. (기존은 길이만 봤음)
         if _plain_count(p.get("body", "")) <= _plain_count(best.get("body", "")) and \
@@ -718,8 +751,10 @@ def main():
     ap.add_argument("--dry", action="store_true", help="필터/제외만 확인(생성·발행 안 함)")
     args = ap.parse_args()
     regions = [r.strip() for r in args.regions.split(",") if r.strip()] or DEFAULT_REGIONS
-    if not (SUPABASE_URL and SUPABASE_KEY and OPENAI_KEY):
-        _log("env 부족(SUPABASE_*/OPENAI_API_KEY)"); return
+    if not sb_auth.ready():
+        _log("Supabase 인증 미비 — SUPABASE_URL + (SUPABASE_SERVICE_KEY 또는 publishable+내부계정) 필요"); return
+    if not GENERATE_API and not OPENAI_KEY:
+        _log("원고 생성 불가 — CAFE_GENERATE_API(CF 경유) 또는 OPENAI_API_KEY(직접) 중 하나 필요"); return
 
     _log(f"=== 카페 자동발행(nusu2): 업종 '{BUSINESS}' · 후보 {len(regions)}개 · 목표 {args.limit}건 ===")
     _log(f"실사 현장사진 {len(_real_photos())}장 풀(글당 {REAL_PER_POST[0]}~{REAL_PER_POST[1]}장) · CTA: 서울/경기/인천 3종")

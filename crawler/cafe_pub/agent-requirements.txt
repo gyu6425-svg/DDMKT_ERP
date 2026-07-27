@@ -1,0 +1,7 @@
+# 고객 발행 에이전트(agent_main.py) 최소 의존성 — 이 4개면 충분.
+#   설치: pip install -r agent-requirements.txt
+#   ※ playwright 는 '시스템 크롬에 CDP attach' 로 쓰므로 `playwright install chromium`(브라우저 다운로드) 불필요.
+playwright
+requests
+truststore
+pillow

@@ -13,10 +13,44 @@
    실행: run_nusu2_api.bat  (또는 py -u nusu2_api.py). .env 는 자동 로드.
    ※ nusu2 make_and_queue 는 module-global COMPANY/BOARD_NAME/ADD_LINK 를 읽으므로,
      요청별 company/board 오버라이드는 _lock 으로 직렬화해 모듈 전역을 잠깐 바꿔 호출한다."""
-import os, sys, json, threading
+import os, sys, json, threading, subprocess, socket, glob as _glob
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CAFE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _chrome_path():
+    for p in [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+    ]:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def _port_alive(port):
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _launch_login_chrome(profile, port, url):
+    """보이는 크롬을 remote-debugging 포트로 띄운다(로그인/발행용 프로필 세션 저장). 이미 떠 있으면 재사용."""
+    if _port_alive(port):
+        return {"ok": True, "already": True, "port": port, "profile": profile}
+    chrome = _chrome_path()
+    if not chrome:
+        raise RuntimeError("Chrome 실행파일을 찾을 수 없습니다(설치 확인).")
+    profile_dir = os.path.join(CAFE, profile)
+    args = [chrome, f"--remote-debugging-port={port}", f"--user-data-dir={profile_dir}",
+            "--window-size=1400,950", "--no-first-run", "--no-default-browser-check",
+            url or "https://nid.naver.com/nidlogin.login"]
+    subprocess.Popen(args, close_fds=True)
+    return {"ok": True, "already": False, "port": port, "profile": profile}
 
 
 def _load_env(path):
@@ -89,10 +123,44 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/api/nusu2/health"):
             self._json(200, {"ok": True, "durban": DURBAN is not None})
-        else:
-            self._json(404, {"ok": False, "error": "not found"})
+            return
+        if self.path.startswith("/api/login/ping"):
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            port = (q.get("port", ["9227"])[0] or "9227").strip()
+            self._json(200, {"alive": _port_alive(port), "port": port})
+            return
+        if self.path.startswith("/api/nusu2/dongs"):
+            # 계층 스캔용 — 지역의 실재 동 목록 + 구 형태(서울 자치구) 반환. (python 단일소스)
+            from urllib.parse import urlparse, parse_qs, unquote
+            q = parse_qs(urlparse(self.path).query)
+            region = unquote((q.get("region", [""])[0] or "").strip())
+            r = region
+            short = r[:-1] if (r.endswith("구") and r[:-1] in NUSU.SEOUL_GU) else r
+            dongs = list(NUSU.DONG_DICT.get(short) or NUSU.METRO_DONG.get(short) or NUSU.METRO_DONG.get(r) or [])
+            gu = []  # 서울 자치구면 구/짧은형 둘 다 후보(영등포구 / 영등포)
+            if short in NUSU.SEOUL_GU:
+                gu = [short + "구", short]
+            self._json(200, {"region": region, "dongs": dongs, "gu": gu})
+            return
+        self._json(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
+        if self.path.startswith("/api/login/launch"):
+            try:
+                n = int(self.headers.get("Content-Length", "0"))
+                data = json.loads(self.rfile.read(n) or b"{}")
+                profile = (data.get("profile") or "").strip()
+                port = str(data.get("port") or "").strip()
+                if not profile or not port:
+                    self._json(400, {"ok": False, "error": "profile·port 필요"})
+                    return
+                res = _launch_login_chrome(profile, port, (data.get("url") or "").strip())
+                print(f"[nusu2_api] login chrome {profile}:{port} (already={res.get('already')})", flush=True)
+                self._json(200, res)
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)[:200]})
+            return
         if not self.path.startswith("/api/nusu2/queue"):
             self._json(404, {"ok": False, "error": "not found"})
             return
@@ -121,7 +189,15 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def serve(block=True):
+    """브릿지 서버 기동. agent_main 이 스레드로 띄울 때는 block=False 로 서버 객체만 받아 돌린다."""
+    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    print(f"[nusu2_api] listening 127.0.0.1:{PORT} (durban={DURBAN is not None})", flush=True)
+    if block:
+        srv.serve_forever()
+    return srv
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    print(f"[nusu2_api] listening 127.0.0.1:{PORT} (durban={DURBAN is not None})", flush=True)
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    serve(block=True)

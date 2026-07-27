@@ -187,8 +187,9 @@ def _warn_stuck_posted():
 
 
 def main():
-    if not pc.SUPABASE_URL or not pc.SUPABASE_KEY:
-        print("SUPABASE_URL / SUPABASE_SERVICE_KEY 필요(../.env)", flush=True); sys.exit(1)
+    if not pc.auth_ready():
+        print("Supabase 인증 미비 — SUPABASE_URL + (SUPABASE_SERVICE_KEY 또는 "
+              "SUPABASE_PUBLISHABLE_KEY+SUPABASE_AUTH_EMAIL+SUPABASE_AUTH_PASSWORD) 필요", flush=True); sys.exit(1)
     mode = "수동보조(등록 직전까지)" if NO_SEND else "완전 자동(등록 클릭)"
     print(f"[카페 발행 리스너] cafe_publish_queue 폴링 {POLL_SEC}s · 간격 {MIN_GAP_MIN}분 · {mode} — Ctrl+C 종료", flush=True)
     _init_last_pub_from_db()   # 재시작해도 발행 간격 유지(DB 기준)

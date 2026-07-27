@@ -8,6 +8,15 @@
 -- ⚠️ Section B 는 기존 'using(true)' 정책을 교체 → 적용 전에 반드시:
 --    (1) 모든 내부 직원이 public.users 에 행이 있는지 확인(is_internal 기준).
 --    (2) 적용 후 내부 계정으로 로그인해 블로그 대시보드 데이터가 보이는지 확인.
+--
+-- ⚠️⚠️ 재실행/충돌 주의(2026-07-27):
+--   · 이 파일은 is_internal() 을 '다른 방식'(customer_companies 매핑 없음=내부)으로 재정의한다.
+--     현재 라이브 소스(docs/enable-login-rls.sql)는 is_internal()=(profiles.client_id IS NULL).
+--     둘을 섞어 돌리면 마지막 실행본이 이겨 권한 기준이 통째로 바뀐다 — 이 다대다 모델을
+--     정식 채택할 때만 실행하고, 아니면 Section A2(profiles.client_id 단순형)만 쓴다.
+--   · Section A 정책들은 create 앞에 drop-if-exists 가 없어 재실행 시 "already exists" 에러가 난다.
+--     ❌ 그때 정책 DROP 만 따로 떼어 돌리지 말 것 — RLS 켜진 채 정책 0개면 그 테이블 전체 차단(락아웃).
+--     고칠 땐 해당 섹션의 drop+create 를 한 묶음으로 함께 실행한다.
 -- =====================================================================
 
 

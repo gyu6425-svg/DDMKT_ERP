@@ -3,7 +3,16 @@
 --   핵심 교정: 권한 판정은 profiles.user_id = auth.uid() 기준 (profiles.id 아님!).
 --   프론트 anon 키가 공개돼 있으므로, 로그인한 실제 사용자만 데이터 접근하도록 서버가 강제.
 --   크롤러(service_role 키)는 RLS 우회 → 영향 없음.
+--
+-- ⚠️⚠️ 재실행 안전(idempotent): 이 파일은 위→아래 통째로 몇 번을 다시 돌려도 안전하다.
+--   각 정책은 항상 `drop policy if exists → create policy` 한 묶음이라 "already exists" 에러가 안 난다.
+--   ❌ 절대 하지 말 것: 정책 DROP 만 따로 떼어 실행. RLS 는 켜졌는데 정책이 0개면 그 테이블은
+--      "전부 차단"이 되어 계약관리·고객 데이터가 화면에서 통째로 사라진다(2026-07-27 실제 사고).
+--      고칠 때는 반드시 이 파일 전체(또는 해당 섹션의 drop+create 한 묶음)를 함께 돌린다.
+--   BEGIN/COMMIT 로 감쌌으니 중간에 에러가 나면 통째로 롤백된다(RLS만 켜진 반쪽 상태를 안 남긴다).
 -- ============================================================================
+
+begin;
 
 -- ── 0) 첫 로그인 강제 비밀번호 변경 플래그 ───────────────────────────────
 alter table public.profiles
@@ -46,6 +55,8 @@ drop policy if exists "본인 담당 수정" on public.clients;
 drop policy if exists "관리자 고객 수정" on public.clients;
 drop policy if exists "로그인 사용자 등록" on public.clients;
 drop policy if exists "clients all" on public.clients;
+drop policy if exists "clients 내부 전체" on public.clients;       -- ★ 재실행 안전: 새 정책도 항상 drop 후 create
+drop policy if exists "clients 고객 본인 읽기" on public.clients;
 create policy "clients 내부 전체" on public.clients
   for all to authenticated using (public.is_internal()) with check (public.is_internal());
 create policy "clients 고객 본인 읽기" on public.clients
@@ -54,6 +65,8 @@ create policy "clients 고객 본인 읽기" on public.clients
 -- ── 4) client_contracts ──────────────────────────────────────────────────
 alter table public.client_contracts enable row level security;
 drop policy if exists "client_contracts all authenticated" on public.client_contracts;
+drop policy if exists "client_contracts 내부 전체" on public.client_contracts;
+drop policy if exists "client_contracts 고객 본인 읽기" on public.client_contracts;
 create policy "client_contracts 내부 전체" on public.client_contracts
   for all to authenticated using (public.is_internal()) with check (public.is_internal());
 create policy "client_contracts 고객 본인 읽기" on public.client_contracts
@@ -62,12 +75,15 @@ create policy "client_contracts 고객 본인 읽기" on public.client_contracts
 -- ── 5) contract_data ─────────────────────────────────────────────────────
 alter table public.contract_data enable row level security;
 drop policy if exists "contract_data all" on public.contract_data;
+drop policy if exists "contract_data 내부 전체" on public.contract_data;
 create policy "contract_data 내부 전체" on public.contract_data
   for all to authenticated using (public.is_internal()) with check (public.is_internal());
 
 -- ── 6) blog_accounts — 내부 전체, 고객 자기 업체만 read ───────────────────
 alter table public.blog_accounts enable row level security;
 drop policy if exists "blog_accounts auth" on public.blog_accounts;
+drop policy if exists "blog_accounts 내부 전체" on public.blog_accounts;
+drop policy if exists "blog_accounts 고객 본인 읽기" on public.blog_accounts;
 create policy "blog_accounts 내부 전체" on public.blog_accounts
   for all to authenticated using (public.is_internal()) with check (public.is_internal());
 create policy "blog_accounts 고객 본인 읽기" on public.blog_accounts
@@ -76,6 +92,8 @@ create policy "blog_accounts 고객 본인 읽기" on public.blog_accounts
 -- ── 7) blog_posts / blog_keywords — 내부 전체, 고객은 자기 업체 글만 ──────
 alter table public.blog_posts enable row level security;
 drop policy if exists "blog_posts auth" on public.blog_posts;
+drop policy if exists "blog_posts 내부 전체" on public.blog_posts;
+drop policy if exists "blog_posts 고객 본인 읽기" on public.blog_posts;
 create policy "blog_posts 내부 전체" on public.blog_posts
   for all to authenticated using (public.is_internal()) with check (public.is_internal());
 create policy "blog_posts 고객 본인 읽기" on public.blog_posts
@@ -85,6 +103,8 @@ create policy "blog_posts 고객 본인 읽기" on public.blog_posts
 
 alter table public.blog_keywords enable row level security;
 drop policy if exists "blog_keywords auth" on public.blog_keywords;
+drop policy if exists "blog_keywords 내부 전체" on public.blog_keywords;
+drop policy if exists "blog_keywords 고객 본인 읽기" on public.blog_keywords;
 create policy "blog_keywords 내부 전체" on public.blog_keywords
   for all to authenticated using (public.is_internal()) with check (public.is_internal());
 create policy "blog_keywords 고객 본인 읽기" on public.blog_keywords
@@ -104,6 +124,8 @@ begin
       using (public.is_internal()) with check (public.is_internal())$p$, t, t);
   end loop;
 end $$;
+
+commit;   -- 여기까지 무사통과해야 반영. 중간 에러 시 begin 이후 전부 롤백(반쪽 RLS 상태 방지).
 
 -- ============================================================================
 -- 적용 순서(권장): 0~2 먼저 실행 → 내부계정 로그인해서 profiles 로드/비번변경 확인

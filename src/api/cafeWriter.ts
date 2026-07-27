@@ -145,7 +145,7 @@ export async function generateCafe(input: GenerateCafeInput): Promise<GenerateCa
 export type GenerateCafeReviewResult = { title: string; reviewBody: string; topics?: string[]; usage?: CafeTokenUsage | null; model?: string | null; check?: { ok: boolean; problems: string[] } | null };
 
 // 인기글 필터 — 브라우저는 CORS 로 네이버를 못 부르므로 로컬 서버(:8787)가 대신 검사한다.
-export type PopularReason = 'ok' | 'no_popular' | 'no_review_block' | 'serp_fetch_failed';
+export type PopularReason = 'ok' | 'no_popular' | 'no_review_block' | 'serp_fetch_failed' | 'blocked' | 'crawler_busy';
 export async function checkPopular(keyword: string, signal?: AbortSignal): Promise<{ hasPopular: boolean; reason: PopularReason }> {
     const url = import.meta.env.DEV ? 'http://127.0.0.1:8787/api/cafe-popular-check' : '/api/cafe-popular-check';
     const res = await fetch(url, {

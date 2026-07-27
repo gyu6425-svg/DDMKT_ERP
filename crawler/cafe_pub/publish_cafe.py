@@ -31,6 +31,7 @@ import tempfile
 import pathlib
 import requests
 
+import sb_auth   # Supabase 인증 헤더(서비스키 레거시 / publishable+내부JWT). 라이브는 서비스키 그대로.
 from playwright.sync_api import sync_playwright
 
 try:
@@ -161,7 +162,13 @@ def _log(m):
 
 
 def _headers():
-    return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
+    # 서비스키(레거시) 또는 publishable+내부계정 JWT — sb_auth 가 env 로 판정(라이브=서비스키 무변경).
+    return sb_auth.headers("application/json")
+
+
+def auth_ready():
+    """발행에 필요한 Supabase 인증이 준비됐는가(URL + 서비스키 또는 publishable 경로)."""
+    return sb_auth.ready()
 
 
 def sb_get(path, params=None):
