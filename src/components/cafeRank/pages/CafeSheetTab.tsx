@@ -46,8 +46,8 @@ export function CafeSheetTab() {
 
     // 업체(계정)별 추적 글 수 · 인기글 진입 수 — cafe_account_id 우선, 없으면 board_short 매칭.
     const statByAccount = useMemo(() => {
-        const m = new Map<string, { total: number; ranked: number }>();
-        for (const a of accounts) m.set(a.id, { total: 0, ranked: 0 });
+        const m = new Map<string, { total: number; ranked: number; achieved: number }>();
+        for (const a of accounts) m.set(a.id, { total: 0, ranked: 0, achieved: 0 });
         for (const p of posts) {
             let acc = accounts.find((a) => a.id === p.cafe_account_id);
             if (!acc) acc = accounts.find((a) => a.board_short === (p.board || ''));
@@ -56,6 +56,8 @@ export function CafeSheetTab() {
             s.total += 1;
             const last = p.measurements?.[p.measurements.length - 1];
             if (last?.ti_status === 'ok') s.ranked += 1;
+            // 5위 24h 유지 달성(자동) — 수동 베이스라인에 없던 글만(seeded=false).
+            if (p.top5_achieved_at && !p.top5_seeded) s.achieved += 1;
         }
         return m;
     }, [accounts, posts]);
@@ -162,9 +164,10 @@ export function CafeSheetTab() {
                         {loading ? (
                             <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={10}>불러오는 중…</td></tr>
                         ) : rows.length ? rows.map((a) => {
-                            const st = statByAccount.get(a.id) || { total: 0, ranked: 0 };
+                            const st = statByAccount.get(a.id) || { total: 0, ranked: 0, achieved: 0 };
+                            const base = a.done_count || 0;   // 수동 베이스라인
+                            const done = base + st.achieved;  // 실적 = 베이스라인 + 자동 달성(5위 24h)
                             const goal = a.goal_count || 0;
-                            const done = a.done_count || 0; // 실적 = 인기글 5위 안 24h 유지 달성 수(자동 집계 예정 · 현재 수동)
                             const pct = goal ? Math.min(100, Math.round((done / goal) * 100)) : 0;
                             const pc = !goal ? '#cbd5e1' : pct >= 70 ? '#059669' : pct >= 40 ? '#d97706' : '#dc2626';
                             const remain = goal ? Math.max(0, goal - done) : null;
@@ -207,10 +210,12 @@ export function CafeSheetTab() {
                                         />
                                     </td>
                                     <td className="px-3 py-2">
-                                        <div className="flex items-center gap-1.5 text-[12px]" title="실적(인기글 5위 안 24h 유지 달성) / 목표">
+                                        <div className="flex items-center gap-1.5 text-[12px]" title="실적 = 베이스라인(수동) + 자동달성(인기글 5위 24h 유지) / 목표">
                                             {numCell(a, 'done_count', '실적', 'w-12')}
+                                            {st.achieved > 0 ? <span className="text-[10px] font-bold text-[#059669]" title="자동 달성(5위 24h)">+{st.achieved}</span> : null}
                                             <span className="text-[11px] text-[#94a3b8]">/</span>
                                             {numCell(a, 'goal_count', '목표', 'w-12')}
+                                            <span className="ml-0.5 text-[11px] font-semibold text-[#475569]">= {done}</span>
                                         </div>
                                         <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-[#f1f5f9]">
                                             <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pc }} />

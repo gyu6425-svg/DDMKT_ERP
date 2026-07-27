@@ -58,6 +58,11 @@ def main():
         c.log_crawl_run("카페순위", ok + fail, fail)
     except Exception:
         pass
+    try:
+        import cafe_top5_tracker
+        cafe_top5_tracker.run()   # 5위 24h 유지 실적 집계
+    except Exception as exc:
+        print(f"  top5 집계 오류: {exc}", flush=True)
 
 
 if __name__ == "__main__":

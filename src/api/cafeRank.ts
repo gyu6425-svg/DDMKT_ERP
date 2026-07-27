@@ -16,6 +16,9 @@ export type CafeRankPost = {
     keyword_manual: string | null;
     published_date: string | null;
     board: string | null; // 게시판(누수 / 설고점 / 더맨시스템 / 더티클리닉…) — 동일 카페 내 게시판 구분
+    top5_since?: string | null; // 인기글 5위 연속 진입 시각
+    top5_achieved_at?: string | null; // 5위 24h 유지 달성 시각(실적)
+    top5_seeded?: boolean | null; // 수동 베이스라인에 포함된 글(자동 카운트 제외)
     cafe_account_id?: string | null;
     cafe_accounts?: { company_key: string; display_name: string; board_short: string } | null;
     excluded: boolean;

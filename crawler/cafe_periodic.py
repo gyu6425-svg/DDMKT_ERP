@@ -17,6 +17,7 @@ truststore.inject_into_ssl()
 import blog_rank_crawler as c
 import cafe_rank_sync
 import cafe_board_crawl
+import cafe_top5_tracker
 
 INTERVAL = int(sys.argv[1]) if len(sys.argv) > 1 else 1800   # 기본 30분
 # 블로그 크롤에 막혔을 때는 30분을 통째로 기다리지 않고 짧게 재시도한다.
@@ -74,9 +75,15 @@ def _sleep_to_next_slot():
 def _measure_new():
     today = datetime.date.today().isoformat()
     posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*"})
-    todo = [p for p in posts if not any((m.get("date") == today) for m in (p.get("measurements") or []))]
+    # 대상 = ① 오늘 미측정 글 + ② 현재 5위 안인 글(30분마다 재측정해 24h 유지 여부 확인 — 사용자 선택).
+    def _top5(p):
+        ms = p.get("measurements") or []
+        cur = ms[-1] if ms else {}
+        return cur.get("ti_status") == "ok" and isinstance(cur.get("ti"), (int, float)) and not isinstance(cur.get("ti"), bool) and cur.get("ti") <= 5
+    todo = [p for p in posts
+            if (not any((m.get("date") == today) for m in (p.get("measurements") or []))) or _top5(p)]
     if not todo:
-        print(f"[{datetime.datetime.now():%H:%M}] 미측정 없음 — {len(posts)}글 모두 오늘 측정됨", flush=True)
+        print(f"[{datetime.datetime.now():%H:%M}] 재측정 대상 없음 — {len(posts)}글", flush=True)
         return
     print(f"[{datetime.datetime.now():%H:%M}] 미측정 {len(todo)}글 측정 시작", flush=True)
     for p in todo:
@@ -126,11 +133,16 @@ def main():
                 pass
             except Exception as exc:
                 print(f"  sync 오류: {exc}", flush=True)
-            # 3) 신규 포함 미측정 글 측정
+            # 3) 신규 포함 미측정 글 + 현재 5위 글 재측정
             try:
                 _measure_new()
             except Exception as exc:
                 print(f"  측정 오류: {exc}", flush=True)
+            # 4) 5위 24h 유지 실적 집계(글별 상태만 갱신, done_count 미변경)
+            try:
+                cafe_top5_tracker.run()
+            except Exception as exc:
+                print(f"  top5 집계 오류: {exc}", flush=True)
         _sleep_to_next_slot()   # 다음 고정 슬롯(:20/:50)까지 — 블로그 당일크롤(:05/:35)과 15분 어긋남
 
 
