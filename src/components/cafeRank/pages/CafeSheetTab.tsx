@@ -146,7 +146,6 @@ export function CafeSheetTab() {
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">업체</th>
                             <th className="px-3 py-2 font-semibold">카페</th>
-                            <th className="px-3 py-2 font-semibold">계약금액</th>
                             <th className="px-3 py-2 font-semibold">계약일</th>
                             <th className="px-3 py-2 font-semibold">담당</th>
                             <th className="px-3 py-2 font-semibold">진행률</th>
@@ -159,7 +158,7 @@ export function CafeSheetTab() {
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={11}>불러오는 중…</td></tr>
+                            <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={10}>불러오는 중…</td></tr>
                         ) : rows.length ? rows.map((a) => {
                             const st = statByAccount.get(a.id) || { total: 0, ranked: 0 };
                             const goal = a.goal_count || 0;
@@ -187,7 +186,6 @@ export function CafeSheetTab() {
                                         </a>
                                         <div className="text-[10px] text-[#94a3b8]">{a.cafe_name}</div>
                                     </td>
-                                    <td className="px-3 py-2">{numCell(a, 'amount', '원', 'w-24')}</td>
                                     <td className="px-3 py-2">
                                         <input
                                             className="h-8 w-28 rounded border border-[#e2e8f0] px-1.5 text-[12px]"
@@ -229,7 +227,7 @@ export function CafeSheetTab() {
                                     </td>
                                 </tr>
                             );
-                        }) : <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={11}>등록된 카페 업체가 없습니다.</td></tr>}
+                        }) : <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={10}>등록된 카페 업체가 없습니다.</td></tr>}
                     </tbody>
                 </table>
             </div>
