@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { generateCafe, generateCafeReview, generateLongform } from '../../api/cafeWriter';
 import { checkPopularBridge, nusu2Health } from '../../api/nusu2Bridge';
-import { createCustomerPublishJob, listMyCafeJobs } from '../../api/cafePublishQueue';
+import { createCustomerPublishJob, listMyCafeJobs, listMyPublishedPairs } from '../../api/cafePublishQueue';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeAgentSetup } from './CafeAgentSetup';
@@ -60,6 +60,41 @@ function fileToDataUrl(file: File): Promise<string> {
     });
 }
 
+// 실사 2장을 좌우로 붙여 1장으로(더반 _pair_photos 방식) — 높이 맞춰 나란히, 가운데 흰 여백.
+function composePair(a: string, b: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const ia = new Image(); const ib = new Image();
+        let loaded = 0; const gap = 8;
+        const done = () => {
+            if ((loaded += 1) < 2) return;
+            const h = Math.min(ia.height || 800, ib.height || 800) || 800;
+            const wa = Math.round((ia.width || h) * h / (ia.height || h));
+            const wb = Math.round((ib.width || h) * h / (ib.height || h));
+            const canvas = document.createElement('canvas');
+            canvas.width = wa + gap + wb; canvas.height = h;
+            const ctx = canvas.getContext('2d'); if (!ctx) { reject(new Error('canvas')); return; }
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(ia, 0, 0, wa, h);
+            ctx.drawImage(ib, wa + gap, 0, wb, h);
+            resolve(canvas.toDataURL('image/jpeg', 0.9));
+        };
+        ia.onload = done; ib.onload = done;
+        ia.onerror = () => reject(new Error('이미지 합성 실패')); ib.onerror = () => reject(new Error('이미지 합성 실패'));
+        ia.src = a; ib.src = b;
+    });
+}
+
+// 실사 배치 랜덤 — 순서대로 훑으며 확률로 2장 좌우페어(1장) 또는 낱개. 홀수 끝은 단독. 결과 = 삽입할 실사 목록.
+async function pairPhotosRandom(list: string[]): Promise<string[]> {
+    const out: string[] = [];
+    let i = 0;
+    while (i < list.length) {
+        if (i + 1 < list.length && Math.random() < 0.5) { out.push(await composePair(list[i], list[i + 1])); i += 2; }
+        else { out.push(list[i]); i += 1; }
+    }
+    return out;
+}
+
 export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     const [approved, setApproved] = useState<boolean | null>(null);
     const [board, setBoard] = useState<string | null>(null);
@@ -92,7 +127,11 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     const [mainBanner, setMainBanner] = useState<string[]>([]);
     const [banners, setBanners] = useState<string[]>([]);
     const [photos, setPhotos] = useState<string[]>([]);
-    const allImages = () => [...mainBanner, ...photos, ...banners];   // 게시 순서: 메인배너→실사→배너
+    // 발행용 이미지 조립 — 실사를 랜덤으로 좌우페어/낱개 섞고, [상단배너 + 실사 + 끝배너] 순서·layout 반환.
+    async function buildImages(): Promise<{ images: string[]; layout: { top: number; mid: number; tail: number } }> {
+        const mids = photos.length ? await pairPhotosRandom(photos) : [];
+        return { images: [...mainBanner, ...mids, ...banners], layout: { top: mainBanner.length, mid: mids.length, tail: banners.length } };
+    }
     const [genBusy, setGenBusy] = useState(false);
     const [pubBusy, setPubBusy] = useState(false);
     const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -114,6 +153,22 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     const [jobs, setJobs] = useState<MyJob[]>([]);
     async function loadJobs() { const { data } = await listMyCafeJobs(10); setJobs(data as MyJob[]); }
 
+    // 기발행 지역(중복 제외) — 지역형이 이미 발행한 지역을 다시 안 쓰게. region 컬럼 + 옛 잡은 제목으로도 대조.
+    const [usedRegions, setUsedRegions] = useState<Set<string>>(() => new Set());
+    const [excludeUsed, setExcludeUsed] = useState(true);
+    async function loadUsed() {
+        const { rows } = await listMyPublishedPairs();
+        const norm = (x: string) => x.replace(/\s/g, '');
+        const stored = new Set(rows.map((r) => r.region).filter(Boolean).map((x) => norm(String(x))));
+        const titles = rows.map((r) => norm(String(r.title || '')));
+        const used = new Set<string>();
+        Object.values(REGION_GROUPS).forEach((g) => g.forEach((r) => {
+            const n = norm(r.label);
+            if (stored.has(n) || titles.some((t) => t.includes(n))) used.add(r.label);
+        }));
+        setUsedRegions(used);
+    }
+
     useEffect(() => {
         let alive = true;
         void getCafeAccounts().then(({ data }) => {
@@ -126,6 +181,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
             setApproved(!!enabled);
         });
         void loadJobs();
+        void loadUsed();
         const t = setInterval(() => { void loadJobs(); }, 15000);
         return () => { alive = false; clearInterval(t); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -192,12 +248,12 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         const manual = tags.split(',').map((s) => s.trim()).filter(Boolean);
         const tagList = [...new Set([...autoTags, ...manual])].slice(0, 10);   // 자동태그 + 수동태그(중복 제거·최대 10)
         const links = linkUrl.trim() ? [linkUrl.trim()] : [];                  // 본문 끝 링크카드
-        const layout = { top: mainBanner.length, mid: photos.length, tail: banners.length };  // 상단배너·실사·끝배너
-        const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images: allImages(), layout, tags: tagList, links });
+        const { images, layout } = await buildImages();                        // 실사 랜덤 좌우페어/낱개 + 배치
+        const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images, layout, tags: tagList, links, region: region.trim() || undefined, keyword: keyword.trim() || undefined });
         setPubBusy(false);
         if (error) { setMsg({ ok: false, text: (error as { message?: string }).message || '발행 등록 실패' }); return; }
         setMsg({ ok: true, text: `발행 등록 완료 — 대기열에 담겼습니다. (#${(jobId || '').slice(0, 8)})` });
-        setTitle(''); setBody(''); setTags(''); setAutoTags([]); setMainBanner([]); setBanners([]); setPhotos([]); void loadJobs();
+        setTitle(''); setBody(''); setTags(''); setAutoTags([]); setMainBanner([]); setBanners([]); setPhotos([]); void loadJobs(); void loadUsed();
     }
 
     // 지역형: 선택 지역셋 × 선택 SEO 키워드 인기글 스캔 → 발행건수(N) 채우면 중단.
@@ -210,9 +266,13 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
             return;
         }
         const sets = regionSets.size ? [...regionSets] : (['서울'] as RegionSet[]);
-        // 후보 = 각 지역셋의 시·구 × 각 키워드 (지역 우선 훑기).
+        // 후보 = 각 지역셋의 시·구 × 각 키워드 (지역 우선 훑기). 기발행 지역은 제외(중복 방지).
         const cands: Array<{ region: string; scans: string[]; keyword: string }> = [];
-        for (const set of sets) for (const r of REGION_GROUPS[set]) for (const kw of kws) cands.push({ region: r.label, scans: r.scans, keyword: kw });
+        for (const set of sets) for (const r of REGION_GROUPS[set]) for (const kw of kws) {
+            if (excludeUsed && usedRegions.has(r.label)) continue;   // 이미 발행한 지역 건너뜀
+            cands.push({ region: r.label, scans: r.scans, keyword: kw });
+        }
+        if (!cands.length) { setRmsg('발행할 새 지역이 없습니다(선택 지역이 모두 기발행). "기발행 지역 제외"를 끄거나 다른 지역을 선택하세요.'); return; }
         setRmsg(''); setRphase('scanning'); setGenRows([]); setPassed([]);
         const rows = cands.map((c) => ({ label: `${c.region} ${c.keyword}`, status: '대기' }));
         setScanRows([...rows]);
@@ -241,7 +301,11 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         if (!kws.length) { setRmsg('SEO 키워드를 선택하거나 키워드를 입력하세요.'); return; }
         const sets = regionSets.size ? [...regionSets] : (['서울'] as RegionSet[]);
         const cands: Array<{ region: string; keyword: string }> = [];
-        for (const set of sets) { for (const r of REGION_GROUPS[set]) { for (const kw of kws) { cands.push({ region: r.label, keyword: kw }); } } }
+        for (const set of sets) { for (const r of REGION_GROUPS[set]) { for (const kw of kws) {
+            if (excludeUsed && usedRegions.has(r.label)) continue;   // 이미 발행한 지역 건너뜀
+            cands.push({ region: r.label, keyword: kw });
+        } } }
+        if (!cands.length) { setRmsg('발행할 새 지역이 없습니다(선택 지역이 모두 기발행). "기발행 지역 제외"를 끄거나 다른 지역을 선택하세요.'); return; }
         const targets = cands.slice(0, count);
         setPassed(targets); setScanRows([]); setRphase('scanned');
         setRmsg(`스캔 없이 ${targets.length}건 발행(인기글 검사 생략)`);
@@ -263,13 +327,13 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                 const r = await genOne(`${p.region} ${p.keyword}`, p.region);
                 rows[i] = { ...rows[i], status: '발행 등록중…' }; setGenRows([...rows]);
                 const links = linkUrl.trim() ? [linkUrl.trim()] : [];
-                const layout = { top: mainBanner.length, mid: photos.length, tail: banners.length };
-                const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images: allImages(), layout, tags: r.tags, links });
+                const { images, layout } = await buildImages();   // 실사 랜덤 좌우페어/낱개(발행마다 다르게)
+                const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images, layout, tags: r.tags, links, region: p.region, keyword: p.keyword });
                 rows[i] = { ...rows[i], status: error ? '실패' : '큐 등록 완료' };
             } catch (e) { rows[i] = { ...rows[i], status: `실패: ${(e as Error).message?.slice(0, 30)}` }; }
             setGenRows([...rows]);
         }
-        setRphase('done'); void loadJobs();
+        setRphase('done'); void loadJobs(); void loadUsed();
     }
 
     const imageZone = (label: string, hint: string, list: string[], setter: (u: (prev: string[]) => string[]) => void, max: number) => (
@@ -333,10 +397,10 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                 <div className="mb-3 text-[13px] font-bold text-[#334155]">발행 이미지 (업체 배너·실사) <span className="font-normal text-[#94a3b8]">— 모든 발행에 함께 들어갑니다</span></div>
                 <div className="grid gap-4 sm:grid-cols-3">
                     {imageZone('상단 배너', '(맨 위 · 1장)', mainBanner, setMainBanner, 1)}
-                    {imageZone('실사 사진', '(문단 사이 · 8~20장)', photos, setPhotos, 20)}
+                    {imageZone('실사 사진', '(문단 사이 · 8~20장 · 2장 좌우/낱개 랜덤)', photos, setPhotos, 20)}
                     {imageZone('끝 배너', '(맨 끝 · 1장 · 예: 예약 전 주의사항)', banners, setBanners, 2)}
                 </div>
-                <p className="m-0 mt-2 text-[11px] text-[#94a3b8]">배치: <b>상단 배너 1장</b> → <b>실사 여러 장(문단 사이 인터리브)</b> → <b>끝 배너 1장</b> (더반·누수 스타일). 배너를 많이 넣지 말고 실사 위주로. 넣지 않으면 텍스트만 발행됩니다.</p>
+                <p className="m-0 mt-2 text-[11px] text-[#94a3b8]">배치: <b>상단 배너 1장</b> → <b>실사(문단 사이 · 발행마다 2장 좌우/낱개 랜덤)</b> → <b>끝 배너 1장</b> (더반·누수 스타일). 배너 남발 금지, 실사 위주. 넣지 않으면 텍스트만 발행됩니다.</p>
             </div>
 
             {/* SEO 연관키워드 찾기 (최상단) */}
@@ -450,6 +514,11 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
 
                     <label className="grid max-w-[160px] gap-1 text-xs font-semibold text-[#475569]">발행 건수
                         <input className={inputCls} max={10} min={1} onChange={(e) => setCount(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} type="number" value={count} />
+                    </label>
+
+                    <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-[#475569]">
+                        <input checked={excludeUsed} onChange={(e) => setExcludeUsed(e.target.checked)} type="checkbox" />
+                        이미 발행한 지역 제외 {usedRegions.size ? <span className="font-normal text-[#94a3b8]">(기발행 {usedRegions.size}곳: {[...usedRegions].slice(0, 8).join(', ')}{usedRegions.size > 8 ? '…' : ''})</span> : <span className="font-normal text-[#94a3b8]">(아직 없음)</span>}
                     </label>
 
                     <div className="mt-3 flex flex-wrap items-center gap-2">
