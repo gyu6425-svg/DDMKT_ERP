@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { generateCafe, generateCafeReview } from '../../api/cafeWriter';
+import { generateCafe, generateCafeReview, generateLongform } from '../../api/cafeWriter';
 import { checkPopularBridge, nusu2Health } from '../../api/nusu2Bridge';
 import { createCustomerPublishJob, listMyCafeJobs } from '../../api/cafePublishQueue';
 import { getCafeAccounts } from '../../api/cafeAccounts';
@@ -14,6 +14,33 @@ const TONES: { key: Tone; name: string }[] = [
 ];
 const STATUS_KO: Record<string, string> = { pending: '대기', processing: '작성 중', posted: '게시됨(확인중)', done: '완료', fail: '실패' };
 const NAVER_KW_API = 'https://ddmkt-erp.pages.dev/api/naver-keywords';
+
+// 업종 → longform 종류. 더반클린(입주청소)=clean · 누수탐지=leak. 그 외는 null(기존 후기 경로로 폴백).
+function bizKind(business: string): 'leak' | 'clean' | null {
+    const s = business.replace(/\s/g, '');
+    if (/청소/.test(s)) return 'clean';
+    if (/누수|탐지/.test(s)) return 'leak';
+    return null;
+}
+// kw 에서 업종어를 떼어 지역만 남긴다(키워드형에서 지역칸이 비었을 때). 예: "종로 입주청소" → "종로".
+function deriveRegion(kw: string, business: string): string {
+    let s = kw;
+    if (business.trim()) s = s.split(business.trim()).join(' ');
+    return s.replace(/입주청소|누수탐지|이사청소|화장실청소|누수|청소|탐지/g, ' ').replace(/\s+/g, ' ').trim();
+}
+// 하단 태그칩(에디터 태그칸) — nusu2/ddclean _tags 그대로. 지역+업종 정확일치 2 + 변형/의도.
+function longformTags(kind: 'leak' | 'clean', region: string, dong?: string): string[] {
+    const rj = region.replace(/\s/g, '');
+    const d = (dong || '').replace(/\s/g, '');
+    if (kind === 'clean') {
+        return d
+            ? [`${rj}입주청소`, `${d}입주청소`, '준공청소', '새집증후군', '이사청소', '입주청소업체']
+            : [`${rj}입주청소`, `${rj}이사청소`, '준공청소', '새집증후군', '이사청소', '입주청소업체'];
+    }
+    return d
+        ? [`${rj}누수탐지`, `${d}누수탐지`, `${d}누수`, '누수원인', '배관누수', '누수탐지업체']
+        : [`${rj}누수탐지`, `${rj}누수`, '누수원인', '화장실누수', '배관누수', '누수탐지업체'];
+}
 
 // 파일 → dataURL(긴 변 1600px 축소).
 function fileToDataUrl(file: File): Promise<string> {
@@ -57,6 +84,8 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     const [region, setRegion] = useState('');
     const [tone, setTone] = useState<Tone>('review');
     const [tags, setTags] = useState('');
+    const [linkUrl, setLinkUrl] = useState('');   // 본문 끝 링크카드(홈페이지 등) — 더반·누수처럼 마지막에 OG 썸네일 카드로.
+    const [autoTags, setAutoTags] = useState<string[]>([]);   // longform 자동 태그(수동 tags 와 합쳐 발행).
     const [title, setTitle] = useState('');
     const [body, setBody] = useState('');
     // 업체가 넣는 이미지 — 메인배너(맨 위 1장) + 배너(카드) + 실사(현장사진). 두 모드 발행에 함께 사용.
@@ -124,10 +153,19 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         } catch (e) { setSeoErr(String((e as Error).message || e)); } finally { setSeoBusy(false); }
     }
 
-    async function genOne(kw: string, reg: string) {
+    // 원고 1건 — 업종이 누수/청소면 더반·누수와 '똑같은' longform 양식(제목 "{지역}{업종}" 시작·본문 골격·자동태그).
+    //   그 외 업종은 기존 후기 경로로 폴백. tags 는 하단 태그칩(발행 시 함께 입력).
+    async function genOne(kw: string, reg: string): Promise<{ title: string; body: string; tags: string[] }> {
+        const kind = bizKind(business);
+        const region2 = (reg || '').trim() || (kind ? deriveRegion(kw, business) : '');
+        if (kind && region2) {
+            // phone='' 명시 — 고객은 전화 없음. 안 넘기면 서버가 업종 기본전화(더반/누수)로 채운다.
+            const r = await generateLongform({ region: region2, businessKind: kind, brand: brand.trim() || brandDefault || undefined, phone: '' });
+            return { title: r.title, body: r.body, tags: longformTags(kind, region2) };
+        }
         const g = await generateCafe({ keyword: kw, region: reg || undefined, brand: brand.trim() || brandDefault || undefined, business: business.trim() || undefined });
         const rv = await generateCafeReview({ keyword: kw, region: reg || undefined, brand: brand.trim() || brandDefault || undefined, business: business.trim() || undefined, content: g.content, tone, count: 6, layout: 'bottom' });
-        return { title: rv.title || '', body: rv.reviewBody || '' };
+        return { title: rv.title || '', body: rv.reviewBody || '', tags: [] };
     }
 
     async function generate() {
@@ -135,7 +173,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         setGenBusy(true); setMsg(null);
         try {
             const r = await genOne(keyword.trim(), region.trim());
-            setTitle(r.title); setBody(r.body);
+            setTitle(r.title); setBody(r.body); setAutoTags(r.tags);
             setMsg({ ok: true, text: '원고를 생성했습니다. 확인·수정 후 발행하세요.' });
         } catch (e) { setMsg({ ok: false, text: (e as Error).message || '원고 생성 실패' }); } finally { setGenBusy(false); }
     }
@@ -151,12 +189,14 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     async function publish() {
         if (!title.trim() || !body.trim()) { setMsg({ ok: false, text: '제목과 본문이 필요합니다.' }); return; }
         setPubBusy(true); setMsg(null);
-        const tagList = tags.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 10);
-        const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images: allImages(), tags: tagList });
+        const manual = tags.split(',').map((s) => s.trim()).filter(Boolean);
+        const tagList = [...new Set([...autoTags, ...manual])].slice(0, 10);   // 자동태그 + 수동태그(중복 제거·최대 10)
+        const links = linkUrl.trim() ? [linkUrl.trim()] : [];                  // 본문 끝 링크카드
+        const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images: allImages(), tags: tagList, links });
         setPubBusy(false);
         if (error) { setMsg({ ok: false, text: (error as { message?: string }).message || '발행 등록 실패' }); return; }
         setMsg({ ok: true, text: `발행 등록 완료 — 대기열에 담겼습니다. (#${(jobId || '').slice(0, 8)})` });
-        setTitle(''); setBody(''); setTags(''); setMainBanner([]); setBanners([]); setPhotos([]); void loadJobs();
+        setTitle(''); setBody(''); setTags(''); setAutoTags([]); setMainBanner([]); setBanners([]); setPhotos([]); void loadJobs();
     }
 
     // 지역형: 선택 지역셋 × 선택 SEO 키워드 인기글 스캔 → 발행건수(N) 채우면 중단.
@@ -221,7 +261,8 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                 const p = targets[i];
                 const r = await genOne(`${p.region} ${p.keyword}`, p.region);
                 rows[i] = { ...rows[i], status: '발행 등록중…' }; setGenRows([...rows]);
-                const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images: allImages(), tags: [] });
+                const links = linkUrl.trim() ? [linkUrl.trim()] : [];
+                const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images: allImages(), tags: r.tags, links });
                 rows[i] = { ...rows[i], status: error ? '실패' : '큐 등록 완료' };
             } catch (e) { rows[i] = { ...rows[i], status: `실패: ${(e as Error).message?.slice(0, 30)}` }; }
             setGenRows([...rows]);
@@ -280,6 +321,9 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                         <input className={inputCls} onChange={(e) => setBusiness(e.target.value)} placeholder="예) 입주청소" value={business} />
                     </label>
                 </div>
+                <label className="mt-3 grid gap-1 text-xs font-semibold text-[#475569]">홈페이지·링크 (선택) — 본문 맨 끝에 링크카드로 삽입
+                    <input className={inputCls} onChange={(e) => setLinkUrl(e.target.value)} placeholder="예) https://내홈페이지.com (더반·누수처럼 글 마지막에 카드로 배치)" value={linkUrl} />
+                </label>
             </div>
 
             {/* 발행 이미지 — 업체가 넣는 메인배너·배너·실사(모든 발행에 함께 게시) */}
@@ -356,6 +400,9 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                         <label className="mt-3 grid gap-1 text-xs font-semibold text-[#475569]">태그 (선택, 쉼표 · 최대 10개)
                             <input className={inputCls} onChange={(e) => setTags(e.target.value)} placeholder="예) 광교동청소, 입주청소" value={tags} />
                         </label>
+                        {autoTags.length ? (
+                            <p className="mt-1 text-[11px] text-[#64748b]">자동 태그: {autoTags.join(', ')} <span className="text-[#94a3b8]">(위 칸에 추가 입력 가능)</span></p>
+                        ) : null}
                         <p className="mt-2 text-[11px] text-[#94a3b8]">※ 이미지(메인배너·배너·실사)는 위 "발행 이미지" 칸에서 넣습니다 — 모든 발행에 함께 들어갑니다.</p>
                         {msg ? <div className={`mt-3 rounded-lg px-4 py-3 text-sm ${msg.ok ? 'bg-[#ecfdf5] text-[#047857]' : 'bg-[#fef2f2] text-[#b91c1c]'}`}>{msg.text}</div> : null}
                         <div className="mt-3 flex items-center gap-3">

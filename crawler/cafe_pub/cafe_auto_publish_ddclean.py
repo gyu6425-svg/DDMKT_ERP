@@ -42,8 +42,11 @@ ASSETS_DIR = os.environ.get("CAFE_ASSETS_DIR") or os.path.join(ROOT, "public", "
 CAFE_BUCKET = "cafe-images"
 UA_PC = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36"
 
-# 업체 고정정보 (더반클린 입주청소 — durban 스택에서 검증된 값)
-BUSINESS, BRAND, PHONE = "입주청소", "더반클린", "070-7977-2739"
+# 업체 고정정보 (더반클린 — durban 스택에서 검증된 값)
+#   BUSINESS(업종어)는 env 로 교체 가능 — 입주청소/이사청소/청소업체/준공청소/거주청소 등 청소 변형 키워드.
+#   제목·태그·본문 프롬프트가 이 값을 쓴다(브랜드/전화/URL 은 동일).
+BUSINESS = os.environ.get("CAFE_BUSINESS", "입주청소")
+BRAND, PHONE = "더반클린", "070-7977-2739"
 BUSINESS_URL = "https://www.thebanclean.co.kr/"   # 더반클린 홈페이지 — 글 끝에 링크카드로 항상 부착.
 # 발행 대상 카페/게시판 라우팅 — env로 지정.
 #   CAFE_COMPANY: 큐 company 태그(카페별 분리·dedup 리셋). CAFE_BOARD: 매니페스트 게시판명(카페 메뉴명과 글자 일치).
@@ -98,8 +101,12 @@ def _cta_group(region):
     return "경기"
 
 def _top_banner(region):
-    f = os.path.join(CTA_DIR, _cta_group(region) + ".png")
-    return f if os.path.exists(f) else TOP_BANNER_FALLBACK
+    grp = _cta_group(region)
+    # 업종별 배너 우선(theban-cta/{업종}/경기.png). 없으면 기본(theban-cta/경기.png=입주청소), 그것도 없으면 완성배너.
+    for cand in (os.path.join(CTA_DIR, BUSINESS, grp + ".png"), os.path.join(CTA_DIR, grp + ".png")):
+        if os.path.exists(cand):
+            return cand
+    return TOP_BANNER_FALLBACK
 
 # 내장 배너 카드 세트(더반 banner02~08, 총 7장) — 실사와 섞어 본문에 삽입.
 CARDS_DIR = os.path.join(ASSETS_DIR, "theban")
@@ -173,7 +180,7 @@ def has_popular_pc(keyword):
 
 
 # 서울 자치구 — "{구} 입주청소" 형태로만 인기글이 뜨는 경우가 많아 '구' 폴백 확인.
-SEOUL_GU = {"종로", "용산", "성동", "광진", "동대문", "중랑", "성북", "강북", "도봉", "노원",
+SEOUL_GU = {"종로", "중", "용산", "성동", "광진", "동대문", "중랑", "성북", "강북", "도봉", "노원",
             "은평", "서대문", "마포", "양천", "강서", "구로", "금천", "영등포", "동작", "관악",
             "서초", "강남", "송파", "강동"}
 
@@ -204,6 +211,7 @@ DONG_DICT = {
     "강남": ["개포동", "역삼동", "삼성동", "대치동", "논현동", "청담동", "압구정동", "수서동", "일원동", "도곡동"],
     "송파": ["잠실동", "방이동", "가락동", "문정동", "석촌동", "송파동", "마천동", "거여동", "오금동", "풍납동"],
     "강동": ["천호동", "성내동", "길동", "둔촌동", "암사동", "명일동", "상일동", "고덕동"],
+    "중": ["신당동", "황학동", "중림동", "명동", "회현동", "필동", "장충동", "광희동", "약수동", "다산동"],
 }
 
 # 수도권 시·인천 자치구 → 실재 동(위치스택 확장, nusu2와 동일 데이터). 신도시는 이미 동네급이라 제외.
@@ -488,11 +496,13 @@ def gen_ddclean(region, dong=None):
 def _tags(region, dong=None):
     """태그 6개. 지역은 인기글 뜬 형태(matched) 그대로. 동이 있으면 지역+동 롱테일로."""
     rj = region.replace(" ", "")
+    b = BUSINESS   # 이사청소/입주청소/청소업체 등 — 정확일치 태그를 이 업종어로.
+    alt = "입주청소" if b != "입주청소" else "이사청소"
     if dong:
         d = dong.replace(" ", "")
-        return [f"{rj}입주청소", f"{d}입주청소", "준공청소", "새집증후군", "이사청소", "입주청소업체"]
+        return [f"{rj}{b}", f"{d}{b}", "준공청소", "새집증후군", alt, "입주청소업체"]
     # 정확일치 2 + 서비스·주제 변형 3 + 의도 1(정확일치 편중 회피).
-    return [f"{rj}입주청소", f"{rj}이사청소", "준공청소", "새집증후군", "이사청소", "입주청소업체"]
+    return [f"{rj}{b}", f"{rj}{alt}", "준공청소", "새집증후군", alt, "입주청소업체"]
 
 
 # ── varyImage (JS canvas 로직 → PIL) ── [nusu2 와 동일]
