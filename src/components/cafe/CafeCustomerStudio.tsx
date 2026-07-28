@@ -1,7 +1,36 @@
 import { useEffect, useState } from 'react';
 import { generateCafe, generateCafeReview } from '../../api/cafeWriter';
-import { createCustomerPublishJob } from '../../api/cafePublishQueue';
+import { createCustomerPublishJob, listMyCafeJobs } from '../../api/cafePublishQueue';
 import { getCafeAccounts } from '../../api/cafeAccounts';
+
+type MyJob = { id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string };
+
+// 파일 → dataURL. 큰 이미지는 브라우저 메모리·업로드 부담 → 긴 변 1600px 로 축소.
+function fileToDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            const max = 1600;
+            const scale = Math.min(1, max / Math.max(img.width, img.height));
+            const w = Math.round(img.width * scale);
+            const h = Math.round(img.height * scale);
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) { reject(new Error('canvas')); return; }
+            ctx.drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL('image/jpeg', 0.9));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('이미지를 읽지 못했습니다.')); };
+        img.src = url;
+    });
+}
+
+const STATUS_KO: Record<string, string> = {
+    pending: '대기', processing: '작성 중', posted: '게시됨(확인중)', done: '완료', fail: '실패',
+};
 
 // 고객 셀프 카페 발행 스튜디오 (고객 ERP > 카페 > "카페 자동화 발행" 탭)
 //   흐름: 승인 확인 → 키워드/주제 입력 → [원고 자동생성](CF) → 제목·본문 편집 → [발행하기].
@@ -38,10 +67,30 @@ export function CafeCustomerStudio({ companyKey }: { companyKey: string }) {
     // 생성 결과(편집 가능)
     const [title, setTitle] = useState('');
     const [body, setBody] = useState('');
+    const [images, setImages] = useState<string[]>([]);   // 첨부 사진 dataURL(상단에 순서대로 게시)
 
     const [genBusy, setGenBusy] = useState(false);
     const [pubBusy, setPubBusy] = useState(false);
     const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+    // 발행 현황(내 큐 — RLS 로 본인 것만)
+    const [jobs, setJobs] = useState<MyJob[]>([]);
+    async function loadJobs() {
+        const { data } = await listMyCafeJobs(10);
+        setJobs(data as MyJob[]);
+    }
+    useEffect(() => { void loadJobs(); }, []);
+
+    async function addFiles(files: FileList | null) {
+        if (!files || !files.length) return;
+        const arr = Array.from(files).slice(0, 10);
+        try {
+            const urls = await Promise.all(arr.map(fileToDataUrl));
+            setImages((prev) => [...prev, ...urls].slice(0, 10));
+        } catch (e) {
+            setMsg({ ok: false, text: (e as Error).message || '사진을 불러오지 못했습니다.' });
+        }
+    }
 
     useEffect(() => {
         let alive = true;
@@ -104,7 +153,7 @@ export function CafeCustomerStudio({ companyKey }: { companyKey: string }) {
         const { error, jobId } = await createCustomerPublishJob({
             title: title.trim(),
             body,
-            images: [], // TODO(내일): 이미지 카드 생성 붙이면 여기에 dataURL 배열
+            images,   // 첨부 사진(상단에 순서대로). 없으면 텍스트만.
             tags: tagList,
         });
         setPubBusy(false);
@@ -116,6 +165,8 @@ export function CafeCustomerStudio({ companyKey }: { companyKey: string }) {
         setTitle('');
         setBody('');
         setTags('');
+        setImages([]);
+        void loadJobs();
     }
 
     if (approved === false) {
@@ -189,6 +240,33 @@ export function CafeCustomerStudio({ companyKey }: { companyKey: string }) {
                     <input className={inputCls} onChange={(e) => setTags(e.target.value)} placeholder="예) 광교동청소, 입주청소, 이사청소" value={tags} />
                 </label>
 
+                {/* 사진 첨부(선택) — 본문 위에 순서대로 게시. 최대 10장 */}
+                <div className="mt-3 grid gap-1 text-xs font-semibold text-[#475569]">
+                    사진 (선택 · 최대 10장 · 본문 위에 순서대로 게시)
+                    <div className="flex flex-wrap items-center gap-2">
+                        <label className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-[#cbd5e1] bg-white px-3 text-sm font-normal text-[#334155] hover:bg-[#f8fafc]">
+                            사진 추가
+                            <input accept="image/*" className="hidden" multiple onChange={(e) => { void addFiles(e.target.files); e.target.value = ''; }} type="file" />
+                        </label>
+                        {images.length ? <span className="text-[12px] font-normal text-[#64748b]">{images.length}장 첨부됨</span> : null}
+                    </div>
+                    {images.length ? (
+                        <div className="mt-1 flex flex-wrap gap-2">
+                            {images.map((src, i) => (
+                                <div className="relative" key={i}>
+                                    <img alt={`첨부 ${i + 1}`} className="h-16 w-16 rounded-md border border-[#e2e8f0] object-cover" src={src} />
+                                    <button
+                                        className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#dc2626] text-[11px] font-bold text-white"
+                                        onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
+                                        title="삭제"
+                                        type="button"
+                                    >×</button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+
                 {msg ? (
                     <div className={`mt-3 rounded-lg px-4 py-3 text-sm ${msg.ok ? 'bg-[#ecfdf5] text-[#047857]' : 'bg-[#fef2f2] text-[#b91c1c]'}`}>
                         {msg.text}
@@ -206,6 +284,33 @@ export function CafeCustomerStudio({ companyKey }: { companyKey: string }) {
                     </button>
                     <span className="text-xs text-[#94a3b8]">등록 후 내 PC의 발행 프로그램이 순서대로 카페에 올립니다(즉시 게시 아님).</span>
                 </div>
+            </div>
+
+            {/* 발행 현황 */}
+            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <div className="mb-2 flex items-center justify-between">
+                    <div className="text-[13px] font-bold text-[#334155]">발행 현황</div>
+                    <button className="text-xs font-semibold text-[#4338ca] hover:underline" onClick={() => void loadJobs()} type="button">새로고침</button>
+                </div>
+                {jobs.length ? (
+                    <div className="divide-y divide-[#f1f5f9]">
+                        {jobs.map((j) => {
+                            const st = STATUS_KO[j.status] ?? j.status;
+                            const color = j.status === 'done' ? 'text-[#166534]' : j.status === 'fail' ? 'text-[#991b1b]' : 'text-[#64748b]';
+                            return (
+                                <div className="flex items-center justify-between gap-3 py-1.5 text-[12px]" key={j.id}>
+                                    <span className="min-w-0 flex-1 truncate text-[#334155]">{j.title}</span>
+                                    {j.posted_url ? (
+                                        <a className="shrink-0 text-[#2563eb] hover:underline" href={j.posted_url} rel="noreferrer" target="_blank">게시글 보기</a>
+                                    ) : null}
+                                    <span className={`shrink-0 font-semibold ${color}`}>{st}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="py-4 text-center text-[12px] text-[#94a3b8]">아직 발행 내역이 없습니다.</div>
+                )}
             </div>
         </div>
     );

@@ -149,6 +149,16 @@ export async function listPublishedPairs(company: string) {
     return { pairs, error };
 }
 
+// 고객 발행 현황 — RLS 가 본인 company(my_publish_companies) 행만 돌려준다. 최근순.
+export async function listMyCafeJobs(limit = 10) {
+    const { data, error } = await supabase
+        .from('cafe_publish_queue')
+        .select('id,title,status,posted_url,reason,created_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    return { data: data ?? [], error };
+}
+
 // 발행 큐 현황(내부) — 최근순.
 export async function listPublishJobs(limit = 20) {
     const { data, error } = await supabase
