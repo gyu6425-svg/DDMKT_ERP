@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { generateCafe, generateCafeReview } from '../../api/cafeWriter';
 import { createCustomerPublishJob, listMyCafeJobs } from '../../api/cafePublishQueue';
 import { getCafeAccounts } from '../../api/cafeAccounts';
+import { CafeCustomerRequest } from './CafeCustomerRequest';
 
 type MyJob = { id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string };
 
@@ -51,7 +52,7 @@ const TONES: { key: Tone; name: string }[] = [
     { key: 'talk', name: '대화형' },
 ];
 
-export function CafeCustomerStudio({ companyKey }: { companyKey: string }) {
+export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     const [board, setBoard] = useState<string | null>(null);
     const [brandDefault, setBrandDefault] = useState('');
     const [approved, setApproved] = useState<boolean | null>(null);
@@ -100,18 +101,16 @@ export function CafeCustomerStudio({ companyKey }: { companyKey: string }) {
         let alive = true;
         void getCafeAccounts().then(({ data }) => {
             if (!alive) return;
-            // 승인(발행 가능) 계정 = active && publish_enabled!==false. 고객이 계정 여러 개면
-            //   승인된 것을 고른다(createCustomerPublishJob 과 동일 기준). companyKey 는 표시 힌트일 뿐.
+            // 승인(발행 가능) 계정 = active && publish_enabled!==false (RLS 로 본인 것만 조회됨).
             const enabled = data.find((x) => x.active && (x as { publish_enabled?: boolean }).publish_enabled !== false);
-            const a = enabled ?? data.find((x) => x.company_key === companyKey);
-            setBoard(a?.board_name ?? null);
-            setBrandDefault(a?.display_name ?? '');
-            if (!brand && a?.display_name) setBrand(a.display_name);
+            setBoard(enabled?.board_name ?? null);
+            setBrandDefault(enabled?.display_name ?? '');
+            if (!brand && enabled?.display_name) setBrand(enabled.display_name);
             setApproved(!!enabled);
         });
         return () => { alive = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [companyKey]);
+    }, [clientId]);
 
     async function generate() {
         if (!keyword.trim()) {
@@ -175,13 +174,9 @@ export function CafeCustomerStudio({ companyKey }: { companyKey: string }) {
         void loadJobs();
     }
 
+    // 미승인(또는 아직 카페계정 없음) → 승인 요청 폼.
     if (approved === false) {
-        return (
-            <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-6 py-16 text-center">
-                <div className="text-base font-semibold text-[#475569]">카페 자동화 발행이 아직 승인되지 않았습니다</div>
-                <p className="mx-auto mt-2 max-w-md text-sm text-[#94a3b8]">담당자에게 문의해 주세요. 승인되면 이 화면에서 바로 원고 생성·발행이 가능합니다.</p>
-            </div>
-        );
+        return <CafeCustomerRequest clientId={clientId} />;
     }
 
     const inputCls = 'h-10 rounded-lg border border-[#cbd5e1] bg-white px-3 text-sm';
