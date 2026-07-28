@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 // 에이전트 zip 다운로드(자격 없는 배포본). ⚠️ 임시=구글드라이브 직접다운로드 링크(무료 Supabase 50MB 초과라).
 //   나중에 Cloudflare R2 등 영구 호스팅으로 교체 권장.
-const AGENT_DOWNLOAD_URL = 'https://drive.usercontent.google.com/download?id=11-L0eNvzyO8VnKVFt1nRCRvqPUJK38M0&export=download&confirm=t';
+const AGENT_DOWNLOAD_URL = 'https://drive.usercontent.google.com/download?id=1aaNZXivWFXoVXZNZEI4NsyMA9TzNqHqg&export=download&confirm=t';
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 const GENERATE_API = 'https://ddmkt-erp.pages.dev/api/generate-cafe';
 
