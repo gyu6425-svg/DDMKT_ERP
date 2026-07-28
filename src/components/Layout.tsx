@@ -4,6 +4,7 @@ import Sidebar from './Sidebar'
 import DevRoleSwitcher from './DevRoleSwitcher'
 import ForcePasswordChangeGate from './ForcePasswordChangeGate'
 import ReportPublishAlert from './ReportPublishAlert'
+import ReportToast from './ReportToast'
 
 type LayoutProps = {
   children: ReactNode
@@ -21,6 +22,7 @@ function Layout({ children }: LayoutProps) {
       </main>
       <DevRoleSwitcher />
       <ForcePasswordChangeGate />
+      <ReportToast />
     </div>
   )
 }
