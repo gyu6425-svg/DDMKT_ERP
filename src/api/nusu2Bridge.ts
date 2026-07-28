@@ -68,6 +68,14 @@ export async function fetchDongs(region: string): Promise<{ dongs: string[]; gu:
     }
 }
 
+// 지역형 인기글 검사 — 이 PC(브릿지, 주거 IP)에서 네이버 조회. CF/데이터센터 IP 는 네이버가 차단하므로
+//   고객 지역형 스캔은 반드시 고객 로컬 에이전트를 경유한다(브라우저→localhost 는 Chrome 이 허용).
+export async function checkPopularBridge(keyword: string): Promise<{ hasPopular: boolean; reason: string }> {
+    const r = await fetch(`${BRIDGE}/api/nusu2/popular?keyword=${encodeURIComponent(keyword)}`);
+    const d = await r.json();
+    return { hasPopular: Boolean(d && d.hasPopular), reason: (d && d.reason) || 'ok' };
+}
+
 // 브릿지 서버가 켜져 있는지 확인(끄져 있으면 UI에서 안내).
 export async function nusu2Health(): Promise<boolean> {
     try {

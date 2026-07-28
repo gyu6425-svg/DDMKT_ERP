@@ -144,6 +144,21 @@ class Handler(BaseHTTPRequestHandler):
                 gu = [short + "구", short]
             self._json(200, {"region": region, "dongs": dongs, "gu": gu})
             return
+        if self.path.startswith("/api/nusu2/popular"):
+            # 고객 지역형 스캔 — 이 PC(주거 IP)에서 네이버 인기글 검사(CF/데이터센터 IP는 차단됨).
+            from urllib.parse import urlparse, parse_qs, unquote
+            q = parse_qs(urlparse(self.path).query)
+            kw = unquote((q.get("keyword", [""])[0] or "").strip())
+            if not kw:
+                self._json(400, {"ok": False, "error": "keyword 필요"}); return
+            try:
+                sig = NUSU.analyze_popular_pc(kw)
+                hp = bool(sig.get("has_popular"))
+                self._json(200, {"keyword": kw, "hasPopular": hp, "cafe_count": sig.get("cafe_count", 0),
+                                 "reason": "ok" if hp else "no_popular"})
+            except Exception as e:
+                self._json(200, {"keyword": kw, "hasPopular": False, "reason": "error", "detail": str(e)[:120]})
+            return
         self._json(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):

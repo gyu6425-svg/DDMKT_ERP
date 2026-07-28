@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { generateCafe, generateCafeReview, checkPopular } from '../../api/cafeWriter';
+import { generateCafe, generateCafeReview } from '../../api/cafeWriter';
+import { checkPopularBridge, nusu2Health } from '../../api/nusu2Bridge';
 import { createCustomerPublishJob, listMyCafeJobs } from '../../api/cafePublishQueue';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
@@ -110,7 +111,14 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
             const data = await res.json();
             if (!res.ok) throw new Error((data && data.error) || `오류 ${res.status}`);
             const rows = ((data && data.keywords) || []) as Array<{ keyword: string; total: number; comp: string }>;
-            const top = rows.sort((a, b) => b.total - a.total).slice(0, 30);
+            // 관련 키워드만 — ①서비스 접미(입주청소→'청소', 누수탐지→'탐지') 포함 ②지역명 붙은 것 제거
+            //   (예: '의정부 입주청소'·'강서구 입주청소'·'초파리'는 뺀다 → 입주청소·화장실청소·이사청소만).
+            const core = q.replace(/\s/g, '').slice(-2);
+            const regionNames = new Set<string>();
+            Object.values(REGION_GROUPS).forEach((g) => g.forEach((r) => { if (r.label.length >= 2) regionNames.add(r.label.replace(/\s/g, '')); }));
+            const hasRegion = (kw: string) => [...regionNames].some((n) => kw.replace(/\s/g, '').includes(n));
+            const related = rows.filter((r) => r.keyword.includes(core) && !hasRegion(r.keyword));
+            const top = (related.length ? related : rows).sort((a, b) => b.total - a.total).slice(0, 30);
             setSeo(top);
             setSelectedKw(new Set(top.map((r) => r.keyword)));   // 나온 키워드 전부 자동 선택 → 지역형이 다 씀(빼려면 클릭)
         } catch (e) { setSeoErr(String((e as Error).message || e)); } finally { setSeoBusy(false); }
@@ -155,6 +163,11 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     async function runScan() {
         const kws = selectedKw.size ? [...selectedKw] : (regionKw.trim() ? [regionKw.trim()] : []);
         if (!kws.length) { setRmsg('SEO 키워드를 선택하거나 키워드를 입력하세요.'); return; }
+        // ⚠️ 인기글 스캔은 내 PC(발행 프로그램)에서 한다 — CF/서버 IP 는 네이버가 차단한다.
+        if (!(await nusu2Health())) {
+            setRmsg('지역 스캔은 내 PC의 발행 프로그램(DDMKT-Agent)이 켜져 있어야 합니다. 프로그램을 켜고 다시 시도하세요.');
+            return;
+        }
         const sets = regionSets.size ? [...regionSets] : (['서울'] as RegionSet[]);
         // 후보 = 각 지역셋의 시·구 × 각 키워드 (지역 우선 훑기).
         const cands: Array<{ region: string; scans: string[]; keyword: string }> = [];
@@ -168,7 +181,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
             try {
                 let ok = false;
                 for (const s of cands[i].scans) {
-                    const { hasPopular } = await checkPopular(`${s} ${cands[i].keyword}`);
+                    const { hasPopular } = await checkPopularBridge(`${s} ${cands[i].keyword}`);
                     if (hasPopular) { ok = true; break; }
                 }
                 rows[i] = { ...rows[i], status: ok ? '통과' : '없음' };
