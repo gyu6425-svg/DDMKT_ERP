@@ -11,6 +11,7 @@ export type CafeAccount = {
     board_short: string;
     client_id: string | null;
     active: boolean;
+    publish_enabled: boolean;   // 고객 셀프 발행 승인(기본 false) — docs/cafe-customer-publish-rls.sql
     note: string | null;
     // 계약 정보(관리시트) — docs/cafe-account-contract.sql
     goal_count: number | null;   // 목표 발행 건수
@@ -52,5 +53,11 @@ export async function upsertCafeAccount(input: Partial<CafeAccount> & { company_
 
 export async function setCafeAccountActive(id: string, active: boolean) {
     const { error } = await supabase.from('cafe_accounts').update({ active }).eq('id', id);
+    return { error };
+}
+
+// 고객 셀프 발행 승인 on/off (내부 전용 — cafe_accounts 내부 update RLS).
+export async function setCafeAccountPublish(id: string, publish_enabled: boolean) {
+    const { error } = await supabase.from('cafe_accounts').update({ publish_enabled }).eq('id', id);
     return { error };
 }

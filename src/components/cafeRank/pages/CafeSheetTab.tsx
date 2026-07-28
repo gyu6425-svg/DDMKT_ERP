@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
     getCafeAccounts,
     setCafeAccountActive,
+    setCafeAccountPublish,
     updateCafeAccount,
     upsertCafeAccount,
     type CafeAccount,
@@ -108,6 +109,14 @@ export function CafeSheetTab({
         if (result.error) setError(result.error.message);
     };
 
+    // 고객 셀프 발행 승인 토글 — 켜면 그 고객이 ERP '카페 자동화 발행' 탭에서 직접 발행 가능.
+    const togglePublish = async (a: CafeAccount) => {
+        const next = !a.publish_enabled;
+        patchLocal(a.id, { publish_enabled: next });
+        const result = await setCafeAccountPublish(a.id, next);
+        if (result.error) setError(result.error.message);
+    };
+
     const numCell = (a: CafeAccount, key: 'goal_count' | 'done_count' | 'amount', ph: string, w: string) => (
         readOnly ? (
             <span className="text-[12px] font-semibold text-[#334155]">{a[key] != null ? fmtWon(a[key]) : '—'}</span>
@@ -169,12 +178,13 @@ export function CafeSheetTab({
                             <th className="px-2 py-2 text-center font-semibold">추적 글</th>
                             <th className="px-2 py-2 text-center font-semibold">인기글 진입</th>
                             <th className="px-2 py-2 text-center font-semibold">상태</th>
+                            {!readOnly ? <th className="px-2 py-2 text-center font-semibold">발행 승인</th> : null}
                             {!readOnly ? <th className="px-2 py-2 text-center font-semibold">순위</th> : null}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={readOnly ? 9 : 10}>불러오는 중…</td></tr>
+                            <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={readOnly ? 9 : 11}>불러오는 중…</td></tr>
                         ) : rows.length ? rows.map((a) => {
                             const st = statByAccount.get(a.id) || { total: 0, ranked: 0, achieved: 0 };
                             const base = a.done_count || 0;   // 수동 베이스라인
@@ -256,12 +266,24 @@ export function CafeSheetTab({
                                     </td>
                                     {!readOnly ? (
                                         <td className="px-2 py-2 text-center">
+                                            <button
+                                                className={`rounded px-2 py-1 text-[11px] font-bold ${a.publish_enabled ? 'bg-[#dcfce7] text-[#15803d]' : 'bg-[#fee2e2] text-[#b91c1c]'}`}
+                                                onClick={(e) => { e.stopPropagation(); void togglePublish(a); }}
+                                                title="고객이 ERP에서 직접 카페 발행하도록 승인/해제"
+                                                type="button"
+                                            >
+                                                {a.publish_enabled ? '승인됨' : '미승인'}
+                                            </button>
+                                        </td>
+                                    ) : null}
+                                    {!readOnly ? (
+                                        <td className="px-2 py-2 text-center">
                                             <button className="rounded bg-[#1e40af] px-3 py-1 text-[11px] font-bold text-white" onClick={(e) => { e.stopPropagation(); goTracker(a.company_key); }} type="button">순위 보기</button>
                                         </td>
                                     ) : null}
                                 </tr>
                             );
-                        }) : <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={readOnly ? 9 : 10}>등록된 카페 업체가 없습니다.</td></tr>}
+                        }) : <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={readOnly ? 9 : 11}>등록된 카페 업체가 없습니다.</td></tr>}
                     </tbody>
                 </table>
             </div>
