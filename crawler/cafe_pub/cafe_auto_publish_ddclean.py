@@ -90,6 +90,9 @@ def _cta_group(region):
     short = r[:-1] if (r.endswith("구") and r[:-1] in SEOUL_GU) else r
     if short in SEOUL_GU or r.startswith("서울"):
         return "서울"
+    # bare 동(예: 길동·목동)도 서울 자치구 소속이면 서울 배너(동 단독형 발행 대응)
+    if any(r in dongs for dongs in DONG_DICT.values()):
+        return "서울"
     if r.startswith("인천"):
         return "인천"
     return "경기"
@@ -111,7 +114,7 @@ def _fixed_cards():
 def _load_env():
     for p in [os.path.join(HERE, "..", ".env"), os.path.join(HERE, ".env"), os.path.join(ROOT, ".env")]:
         try:
-            for line in open(p, encoding="utf-8", errors="ignore"):
+            for line in open(p, encoding="utf-8-sig", errors="ignore"):
                 m = re.match(r'^([A-Z_]+)\s*=\s*"?([^"\n\r]+)"?', line)
                 if m and m.group(1) not in os.environ:
                     os.environ[m.group(1)] = m.group(2).strip()

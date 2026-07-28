@@ -56,7 +56,7 @@ def _launch_login_chrome(profile, port, url):
 
 def _load_env(path):
     try:
-        for line in open(path, encoding="utf-8"):
+        for line in open(path, encoding="utf-8-sig"):
             s = line.strip()
             if not s or s.startswith("#") or "=" not in s:
                 continue

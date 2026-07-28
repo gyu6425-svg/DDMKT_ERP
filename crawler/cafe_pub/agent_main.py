@@ -40,7 +40,7 @@ def _load_env():
     for p in [os.path.join(HERE, "agent.env"), os.path.join(HERE, ".env"),
               os.path.join(HERE, "..", ".env"), os.path.join(HERE, "..", "..", ".env")]:
         try:
-            for line in open(p, encoding="utf-8", errors="ignore"):
+            for line in open(p, encoding="utf-8-sig", errors="ignore"):
                 s = line.strip()
                 if not s or s.startswith("#") or "=" not in s:
                     continue

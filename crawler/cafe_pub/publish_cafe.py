@@ -66,7 +66,7 @@ class BoardError(RuntimeError):
 def _load_env():
     for p in [os.path.join(HERE, ".env"), os.path.join(HERE, "..", ".env")]:
         try:
-            for line in pathlib.Path(p).read_text(encoding="utf-8", errors="ignore").splitlines():
+            for line in pathlib.Path(p).read_text(encoding="utf-8-sig", errors="ignore").splitlines():
                 m = re.match(r'^([A-Z_]+)\s*=\s*"?([^"\n\r]+)"?', line)
                 if m and m.group(1) not in os.environ:
                     os.environ[m.group(1)] = m.group(2).strip()
