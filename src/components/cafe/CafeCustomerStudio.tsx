@@ -100,12 +100,14 @@ export function CafeCustomerStudio({ companyKey }: { companyKey: string }) {
         let alive = true;
         void getCafeAccounts().then(({ data }) => {
             if (!alive) return;
-            const a = data.find((x) => x.company_key === companyKey);
+            // 승인(발행 가능) 계정 = active && publish_enabled!==false. 고객이 계정 여러 개면
+            //   승인된 것을 고른다(createCustomerPublishJob 과 동일 기준). companyKey 는 표시 힌트일 뿐.
+            const enabled = data.find((x) => x.active && (x as { publish_enabled?: boolean }).publish_enabled !== false);
+            const a = enabled ?? data.find((x) => x.company_key === companyKey);
             setBoard(a?.board_name ?? null);
             setBrandDefault(a?.display_name ?? '');
             if (!brand && a?.display_name) setBrand(a.display_name);
-            const pe = (a as { publish_enabled?: boolean } | undefined)?.publish_enabled;
-            setApproved(!!a?.active && pe !== false);
+            setApproved(!!enabled);
         });
         return () => { alive = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
