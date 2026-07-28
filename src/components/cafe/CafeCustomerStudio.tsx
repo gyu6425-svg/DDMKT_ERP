@@ -106,7 +106,9 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
             const data = await res.json();
             if (!res.ok) throw new Error((data && data.error) || `오류 ${res.status}`);
             const rows = ((data && data.keywords) || []) as Array<{ keyword: string; total: number; comp: string }>;
-            setSeo(rows.sort((a, b) => b.total - a.total).slice(0, 30));
+            const top = rows.sort((a, b) => b.total - a.total).slice(0, 30);
+            setSeo(top);
+            setSelectedKw(new Set(top.map((r) => r.keyword)));   // 나온 키워드 전부 자동 선택 → 지역형이 다 씀(빼려면 클릭)
         } catch (e) { setSeoErr(String((e as Error).message || e)); } finally { setSeoBusy(false); }
     }
 
@@ -249,7 +251,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                                 </button>
                             );
                         }) : <div className="px-2 py-1 text-[13px] text-[#94a3b8]">추천 키워드 없음</div>}
-                        <div className="px-2 py-1 text-[11px] text-[#94a3b8]">클릭 = 선택(지역형은 여러 개 조합) · 키워드형은 키워드칸에 채워집니다. {selectedKw.size ? `· 선택 ${selectedKw.size}개` : ''}</div>
+                        <div className="px-2 py-1 text-[11px] text-[#94a3b8]">나온 키워드는 <b>전부 지역형에 자동 사용</b>됩니다(빼려면 클릭). {selectedKw.size ? `· 사용 ${selectedKw.size}개` : ''} · "지역형" 탭에서 지역·발행건수 정하고 스캔하세요.</div>
                     </div>
                 ) : null}
             </div>

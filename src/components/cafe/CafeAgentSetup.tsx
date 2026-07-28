@@ -44,12 +44,19 @@ export function CafeAgentSetup({ companyKey, board }: { companyKey: string | nul
         ].join('\r\n');
     }
 
+    const [copied, setCopied] = useState(false);
     function downloadEnv() {
         const blob = new Blob([buildEnv()], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = 'agent.env'; a.click();
         URL.revokeObjectURL(url);
+    }
+    async function copyEnv() {
+        try {
+            await navigator.clipboard.writeText(buildEnv());
+            setCopied(true); setTimeout(() => setCopied(false), 2000);
+        } catch { /* clipboard 차단 시 아래 textarea 에서 직접 복사 */ }
     }
 
     const ready = Boolean(writeUrl.trim() && password.trim());
@@ -91,8 +98,18 @@ export function CafeAgentSetup({ companyKey, board }: { companyKey: string | nul
                             </label>
                         </div>
                         <div className="mt-1 text-[11px] text-[#94a3b8]">계정: {email || '(불러오는 중)'} · 게시판: {board ?? '—'}</div>
-                        <button className="mt-2 h-9 rounded-lg bg-[#0f766e] px-4 text-sm font-bold text-white disabled:opacity-50" disabled={!ready} onClick={downloadEnv} type="button">설정 파일(agent.env) 다운로드</button>
-                        <p className="m-0 mt-1 text-[11px] text-[#94a3b8]">받은 <b>agent.env</b> 를 1번에서 압축 푼 DDMKT-Agent 폴더 안에 넣으세요.</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            <button className="h-9 rounded-lg bg-[#0f766e] px-4 text-sm font-bold text-white disabled:opacity-50" disabled={!ready} onClick={downloadEnv} type="button">설정 파일 다운로드</button>
+                            <button className="h-9 rounded-lg border border-[#0f766e] px-4 text-sm font-bold text-[#0f766e] disabled:opacity-50" disabled={!ready} onClick={copyEnv} type="button">{copied ? '복사됨 ✓' : '설정 내용 복사'}</button>
+                        </div>
+                        {ready ? (
+                            <div className="mt-2">
+                                <p className="m-0 mb-1 text-[11px] text-[#94a3b8]">다운로드가 막히면(보안 프로그램) 아래 내용을 <b>복사</b> → 메모장에 붙여넣고 폴더에 <b>agent.env</b>(모든 파일·UTF-8)로 저장하세요.</p>
+                                <textarea className="h-40 w-full rounded-lg border border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 font-mono text-[11px] leading-snug" readOnly value={buildEnv()} />
+                            </div>
+                        ) : (
+                            <p className="m-0 mt-1 text-[11px] text-[#94a3b8]">위 2칸(글쓰기 주소·비밀번호)을 채우면 설정 내용이 만들어집니다.</p>
+                        )}
                     </div>
 
                     {/* 3. 실행 */}

@@ -97,7 +97,7 @@ BANNER_API = os.environ.get("CAFE_BANNER_API", "http://127.0.0.1:8787/api/genera
 def _load_env():
     for p in [os.path.join(HERE, "..", ".env"), os.path.join(HERE, ".env"), os.path.join(ROOT, ".env")]:
         try:
-            for line in open(p, encoding="utf-8", errors="ignore"):
+            for line in open(p, encoding="utf-8-sig", errors="ignore"):
                 m = re.match(r'^([A-Z_]+)\s*=\s*"?([^"\n\r]+)"?', line)
                 if m and m.group(1) not in os.environ:
                     os.environ[m.group(1)] = m.group(2).strip()
