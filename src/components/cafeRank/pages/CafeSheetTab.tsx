@@ -8,6 +8,7 @@ import {
     type CafeAccount,
 } from '../../../api/cafeAccounts';
 import { getCafeRankPosts, type CafeRankPost } from '../../../api/cafeRank';
+import { listPendingCafeRequests, setCafeRequestStatus, type CafeRequest } from '../../../api/cafeRequests';
 import { cafeCompanyRank, cafeNameLabel, cafeNameRank } from '../../../lib/cafeAccounts';
 
 // 카페 관리시트 — 브랜드블로그 관리시트와 동일한 행 테이블 구조.
@@ -38,6 +39,7 @@ export function CafeSheetTab({
     const [showAdd, setShowAdd] = useState(false);
     const [form, setForm] = useState(EMPTY);
     const [busy, setBusy] = useState(false);
+    const [reqs, setReqs] = useState<CafeRequest[]>([]);   // 고객 발행 신청(대기) — 내부만
 
     const reload = async () => {
         setLoading(true);
@@ -46,8 +48,28 @@ export function CafeSheetTab({
         setPosts(rp.data);
         setError(acc.error ? 'cafe_accounts가 없습니다. docs/cafe-accounts.sql 실행 필요.' : '');
         setLoading(false);
+        if (!readOnly) {
+            const { data } = await listPendingCafeRequests();   // 테이블 없으면 빈 배열
+            setReqs(data);
+        }
     };
     useEffect(() => { void reload(); }, []);
+
+    // 신청 처리(완료/거절) — 계정 등록·승인은 아래 '업체 등록' + '발행 승인' 토글로 하고, 여기서 상태만 정리.
+    const handleReq = async (id: string, status: 'done' | 'rejected') => {
+        const { error } = await setCafeRequestStatus(id, status);
+        if (error) { setError(error.message); return; }
+        setReqs((prev) => prev.filter((r) => r.id !== id));
+    };
+    const prefillFromReq = (r: CafeRequest) => {
+        setForm({
+            company_key: '',
+            display_name: r.cafe_name || r.business || '',
+            board_name: r.board_name || '',
+            board_short: r.board_name || '',
+        });
+        setShowAdd(true);
+    };
 
     // 업체(계정)별 추적 글 수 · 인기글 진입 수 — cafe_account_id 우선, 없으면 board_short 매칭.
     const statByAccount = useMemo(() => {
@@ -164,6 +186,28 @@ export function CafeSheetTab({
             ) : null}
 
             {error ? <div className="rounded-md bg-[#fef2f2] px-3 py-2 text-sm text-[#b91c1c]">{error}</div> : null}
+
+            {!readOnly && reqs.length ? (
+                <div className="rounded-md border-2 border-[#f59e0b] bg-[#fffbeb] p-3">
+                    <div className="mb-2 text-[13px] font-bold text-[#92400e]">카페 발행 신청 (대기 {reqs.length})</div>
+                    <div className="grid gap-2">
+                        {reqs.map((r) => (
+                            <div className="flex flex-wrap items-center gap-2 rounded border border-[#fde68a] bg-white px-3 py-2 text-[12px]" key={r.id}>
+                                <div className="min-w-0 flex-1">
+                                    <div className="font-semibold text-[#334155]">{r.cafe_name || '(카페명 미기재)'}{r.business ? ` · ${r.business}` : ''}</div>
+                                    <div className="text-[#64748b]">게시판: {r.board_name || '—'} · {r.cafe_url || '주소 미기재'}</div>
+                                    {r.note ? <div className="text-[#94a3b8]">메모: {r.note}</div> : null}
+                                    <div className="text-[10px] text-[#cbd5e1]">client {r.client_id.slice(0, 8)} · {new Date(r.created_at).toLocaleString('ko-KR')}</div>
+                                </div>
+                                <button className="rounded bg-[#0369a1] px-2 py-1 text-[11px] font-bold text-white" onClick={() => prefillFromReq(r)} type="button">이 정보로 등록</button>
+                                <button className="rounded bg-[#059669] px-2 py-1 text-[11px] font-bold text-white" onClick={() => void handleReq(r.id, 'done')} type="button">처리완료</button>
+                                <button className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#64748b]" onClick={() => void handleReq(r.id, 'rejected')} type="button">거절</button>
+                            </div>
+                        ))}
+                    </div>
+                    <p className="m-0 mt-2 text-[11px] text-[#92400e]">"이 정보로 등록" → 업체 등록 폼에 채워짐 → company_key·client 연결해 등록 → 그 행 "발행 승인" 켜기 → "처리완료".</p>
+                </div>
+            ) : null}
 
             <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
                 <table className="w-full border-collapse text-left text-sm">

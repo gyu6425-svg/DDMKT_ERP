@@ -80,14 +80,13 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     if (loading) {
         return <div className="rounded-xl border border-[#e2e8f0] bg-white px-6 py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
     }
-    if (!companyKey) {
-        return (
-            <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-6 py-16 text-center">
-                <div className="text-base font-semibold text-[#475569]">등록된 카페 배포가 없습니다</div>
-                <p className="mx-auto mt-2 max-w-md text-sm text-[#94a3b8]">본 업체로 연결된 카페 계정이 아직 없습니다. 담당자에게 문의해 주세요.</p>
-            </div>
-        );
-    }
+    // 카페계정 없어도 '카페 자동화 발행' 탭은 항상 보인다(승인 요청용). 순위·시트만 계정 필요.
+    const noCafe = (
+        <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-6 py-16 text-center">
+            <div className="text-base font-semibold text-[#475569]">등록된 카페 배포가 없습니다</div>
+            <p className="mx-auto mt-2 max-w-md text-sm text-[#94a3b8]">아직 연결된 카페가 없습니다. "카페 자동화 발행" 탭에서 승인 요청을 남겨 주세요.</p>
+        </div>
+    );
     return (
         <>
             <div className="flex gap-1 border-b border-[#e2e8f0]">
@@ -105,10 +104,10 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
                 ))}
             </div>
             {view === 'tracker'
-                ? <CafeTrackerTab lockCompany={companyKey} />
+                ? (companyKey ? <CafeTrackerTab lockCompany={companyKey} /> : noCafe)
                 : view === 'sheet'
-                    ? <CafeSheetTab scopeCompanyKey={companyKey} readOnly />
-                    : <CafeCustomerStudio companyKey={companyKey} />}
+                    ? (companyKey ? <CafeSheetTab scopeCompanyKey={companyKey} readOnly /> : noCafe)
+                    : <CafeCustomerStudio clientId={scopedClientId} />}
         </>
     );
 }
