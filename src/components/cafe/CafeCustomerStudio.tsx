@@ -406,7 +406,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                         <button className="h-10 rounded-lg bg-[#4338ca] px-5 text-sm font-bold text-white disabled:opacity-50" disabled={rphase === 'scanning' || rphase === 'publishing'} onClick={() => void runScan()} type="button">{rphase === 'scanning' ? '스캔 중…' : '인기글 스캔'}</button>
                         {rphase === 'scanned' && passed.length ? (
-                            <button className="h-10 rounded-lg bg-[#0f766e] px-5 text-sm font-bold text-white disabled:opacity-50" disabled={rphase === 'publishing'} onClick={() => void runPublishRegion()} type="button">{Math.min(passed.length, count)}건 생성·발행</button>
+                            <button className="h-10 rounded-lg bg-[#0f766e] px-5 text-sm font-bold text-white disabled:opacity-50" onClick={() => void runPublishRegion()} type="button">{Math.min(passed.length, count)}건 생성·발행</button>
                         ) : null}
                         <button className="h-10 rounded-lg border border-[#94a3b8] px-4 text-sm font-semibold text-[#475569] disabled:opacity-50" disabled={rphase === 'scanning' || rphase === 'publishing'} onClick={() => void runDirectPublish()} type="button" title="인기글 검사 없이 선택 지역 그대로 발행(테스트/지정발행)">스캔 없이 바로 발행</button>
                         {rmsg ? <span className="text-[13px] text-[#4338ca]">{rmsg}</span> : null}
