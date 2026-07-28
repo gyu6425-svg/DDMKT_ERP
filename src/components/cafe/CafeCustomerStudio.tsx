@@ -63,15 +63,18 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     const [pubBusy, setPubBusy] = useState(false);
     const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-    // 지역형
-    const [regionSet, setRegionSet] = useState<RegionSet>('서울');
+    // 지역형 — 다중 지역셋 + 다중 SEO 키워드
+    const [regionSets, setRegionSets] = useState<Set<RegionSet>>(() => new Set<RegionSet>(['서울']));
+    const [selectedKw, setSelectedKw] = useState<Set<string>>(() => new Set());
     const [regionKw, setRegionKw] = useState('');
-    const [count, setCount] = useState(2);
+    const [count, setCount] = useState(3);
     const [rphase, setRphase] = useState<'idle' | 'scanning' | 'scanned' | 'publishing' | 'done'>('idle');
-    const [scanRows, setScanRows] = useState<Array<{ region: string; status: string }>>([]);
-    const [passed, setPassed] = useState<string[]>([]);
-    const [genRows, setGenRows] = useState<Array<{ region: string; status: string }>>([]);
+    const [scanRows, setScanRows] = useState<Array<{ label: string; status: string }>>([]);
+    const [passed, setPassed] = useState<Array<{ region: string; keyword: string }>>([]);
+    const [genRows, setGenRows] = useState<Array<{ label: string; status: string }>>([]);
     const [rmsg, setRmsg] = useState('');
+    const toggleKw = (kw: string) => setSelectedKw((prev) => { const n = new Set(prev); if (n.has(kw)) n.delete(kw); else n.add(kw); return n; });
+    const toggleSet = (s: RegionSet) => setRegionSets((prev) => { const n = new Set(prev); if (n.has(s)) n.delete(s); else n.add(s); return n; });
 
     // 발행 현황
     const [jobs, setJobs] = useState<MyJob[]>([]);
@@ -142,43 +145,48 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         setTitle(''); setBody(''); setTags(''); setImages([]); void loadJobs();
     }
 
-    // 지역형: 스캔(인기글) → 통과 지역
+    // 지역형: 선택 지역셋 × 선택 SEO 키워드 인기글 스캔 → 발행건수(N) 채우면 중단.
     async function runScan() {
-        const kw = regionKw.trim();
-        if (!kw) { setRmsg('키워드를 입력하세요.'); return; }
-        setRmsg(''); setRphase('scanning'); setGenRows([]);
-        const regions = REGION_GROUPS[regionSet];
-        const rows = regions.map((r) => ({ region: r.label, status: '대기' }));
-        setScanRows([...rows]); const hit: string[] = [];
-        for (let i = 0; i < regions.length; i += 1) {
+        const kws = selectedKw.size ? [...selectedKw] : (regionKw.trim() ? [regionKw.trim()] : []);
+        if (!kws.length) { setRmsg('SEO 키워드를 선택하거나 키워드를 입력하세요.'); return; }
+        const sets = regionSets.size ? [...regionSets] : (['서울'] as RegionSet[]);
+        // 후보 = 각 지역셋의 시·구 × 각 키워드 (지역 우선 훑기).
+        const cands: Array<{ region: string; scans: string[]; keyword: string }> = [];
+        for (const set of sets) for (const r of REGION_GROUPS[set]) for (const kw of kws) cands.push({ region: r.label, scans: r.scans, keyword: kw });
+        setRmsg(''); setRphase('scanning'); setGenRows([]); setPassed([]);
+        const rows = cands.map((c) => ({ label: `${c.region} ${c.keyword}`, status: '대기' }));
+        setScanRows([...rows]);
+        const hit: Array<{ region: string; keyword: string }> = [];
+        for (let i = 0; i < cands.length; i += 1) {
             rows[i] = { ...rows[i], status: '검사중' }; setScanRows([...rows]);
             try {
                 let ok = false;
-                for (const s of regions[i].scans) {
-                    const { hasPopular } = await checkPopular(`${s} ${kw}`);
+                for (const s of cands[i].scans) {
+                    const { hasPopular } = await checkPopular(`${s} ${cands[i].keyword}`);
                     if (hasPopular) { ok = true; break; }
                 }
                 rows[i] = { ...rows[i], status: ok ? '통과' : '없음' };
-                if (ok) hit.push(regions[i].label);
+                if (ok) hit.push({ region: cands[i].region, keyword: cands[i].keyword });
             } catch { rows[i] = { ...rows[i], status: '오류' }; }
             setScanRows([...rows]); setPassed([...hit]);
-            if (hit.length >= count) break;
+            if (hit.length >= count) break;   // 발행건수 채우면 중단
         }
         setPassed(hit); setRphase('scanned');
-        setRmsg(hit.length >= count ? `${count}건 확보` : `${hit.length}건 가능(후보 소진)`);
+        setRmsg(hit.length >= count ? `${count}건 확보(인기글 지역)` : `${hit.length}건 가능(후보 소진)`);
     }
 
-    // 지역형: 통과분 생성·발행(배치)
+    // 지역형: 통과분(최대 N) 생성·발행.
     async function runPublishRegion() {
         if (!passed.length) return;
         setRphase('publishing');
-        const rows = passed.slice(0, count).map((r) => ({ region: r, status: '대기' }));
+        const targets = passed.slice(0, count);
+        const rows = targets.map((p) => ({ label: `${p.region} ${p.keyword}`, status: '대기' }));
         setGenRows([...rows]);
-        for (let i = 0; i < rows.length; i += 1) {
+        for (let i = 0; i < targets.length; i += 1) {
             rows[i] = { ...rows[i], status: '원고 생성중…' }; setGenRows([...rows]);
             try {
-                const kw = `${rows[i].region} ${regionKw.trim()}`;
-                const r = await genOne(kw, rows[i].region);
+                const p = targets[i];
+                const r = await genOne(`${p.region} ${p.keyword}`, p.region);
                 rows[i] = { ...rows[i], status: '발행 등록중…' }; setGenRows([...rows]);
                 const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images: [], tags: [] });
                 rows[i] = { ...rows[i], status: error ? '실패' : '큐 등록 완료' };
@@ -231,14 +239,17 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                 </div>
                 {seo ? (
                     <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-[#bae6fd] bg-white p-1">
-                        {seo.length ? seo.map((r) => (
-                            <button className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-[13px] hover:bg-[#f0f9ff]" key={r.keyword}
-                                onClick={() => { if (mode === 'region') setRegionKw(r.keyword); else setKeyword(r.keyword); }} type="button">
-                                <span className="font-medium text-[#0f172a]">{r.keyword}</span>
-                                <span className="text-[12px] text-[#64748b]">월 {r.total.toLocaleString()} · 경쟁 {r.comp}</span>
-                            </button>
-                        )) : <div className="px-2 py-1 text-[13px] text-[#94a3b8]">추천 키워드 없음</div>}
-                        <div className="px-2 py-1 text-[11px] text-[#94a3b8]">클릭 → 아래 {mode === 'region' ? '지역형' : '키워드형'} 키워드칸에 채워집니다.</div>
+                        {seo.length ? seo.map((r) => {
+                            const sel = selectedKw.has(r.keyword);
+                            return (
+                                <button className={`flex w-full items-center justify-between rounded px-2 py-1 text-left text-[13px] ${sel ? 'bg-[#dbeafe]' : 'hover:bg-[#f0f9ff]'}`} key={r.keyword}
+                                    onClick={() => { toggleKw(r.keyword); if (mode === 'region') setRegionKw(r.keyword); else setKeyword(r.keyword); }} type="button">
+                                    <span className="font-medium text-[#0f172a]">{sel ? '✓ ' : ''}{r.keyword}</span>
+                                    <span className="text-[12px] text-[#64748b]">월 {r.total.toLocaleString()} · 경쟁 {r.comp}</span>
+                                </button>
+                            );
+                        }) : <div className="px-2 py-1 text-[13px] text-[#94a3b8]">추천 키워드 없음</div>}
+                        <div className="px-2 py-1 text-[11px] text-[#94a3b8]">클릭 = 선택(지역형은 여러 개 조합) · 키워드형은 키워드칸에 채워집니다. {selectedKw.size ? `· 선택 ${selectedKw.size}개` : ''}</div>
                     </div>
                 ) : null}
             </div>
@@ -308,33 +319,55 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                 </>
             ) : (
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-                    <div className="mb-1 text-[13px] font-bold text-[#334155]">지역형 — 지역별 인기글 스캔 후 통과 지역만 발행</div>
-                    <div className="mb-3 text-[11px] text-[#94a3b8]">"{'{지역}'} {regionKw || '키워드'}"로 인기글 뜨는 지역만 골라 원고 생성·발행합니다.</div>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                        <label className="grid gap-1 text-xs font-semibold text-[#475569]">키워드 (필수)
-                            <input className={inputCls} onChange={(e) => setRegionKw(e.target.value)} placeholder="예) 입주청소" value={regionKw} />
-                        </label>
-                        <label className="grid gap-1 text-xs font-semibold text-[#475569]">지역
-                            <select className={inputCls} onChange={(e) => setRegionSet(e.target.value as RegionSet)} value={regionSet}>
-                                {(['서울', '경기', '인천', '전체'] as RegionSet[]).map((g) => <option key={g} value={g}>{g} ({REGION_GROUPS[g].length})</option>)}
-                            </select>
-                        </label>
-                        <label className="grid gap-1 text-xs font-semibold text-[#475569]">발행 건수
-                            <input className={inputCls} max={10} min={1} onChange={(e) => setCount(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} type="number" value={count} />
-                        </label>
+                    <div className="mb-1 text-[13px] font-bold text-[#334155]">지역형 — 지역 × SEO키워드 인기글 스캔 후 통과분만 발행</div>
+                    <div className="mb-3 text-[11px] text-[#94a3b8]">선택한 지역들의 시·구 × 선택한 키워드 조합을 인기글 검사 → 발행 건수만큼 채우면 멈춥니다.</div>
+
+                    {/* 지역 다중 선택 */}
+                    <div className="mb-3 grid gap-1 text-xs font-semibold text-[#475569]">지역 (여러 개 선택 가능)
+                        <div className="flex flex-wrap gap-2">
+                            {(['서울', '경기', '인천'] as RegionSet[]).map((g) => {
+                                const on = regionSets.has(g);
+                                return (
+                                    <button className={`rounded-full px-3 py-1 text-[12px] font-semibold ${on ? 'bg-[#1e40af] text-white' : 'bg-[#f1f5f9] text-[#64748b]'}`} key={g} onClick={() => toggleSet(g)} type="button">
+                                        {on ? '✓ ' : ''}{g} ({REGION_GROUPS[g].length})
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
+
+                    {/* 키워드 = SEO 선택분 (없으면 직접 입력) */}
+                    <div className="mb-3 grid gap-1 text-xs font-semibold text-[#475569]">키워드
+                        {selectedKw.size ? (
+                            <div className="flex flex-wrap gap-1.5">
+                                {[...selectedKw].map((kw) => (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-semibold text-[#3730a3]" key={kw}>
+                                        {kw}<button className="text-[#6366f1]" onClick={() => toggleKw(kw)} type="button">×</button>
+                                    </span>
+                                ))}
+                                <span className="self-center text-[11px] font-normal text-[#94a3b8]">↑ 위 SEO 결과에서 클릭해 선택</span>
+                            </div>
+                        ) : (
+                            <input className={inputCls} onChange={(e) => setRegionKw(e.target.value)} placeholder="SEO에서 선택하거나 직접 입력 (예: 입주청소)" value={regionKw} />
+                        )}
+                    </div>
+
+                    <label className="grid max-w-[160px] gap-1 text-xs font-semibold text-[#475569]">발행 건수
+                        <input className={inputCls} max={10} min={1} onChange={(e) => setCount(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} type="number" value={count} />
+                    </label>
+
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <button className="h-10 rounded-lg bg-[#4338ca] px-5 text-sm font-bold text-white disabled:opacity-50" disabled={rphase === 'scanning' || rphase === 'publishing'} onClick={() => void runScan()} type="button">{rphase === 'scanning' ? '스캔 중…' : '지역 스캔'}</button>
+                        <button className="h-10 rounded-lg bg-[#4338ca] px-5 text-sm font-bold text-white disabled:opacity-50" disabled={rphase === 'scanning' || rphase === 'publishing'} onClick={() => void runScan()} type="button">{rphase === 'scanning' ? '스캔 중…' : '인기글 스캔'}</button>
                         {rphase === 'scanned' && passed.length ? (
-                            <button className="h-10 rounded-lg bg-[#0f766e] px-5 text-sm font-bold text-white disabled:opacity-50" onClick={() => void runPublishRegion()} type="button">{passed.length}건 생성·발행</button>
+                            <button className="h-10 rounded-lg bg-[#0f766e] px-5 text-sm font-bold text-white disabled:opacity-50" onClick={() => void runPublishRegion()} type="button">{Math.min(passed.length, count)}건 생성·발행</button>
                         ) : null}
                         {rmsg ? <span className="text-[13px] text-[#4338ca]">{rmsg}</span> : null}
                     </div>
                     {scanRows.length ? (
                         <div className="mt-3 flex flex-wrap gap-1.5">
-                            {scanRows.map((r) => (
-                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${r.status === '통과' ? 'bg-[#1e5bd8] text-white' : r.status === '검사중' ? 'bg-[#fef9c3] text-[#854d0e]' : r.status === '오류' ? 'bg-[#fee2e2] text-[#991b1b]' : r.status === '없음' ? 'bg-[#f1f5f9] text-[#94a3b8]' : 'bg-[#f8fafc] text-[#cbd5e1]'}`} key={r.region}>
-                                    {r.status === '통과' ? '✓ ' : ''}{r.region}
+                            {scanRows.filter((r) => r.status !== '대기').slice(0, 120).map((r) => (
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${r.status === '통과' ? 'bg-[#1e5bd8] text-white' : r.status === '검사중' ? 'bg-[#fef9c3] text-[#854d0e]' : r.status === '오류' ? 'bg-[#fee2e2] text-[#991b1b]' : 'bg-[#f1f5f9] text-[#94a3b8]'}`} key={r.label}>
+                                    {r.status === '통과' ? '✓ ' : ''}{r.label}
                                 </span>
                             ))}
                         </div>
@@ -342,14 +375,14 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                     {genRows.length ? (
                         <div className="mt-3 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-3">
                             {genRows.map((r) => (
-                                <div className="flex items-center justify-between border-b border-[#f1f5f9] py-1 text-[12px] last:border-0" key={r.region}>
-                                    <span className="font-semibold text-[#334155]">{r.region}</span>
+                                <div className="flex items-center justify-between border-b border-[#f1f5f9] py-1 text-[12px] last:border-0" key={r.label}>
+                                    <span className="font-semibold text-[#334155]">{r.label}</span>
                                     <span className={r.status.includes('완료') ? 'text-[#166534]' : r.status.includes('실패') ? 'text-[#991b1b]' : 'text-[#64748b]'}>{r.status}</span>
                                 </div>
                             ))}
                         </div>
                     ) : null}
-                    <div className="mt-2 text-[11px] text-[#94a3b8]">※ 지역형은 여러 건을 한 번에 생성·발행합니다(건수만큼). 발행은 내 PC 프로그램이 간격 두고 순차 게시.</div>
+                    <div className="mt-2 text-[11px] text-[#94a3b8]">※ 지역형은 발행 건수만큼 한 번에 생성·발행합니다(원고 자동생성 = 비용 발생). 발행은 내 PC 프로그램이 간격 두고 순차 게시.</div>
                 </div>
             )}
 
