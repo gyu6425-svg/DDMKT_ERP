@@ -79,7 +79,11 @@ export function CafeCustomerStudio({ companyKey }: { companyKey: string }) {
         const { data } = await listMyCafeJobs(10);
         setJobs(data as MyJob[]);
     }
-    useEffect(() => { void loadJobs(); }, []);
+    useEffect(() => {
+        void loadJobs();
+        const t = setInterval(() => { void loadJobs(); }, 15000);   // 현황 실시간 갱신(대기→작성중→완료)
+        return () => clearInterval(t);
+    }, []);
 
     async function addFiles(files: FileList | null) {
         if (!files || !files.length) return;
@@ -180,12 +184,24 @@ export function CafeCustomerStudio({ companyKey }: { companyKey: string }) {
 
     const inputCls = 'h-10 rounded-lg border border-[#cbd5e1] bg-white px-3 text-sm';
 
+    // 발행 프로그램(에이전트) 미가동 추정 — 대기 글이 3분 넘게 시작 안 되면 경고.
+    //   (브릿지 직접 확인은 배포 https→http localhost 혼합콘텐츠로 막혀 부정확 → 큐 진행으로 판단)
+    const now = Date.now();
+    const stuck = jobs.some((j) => j.status === 'pending' && now - new Date(j.created_at).getTime() > 3 * 60 * 1000);
+
     return (
         <div className="grid gap-4">
             <div className="rounded-lg bg-[#eff6ff] px-4 py-3 text-sm text-[#1e40af]">
                 발행 대상 게시판: <b>{board ?? '(확인 중)'}</b>
                 <span className="ml-2 text-[#64748b]">— 발행하면 본인 카페의 이 게시판에 자동 게시됩니다.</span>
             </div>
+
+            {stuck ? (
+                <div className="rounded-lg border border-[#fca5a5] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]">
+                    ⚠️ 대기 중인 글이 게시되지 않고 있습니다. 내 PC의 <b>발행 프로그램(DDMKT-Agent)</b>이 실행 중인지 확인해 주세요.
+                    <span className="ml-1 text-[#7f1d1d]">(프로그램을 켜면 대기 중인 글부터 순서대로 자동 게시됩니다.)</span>
+                </div>
+            ) : null}
 
             {/* 입력 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
