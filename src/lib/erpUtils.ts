@@ -33,9 +33,19 @@ export const NEW_CONTRACT_TTL_MS = 24 * 60 * 60 * 1000; // 신규 표시 유지 
 
 // 실매출 = 공급가(저장된 amount) × 1.1 (부가세 10% 포함). 순매출은 부가세 전(공급가−외주) 그대로 사용.
 export const withVat = (n: number | null | undefined): number => Math.round((Number(n) || 0) * 1.1);
-// 계약별 실매출 — 부가세 없음(현금)이면 VAT 미포함(공급가 그대로), 아니면 ×1.1.
-export const saleVat = (amount: number | null | undefined, noVat?: boolean | null): number =>
-    noVat ? Number(amount) || 0 : withVat(amount);
+// 계약별 실매출 — 우선순위: ① 저장된 실매출(부가세포함 합계, 이카운트 등 실제 세금계산서 금액) →
+//   ② 현금(no_vat)이면 공급가 그대로 → ③ 공급가 × 1.1.
+//   saleTotal 이 있으면 부가세를 재계산하지 않고 그 값을 그대로 써서 외부 장부(이카운트)와 원 단위까지 일치시킨다.
+export const saleVat = (
+    amount: number | null | undefined,
+    noVat?: boolean | null,
+    saleTotal?: number | null,
+): number =>
+    saleTotal != null && Number(saleTotal) > 0
+        ? Number(saleTotal)
+        : noVat
+          ? Number(amount) || 0
+          : withVat(amount);
 
 // 연락처 하이픈 자동 — 010-0000-0000(휴대폰 3-4-4), 서울 02-...(2-3/4-4), 그 외 3자리 국번.
 export function formatPhone(v: string): string {

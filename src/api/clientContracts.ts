@@ -53,6 +53,7 @@ export type ClientContract = {
     parent_id?: string | null; // 컨테이너(상위노출 보장형·종합광고) 하위면 그 컨테이너 계약 id — 회차별 귀속
     no_vat?: boolean | null; // 부가세 없음(현금 거래) — true면 실매출에 VAT 10% 미포함
     payment_method?: string | null; // 결제수단 — 'card'=카드매출, null=현금/계좌이체(일반)
+    sale_total?: number | null; // 실매출(부가세포함 합계) — 이카운트 등 실제 세금계산서 금액. 있으면 부가세 재계산 대신 이 값 사용(장부 정확 일치).
 };
 
 // 누적 완료 외주금액 = Σ(진행 배치 건수 × 그 배치 외주단가) + 로그에 없는 완료분(잔여로만 갱신된 건) × 기본 외주단가.

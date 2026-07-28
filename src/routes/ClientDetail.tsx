@@ -916,6 +916,7 @@ function ContractEditModal({
     const [editLog, setEditLog] = useState<{ idx: number; value: string } | null>(null); // 진행 이력 타수 수정
     const [amount, setAmount] = useState(contract.amount?.toString() ?? '');
     const [unitPrice, setUnitPrice] = useState(contract.unit_price?.toString() ?? '');
+    const [saleTotal, setSaleTotal] = useState(contract.sale_total?.toString() ?? ''); // 실매출(부가세포함) — 이카운트 합계
     const [date, setDate] = useState(contract.contract_date ?? '');
     const [note, setNote] = useState(contract.note ?? '');
     const [saving, setSaving] = useState(false);
@@ -1093,6 +1094,8 @@ function ContractEditModal({
             goal_count: goal.trim() === '' ? null : Math.round(evalNum(goal)),
             remain_count: remain.trim() === '' ? null : Math.round(evalNum(remain)),
             unit_price: unitPrice.trim() === '' ? null : Math.round(evalNum(unitPrice)),
+            // 실매출(부가세포함) — 입력하면 매출 요약이 이 값을 그대로 써서 이카운트와 정확히 일치. 비우면 공급가×1.1 재계산.
+            sale_total: saleTotal.trim() === '' ? null : Math.round(evalNum(saleTotal)),
         };
         const { error } = await updateClientContract(contract.id, patch);
         setSaving(false);
@@ -1532,10 +1535,20 @@ function ContractEditModal({
                                 value={unitPrice}
                             />
                         </label>
+                        <label className="grid min-w-0 gap-1 text-[11px] font-semibold text-[#0f766e]">
+                            실매출(부가세포함)
+                            <input
+                                className="h-8 w-full rounded-md border border-[#5eead4] px-2 text-sm"
+                                inputMode="numeric"
+                                onChange={(e) => setSaleTotal(e.target.value)}
+                                placeholder="이카운트 합계 · 비우면 공급가×1.1"
+                                value={saleTotal}
+                            />
+                        </label>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                         <span className="text-[10px] text-[#94a3b8]">
-                            건수·잔여를 바꾸면 진행률·외주비가 자동 재계산됩니다.
+                            건수·잔여를 바꾸면 진행률·외주비가 자동 재계산 · 실매출을 넣으면 부가세가 그 값 기준(이카운트 일치)
                         </span>
                         <button
                             className="h-8 rounded-md bg-[#1e40af] px-4 text-xs font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
@@ -2782,7 +2795,7 @@ export function ClientDetail({
     const catAmount = (label: string) =>
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
     // 실매출(VAT 포함) — 계약별로 부가세 없음(현금)이면 VAT 미포함. 합산은 계약별로.
-    const totalReal = contracts.reduce((s, ct) => s + saleVat(ct.amount, ct.no_vat), 0);
+    const totalReal = contracts.reduce((s, ct) => s + saleVat(ct.amount, ct.no_vat, ct.sale_total), 0);
     const totalSupply = contracts.reduce((s, ct) => s + (ct.amount || 0), 0); // 공급가(VAT 제외) 합계
     const totalOutsource = contracts.reduce((s, ct) => s + (ct.outsource || 0), 0); // 외주비 합계(받은·고정)
     // 순매출 = 공급가(VAT 제외) − 외주비 정산 차액(예상 외주비 − 실제 사용). (차액 = outMargin, 아래에서 계산)
@@ -3888,7 +3901,7 @@ export function ClientDetail({
                                         breakdown === 'net'
                                             ? (ct.amount || 0) - (ct.outsource || 0)
                                             : breakdown === 'sales'
-                                              ? saleVat(ct.amount, ct.no_vat) // 실매출 = VAT 포함(현금이면 미포함)
+                                              ? saleVat(ct.amount, ct.no_vat, ct.sale_total) // 실매출 = VAT 포함(현금이면 미포함, 저장된 실매출 우선)
                                               : ct.outsource || 0;
                                     const color =
                                         breakdown === 'net'
@@ -3995,7 +4008,7 @@ export function ClientDetail({
                                       : ([
                                             ['수량', `${(detailC.goal_count ?? 0).toLocaleString('ko-KR')}건`],
                                             ['단가', `${fmtWon(detailC.unit_price || 0)}원`],
-                                            ['실매출 (VAT 포함)', `${fmtWon(saleVat(detailC.amount, detailC.no_vat))}원`, '#1e40af'],
+                                            ['실매출 (VAT 포함)', `${fmtWon(saleVat(detailC.amount, detailC.no_vat, detailC.sale_total))}원`, '#1e40af'],
                                         ] as [string, string, string?][])
                             ).map(([k, v, color]) => (
                                 <div

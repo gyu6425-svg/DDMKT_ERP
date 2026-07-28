@@ -530,7 +530,12 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             //   각 회차가 그 달에만 잡히게(전체 amount가 재계약월로 통째로 이동하지 않음). 계약일 없으면 월 매출 제외.
             const s = supplyInPeriod(ct, yearFilter, monthFilter);
             supply += s;
-            total += saleVat(s, ct.no_vat); // 계약별 VAT(그 달 공급가에 대해)
+            // 실매출 = 저장된 실매출(이카운트 합계)이 있고 그 달에 계약 전액이 귀속되면 그 값 그대로(장부 정확 일치),
+            //   아니면 그 달 공급가에 대해 부가세 재계산.
+            total +=
+                ct.sale_total != null && ct.sale_total > 0 && s === (ct.amount || 0)
+                    ? ct.sale_total
+                    : saleVat(s, ct.no_vat);
             // 외주비 = 월보장이면 처리월(주간 로그)로 귀속, 그 외 상품은 계약월. (계약월≠처리월 분리 정산)
             outs += outsourceInPeriod(ct, yearFilter, monthFilter);
             used += usedOutsourceInPeriod(ct, yearFilter, monthFilter); // 실제 사용(그 달 소진)
