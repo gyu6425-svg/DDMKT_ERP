@@ -217,6 +217,8 @@ async function generateLongform(payload: GenerateCafePayload, env: FunctionConte
         region: payload.region,
         dong: payload.dong,
         retryNote: payload.retryNote,
+        brand: payload.brand,   // 고객 셀프발행 — 업체명은 고객 것(비면 업종 기본상수)
+        phone: payload.phone,   // 비면('' 또는 미전달) 전화 언급 생략
     });
     const response = await fetch(OPENAI_API_URL, {
         body: JSON.stringify({ input: prompt, model, reasoning: { effort: 'low' }, text: { format: { type: 'json_object' } } }),

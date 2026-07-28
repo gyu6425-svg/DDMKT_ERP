@@ -67,8 +67,11 @@ export function bodyLen(body) {
 }
 
 // 누수탐지(leak) 롱폼 프롬프트 — cafe_auto_publish_nusu2.py _body_prompt 그대로.
-function buildLeakPrompt(region, dong) {
-    const { business, brand, phone } = BUSINESS_INFO.leak;
+//   opts.brand/opts.phone 주면 업종 고정상수 대신 사용(고객 셀프발행 — 업체명은 고객 것). phone='' 이면 전화 언급 생략.
+function buildLeakPrompt(region, dong, opts = {}) {
+    const business = BUSINESS_INFO.leak.business;
+    const brand = (opts.brand && String(opts.brand).trim()) || BUSINESS_INFO.leak.brand;
+    const phone = opts.phone !== undefined ? String(opts.phone).trim() : BUSINESS_INFO.leak.phone;
     const p = POOLS.leak;
     const kw = `${region} ${business}`;
     const lead = dong ? `${kw} ${dong}` : kw;
@@ -78,7 +81,7 @@ function buildLeakPrompt(region, dong) {
     const locCtx = dong ? `${region} ${dong}` : region;
     return [
         `너는 네이버 카페 지역글 전문 카피라이터다. 실제 의뢰인이 쓴 것 같은 "${kw}" [후기형 롱폼] 글을 쓴다.`,
-        `업체명 "${brand}", 지역 "${locCtx}", 업종 "${business}", 전화 "${phone}".`,
+        `업체명 "${brand}", 지역 "${locCtx}", 업종 "${business}"${phone ? `, 전화 "${phone}"` : ''}.`,
         '',
         `[이번 글 설정 — 반드시 이 설정으로 고유하게 써라(다른 글과 겹치지 않게)]`,
         `- 건물유형: ${bldg} / 처음 발견한 증상: ${trig} / 이번 누수의 핵심 부위: ${foc}`,
@@ -122,7 +125,9 @@ function buildLeakPrompt(region, dong) {
         + '문제상황 단어(물 얼룩·습기·곰팡이·벽지 들뜸·수도요금 증가·아랫집 피해), '
         + '선택기준 단어(열화상·청음·내시경·수압·최소 파손·정확한 진단·사후)를 글 전체에 풍부하게 녹여라(콤마 나열 금지).',
         `- [지역 엔티티] 본문에 지역명 "${locCtx}"를 2~3회 자연스럽게 언급하라(있는 그대로만 쓰고, 이 외의 다른 동·주소·번지는 절대 지어내지 마라). `
-        + `상호 "${brand}"(${phone})도 1~2곳 자연스럽게 넣어 지역-업체 결합 신호를 남겨라.`,
+        + (phone
+            ? `상호 "${brand}"(${phone})도 1~2곳 자연스럽게 넣어 지역-업체 결합 신호를 남겨라.`
+            : `상호 "${brand}"도 1~2곳 자연스럽게 넣어 지역-업체 결합 신호를 남겨라(전화번호는 지어내지 마라).`),
         '',
         '[분량]',
         '- 공백 포함 **2,000~3,000자**(최소 1,800자). 짧으면 규칙 위반이다. 문단을 많이 나누되 서사를 충분히 길게 써라.',
@@ -141,8 +146,11 @@ function buildLeakPrompt(region, dong) {
 }
 
 // 입주청소(clean) 롱폼 프롬프트 — cafe_auto_publish_ddclean.py _body_prompt 그대로.
-function buildCleanPrompt(region, dong) {
-    const { business, brand, phone } = BUSINESS_INFO.clean;
+//   opts.brand/opts.phone 주면 업종 고정상수 대신 사용(고객 셀프발행). phone='' 이면 전화 언급 생략.
+function buildCleanPrompt(region, dong, opts = {}) {
+    const business = BUSINESS_INFO.clean.business;
+    const brand = (opts.brand && String(opts.brand).trim()) || BUSINESS_INFO.clean.brand;
+    const phone = opts.phone !== undefined ? String(opts.phone).trim() : BUSINESS_INFO.clean.phone;
     const p = POOLS.clean;
     const kw = `${region} ${business}`;
     const lead = dong ? `${kw} ${dong}` : kw;
@@ -152,7 +160,7 @@ function buildCleanPrompt(region, dong) {
     const locCtx = dong ? `${region} ${dong}` : region;
     return [
         `너는 네이버 카페 지역글 전문 카피라이터다. 실제 의뢰인이 쓴 것 같은 "${kw}" [후기형 롱폼] 글을 쓴다.`,
-        `업체명 "${brand}", 지역 "${locCtx}", 업종 "${business}", 전화 "${phone}".`,
+        `업체명 "${brand}", 지역 "${locCtx}", 업종 "${business}"${phone ? `, 전화 "${phone}"` : ''}.`,
         '',
         `[이번 글 설정 — 반드시 이 설정으로 고유하게 써라(다른 글과 겹치지 않게)]`,
         `- 건물유형: ${bldg} / 입주·청소 계기: ${trig} / 이번 청소의 핵심 부위: ${foc}`,
@@ -196,7 +204,9 @@ function buildCleanPrompt(region, dong) {
         + '문제상황 단어(기름때·물때·곰팡이·공사 분진·본드 자국·새집증후군·마감재 냄새·묵은 먼지), '
         + '선택기준 단어(전문 장비·스팀·고압 세척·인력·꼼꼼한 검수·유해물질 측정·피톤치드·사후)를 글 전체에 풍부하게 녹여라(콤마 나열 금지).',
         `- [지역 엔티티] 본문에 지역명 "${locCtx}"를 2~3회 자연스럽게 언급하라(있는 그대로만 쓰고, 이 외의 다른 동·주소·번지는 절대 지어내지 마라). `
-        + `상호 "${brand}"(${phone})도 1~2곳 자연스럽게 넣어 지역-업체 결합 신호를 남겨라.`,
+        + (phone
+            ? `상호 "${brand}"(${phone})도 1~2곳 자연스럽게 넣어 지역-업체 결합 신호를 남겨라.`
+            : `상호 "${brand}"도 1~2곳 자연스럽게 넣어 지역-업체 결합 신호를 남겨라(전화번호는 지어내지 마라).`),
         '',
         '[분량]',
         '- 공백 포함 **2,000~3,000자**(최소 1,800자). 짧으면 규칙 위반이다. 문단을 많이 나누되 서사를 충분히 길게 써라.',
@@ -214,12 +224,14 @@ function buildCleanPrompt(region, dong) {
     ].join('\n');
 }
 
-/** 롱폼 프롬프트. businessKind='leak'|'clean'. retryNote 는 재생성 시 위반 지적 문구(파이썬과 동일하게 뒤에 붙는다). */
-export function buildLongformPrompt({ businessKind, region, dong, retryNote }) {
+/** 롱폼 프롬프트. businessKind='leak'|'clean'. brand/phone 주면 업종상수 대신 사용(고객 셀프발행).
+ *  retryNote 는 재생성 시 위반 지적 문구(파이썬과 동일하게 뒤에 붙는다). */
+export function buildLongformPrompt({ businessKind, region, dong, retryNote, brand, phone }) {
     const kind = businessKind === 'clean' ? 'clean' : 'leak';
     const reg = String(region || '').trim();
     const d = String(dong || '').trim() || null;
-    const base = kind === 'clean' ? buildCleanPrompt(reg, d) : buildLeakPrompt(reg, d);
+    const opts = { brand, phone };
+    const base = kind === 'clean' ? buildCleanPrompt(reg, d, opts) : buildLeakPrompt(reg, d, opts);
     return retryNote ? base + String(retryNote) : base;
 }
 
