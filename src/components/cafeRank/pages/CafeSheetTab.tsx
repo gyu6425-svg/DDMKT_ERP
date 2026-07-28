@@ -40,6 +40,7 @@ export function CafeSheetTab({
     const [form, setForm] = useState(EMPTY);
     const [busy, setBusy] = useState(false);
     const [reqs, setReqs] = useState<CafeRequest[]>([]);   // 고객 발행 신청(대기) — 내부만
+    const [linkedReq, setLinkedReq] = useState<{ id: string; client_id: string; cafe_url: string | null } | null>(null); // 신청→등록 연결
 
     const reload = async () => {
         setLoading(true);
@@ -62,6 +63,7 @@ export function CafeSheetTab({
         setReqs((prev) => prev.filter((r) => r.id !== id));
     };
     const prefillFromReq = (r: CafeRequest) => {
+        setLinkedReq({ id: r.id, client_id: r.client_id, cafe_url: r.cafe_url });
         setForm({
             company_key: '',
             display_name: r.cafe_name || r.business || '',
@@ -113,13 +115,23 @@ export function CafeSheetTab({
     const save = async () => {
         if (!form.company_key.trim() || !form.display_name.trim()) return;
         setBusy(true);
+        // 신청에서 온 등록이면 그 고객 client_id 를 연결(안 하면 고객이 자기 카페를 못 본다) + URL 에서 club_id 추출.
+        const club = linkedReq?.cafe_url ? (linkedReq.cafe_url.match(/cafes\/(\d+)|clubid=(\d+)|\/(\d{6,})/) || [])[0]?.replace(/\D/g, '') : '';
         const result = await upsertCafeAccount({
             ...form,
             board_name: form.board_name || form.display_name,
             board_short: form.board_short || form.display_name,
+            client_id: linkedReq?.client_id || undefined,
+            club_id: club || undefined,
         });
         setBusy(false);
         if (result.error) return setError(result.error.message);
+        // 신청 처리완료 표시.
+        if (linkedReq) {
+            await setCafeRequestStatus(linkedReq.id, 'done');
+            setReqs((prev) => prev.filter((r) => r.id !== linkedReq.id));
+            setLinkedReq(null);
+        }
         setForm(EMPTY);
         setShowAdd(false);
         void reload();
