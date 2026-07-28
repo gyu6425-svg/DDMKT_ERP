@@ -3,6 +3,7 @@ import { generateCafe, generateCafeReview, checkPopular } from '../../api/cafeWr
 import { createCustomerPublishJob, listMyCafeJobs } from '../../api/cafePublishQueue';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
+import { CafeAgentSetup } from './CafeAgentSetup';
 import { REGION_GROUPS, type RegionSet } from './regions';
 
 type MyJob = { id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string };
@@ -34,6 +35,7 @@ function fileToDataUrl(file: File): Promise<string> {
 export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     const [approved, setApproved] = useState<boolean | null>(null);
     const [board, setBoard] = useState<string | null>(null);
+    const [company, setCompany] = useState<string | null>(null);
     const [brandDefault, setBrandDefault] = useState('');
 
     // 공통 업체정보
@@ -81,6 +83,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
             if (!alive) return;
             const enabled = data.find((x) => x.active && (x as { publish_enabled?: boolean }).publish_enabled !== false);
             setBoard(enabled?.board_name ?? null);
+            setCompany(enabled?.company_key ?? null);
             setBrandDefault(enabled?.display_name ?? '');
             if (!brand && enabled?.display_name) setBrand(enabled.display_name);
             setApproved(!!enabled);
@@ -197,6 +200,8 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                 발행 대상 게시판: <b>{board ?? '(확인 중)'}</b>
                 <span className="ml-2 text-[#64748b]">— 발행하면 본인 카페의 이 게시판에 자동 게시됩니다.</span>
             </div>
+
+            <CafeAgentSetup board={board} companyKey={company} />
 
             {stuck ? (
                 <div className="rounded-lg border border-[#fca5a5] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]">
