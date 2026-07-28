@@ -192,7 +192,8 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         const manual = tags.split(',').map((s) => s.trim()).filter(Boolean);
         const tagList = [...new Set([...autoTags, ...manual])].slice(0, 10);   // 자동태그 + 수동태그(중복 제거·최대 10)
         const links = linkUrl.trim() ? [linkUrl.trim()] : [];                  // 본문 끝 링크카드
-        const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images: allImages(), tags: tagList, links });
+        const layout = { top: mainBanner.length, mid: photos.length, tail: banners.length };  // 상단배너·실사·끝배너
+        const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images: allImages(), layout, tags: tagList, links });
         setPubBusy(false);
         if (error) { setMsg({ ok: false, text: (error as { message?: string }).message || '발행 등록 실패' }); return; }
         setMsg({ ok: true, text: `발행 등록 완료 — 대기열에 담겼습니다. (#${(jobId || '').slice(0, 8)})` });
@@ -262,7 +263,8 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                 const r = await genOne(`${p.region} ${p.keyword}`, p.region);
                 rows[i] = { ...rows[i], status: '발행 등록중…' }; setGenRows([...rows]);
                 const links = linkUrl.trim() ? [linkUrl.trim()] : [];
-                const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images: allImages(), tags: r.tags, links });
+                const layout = { top: mainBanner.length, mid: photos.length, tail: banners.length };
+                const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images: allImages(), layout, tags: r.tags, links });
                 rows[i] = { ...rows[i], status: error ? '실패' : '큐 등록 완료' };
             } catch (e) { rows[i] = { ...rows[i], status: `실패: ${(e as Error).message?.slice(0, 30)}` }; }
             setGenRows([...rows]);
@@ -330,11 +332,11 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                 <div className="mb-3 text-[13px] font-bold text-[#334155]">발행 이미지 (업체 배너·실사) <span className="font-normal text-[#94a3b8]">— 모든 발행에 함께 들어갑니다</span></div>
                 <div className="grid gap-4 sm:grid-cols-3">
-                    {imageZone('메인 배너', '(맨 위 · 1장)', mainBanner, setMainBanner, 1)}
-                    {imageZone('배너', '(카드형 · 최대 8장)', banners, setBanners, 8)}
-                    {imageZone('실사 사진', '(현장 · 최대 10장)', photos, setPhotos, 10)}
+                    {imageZone('상단 배너', '(맨 위 · 1장)', mainBanner, setMainBanner, 1)}
+                    {imageZone('실사 사진', '(문단 사이 · 8~20장)', photos, setPhotos, 20)}
+                    {imageZone('끝 배너', '(맨 끝 · 1장 · 예: 예약 전 주의사항)', banners, setBanners, 2)}
                 </div>
-                <p className="m-0 mt-2 text-[11px] text-[#94a3b8]">게시 순서: 메인배너 → 실사 → 배너 → 본문 (누수탐지 스타일). 넣지 않으면 텍스트만 발행됩니다.</p>
+                <p className="m-0 mt-2 text-[11px] text-[#94a3b8]">배치: <b>상단 배너 1장</b> → <b>실사 여러 장(문단 사이 인터리브)</b> → <b>끝 배너 1장</b> (더반·누수 스타일). 배너를 많이 넣지 말고 실사 위주로. 넣지 않으면 텍스트만 발행됩니다.</p>
             </div>
 
             {/* SEO 연관키워드 찾기 (최상단) */}

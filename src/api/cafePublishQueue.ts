@@ -24,32 +24,27 @@ async function toBlob(src: string): Promise<Blob> {
     return res.blob();
 }
 
-// 본문 문단 사이에 「사진 N」 마커를 흩뿌린다 — 누수탐지(nusu2 _interleave_markers) 방식.
-//   사진1 = 맨 위(메인배너), 나머지 = 문단 사이 균등. 에이전트(publish_cafe.parse_body_to_blocks)가
-//   「사진 N」 위치에 images[N-1] 을 넣어 '이미지 상단 몰빵'이 아닌 '문단 사이 인터리브'로 게시한다.
-function interleaveMarkers(body: string, total: number): string {
-    if (total <= 0) return body;
+// 본문에 「사진 N」 마커를 배치 — 더반·누수 방식: [상단 배너] + [실사 문단 사이] + [끝 배너].
+//   이미지 배열 순서 = top(상단배너) → mid(실사) → tail(끝배너)와 1:1. 에이전트(parse_body_to_blocks)가
+//   「사진 N」 위치에 images[N-1] 을 넣는다. 배너를 균등분산하지 않고 top/끝에만 둬 '배너 끝 몰빵'을 없앤다.
+//   top=상단배너 장수(보통 1) · mid=실사 장수(문단 사이 균등) · tail=끝배너 장수(보통 1, 맨 끝).
+function interleaveMarkers(body: string, top: number, mid: number, tail: number): string {
+    if (top + mid + tail <= 0) return body;
     let paras = body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
     if (paras.length < 3) paras = body.split('\n').map((p) => p.trim()).filter(Boolean);
-    const nMid = total - 1;   // 사진1=상단, 나머지=문단 사이
-    const gaps: number[] = [];
-    if (nMid > 0 && paras.length >= 2) {
-        const step = paras.length / (nMid + 1);
-        for (let i = 0; i < nMid; i += 1) {
-            let g = Math.max(1, Math.min(paras.length - 1, Math.round(step * (i + 1))));
-            while (gaps.includes(g) && g < paras.length - 1) g += 1;
-            gaps.push(g);
-        }
-    }
-    const gset = [...new Set(gaps)].sort((a, b) => a - b);
-    const out: string[] = ['「사진 1」', ''];
-    let marker = 2;
-    let gi = 0;
+    if (!paras.length) paras = [body.trim()];
+    const out: string[] = [];
+    let marker = 1;
+    for (let i = 0; i < top; i += 1) { out.push(`「사진 ${marker}」`, ''); marker += 1; }   // 상단 배너(맨 위)
+    // 실사(mid) 마커를 문단 진행률에 맞춰 균등 분산(실사가 문단보다 많으면 한 문단에 여러 장도 허용).
+    let placed = 0;
     paras.forEach((para, idx) => {
         out.push(para, '');
-        if (gi < gset.length && gset[gi] === idx + 1) { out.push(`「사진 ${marker}」`, ''); marker += 1; gi += 1; }
+        const upto = Math.round((mid * (idx + 1)) / paras.length);
+        while (placed < upto) { out.push(`「사진 ${marker}」`, ''); marker += 1; placed += 1; }
     });
-    while (marker <= total) { out.push(`「사진 ${marker}」`, ''); marker += 1; }
+    while (placed < mid) { out.push(`「사진 ${marker}」`, ''); marker += 1; placed += 1; }
+    for (let i = 0; i < tail; i += 1) { out.push(`「사진 ${marker}」`, ''); marker += 1; }   // 끝 배너(맨 끝)
     return out.join('\n').trim();
 }
 
@@ -111,7 +106,8 @@ export async function createPublishJob(input: {
 export async function createCustomerPublishJob(input: {
     title: string;
     body: string;
-    images: string[];
+    images: string[];   // 순서 = 상단배너 → 실사 → 끝배너 (layout 과 1:1).
+    layout?: { top: number; mid: number; tail: number };  // 이미지 배치. 없으면 사진1 top + 나머지 실사로.
     links?: string[];
     tags?: string[];
 }) {
@@ -143,10 +139,10 @@ export async function createCustomerPublishJob(input: {
             if (error) throw error;
             blocks.push({ type: 'image', path });
         }
-        // 누수탐지 방식 글쓰기 양식 — 이미지가 있으면 본문에 「사진 N」 마커를 흩뿌려 문단 사이 인터리브(상단 몰빵 X).
-        //   본문에 이미 마커가 있으면(원고가 넣은 경우) 그대로 둔다.
+        // 더반·누수 방식 이미지 배치 — 상단배너 + 실사(문단 사이) + 끝배너. 본문에 이미 마커 있으면 그대로.
+        const lay = input.layout ?? { top: input.images.length ? 1 : 0, mid: Math.max(0, input.images.length - 1), tail: 0 };
         const bodyOut = (input.images.length && !/「사진\s*\d+」/.test(input.body))
-            ? interleaveMarkers(input.body, input.images.length)
+            ? interleaveMarkers(input.body, lay.top, lay.mid, lay.tail)
             : input.body;
         blocks.push({ type: 'text', text: bodyOut });
         for (const url of input.links || []) if (url) blocks.push({ type: 'link', url });
