@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { generateCafe, generateCafeReview, generateLongform } from '../../api/cafeWriter';
 import { checkPopularBridge, nusu2Health } from '../../api/nusu2Bridge';
-import { createCustomerPublishJob, listMyCafeJobs } from '../../api/cafePublishQueue';
+import { createCustomerPublishJob, listMyCafeJobs, listMyPublishedPairs } from '../../api/cafePublishQueue';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeAgentSetup } from './CafeAgentSetup';
@@ -114,6 +114,22 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     const [jobs, setJobs] = useState<MyJob[]>([]);
     async function loadJobs() { const { data } = await listMyCafeJobs(10); setJobs(data as MyJob[]); }
 
+    // 기발행 지역(중복 제외) — 지역형이 이미 발행한 지역을 다시 안 쓰게. region 컬럼 + 옛 잡은 제목으로도 대조.
+    const [usedRegions, setUsedRegions] = useState<Set<string>>(() => new Set());
+    const [excludeUsed, setExcludeUsed] = useState(true);
+    async function loadUsed() {
+        const { rows } = await listMyPublishedPairs();
+        const norm = (x: string) => x.replace(/\s/g, '');
+        const stored = new Set(rows.map((r) => r.region).filter(Boolean).map((x) => norm(String(x))));
+        const titles = rows.map((r) => norm(String(r.title || '')));
+        const used = new Set<string>();
+        Object.values(REGION_GROUPS).forEach((g) => g.forEach((r) => {
+            const n = norm(r.label);
+            if (stored.has(n) || titles.some((t) => t.includes(n))) used.add(r.label);
+        }));
+        setUsedRegions(used);
+    }
+
     useEffect(() => {
         let alive = true;
         void getCafeAccounts().then(({ data }) => {
@@ -126,6 +142,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
             setApproved(!!enabled);
         });
         void loadJobs();
+        void loadUsed();
         const t = setInterval(() => { void loadJobs(); }, 15000);
         return () => { alive = false; clearInterval(t); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,11 +210,11 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         const tagList = [...new Set([...autoTags, ...manual])].slice(0, 10);   // 자동태그 + 수동태그(중복 제거·최대 10)
         const links = linkUrl.trim() ? [linkUrl.trim()] : [];                  // 본문 끝 링크카드
         const layout = { top: mainBanner.length, mid: photos.length, tail: banners.length };  // 상단배너·실사·끝배너
-        const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images: allImages(), layout, tags: tagList, links });
+        const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images: allImages(), layout, tags: tagList, links, region: region.trim() || undefined, keyword: keyword.trim() || undefined });
         setPubBusy(false);
         if (error) { setMsg({ ok: false, text: (error as { message?: string }).message || '발행 등록 실패' }); return; }
         setMsg({ ok: true, text: `발행 등록 완료 — 대기열에 담겼습니다. (#${(jobId || '').slice(0, 8)})` });
-        setTitle(''); setBody(''); setTags(''); setAutoTags([]); setMainBanner([]); setBanners([]); setPhotos([]); void loadJobs();
+        setTitle(''); setBody(''); setTags(''); setAutoTags([]); setMainBanner([]); setBanners([]); setPhotos([]); void loadJobs(); void loadUsed();
     }
 
     // 지역형: 선택 지역셋 × 선택 SEO 키워드 인기글 스캔 → 발행건수(N) 채우면 중단.
@@ -210,9 +227,13 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
             return;
         }
         const sets = regionSets.size ? [...regionSets] : (['서울'] as RegionSet[]);
-        // 후보 = 각 지역셋의 시·구 × 각 키워드 (지역 우선 훑기).
+        // 후보 = 각 지역셋의 시·구 × 각 키워드 (지역 우선 훑기). 기발행 지역은 제외(중복 방지).
         const cands: Array<{ region: string; scans: string[]; keyword: string }> = [];
-        for (const set of sets) for (const r of REGION_GROUPS[set]) for (const kw of kws) cands.push({ region: r.label, scans: r.scans, keyword: kw });
+        for (const set of sets) for (const r of REGION_GROUPS[set]) for (const kw of kws) {
+            if (excludeUsed && usedRegions.has(r.label)) continue;   // 이미 발행한 지역 건너뜀
+            cands.push({ region: r.label, scans: r.scans, keyword: kw });
+        }
+        if (!cands.length) { setRmsg('발행할 새 지역이 없습니다(선택 지역이 모두 기발행). "기발행 지역 제외"를 끄거나 다른 지역을 선택하세요.'); return; }
         setRmsg(''); setRphase('scanning'); setGenRows([]); setPassed([]);
         const rows = cands.map((c) => ({ label: `${c.region} ${c.keyword}`, status: '대기' }));
         setScanRows([...rows]);
@@ -241,7 +262,11 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         if (!kws.length) { setRmsg('SEO 키워드를 선택하거나 키워드를 입력하세요.'); return; }
         const sets = regionSets.size ? [...regionSets] : (['서울'] as RegionSet[]);
         const cands: Array<{ region: string; keyword: string }> = [];
-        for (const set of sets) { for (const r of REGION_GROUPS[set]) { for (const kw of kws) { cands.push({ region: r.label, keyword: kw }); } } }
+        for (const set of sets) { for (const r of REGION_GROUPS[set]) { for (const kw of kws) {
+            if (excludeUsed && usedRegions.has(r.label)) continue;   // 이미 발행한 지역 건너뜀
+            cands.push({ region: r.label, keyword: kw });
+        } } }
+        if (!cands.length) { setRmsg('발행할 새 지역이 없습니다(선택 지역이 모두 기발행). "기발행 지역 제외"를 끄거나 다른 지역을 선택하세요.'); return; }
         const targets = cands.slice(0, count);
         setPassed(targets); setScanRows([]); setRphase('scanned');
         setRmsg(`스캔 없이 ${targets.length}건 발행(인기글 검사 생략)`);
@@ -264,12 +289,12 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                 rows[i] = { ...rows[i], status: '발행 등록중…' }; setGenRows([...rows]);
                 const links = linkUrl.trim() ? [linkUrl.trim()] : [];
                 const layout = { top: mainBanner.length, mid: photos.length, tail: banners.length };
-                const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images: allImages(), layout, tags: r.tags, links });
+                const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images: allImages(), layout, tags: r.tags, links, region: p.region, keyword: p.keyword });
                 rows[i] = { ...rows[i], status: error ? '실패' : '큐 등록 완료' };
             } catch (e) { rows[i] = { ...rows[i], status: `실패: ${(e as Error).message?.slice(0, 30)}` }; }
             setGenRows([...rows]);
         }
-        setRphase('done'); void loadJobs();
+        setRphase('done'); void loadJobs(); void loadUsed();
     }
 
     const imageZone = (label: string, hint: string, list: string[], setter: (u: (prev: string[]) => string[]) => void, max: number) => (
@@ -450,6 +475,11 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
 
                     <label className="grid max-w-[160px] gap-1 text-xs font-semibold text-[#475569]">발행 건수
                         <input className={inputCls} max={10} min={1} onChange={(e) => setCount(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} type="number" value={count} />
+                    </label>
+
+                    <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-[#475569]">
+                        <input checked={excludeUsed} onChange={(e) => setExcludeUsed(e.target.checked)} type="checkbox" />
+                        이미 발행한 지역 제외 {usedRegions.size ? <span className="font-normal text-[#94a3b8]">(기발행 {usedRegions.size}곳: {[...usedRegions].slice(0, 8).join(', ')}{usedRegions.size > 8 ? '…' : ''})</span> : <span className="font-normal text-[#94a3b8]">(아직 없음)</span>}
                     </label>
 
                     <div className="mt-3 flex flex-wrap items-center gap-2">

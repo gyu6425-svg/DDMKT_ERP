@@ -110,6 +110,8 @@ export async function createCustomerPublishJob(input: {
     layout?: { top: number; mid: number; tail: number };  // 이미지 배치. 없으면 사진1 top + 나머지 실사로.
     links?: string[];
     tags?: string[];
+    region?: string;    // 발행 지역 — 기발행 지역 재발행 방지(중복 제외)용.
+    keyword?: string;   // 발행 키워드.
 }) {
     // 내 카페 계정(RLS: client_id = my_client_id 인 행만). 승인 = active + publish_enabled.
     //   ⚠️ publish_enabled 컬럼이 아직 없을 수 있어 select('*') 로 받는다(없으면 undefined).
@@ -155,6 +157,8 @@ export async function createCustomerPublishJob(input: {
             status: 'pending',
             company: acct.company_key,   // RLS WITH CHECK 가 my_publish_companies + board 일치 검증
             board: acct.board_name,
+            region: input.region ?? null,   // 기발행 지역 재발행 방지용(중복 제외)
+            keyword: input.keyword ?? null,
         });
         if (error) throw error;
         return { error: null, jobId };
@@ -177,6 +181,17 @@ export async function listPublishedPairs(company: string) {
         if (r.region) pairs.add(`${r.region}|${r.keyword ?? ''}`);
     }
     return { pairs, error };
+}
+
+// 고객 기발행 지역/제목 — 이미 발행한 지역을 다시 안 쓰게(중복 제외). RLS 로 본인 company 행만.
+//   region 컬럼(신규 저장)이 없던 옛 잡은 title 로도 지역을 잡아낸다(호출측이 지역 라벨 대조).
+export async function listMyPublishedPairs() {
+    const { data, error } = await supabase
+        .from('cafe_publish_queue')
+        .select('region,keyword,title')
+        .order('created_at', { ascending: false })
+        .limit(500);
+    return { rows: (data ?? []) as Array<{ region: string | null; keyword: string | null; title: string | null }>, error };
 }
 
 // 고객 발행 현황 — RLS 가 본인 company(my_publish_companies) 행만 돌려준다. 최근순.
