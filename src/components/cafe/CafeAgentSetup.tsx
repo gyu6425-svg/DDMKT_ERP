@@ -5,8 +5,9 @@ import { supabase } from '../../lib/supabase';
 //   인증 = 고객 자기 계정(viewer). 발행측 RLS 가 고객 스코프로 열려 있어야 함(cpq 고객 발행 처리 정책).
 //   ⚠️ 에이전트 zip 은 우리가 호스팅(Supabase storage 공개버킷 등) — 아래 AGENT_DOWNLOAD_URL 에 지정.
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-// 에이전트 zip = Supabase 공개버킷 agent-dist/DDMKT-Agent.zip (자격 없는 배포본). 업로드 후 다운로드 활성.
-const AGENT_DOWNLOAD_URL = `${SUPABASE_URL}/storage/v1/object/public/agent-dist/DDMKT-Agent.zip`;
+// 에이전트 zip 다운로드(자격 없는 배포본). ⚠️ 임시=구글드라이브 직접다운로드 링크(무료 Supabase 50MB 초과라).
+//   나중에 Cloudflare R2 등 영구 호스팅으로 교체 권장.
+const AGENT_DOWNLOAD_URL = 'https://drive.usercontent.google.com/download?id=11-L0eNvzyO8VnKVFt1nRCRvqPUJK38M0&export=download&confirm=t';
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 const GENERATE_API = 'https://ddmkt-erp.pages.dev/api/generate-cafe';
 
