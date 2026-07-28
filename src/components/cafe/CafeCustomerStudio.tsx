@@ -58,7 +58,11 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     const [tags, setTags] = useState('');
     const [title, setTitle] = useState('');
     const [body, setBody] = useState('');
-    const [images, setImages] = useState<string[]>([]);
+    // 업체가 넣는 이미지 — 메인배너(맨 위 1장) + 배너(카드) + 실사(현장사진). 두 모드 발행에 함께 사용.
+    const [mainBanner, setMainBanner] = useState<string[]>([]);
+    const [banners, setBanners] = useState<string[]>([]);
+    const [photos, setPhotos] = useState<string[]>([]);
+    const allImages = () => [...mainBanner, ...photos, ...banners];   // 게시 순서: 메인배너→실사→배너
     const [genBusy, setGenBusy] = useState(false);
     const [pubBusy, setPubBusy] = useState(false);
     const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -128,11 +132,11 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         } catch (e) { setMsg({ ok: false, text: (e as Error).message || '원고 생성 실패' }); } finally { setGenBusy(false); }
     }
 
-    async function addFiles(files: FileList | null) {
+    async function addFiles(setter: (u: (prev: string[]) => string[]) => void, files: FileList | null, max: number) {
         if (!files || !files.length) return;
         try {
-            const urls = await Promise.all(Array.from(files).slice(0, 10).map(fileToDataUrl));
-            setImages((prev) => [...prev, ...urls].slice(0, 10));
+            const urls = await Promise.all(Array.from(files).slice(0, max).map(fileToDataUrl));
+            setter((prev) => [...prev, ...urls].slice(0, max));
         } catch (e) { setMsg({ ok: false, text: (e as Error).message || '사진 오류' }); }
     }
 
@@ -140,11 +144,11 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         if (!title.trim() || !body.trim()) { setMsg({ ok: false, text: '제목과 본문이 필요합니다.' }); return; }
         setPubBusy(true); setMsg(null);
         const tagList = tags.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 10);
-        const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images, tags: tagList });
+        const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images: allImages(), tags: tagList });
         setPubBusy(false);
         if (error) { setMsg({ ok: false, text: (error as { message?: string }).message || '발행 등록 실패' }); return; }
         setMsg({ ok: true, text: `발행 등록 완료 — 대기열에 담겼습니다. (#${(jobId || '').slice(0, 8)})` });
-        setTitle(''); setBody(''); setTags(''); setImages([]); void loadJobs();
+        setTitle(''); setBody(''); setTags(''); setMainBanner([]); setBanners([]); setPhotos([]); void loadJobs();
     }
 
     // 지역형: 선택 지역셋 × 선택 SEO 키워드 인기글 스캔 → 발행건수(N) 채우면 중단.
@@ -190,13 +194,33 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                 const p = targets[i];
                 const r = await genOne(`${p.region} ${p.keyword}`, p.region);
                 rows[i] = { ...rows[i], status: '발행 등록중…' }; setGenRows([...rows]);
-                const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images: [], tags: [] });
+                const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images: allImages(), tags: [] });
                 rows[i] = { ...rows[i], status: error ? '실패' : '큐 등록 완료' };
             } catch (e) { rows[i] = { ...rows[i], status: `실패: ${(e as Error).message?.slice(0, 30)}` }; }
             setGenRows([...rows]);
         }
         setRphase('done'); void loadJobs();
     }
+
+    const imageZone = (label: string, hint: string, list: string[], setter: (u: (prev: string[]) => string[]) => void, max: number) => (
+        <div className="grid gap-1 text-xs font-semibold text-[#475569]">
+            {label} <span className="font-normal text-[#94a3b8]">{hint}</span>
+            <label className="inline-flex h-9 w-fit cursor-pointer items-center rounded-lg border border-[#cbd5e1] bg-white px-3 text-sm font-normal text-[#334155] hover:bg-[#f8fafc]">
+                이미지 추가
+                <input accept="image/*" className="hidden" multiple onChange={(e) => { void addFiles(setter, e.target.files, max); e.target.value = ''; }} type="file" />
+            </label>
+            {list.length ? (
+                <div className="mt-1 flex flex-wrap gap-2">
+                    {list.map((src, i) => (
+                        <div className="relative" key={i}>
+                            <img alt={`${label} ${i + 1}`} className="h-16 w-16 rounded-md border border-[#e2e8f0] object-cover" src={src} />
+                            <button className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#dc2626] text-[11px] font-bold text-white" onClick={() => setter((p) => p.filter((_, j) => j !== i))} type="button">×</button>
+                        </div>
+                    ))}
+                </div>
+            ) : <span className="text-[11px] font-normal text-[#cbd5e1]">아직 없음</span>}
+        </div>
+    );
 
     if (approved === false) return <CafeCustomerRequest clientId={clientId} />;
 
@@ -229,6 +253,17 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                         <input className={inputCls} onChange={(e) => setBusiness(e.target.value)} placeholder="예) 입주청소" value={business} />
                     </label>
                 </div>
+            </div>
+
+            {/* 발행 이미지 — 업체가 넣는 메인배너·배너·실사(모든 발행에 함께 게시) */}
+            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <div className="mb-3 text-[13px] font-bold text-[#334155]">발행 이미지 (업체 배너·실사) <span className="font-normal text-[#94a3b8]">— 모든 발행에 함께 들어갑니다</span></div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                    {imageZone('메인 배너', '(맨 위 · 1장)', mainBanner, setMainBanner, 1)}
+                    {imageZone('배너', '(카드형 · 최대 8장)', banners, setBanners, 8)}
+                    {imageZone('실사 사진', '(현장 · 최대 10장)', photos, setPhotos, 10)}
+                </div>
+                <p className="m-0 mt-2 text-[11px] text-[#94a3b8]">게시 순서: 메인배너 → 실사 → 배너 → 본문 (누수탐지 스타일). 넣지 않으면 텍스트만 발행됩니다.</p>
             </div>
 
             {/* SEO 연관키워드 찾기 (최상단) */}
@@ -294,24 +329,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                         <label className="mt-3 grid gap-1 text-xs font-semibold text-[#475569]">태그 (선택, 쉼표 · 최대 10개)
                             <input className={inputCls} onChange={(e) => setTags(e.target.value)} placeholder="예) 광교동청소, 입주청소" value={tags} />
                         </label>
-                        <div className="mt-3 grid gap-1 text-xs font-semibold text-[#475569]">사진 (선택 · 최대 10장 · 본문 위)
-                            <div className="flex flex-wrap items-center gap-2">
-                                <label className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-[#cbd5e1] bg-white px-3 text-sm font-normal text-[#334155]">사진 추가
-                                    <input accept="image/*" className="hidden" multiple onChange={(e) => { void addFiles(e.target.files); e.target.value = ''; }} type="file" />
-                                </label>
-                                {images.length ? <span className="text-[12px] font-normal text-[#64748b]">{images.length}장</span> : null}
-                            </div>
-                            {images.length ? (
-                                <div className="mt-1 flex flex-wrap gap-2">
-                                    {images.map((src, i) => (
-                                        <div className="relative" key={i}>
-                                            <img alt={`첨부 ${i + 1}`} className="h-16 w-16 rounded-md border border-[#e2e8f0] object-cover" src={src} />
-                                            <button className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#dc2626] text-[11px] font-bold text-white" onClick={() => setImages((p) => p.filter((_, j) => j !== i))} type="button">×</button>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : null}
-                        </div>
+                        <p className="mt-2 text-[11px] text-[#94a3b8]">※ 이미지(메인배너·배너·실사)는 위 "발행 이미지" 칸에서 넣습니다 — 모든 발행에 함께 들어갑니다.</p>
                         {msg ? <div className={`mt-3 rounded-lg px-4 py-3 text-sm ${msg.ok ? 'bg-[#ecfdf5] text-[#047857]' : 'bg-[#fef2f2] text-[#b91c1c]'}`}>{msg.text}</div> : null}
                         <div className="mt-3 flex items-center gap-3">
                             <button className="h-10 rounded-lg bg-[#0f766e] px-5 text-sm font-bold text-white disabled:opacity-50" disabled={pubBusy || genBusy} onClick={publish} type="button">{pubBusy ? '등록 중…' : '발행하기'}</button>
