@@ -194,11 +194,25 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         setRmsg(hit.length >= count ? `${count}건 확보(인기글 지역)` : `${hit.length}건 가능(후보 소진)`);
     }
 
+    // 지역형: 스캔 생략하고 선택 지역 × 키워드 앞 N개를 바로 발행(테스트/지정발행용 — 인기글 검사 없음).
+    async function runDirectPublish() {
+        const kws = selectedKw.size ? [...selectedKw] : (regionKw.trim() ? [regionKw.trim()] : []);
+        if (!kws.length) { setRmsg('SEO 키워드를 선택하거나 키워드를 입력하세요.'); return; }
+        const sets = regionSets.size ? [...regionSets] : (['서울'] as RegionSet[]);
+        const cands: Array<{ region: string; keyword: string }> = [];
+        for (const set of sets) { for (const r of REGION_GROUPS[set]) { for (const kw of kws) { cands.push({ region: r.label, keyword: kw }); } } }
+        const targets = cands.slice(0, count);
+        setPassed(targets); setScanRows([]); setRphase('scanned');
+        setRmsg(`스캔 없이 ${targets.length}건 발행(인기글 검사 생략)`);
+        await runPublishRegion(targets);
+    }
+
     // 지역형: 통과분(최대 N) 생성·발행.
-    async function runPublishRegion() {
-        if (!passed.length) return;
+    async function runPublishRegion(targetsArg?: Array<{ region: string; keyword: string }>) {
+        const src = targetsArg ?? passed;
+        if (!src.length) return;
         setRphase('publishing');
-        const targets = passed.slice(0, count);
+        const targets = src.slice(0, count);
         const rows = targets.map((p) => ({ label: `${p.region} ${p.keyword}`, status: '대기' }));
         setGenRows([...rows]);
         for (let i = 0; i < targets.length; i += 1) {
@@ -394,6 +408,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                         {rphase === 'scanned' && passed.length ? (
                             <button className="h-10 rounded-lg bg-[#0f766e] px-5 text-sm font-bold text-white disabled:opacity-50" onClick={() => void runPublishRegion()} type="button">{Math.min(passed.length, count)}건 생성·발행</button>
                         ) : null}
+                        <button className="h-10 rounded-lg border border-[#94a3b8] px-4 text-sm font-semibold text-[#475569] disabled:opacity-50" disabled={rphase === 'scanning' || rphase === 'publishing'} onClick={() => void runDirectPublish()} type="button" title="인기글 검사 없이 선택 지역 그대로 발행(테스트/지정발행)">스캔 없이 바로 발행</button>
                         {rmsg ? <span className="text-[13px] text-[#4338ca]">{rmsg}</span> : null}
                     </div>
                     {scanRows.length ? (
