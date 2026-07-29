@@ -108,6 +108,25 @@ export async function submitCafeDeployRequest(clientId: string, input: CafeDeplo
         });
         if (cErr) return { error: cErr };
     }
+    // 즉시 등록 — 본인 cafe_account 가 없으면 생성 → 관리 시트(고객·회사)에 바로 반영.
+    //   publish_enabled=false(자동화발행 탭은 담당자 세팅 후). club_id 는 세팅 때 채움.
+    //   실패해도 접수 자체는 성공 처리(SQL 미적용 등) — best effort.
+    try {
+        const { data: acc } = await supabase.from('cafe_accounts').select('id').eq('client_id', clientId).limit(1);
+        if (!acc?.length) {
+            await supabase.from('cafe_accounts').insert({
+                company_key: `dep_${clientId}`,
+                display_name: input.company_name.trim(),
+                cafe_name: input.cafe_name?.trim() || input.company_name.trim(),
+                club_id: '',
+                board_name: input.board_name?.trim() || '',
+                board_short: input.board_name?.trim() || '',
+                client_id: clientId,
+                active: true,
+                publish_enabled: false,
+            });
+        }
+    } catch { /* cafe_account 생성 실패는 접수를 막지 않음 */ }
     return { error: null };
 }
 
