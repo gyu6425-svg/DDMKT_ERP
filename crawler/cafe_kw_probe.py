@@ -141,8 +141,19 @@ _PLACE_UA = (
 
 
 def parse_place_id(s):
-    """map.naver.com/p/entry/place/1066951825… 또는 그냥 숫자 ID → placeId."""
-    m = re.search(r"/place/(\d{6,})", s) or re.search(r"\b(\d{6,})\b", s)
+    """map.naver.com/p/entry/place/1066951825…·숫자 ID·naver.me 단축링크 → placeId."""
+    m = re.search(r"/place/(\d{6,})", s) or re.search(r"^\s*(\d{6,})\s*$", s)
+    if m:
+        return m.group(1)
+    if "naver.me" in s or "://" in s:  # 단축/일반 링크 → 리다이렉트 최종 URL에서 추출
+        try:
+            r = requests.get(s.strip(), headers={"User-Agent": _PLACE_UA, "Accept-Language": "ko"}, allow_redirects=True, timeout=20)
+            m = re.search(r"/place/(\d{6,})", r.url) or re.search(r"(\d{7,})", r.url)
+            if m:
+                return m.group(1)
+        except Exception:
+            return None
+    m = re.search(r"\b(\d{6,})\b", s)
     return m.group(1) if m else None
 
 
