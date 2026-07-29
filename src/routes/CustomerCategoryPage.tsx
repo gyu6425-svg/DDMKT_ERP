@@ -7,8 +7,7 @@ import { categoryByKey, type CategoryKey } from '../components/categoryRank/cate
 import { CustomerPlaceRank } from './CustomerPlaceRank';
 import { CafeTrackerTab } from '../components/cafeRank/pages/CafeTrackerTab';
 import { CafeSheetTab } from '../components/cafeRank/pages/CafeSheetTab';
-// [보류] 카페 자동화 발행 — 2026-07-29 잠시 비활성화(코드/파일 유지). 재활성화 시 이 import·탭·렌더 복원.
-// import { CafeCustomerStudio } from '../components/cafe/CafeCustomerStudio';
+import { CafeCustomerStudio } from '../components/cafe/CafeCustomerStudio';
 import { CafeDeployIntake } from '../components/cafe/CafeDeployIntake';
 import { getCafeAccounts } from '../api/cafeAccounts';
 import { useAuth } from '../hooks/useAuth';
@@ -64,9 +63,10 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const { profile } = useAuth();
     const scopedClientId = previewClientId ?? (profile?.client_id ?? null);
     const [companyKey, setCompanyKey] = useState<string | null>(null);
+    const [publishEnabled, setPublishEnabled] = useState(false); // 담당자 세팅 완료(자동화 발행 탭 노출)
     const [loading, setLoading] = useState(true);
     // 사이드바 '카페 배포'(?sub=카페 배포) 로 들어오면 접수 탭으로 연다.
-    const [view, setView] = useState<'tracker' | 'sheet' | 'intake'>(
+    const [view, setView] = useState<'tracker' | 'sheet' | 'intake' | 'publish'>(
         () => (new URLSearchParams(window.location.search).get('sub') === '카페 배포' ? 'intake' : 'tracker'),
     );
     useEffect(() => {
@@ -88,6 +88,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
             if (!alive) return;
             const acc = scopedClientId ? data.find((a) => a.client_id === scopedClientId) : null;
             setCompanyKey(acc?.company_key ?? null);
+            setPublishEnabled(!!acc?.publish_enabled);
             setLoading(false);
         });
         return () => { alive = false; };
@@ -103,29 +104,32 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
             <p className="mx-auto mt-2 max-w-md text-sm text-[#94a3b8]">아직 연결된 카페가 없습니다. "카페 배포" 탭에서 접수를 남겨 주세요.</p>
         </div>
     );
+    // 자동화 발행 탭은 담당자 세팅(publish_enabled=true) 후에만 노출.
+    const tabs: [string, string][] = [['tracker', '순위 트래커'], ['sheet', '카페 관리 시트'], ['intake', '카페 배포']];
+    if (publishEnabled) tabs.push(['publish', '카페 자동화 발행']);
     return (
         <>
             <div className="flex gap-1 border-b border-[#e2e8f0]">
-                {([['tracker', '순위 트래커'], ['sheet', '카페 관리 시트'], ['intake', '카페 배포']] as const).map(([k, name]) => (
+                {tabs.map(([k, name]) => (
                     <button
                         className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
                             view === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
                         }`}
                         key={k}
-                        onClick={() => setView(k)}
+                        onClick={() => setView(k as typeof view)}
                         type="button"
                     >
                         {name}
                     </button>
                 ))}
             </div>
-            {/* [보류] intake 자리는 원래 카페 자동화 발행(<CafeCustomerStudio clientId={scopedClientId} />)였음.
-                재활성화 시 위 import 복원 + 탭에 ['publish','카페 자동화 발행'] 추가 + 아래를 CafeCustomerStudio 로. */}
             {view === 'tracker'
                 ? (companyKey ? <CafeTrackerTab lockCompany={companyKey} /> : noCafe)
                 : view === 'sheet'
                     ? (companyKey ? <CafeSheetTab scopeCompanyKey={companyKey} readOnly /> : noCafe)
-                    : <CafeDeployIntake clientId={scopedClientId} />}
+                    : view === 'publish'
+                        ? <CafeCustomerStudio clientId={scopedClientId} />
+                        : <CafeDeployIntake clientId={scopedClientId} />}
         </>
     );
 }
