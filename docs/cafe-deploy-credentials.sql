@@ -9,11 +9,10 @@
 -- ============================================================================
 begin;
 
--- 1) 접수에 발행 설정(비민감) 추가
+-- 1) 접수에 발행 설정(비민감) 추가. 글쓰기 주소는 세팅 때 담당자가 넣으므로 접수엔 없음.
 alter table public.cafe_deploy_requests
   add column if not exists cafe_name  text,   -- 발행 카페명
   add column if not exists board_name text,   -- 발행 게시판
-  add column if not exists write_url  text,   -- 글쓰기 주소(club_id 포함)
   add column if not exists two_factor boolean default false; -- 네이버 2단계 인증 여부
 
 -- 2) 네이버 계정(민감) 별도 테이블

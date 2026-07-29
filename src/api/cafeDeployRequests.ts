@@ -24,7 +24,6 @@ export type CafeDeployRequest = {
     photos: DeployPhotos | null;
     cafe_name: string | null;
     board_name: string | null;
-    write_url: string | null;
     two_factor: boolean | null;
 };
 
@@ -52,7 +51,6 @@ export type CafeDeployInput = {
     // 카페 발행 정보(비민감)
     cafe_name?: string;
     board_name?: string;
-    write_url?: string;
     two_factor?: boolean;
     // 네이버 계정(민감) — 별도 테이블에 저장
     naver_id?: string;
@@ -95,7 +93,6 @@ export async function submitCafeDeployRequest(clientId: string, input: CafeDeplo
         photos: input.photos ?? null,
         cafe_name: input.cafe_name?.trim() || null,
         board_name: input.board_name?.trim() || null,
-        write_url: input.write_url?.trim() || null,
         two_factor: input.two_factor ?? false,
         status: '접수',
     }).select('id').single();

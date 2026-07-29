@@ -30,7 +30,7 @@ const STATUS_STYLE: Record<string, string> = {
 const empty: CafeDeployInput = {
     company_name: '', url: '', keyword: '', mission_start: '',
     daily_count: null, total_count: null, photo_provided: '', product_type: PRODUCT_FIXED, note: '',
-    cafe_name: '', board_name: '', write_url: '', two_factor: false, naver_id: '', naver_pw: '',
+    cafe_name: '', board_name: '', two_factor: false, naver_id: '', naver_pw: '',
 };
 
 // 업로드 전 압축 — 최대 1600px, JPEG 0.85. (실패 시 원본 반환)
@@ -190,11 +190,6 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             <input className={inputCls} value={form.board_name ?? ''} onChange={(e) => set('board_name', e.target.value)} placeholder="test" />
                         </div>
                         <div className="md:col-span-2">
-                            <label className={labelCls}>글쓰기 주소 (URL)</label>
-                            <input className={inputCls} value={form.write_url ?? ''} onChange={(e) => set('write_url', e.target.value)} placeholder="cafe.naver.com/ca-fe/cafes/.../articles/write?..." />
-                            <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">카페에서 '글쓰기'를 열었을 때 주소창의 URL 을 붙여넣어 주세요.</p>
-                        </div>
-                        <div className="md:col-span-2">
                             <label className="flex cursor-pointer items-center gap-2 text-sm text-[#334155]">
                                 <input type="checkbox" checked={!!form.two_factor} onChange={(e) => set('two_factor', e.target.checked)} className="h-4 w-4 accent-[#4338ca]" />
                                 네이버 2단계(2차) 인증을 사용 중입니다
@@ -285,7 +280,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                             <td className="px-2 py-2 text-[12px]">
                                                 {(() => {
                                                     const cd = creds[r.id];
-                                                    const hasCafe = r.cafe_name || r.board_name || r.write_url;
+                                                    const hasCafe = r.cafe_name || r.board_name;
                                                     if (!hasCafe && !cd) return <span className="text-[#94a3b8]">-</span>;
                                                     return (
                                                         <div className="grid gap-0.5">
