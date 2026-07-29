@@ -77,10 +77,34 @@ _STOP = set(
 )
 
 
+# 자주 붙는 상권·신도시·역세권(플레이스 키워드 지역 벗기기용)
+_REGION_WORDS |= set(
+    "송도 청라 영종 분당 판교 정자 정자역 수지 죽전 광교 동탄 위례 미사 다산 별내 향동 삼송 운정 "
+    "김포한강 검단 배곧 영통 기흥 동백 세종시 송파 강동 서초 마포 용산 성동 광진 노원 도봉 강북 은평".split()
+)
+
+
+_REGION_TOK = re.compile(r"[가-힣]{2,4}(시|군|구|동|읍|면|리)$")
+
+
 def is_regional(kw):
-    if _REGION_SUFFIX.search(kw):
+    # 접미 행정구역은 '공백으로 분리된 place 토큰'에만 적용(역삼동 맛집). 붙은 복합어(배낚시·물회)는
+    #   '시/구/동'으로 끝나도 지역이 아니므로 오판 금지 → 지역은 _REGION_WORDS(명시 목록)로만 판정.
+    toks = kw.split()
+    if len(toks) > 1 and any(_REGION_TOK.fullmatch(t) for t in toks):
         return True
     return any(w in kw for w in _REGION_WORDS)
+
+
+def strip_region(kw):
+    """'인천내성발톱'→'내성발톱', '분당수학학원'→'수학학원' 처럼 앞의 지역/상권 토큰을 벗겨 핵심 업종만."""
+    core = kw.strip()
+    for w in sorted(_REGION_WORDS, key=len, reverse=True):  # 긴 지역명 우선(정자역 > 정자)
+        if core.startswith(w) and len(core) - len(w) >= 2:
+            core = core[len(w):].strip()
+            break
+    core = re.sub(r"^[가-힣]{1,3}(시|군|구|동|읍|면|리)(?=[가-힣]{2,})", "", core)  # 접미 행정구역 접두
+    return core.strip()
 
 
 # 브랜드/고유명 니치 배제 — 사용자 요청: '니치향수·남자향수'(유형·속성) OK / '향수조말론·구어망드향수'
@@ -231,8 +255,8 @@ def niche_candidates(seed, limit=18, mine=False):
     seen = set()
 
     def add(k):
-        # 씨앗은 무조건 포함. 그 외엔 지역형·브랜드/고유명·닉네임 파편 배제.
-        if k and k not in seen and (k == seed or (not is_regional(k) and not is_brandish(k) and not _nickish(seed, k))):
+        # 지역형도 허용(인기탭만 잡히면 OK). 브랜드/고유명·닉네임 파편만 배제.
+        if k and k not in seen and (k == seed or (not is_brandish(k) and not _nickish(seed, k))):
             seen.add(k)
             out.append(k)
 
@@ -467,8 +491,13 @@ def main():
             return
         print(f"=== 플레이스 {pid} · {info['name']} ({', '.join(info['cats'][:3]) or '업종?'}) ===", flush=True)
         print(f"  플레이스 키워드: {', '.join(info['keywords'][:15]) or '(없음)'}", flush=True)
-        base = [k for k in (info["cats"][:2] + info["keywords"]) if not is_regional(k) and not is_brandish(k)]
-        base = list(dict.fromkeys(base))
+        # 플레이스 키워드는 통째로 시드(광교횟집 그대로 → 그 지역 그대로 검색·정확). 지역 벗기지 않음.
+        #   업종(category)은 콤마/·로 분리. 브랜드만 제외, 지역형은 허용(인기탭만 있으면).
+        cats = [c.strip() for cc in info["cats"][:2] for c in re.split(r"[,·/]", cc) if c.strip()]
+        base = []
+        for k in cats + info["keywords"]:
+            if k and not is_brandish(k) and k not in base:
+                base.append(k)
         if niche:  # 각 업체 키워드를 니치까지 확장
             kws = []
             for s in base:
