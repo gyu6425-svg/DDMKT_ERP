@@ -60,15 +60,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="md:col-span-2">
                         <label className={labelCls}>업체명 *</label>
-                        <input className={inputCls} value={form.company_name} onChange={(e) => set('company_name', e.target.value)} placeholder="예: 더반클린" />
+                        <input className={inputCls} value={form.company_name} onChange={(e) => set('company_name', e.target.value)} placeholder="test" />
                     </div>
                     <div className="md:col-span-2">
                         <label className={labelCls}>플레이스 URL 또는 홈페이지</label>
-                        <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder="https://..." />
+                        <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder="test" />
                     </div>
                     <div>
                         <label className={labelCls}>키워드 (업종)</label>
-                        <input className={inputCls} value={form.keyword} onChange={(e) => set('keyword', e.target.value)} placeholder="예: 입주청소" />
+                        <input className={inputCls} value={form.keyword} onChange={(e) => set('keyword', e.target.value)} placeholder="test" />
                     </div>
                     <div>
                         <label className={labelCls}>미션 시작일</label>
@@ -76,11 +76,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     </div>
                     <div>
                         <label className={labelCls}>일 발행건수</label>
-                        <input className={inputCls} type="number" min={0} value={form.daily_count ?? ''} onChange={(e) => set('daily_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="예: 2" />
+                        <input className={inputCls} type="number" min={0} value={form.daily_count ?? ''} onChange={(e) => set('daily_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="test" />
                     </div>
                     <div>
                         <label className={labelCls}>총 발행건수</label>
-                        <input className={inputCls} type="number" min={0} value={form.total_count ?? ''} onChange={(e) => set('total_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="예: 30" />
+                        <input className={inputCls} type="number" min={0} value={form.total_count ?? ''} onChange={(e) => set('total_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="test" />
                     </div>
                     <div>
                         <label className={labelCls}>사진 전달</label>
@@ -98,7 +98,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     </div>
                     <div className="md:col-span-2">
                         <label className={labelCls}>비고</label>
-                        <textarea className="min-h-[72px] w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#4338ca]" value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="추가 요청사항" />
+                        <textarea className="min-h-[72px] w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#4338ca]" value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="test" />
                     </div>
                 </div>
 
