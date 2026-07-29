@@ -99,6 +99,49 @@ def is_brandish(kw):
     return any(b in kw for b in _BRAND)
 
 
+# ── 네이버 플레이스(placeId) → 업체 키워드 ────────────────────────────────────
+# 입력한 플레이스 주소/ID의 업종·플레이스키워드를 뽑아 인기탭 스캔 시드로 쓴다.
+#   (place_rank_crawler 와 동일한 모바일 UA. m.place 홈 HTML의 keywordList/category 파싱.)
+import requests  # noqa: E402
+
+_PLACE_UA = (
+    "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
+)
+
+
+def parse_place_id(s):
+    """map.naver.com/p/entry/place/1066951825… 또는 그냥 숫자 ID → placeId."""
+    m = re.search(r"/place/(\d{6,})", s) or re.search(r"\b(\d{6,})\b", s)
+    return m.group(1) if m else None
+
+
+def place_info(pid):
+    """placeId → {name, cats, keywords}. m.place 홈 HTML 파싱."""
+    u = f"https://m.place.naver.com/place/{pid}/home"
+    try:
+        r = requests.get(
+            u,
+            headers={"User-Agent": _PLACE_UA, "Accept-Language": "ko", "Referer": "https://m.place.naver.com/"},
+            timeout=20,
+        )
+        r.encoding = "utf-8"
+        body = r.text
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+    name = (re.findall(r'"name"\s*:\s*"([^"]{1,40})"', body) or ["?"])[0]
+    cats = list(dict.fromkeys(re.findall(r'"category"\s*:\s*"([^"]{1,20})"', body)))
+    kws = []
+    for blk in re.findall(r'"keywordList"\s*:\s*\[([^\]]{2,400})\]', body):
+        kws += re.findall(r'"([^"]{2,20})"', blk)
+    if not kws:
+        for blk in re.findall(r'"keyword[s]?"\s*:\s*\[([^\]]{2,400})\]', body):
+            kws += re.findall(r'"([^"]{2,20})"', blk)
+    return {"pid": pid, "name": name, "cats": cats, "keywords": list(dict.fromkeys(kws))}
+
+
 def related_keywords(seed):
     """SERP 연관검색어 → 씨앗과 결합할 수식어 후보(정제)."""
     url = f"https://m.search.naver.com/search.naver?query={quote(seed)}"
@@ -389,9 +432,39 @@ def main():
         except Exception:
             mx = 40
     niche = "--niche" in args
+    place = "--place" in args
     seeds = [a for i, a in enumerate(args) if not a.startswith("--") and args[i - 1] not in ("--depth", "--max")]
     if not seeds:
-        print("사용법: python cafe_kw_probe.py <씨앗키워드...> [--niche] [--depth N] [--no-expand] [--max N] | --self-test")
+        print("사용법: python cafe_kw_probe.py <씨앗|플레이스URL> [--place] [--niche] [--depth N] [--max N] | --self-test")
+        return
+    if place:  # 플레이스 주소/ID → 업종·플레이스키워드로 인기탭 스캔
+        pid = parse_place_id(seeds[0])
+        info = place_info(pid) if pid else None
+        if not info:
+            print(f"플레이스 조회 실패: {seeds[0]} (placeId 추출/조회 불가)")
+            return
+        print(f"=== 플레이스 {pid} · {info['name']} ({', '.join(info['cats'][:3]) or '업종?'}) ===", flush=True)
+        print(f"  플레이스 키워드: {', '.join(info['keywords'][:15]) or '(없음)'}", flush=True)
+        base = [k for k in (info["cats"][:2] + info["keywords"]) if not is_regional(k) and not is_brandish(k)]
+        base = list(dict.fromkeys(base))
+        if niche:  # 각 업체 키워드를 니치까지 확장
+            kws = []
+            for s in base:
+                for k in niche_candidates(s, 6):
+                    if k not in kws:
+                        kws.append(k)
+        else:
+            kws = base
+        kws = kws[:mx]
+        print(f"\n=== 인기탭 스캔 · 시드 {len(kws)}{' (니치 확장)' if niche else ''} ===", flush=True)
+        results = scan(kws)
+        farm = [r for r in results if r.get("has_section") and r.get("verdict", "").startswith("카페분산")]
+        blogonly = [r for r in results if r.get("verdict", "").startswith("블로그섹션")]
+        print("\n=== 요약 ===", flush=True)
+        print(f"  업체: {info['name']} · {', '.join(info['cats'][:3])}", flush=True)
+        print(f"  인기탭 있음: {sum(1 for r in results if r.get('has_section'))}/{len(results)}", flush=True)
+        print(f"  🎯 진입 기회(카페 분산): {', '.join(r['kw'] for r in farm) or '없음'}", flush=True)
+        print(f"  🟡 블로그섹션(카페 무경쟁): {', '.join(r['kw'] for r in blogonly) or '없음'}", flush=True)
         return
     if niche:  # 지역형 배제 + 상품/유형 니치(향수→고체향수 방식)
         kws = []
