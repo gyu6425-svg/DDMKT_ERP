@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { checkPopular, generateCafeReview, generateSecurityBanner } from '../../api/cafeWriter';
+import { scanKeywordsViaSub4 } from '../../api/keywordScan';
 import { createPublishJob, listPublishedPairs } from '../../api/cafePublishQueue';
 import { queueNusu2, nusu2Health } from '../../api/nusu2Bridge';
 import { COMPANIES, type CompanyKey } from './companies';
@@ -147,6 +148,54 @@ export function AutoPublishPanel({ company }: { company: CompanyKey }) {
         setPassed(hit);
         setPhase('scanned');
         setMsg(hit.length >= count ? `${count}건 목표 달성` : `${count}건 요청 → ${hit.length}건 가능(후보 소진)`);
+    };
+
+    // ── 1-B) SUB4 정확 스캔 — 폰 모바일 IP 경유(큐). Cloudflare(DC IP) 대신 실제 사용자와 동일 결과 ──
+    const runScanSub4 = async () => {
+        const scanKws = company === 'leak' ? [cfg.business] : kws;
+        if (!scanKws.length) return setMsg('키워드를 1개 이상 입력하세요');
+        setMsg('');
+        setPhase('scanning');
+        setAbort(false);
+        setReport(null);
+        setGen([]);
+
+        const { pairs, error } = await listPublishedPairs(company);
+        if (error) {
+            setPhase('idle');
+            return setMsg(`중복 확인 실패 — 스캔 중단(${error.message})`);
+        }
+        const rows: ScanRow[] = [];
+        for (const rg of REGION_GROUPS[regionSet]) {
+            for (const keyword of scanKws) {
+                if (!pairs.has(`${rg.label}|${keyword}`)) rows.push({ region: rg.label, scans: rg.scans, keyword, status: '대기' });
+            }
+        }
+        if (!rows.length) { setPhase('idle'); return setMsg('발행 안 한 지역×키워드 조합이 없습니다'); }
+        setScan(rows.map((r) => ({ ...r, status: '검사중' })));
+        setMsg(`SUB4로 ${rows.length}개 조합 스캔 요청 중… (폰 IP, 완료까지 대기)`);
+
+        // 모든 변형 "{scan} {keyword}" 를 한 요청으로 보낸다. 행 통과 = 변형 중 하나라도 O.
+        const allKw = Array.from(new Set(rows.flatMap((r) => r.scans.map((s) => `${s} ${r.keyword}`))));
+        let res: Record<string, string>;
+        try {
+            res = await scanKeywordsViaSub4(allKw, { note: `${cfg.business}/${regionSet}` });
+        } catch (e) {
+            setPhase('idle');
+            return setMsg(e instanceof Error ? e.message : 'SUB4 스캔 실패');
+        }
+        const hit: Pair[] = [];
+        const filled = rows.map((r) => {
+            const verdicts = r.scans.map((s) => res[`${s} ${r.keyword}`]);
+            const ok = verdicts.some((v) => v === 'O');
+            const allErr = verdicts.every((v) => v === 'err' || v === undefined);
+            if (ok) hit.push({ region: r.region, keyword: r.keyword });
+            return { ...r, status: (ok ? '통과' : allErr ? '오류' : '없음') as ScanRow['status'] };
+        });
+        setScan(filled);
+        setPassed(hit);
+        setPhase('scanned');
+        setMsg(`SUB4 스캔 완료 — 인기탭 ${hit.length}건 / ${rows.length}개 조합`);
     };
 
     // ── 2) 생성 + 발행 (유료) ──
@@ -400,7 +449,10 @@ export function AutoPublishPanel({ company }: { company: CompanyKey }) {
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button className="h-10 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50" disabled={phase === 'scanning' || phase === 'generating' || (company !== 'leak' && !kws.length)} onClick={() => void runScan()} type="button">
-                    {phase === 'scanning' ? `스캔 중… (${scanned}/${scan.length} · 통과 ${passed.length})` : '지역 스캔 (무료)'}
+                    {phase === 'scanning' ? `스캔 중… (${scanned}/${scan.length} · 통과 ${passed.length})` : '지역 스캔 (무료·DC IP)'}
+                </button>
+                <button className="h-10 rounded-md bg-[#0369a1] px-5 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50" disabled={phase === 'scanning' || phase === 'generating' || (company !== 'leak' && !kws.length)} onClick={() => void runScanSub4()} type="button" title="SUB4 폰 모바일 IP로 정확 스캔(큐 경유). 스캔 리스너가 켜져 있어야 함.">
+                    {phase === 'scanning' ? '스캔 중…' : '키워드 찾기 (SUB4·정확)'}
                 </button>
                 {phase === 'scanned' && passed.length > 0 ? (
                     <button className="h-10 rounded-md bg-[#0f766e] px-5 text-sm font-bold text-white hover:bg-[#115e59]" onClick={() => void runPublish()} type="button">
