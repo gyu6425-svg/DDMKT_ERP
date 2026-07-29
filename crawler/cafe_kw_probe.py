@@ -199,15 +199,55 @@ def region_tokens(road, jibun):
         if t and t not in out and t not in _SIDO:
             out.append(t)
 
-    for m in re.finditer(r"([가-힣]{2,4})시(?=\s)", text):  # 안산시→안산
+    for m in re.finditer(r"([가-힣]{2,4})(?:시|군)(?=\s)", text):  # 안산시→안산, 양양군→양양
         push(m.group(1))
     for m in re.finditer(r"([가-힣]{1,3}구)(?=\s)", text):  # 상록구
         push(m.group(1))
     for m in re.finditer(r"([가-힣]{1,3}동)(?=\s)", text):  # 지번의 법정동: 이동
         push(m.group(1))
-    for m in re.finditer(r"([가-힣]{2,4})\d*(?:로|길)(?=\s)", text):  # 광덕1로→광덕
-        push(m.group(1))
+    for m in re.finditer(r"([가-힣]{2,3})\d*(?:로|길)(?=\s)", text):  # 광덕1로→광덕
+        t = m.group(1)
+        if not t.endswith(("대", "소", "중", "번", "센", "타")):  # 대로/번길/센터·타워 도로명 파편 배제
+            push(t)
     return out
+
+
+# ── 검색광고 keywordstool 소싱(검색량 기반) ──────────────────────────────────
+# 배포 CF 함수(ddmkt-erp.pages.dev/api/naver-keywords) 프록시 호출 → 연관키워드+월검색량.
+#   ※ 공식 검색광고 API(HMAC 인증)라 IP 차단 위험 없음. 호출도 CF서버에서 나가 우리 IP 미노출.
+#   ※ 연관성이 느슨(배낚시→가볼만한곳)해서 '업종 코어 포함' + 검색량 임계로 걸러 온-토픽만.
+_AD_ENDPOINT = "https://ddmkt-erp.pages.dev/api/naver-keywords"
+_ad_cache = {}
+
+
+def searchad_keywords(seed):
+    """검색광고 연관키워드 [{keyword,total,pc,mobile,comp}] (검색량순). 캐시."""
+    if seed in _ad_cache:
+        return _ad_cache[seed]
+    try:
+        r = requests.get(f"{_AD_ENDPOINT}?q={quote(seed)}", timeout=25)
+        rows = r.json().get("keywords", []) if r.status_code == 200 else []
+    except Exception:
+        rows = []
+    _ad_cache[seed] = rows
+    return rows
+
+
+def searchad_candidates(root, min_total=100, limit=25):
+    """업종 코어(root)로 검색광고 연관키워드 → root 포함 + 검색량≥min_total + 브랜드/닉네임 제외.
+    검색량 순으로 반환(=헛스캔 줄이고 진짜 쓸 키워드 우선). [(keyword, total)]."""
+    out = []
+    for r in searchad_keywords(root):
+        kw = (r.get("keyword") or "").strip()
+        tot = r.get("total", 0)
+        if not kw or tot < min_total:
+            continue
+        if root not in kw:  # 온-토픽만(업종 코어 포함) — 배낚시→가볼만한곳 같은 이탈 차단
+            continue
+        if is_brandish(kw) or _nickish(root, kw):
+            continue
+        out.append((kw, tot))
+    return out[:limit]
 
 
 def related_keywords(seed):
@@ -550,6 +590,7 @@ def main():
     place = "--place" in args
     mine = "--mine" in args  # 제목 마이닝 추가(노이즈 감수·접미형 니치)
     deep = "--deep" in args  # 심층: 인기탭 승자만 재귀 확장(세부 발굴)
+    ad = "--ad" in args  # 검색광고 keywordstool 소싱(검색량 기반·온토픽)
     seeds = [a for i, a in enumerate(args) if not a.startswith("--") and args[i - 1] not in ("--depth", "--max")]
     if not seeds:
         print("사용법: python cafe_kw_probe.py <씨앗|플레이스URL> [--place] [--niche] [--depth N] [--max N] | --self-test")
@@ -586,6 +627,17 @@ def main():
                 for combo in (reg + up, reg + " " + up):
                     if combo not in base:
                         base.append(combo)
+        # 검색광고 소싱 — 업종 코어별 연관키워드(검색량순·온토픽)로 시드 보강.
+        ad_vol = {}
+        if ad:
+            for up in ups:
+                for kw, tot in searchad_candidates(up):
+                    ad_vol[kw] = tot
+                    if kw not in base:
+                        base.append(kw)
+            if ad_vol:
+                top = sorted(ad_vol.items(), key=lambda x: -x[1])[:10]
+                print(f"  검색광고 연관(검색량순): {', '.join(f'{k}({v})' for k, v in top)}", flush=True)
         if deep:  # 심층: 인기탭 승자만 재귀 확장(세부까지 loop-until-dry)
             cap = mx if mx > 40 else 80
             print(f"\n=== 심층 인기탭 스캔 (재귀 확장 · 최대 {cap}키워드) ===", flush=True)
