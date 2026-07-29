@@ -632,7 +632,7 @@ def main():
             core = k if not is_regional(k) else strip_region(k)
             if core and len(core) >= 2 and core not in ups and not is_brandish(core):
                 ups.append(core)
-        ups = ups[:3]
+        ups = ups[:6]  # 업종 코어(생선회·매운탕·광어·우럭·물회·새우구이) 다 커버
         for reg in regs:  # 시→구→동→상권 각각 × 업종
             for up in ups:
                 for combo in (reg + up, reg + " " + up):
