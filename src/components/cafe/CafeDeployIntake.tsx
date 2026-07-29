@@ -78,7 +78,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setForm((f) => ({ ...f, [k]: v }));
     const addFiles = (g: Grp, list: FileList | null) => {
         if (!list?.length) return;
-        setFiles((f) => ({ ...f, [g]: [...f[g], ...Array.from(list)] }));
+        const arr = Array.from(list); // 동기적으로 캡처(input.value='' 초기화 전에) — 안 하면 목록이 비어 등록 안 됨
+        setFiles((f) => ({ ...f, [g]: [...f[g], ...arr] }));
     };
     const removeFile = (g: Grp, i: number) => setFiles((f) => ({ ...f, [g]: f[g].filter((_, j) => j !== i) }));
     const totalFiles = files.main.length + files.real.length + files.banner.length;
