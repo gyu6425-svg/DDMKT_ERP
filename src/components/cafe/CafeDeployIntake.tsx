@@ -93,6 +93,26 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const removeFile = (g: Grp, i: number) => setFiles((f) => ({ ...f, [g]: f[g].filter((_, j) => j !== i) }));
     const totalFiles = files.main.length + files.real.length + files.banner.length;
 
+    // 인기글 조회 — 키워드(업종) → 검색광고 keywordstool(검색량 API). 차단 0·즉시(순수 웹).
+    const [volLoading, setVolLoading] = useState(false);
+    const [vol, setVol] = useState<{ keyword: string; pc: number; mobile: number; total: number }[] | null>(null);
+    const [volErr, setVolErr] = useState('');
+    const lookupVolume = async () => {
+        const q = (form.keyword || '').trim();
+        if (!q) { setVolErr('키워드(업종)를 입력하세요. 예: 광교 횟집'); setVol(null); return; }
+        setVolErr(''); setVolLoading(true); setVol(null);
+        try {
+            const res = await fetch(`https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(q)}`);
+            const d = await res.json();
+            if (!res.ok) throw new Error(d.error || '조회 실패');
+            setVol((d.keywords || []).slice(0, 20));
+        } catch (e) {
+            setVolErr(e instanceof Error ? e.message : '조회 실패');
+        } finally {
+            setVolLoading(false);
+        }
+    };
+
     const submit = async () => {
         if (!clientId) return setMsg('고객 계정이 연결되어 있지 않습니다. 담당자에게 문의하세요.');
         if (!form.company_name.trim()) return setMsg('업체명을 입력하세요.');
@@ -142,9 +162,44 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <label className={labelCls}>플레이스 URL 또는 홈페이지</label>
                         <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder="www.cafe.naver.com/..." />
                     </div>
-                    <div>
+                    <div className="md:col-span-2">
                         <label className={labelCls}>키워드 (업종)</label>
-                        <input className={inputCls} value={form.keyword} onChange={(e) => set('keyword', e.target.value)} placeholder="test" />
+                        <div className="flex gap-2">
+                            <input className={inputCls} value={form.keyword} onChange={(e) => set('keyword', e.target.value)} placeholder="예: 광교 횟집" />
+                            <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
+                                {volLoading ? '조회 중…' : '인기글 조회'}
+                            </button>
+                        </div>
+                        {volErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{volErr}</p>}
+                        {vol && (
+                            <div className="mt-2 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2">
+                                <div className="mb-1 text-[11px] font-semibold text-[#64748b]">연관 키워드 · 월 검색량 (많은 순) — 검색량이 큰 키워드가 노출 가치가 높습니다</div>
+                                {vol.length === 0 ? (
+                                    <div className="py-2 text-center text-[12px] text-[#94a3b8]">결과 없음</div>
+                                ) : (
+                                    <div className="max-h-56 overflow-y-auto">
+                                        <table className="w-full text-[12px]">
+                                            <thead>
+                                                <tr className="text-left text-[#94a3b8]">
+                                                    <th className="py-1">키워드</th><th className="py-1 text-right">PC</th><th className="py-1 text-right">모바일</th><th className="py-1 text-right">합계</th><th className="py-1" />
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {vol.map((k) => (
+                                                    <tr key={k.keyword} className="border-t border-[#eef0f2]">
+                                                        <td className="py-1 pr-2">{k.keyword}</td>
+                                                        <td className="py-1 text-right text-[#64748b]">{k.pc.toLocaleString()}</td>
+                                                        <td className="py-1 text-right text-[#64748b]">{k.mobile.toLocaleString()}</td>
+                                                        <td className="py-1 text-right font-bold text-[#0369a1]">{k.total.toLocaleString()}</td>
+                                                        <td className="py-1 pl-2"><button type="button" onClick={() => set('keyword', k.keyword)} className="text-[11px] text-[#4338ca] hover:underline">선택</button></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                     <div>
                         <label className={labelCls}>미션 시작일</label>
