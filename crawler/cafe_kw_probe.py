@@ -17,6 +17,7 @@
   이 PC(사무실 IP)에서만 돌린다(읽기 스캔). 대량 발행 아님.  [[cafe-scan-here]]
 """
 import sys
+import os
 import re
 import json
 from urllib.parse import quote
@@ -74,6 +75,28 @@ def is_regional(kw):
     if _REGION_SUFFIX.search(kw):
         return True
     return any(w in kw for w in _REGION_WORDS)
+
+
+# 브랜드/고유명 니치 배제 — 사용자 요청: '니치향수·남자향수'(유형·속성) OK / '향수조말론·구어망드향수'
+#   (브랜드·고유명) 배제. 일반 유형어만 남긴다. cafe_brand_block.txt(한 줄 1개, # 주석)로 무한 확장.
+_BRAND = set(
+    "샤넬 디올 조말론 딥디크 딥티크 톰포드 바이레도 크리드 입생로랑 랑방 불가리 에르메스 베르사체 "
+    "안나수이 메종마르지엘라 마르지엘라 구찌 프라다 버버리 겔랑 펜할리곤스 아쿠아디파르마 르라보 "
+    "산타마리아노벨라 루이비통 아르마니 조르지오아르마니 몽블랑 나르시소 마크제이콥스 로에베 끌로에 "
+    "클로에 지방시 겐조 카르띠에 킬리안 프레데릭말 아닉구딸 세르주루텐 구어망드 올리브영 다이소".split()
+)
+_BRAND_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cafe_brand_block.txt")
+try:
+    if os.path.exists(_BRAND_FILE):
+        with open(_BRAND_FILE, encoding="utf-8") as _f:
+            _BRAND |= {ln.strip() for ln in _f if ln.strip() and not ln.lstrip().startswith("#")}
+except Exception:
+    pass
+
+
+def is_brandish(kw):
+    """키워드에 브랜드/고유명 토큰이 들어가면 True(=제외 대상)."""
+    return any(b in kw for b in _BRAND)
 
 
 def related_keywords(seed):
@@ -145,7 +168,8 @@ def niche_candidates(seed, limit=18):
     seen = set()
 
     def add(k):
-        if k and k not in seen and not is_regional(k):
+        # 씨앗은 무조건 포함. 그 외엔 지역형·브랜드/고유명 배제.
+        if k and k not in seen and not is_regional(k) and (k == seed or not is_brandish(k)):
             seen.add(k)
             out.append(k)
 
@@ -386,12 +410,32 @@ def main():
         mode = f" (자동완성 depth {depth})"
     print(f"=== 인기탭 스캔 · 씨앗 {seeds} → 대상 {len(kws)}키워드{mode} ===", flush=True)
     results = scan(kws)
-    farm = [r for r in results if r.get("has_section") and r.get("verdict", "").startswith("카페분산")]
-    blogonly = [r for r in results if r.get("verdict", "").startswith("블로그섹션")]
+    # 씨앗과 같은 카테고리 테마만 진짜 니치 — 다른 테마로 새는 고유명(정지용향수=문학·책 등) 배제.
+    seed_cat = ""
+    if niche and results:
+        seed_r = next((r for r in results if r["kw"] in seeds and r.get("has_section")), results[0])
+        seed_cat = (seed_r.get("theme") or "").replace("인기글", "").strip()
+
+    def same_cat(r):
+        return not seed_cat or seed_cat in (r.get("theme") or "")
+
+    farm = [
+        r for r in results
+        if r.get("has_section") and r.get("verdict", "").startswith("카페분산") and same_cat(r)
+    ]
+    offcat = [
+        r for r in results
+        if r.get("has_section") and r.get("verdict", "").startswith("카페분산") and not same_cat(r)
+    ]
+    blogonly = [r for r in results if r.get("verdict", "").startswith("블로그섹션") and same_cat(r)]
     print("\n=== 요약 ===", flush=True)
     print(f"  인기탭 있음: {sum(1 for r in results if r.get('has_section'))}/{len(results)}", flush=True)
-    print(f"  🎯 진입 기회(카페 분산): {', '.join(r['kw'] for r in farm) or '없음'}", flush=True)
+    if seed_cat:
+        print(f"  씨앗 카테고리: {seed_cat}", flush=True)
+    print(f"  🎯 진입 기회(같은 카테고리·카페 분산): {', '.join(r['kw'] for r in farm) or '없음'}", flush=True)
     print(f"  🟡 블로그섹션(카페 무경쟁): {', '.join(r['kw'] for r in blogonly) or '없음'}", flush=True)
+    if niche and offcat:
+        print(f"  ⚪ 다른 카테고리로 샘(참고·제외): {', '.join(r['kw'] for r in offcat)}", flush=True)
 
 
 if __name__ == "__main__":
