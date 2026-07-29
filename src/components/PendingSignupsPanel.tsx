@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { approveSignup, listPendingSignups, rejectSignup, type PendingSignup } from '../api/signup';
+import { insertClient, upsertContractData, emptyContractData } from '../api/erp';
 
 type ClientLite = { id: string; company: string | null; business_number: string | null };
 
@@ -37,12 +38,28 @@ export default function PendingSignupsPanel() {
 
     const approve = async (r: PendingSignup) => {
         setMsg('');
-        const clientId = r.role === 'viewer' ? pick[r.id] : undefined;
-        if (r.role === 'viewer' && !clientId) {
-            setMsg('고객 계정은 연결할 업체를 선택하세요.');
-            return;
-        }
         setBusy(r.id);
+        let clientId = r.role === 'viewer' ? pick[r.id] : undefined;
+        // 고객인데 연결 업체 미선택 = 신규 업체 → 계약관리에 자동 등록(카페 배포, 건수·금액 비움) 후 그 업체로 승인.
+        if (r.role === 'viewer' && !clientId) {
+            const { data, error } = await insertClient({
+                company: r.signup_company || r.name || '(미입력)',
+                business_number: r.signup_biz_no || null,
+                email: r.email || null,
+                phone: r.phone || null,
+                product: '카페 배포',
+                status: '계약완료',   // 계약관리 '상품/매출' 탭에 보이려면 계약완료
+                source: '셀프가입',
+            });
+            const newClient = data?.[0];
+            if (error || !newClient) { setBusy(null); return setMsg('업체 생성 실패: ' + (error?.message || '')); }
+            clientId = newClient.id;
+            // 카페 배포 상품 태그 — 건수·금액은 비움(나중에 담당자가 계약관리에서 입력).
+            const cd = emptyContractData(clientId);
+            cd.contract_products = [{ type: '카페 배포', unit_price: 0, quantity: 0, unit_outsource: 0, done: 0 }];
+            const { error: cdErr } = await upsertContractData(cd);
+            if (cdErr) { setBusy(null); return setMsg('상품 태그 실패: ' + cdErr.message); }
+        }
         const { ok, error } = await approveSignup(r.id, clientId);
         setBusy(null);
         if (!ok) return setMsg('승인 실패: ' + (error || ''));
@@ -124,7 +141,7 @@ export default function PendingSignupsPanel() {
                                     onClick={() => void approve(r)}
                                     type="button"
                                 >
-                                    {busy === r.id ? '처리 중…' : '승인'}
+                                    {busy === r.id ? '처리 중…' : (r.role === 'viewer' ? (pick[r.id] ? '기존 업체로 승인' : '신규 업체 등록 & 승인') : '승인')}
                                 </button>
                                 <button
                                     className="rounded-md border border-[#fca5a5] px-3 py-1.5 text-sm font-semibold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
@@ -140,8 +157,7 @@ export default function PendingSignupsPanel() {
                 </div>
             )}
             <p className="mt-4 mb-0 text-[12px] leading-6 text-[#94a3b8]">
-                고객 계정은 <b>연결할 업체</b>를 선택해야 승인됩니다. 아직 업체가 없으면 먼저 계약 관리에서 업체를
-                등록한 뒤 승인하세요. 기자단은 승인 후 블로그 관리 시트에서 담당 블로그를 배정하면 됩니다.
+                고객 계정: <b>업체를 선택하지 않고 승인</b>하면 신규 업체로 <b>계약관리에 자동 등록</b>됩니다(상품 <b>카페 배포</b>, 건수·금액은 비움 → 나중에 계약관리에서 입력). 이미 있는 업체면 검색해서 선택 후 승인하세요. 기자단은 승인 후 블로그 관리 시트에서 담당 블로그를 배정하면 됩니다.
             </p>
         </div>
     );
@@ -171,7 +187,7 @@ function ClientPicker({
 
     return (
         <div className="mt-2 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2">
-            <div className="mb-1 text-[11px] font-semibold text-[#64748b]">연결할 업체</div>
+            <div className="mb-1 text-[11px] font-semibold text-[#64748b]">연결할 업체 <span className="font-normal text-[#94a3b8]">(선택 안 하면 신규 업체로 등록)</span></div>
             <input
                 className="mb-1.5 h-8 w-full rounded border border-[#cbd5e1] bg-white px-2 text-sm"
                 onChange={(e) => onSearch(e.target.value)}
