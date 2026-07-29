@@ -65,7 +65,21 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const scopedClientId = previewClientId ?? (profile?.client_id ?? null);
     const [companyKey, setCompanyKey] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState<'tracker' | 'sheet' | 'intake'>('tracker');
+    // 사이드바 '카페 배포'(?sub=카페 배포) 로 들어오면 접수 탭으로 연다.
+    const [view, setView] = useState<'tracker' | 'sheet' | 'intake'>(
+        () => (new URLSearchParams(window.location.search).get('sub') === '카페 배포' ? 'intake' : 'tracker'),
+    );
+    useEffect(() => {
+        const sync = () => {
+            if (new URLSearchParams(window.location.search).get('sub') === '카페 배포') setView('intake');
+        };
+        window.addEventListener('app:navigate', sync);
+        window.addEventListener('popstate', sync);
+        return () => {
+            window.removeEventListener('app:navigate', sync);
+            window.removeEventListener('popstate', sync);
+        };
+    }, []);
 
     useEffect(() => {
         let alive = true;

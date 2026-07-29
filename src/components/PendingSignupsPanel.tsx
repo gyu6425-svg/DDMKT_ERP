@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { approveSignup, listPendingSignups, rejectSignup, type PendingSignup } from '../api/signup';
 import { insertClient, upsertContractData, emptyContractData } from '../api/erp';
+import { insertClientContracts } from '../api/clientContracts';
 
 type ClientLite = { id: string; company: string | null; business_number: string | null };
 
@@ -59,6 +60,13 @@ export default function PendingSignupsPanel() {
             cd.contract_products = [{ type: '카페 배포', unit_price: 0, quantity: 0, unit_outsource: 0, done: 0 }];
             const { error: cdErr } = await upsertContractData(cd);
             if (cdErr) { setBusy(null); return setMsg('상품 태그 실패: ' + cdErr.message); }
+            // 고객 사이드바(client_contracts, sheet_approved)에도 카페 배포 등록 → '카페' 메뉴 노출.
+            const { error: ccErr } = await insertClientContracts([{
+                client_id: clientId, category: '카페', subtype: '카페 배포',
+                goal_count: null, amount: null, sheet_approved: true,
+                contract_date: new Date().toISOString().slice(0, 10),
+            }]);
+            if (ccErr) { setBusy(null); return setMsg('사이드바 등록 실패: ' + ccErr.message); }
         }
         const { ok, error } = await approveSignup(r.id, clientId);
         setBusy(null);
