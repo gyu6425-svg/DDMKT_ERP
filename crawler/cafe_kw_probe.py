@@ -289,6 +289,16 @@ def business_hierarchy(cats, keywords=()):
             levels += ["회 맛집", "횟집"]
     for c in cats:
         levels.append(c)  # 생선회
+    for c in cats:  # 업종 축약 코어(인테리어디자인→인테리어, 수학교육→수학, 조개요리→조개)
+        core = c
+        for suf in ("디자인", "교육", "요리", "전문점", "전문", "공사", "서비스", "센터"):
+            if core.endswith(suf) and len(core) - len(suf) >= 2:
+                core = core[: -len(suf)]
+                break
+        if core != c:
+            levels.append(core)
+            if food:
+                levels.append(core + " 맛집")
     for k in keywords:  # 세부 요리 × 맛집(광어맛집·매운탕맛집) + 요리 단독(광어)
         if is_brandish(k):
             continue
