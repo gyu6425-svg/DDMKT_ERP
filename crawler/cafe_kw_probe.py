@@ -223,6 +223,48 @@ def region_tokens(road, jibun):
     return out
 
 
+# ── 넓은→좁은 계층(도·시·구·동 × 맛집·업종맛집·횟집·업종) ────────────────────
+_PROVINCES = {"경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"}
+_FOOD_HINT = set(
+    "회 횟집 생선 조개 해물 음식 요리 고기 식당 한식 일식 중식 양식 분식 카페 디저트 치킨 피자 찜 탕 "
+    "구이 국밥 국수 냉면 초밥 스시 파스타 스테이크 술집 포차 뷔페 삼겹 곱창 막창 쭈꾸미 낙지 족발 보쌈 "
+    "김밥 떡볶이 만두 베이커리 브런치 전골 매운탕 물회 삼합 게장 곰탕 설렁탕 감자탕 부대찌개".split()
+)
+
+
+def _sido(road, jibun):
+    toks = (road or jibun or "").split()
+    return toks[0] if toks and toks[0] in _SIDO else ""
+
+
+def region_hierarchy(road, jibun):
+    """넓은→좁은 지역 계층 [도(경기도/경기), 시, 구, 동/상권]."""
+    sido = _sido(road, jibun)
+    out = []
+    if sido:
+        out.append(sido + "도" if sido in _PROVINCES else sido)  # 경기→경기도, 서울→서울
+        if sido in _PROVINCES:
+            out.append(sido)  # 경기 형태도(경기 회 맛집)
+    out += region_tokens(road, jibun)  # 시·구·동·상권
+    return out
+
+
+def business_hierarchy(cats):
+    """넓은→좁은 업종 계층. 음식점=맛집→업종맛집→(회맛집·횟집)→업종. 비음식=업종 그대로."""
+    levels = []
+    if any(any(h in c for h in _FOOD_HINT) for c in cats):  # 음식점
+        levels.append("맛집")
+        for c in cats:
+            levels.append(c + " 맛집")  # 생선회 맛집
+        if any("회" in c for c in cats):
+            levels += ["회 맛집", "횟집"]
+    for c in cats:
+        if c not in levels:
+            levels.append(c)
+    seen = set()
+    return [x for x in levels if not (x in seen or seen.add(x))]
+
+
 # ── 검색광고 keywordstool 소싱(검색량 기반) ──────────────────────────────────
 # 배포 CF 함수(ddmkt-erp.pages.dev/api/naver-keywords) 프록시 호출 → 연관키워드+월검색량.
 #   ※ 공식 검색광고 API(HMAC 인증)라 IP 차단 위험 없음. 호출도 CF서버에서 나가 우리 IP 미노출.
@@ -617,15 +659,21 @@ def main():
         # 플레이스 키워드는 통째로 시드(광교횟집 그대로 → 그 지역 그대로 검색·정확). 지역 벗기지 않음.
         #   업종(category)은 콤마/·로 분리. 브랜드만 제외, 지역형은 허용(인기탭만 있으면).
         cats = [c.strip() for cc in info["cats"][:2] for c in re.split(r"[,·/]", cc) if c.strip()]
-        base = []
-        for k in cats + info["keywords"]:
-            if k and not is_brandish(k) and k not in base:
-                base.append(k)
-        # 주소 → 시/구/동/상권 × 업종 조합(안산인테리어·상록구인테리어·이동인테리어·광덕인테리어).
         road, jibun = place_address(pid)
         regs = region_tokens(road, jibun)
         if road or jibun:
             print(f"  주소: {road or jibun} → 지역토큰: {', '.join(regs) or '(없음)'}", flush=True)
+        # ① 넓은→좁은 계층 먼저: (도·시·구·동) × (맛집·업종맛집·회맛집·횟집·업종).
+        #    업종(넓은→좁은) 바깥, 지역(넓은→좁은) 안쪽 → 경기도 맛집·수원 맛집…·경기 회 맛집…·수원 횟집.
+        rh = region_hierarchy(road, jibun)
+        bh = business_hierarchy(cats)
+        hier = [f"{rl} {bt}" for bt in bh for rl in rh]
+        if hier:
+            print(f"  계층(넓은→좁은) {len(hier)}개: {', '.join(hier[:8])}…", flush=True)
+        base = []
+        for k in hier + cats + info["keywords"]:  # 계층 먼저 → 플레이스 키워드(세부)
+            if k and not is_brandish(k) and k not in base:
+                base.append(k)
         # 업종 코어 = 업종(category) + 플레이스키워드에서 지역 벗긴 것(상위 3).
         ups = []
         for k in cats + info["keywords"]:
