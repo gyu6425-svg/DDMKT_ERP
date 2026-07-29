@@ -616,6 +616,34 @@ def scan(keywords, verbose=True):
     return results
 
 
+# ── 목표 건수까지만 스캔(수요 기반 = 스크랩 최소화·차단 회피) ────────────────
+def scan_until(candidates, target, cap=None, verbose=True):
+    """검색량순 후보를 위에서부터 스캔하다가 '카페분산(진입기회)' target건을 찾으면 멈춘다.
+    cap = 실제 스크랩(라이브) 상한(히트율 낮아도 폭주 방지). 캐시 히트는 상한/대기에서 제외."""
+    cap = cap or max(target * 8, 30)  # 안전 상한: 목표의 8배(히트율 12%도 커버) 또는 최소 30
+    found, live = [], 0
+    for kw in candidates:
+        if len(found) >= target or live >= cap:
+            break
+        cached = _USE_CACHE and kw in _cache and _cache_fresh(_cache[kw])
+        r = classify(kw)
+        if not cached:
+            live += 1
+        if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산"):
+            found.append(r)
+            if verbose:
+                occ = ", ".join(f"{x['rank']}위:{x['who']}" for x in r["rows"] if x["kind"] == "카페") or "(카페없음)"
+                print(f"    ✅[{len(found)}/{target}] [{kw}] 「{r['theme']}」 | {occ}", flush=True)
+        elif verbose:
+            print(f"    · [{kw}] {'(캐시)' if cached else ''}{r.get('verdict', '') or r.get('err', '')}", flush=True)
+        if not cached:  # 캐시 히트는 대기 불필요
+            c._pause(1.2)
+    _cache_flush()
+    if verbose:
+        print(f"  → {len(found)}건 발견 (라이브 스크랩 {live}건, 상한 {cap})", flush=True)
+    return found
+
+
 # ── 심층 스캔(인기탭 있는 키워드만 재귀 확장 = 세부까지 loop-until-dry) ──────────
 def deep_scan(seeds, max_kw=70, rounds=4, verbose=True):
     """인기탭이 잡힌 키워드만 자동완성으로 계속 확장해 세부 키워드를 더 캐낸다.
@@ -706,6 +734,12 @@ def main():
             mx = int(args[args.index("--max") + 1])
         except Exception:
             mx = 40
+    target = 0  # --target N: 카페분산 N건 찾으면 중단(수요 기반·스크랩 최소화)
+    if "--target" in args:
+        try:
+            target = int(args[args.index("--target") + 1])
+        except Exception:
+            target = 0
     niche = "--niche" in args
     place = "--place" in args
     mine = "--mine" in args  # 제목 마이닝 추가(노이즈 감수·접미형 니치)
@@ -714,7 +748,7 @@ def main():
     global _USE_CACHE
     if "--fresh" in args:  # 캐시 무시하고 강제 재스캔
         _USE_CACHE = False
-    seeds = [a for i, a in enumerate(args) if not a.startswith("--") and args[i - 1] not in ("--depth", "--max")]
+    seeds = [a for i, a in enumerate(args) if not a.startswith("--") and args[i - 1] not in ("--depth", "--max", "--target")]
     if not seeds:
         print("사용법: python cafe_kw_probe.py <씨앗|플레이스URL> [--place] [--niche] [--depth N] [--max N] | --self-test")
         return
@@ -773,6 +807,17 @@ def main():
             if ad_vol:
                 top = sorted(ad_vol.items(), key=lambda x: -x[1])[:10]
                 print(f"  검색광고 연관(검색량순): {', '.join(f'{k}({v})' for k, v in top)}", flush=True)
+        if target:  # 수요 기반: 검색량순으로 N건 찾으면 중단(스크랩 최소화)
+            ordered = [k for k, _ in sorted(ad_vol.items(), key=lambda x: -x[1]) if k in base]
+            for k in base:  # 검색량 있는 것 먼저 → 나머지(계층 넓은→좁은)
+                if k not in ordered:
+                    ordered.append(k)
+            print(f"\n=== 목표 {target}건까지 스캔 (검색량순 우선 · 발견 시 중단) ===", flush=True)
+            results = scan_until(ordered, target)
+            print("\n=== 요약 ===", flush=True)
+            print(f"  업체: {info['name']} · {', '.join(info['cats'][:3])}", flush=True)
+            print(f"  🎯 발견 {len(results)}/{target}건: {', '.join(r['kw'] for r in results) or '없음'}", flush=True)
+            return
         if deep:  # 심층: 인기탭 승자만 재귀 확장(세부까지 loop-until-dry)
             cap = mx if mx > 40 else 80
             print(f"\n=== 심층 인기탭 스캔 (재귀 확장 · 최대 {cap}키워드) ===", flush=True)
