@@ -27,6 +27,33 @@ import truststore
 
 truststore.inject_into_ssl()
 import blog_rank_crawler as c  # 측정/차단회피/파싱 로직 재사용
+import datetime as _dt
+
+# ── 스캔 결과 캐시(재스크랩 방지 = 차단 위험↓) ────────────────────────────────
+# 한 번 인기탭 판정한 키워드는 로컬 파일에 저장하고, TTL 이내면 재스캔(스크랩) 안 한다.
+#   → 겹치는/반복 키워드의 m.search 요청을 제거해 우리 IP 차단 위험을 실질적으로 낮춘다.
+_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cafe_kw_cache.json")
+_CACHE_TTL_DAYS = 7
+_USE_CACHE = True  # --fresh 로 끌 수 있음
+try:
+    _cache = json.load(open(_CACHE_FILE, encoding="utf-8")) if os.path.exists(_CACHE_FILE) else {}
+except Exception:
+    _cache = {}
+_cache_dirty = 0
+
+
+def _cache_fresh(rec):
+    try:
+        return (_dt.date.fromisoformat(c.TODAY) - _dt.date.fromisoformat(rec.get("_d", ""))).days <= _CACHE_TTL_DAYS
+    except Exception:
+        return False
+
+
+def _cache_flush():
+    try:
+        json.dump(_cache, open(_CACHE_FILE, "w", encoding="utf-8"), ensure_ascii=False)
+    except Exception:
+        pass
 
 
 # ── 자동완성(씨앗 → 세부키워드) ───────────────────────────────────────────────
@@ -249,20 +276,27 @@ def region_hierarchy(road, jibun):
     return out
 
 
-def business_hierarchy(cats):
-    """넓은→좁은 업종 계층. 음식점=맛집→업종맛집→(회맛집·횟집)→업종. 비음식=업종 그대로."""
+def business_hierarchy(cats, keywords=()):
+    """넓은→좁은 업종 계층. 음식점=맛집→업종맛집→(회맛집·횟집)→업종→요리맛집(광어맛집)→요리(광어).
+    비음식=업종→세부(플레이스키워드)."""
+    food = any(any(h in c for h in _FOOD_HINT) for c in cats)
     levels = []
-    if any(any(h in c for h in _FOOD_HINT) for c in cats):  # 음식점
+    if food:
         levels.append("맛집")
         for c in cats:
             levels.append(c + " 맛집")  # 생선회 맛집
         if any("회" in c for c in cats):
             levels += ["회 맛집", "횟집"]
     for c in cats:
-        if c not in levels:
-            levels.append(c)
+        levels.append(c)  # 생선회
+    for k in keywords:  # 세부 요리 × 맛집(광어맛집·매운탕맛집) + 요리 단독(광어)
+        if is_brandish(k):
+            continue
+        if food:
+            levels.append(k + "맛집")
+        levels.append(k)
     seen = set()
-    return [x for x in levels if not (x in seen or seen.add(x))]
+    return [x for x in levels if x and not (x in seen or seen.add(x))]
 
 
 # ── 검색광고 keywordstool 소싱(검색량 기반) ──────────────────────────────────
@@ -476,8 +510,25 @@ def _rank_rows(j):
 
 
 def classify(kw):
-    """키워드 1개 → 인기탭 판정 dict.
+    """키워드 1개 → 인기탭 판정 dict. 캐시 히트면 스크랩 생략(차단 위험↓).
     {kw, has_section, theme, n_ad, n_organic, rows:[{rank,kind,who,article,title}], verdict, err}."""
+    global _cache_dirty
+    if _USE_CACHE:
+        rec = _cache.get(kw)
+        if rec and _cache_fresh(rec):
+            return rec
+    result = _classify_live(kw)
+    if _USE_CACHE and not result.get("err"):  # 에러/일시실패는 캐시 안 함
+        result["_d"] = c.TODAY
+        _cache[kw] = result
+        _cache_dirty += 1
+        if _cache_dirty % 15 == 0:
+            _cache_flush()
+    return result
+
+
+def _classify_live(kw):
+    """실제 m.search 스크랩으로 인기탭 판정(캐시 미스 시만 호출)."""
     url = f"https://m.search.naver.com/search.naver?query={quote(kw)}"
     try:
         code, html = c._fetch_html(url)
@@ -533,6 +584,7 @@ def classify(kw):
 def scan(keywords, verbose=True):
     results = []
     for kw in keywords:
+        cached = _USE_CACHE and kw in _cache and _cache_fresh(_cache[kw])
         r = classify(kw)
         results.append(r)
         if verbose:
@@ -548,7 +600,9 @@ def scan(keywords, verbose=True):
                     f"  [{kw}] ✅ 「{r['theme']}」 광고{r['n_ad']}·유기{r['n_organic']} | {r['verdict']} | {occ}",
                     flush=True,
                 )
-        c._pause(1.2)
+        if not cached:  # 캐시 히트면 스크랩 안 했으니 대기 불필요
+            c._pause(1.2)
+    _cache_flush()
     return results
 
 
@@ -569,6 +623,7 @@ def deep_scan(seeds, max_kw=70, rounds=4, verbose=True):
             if kw in seen or len(seen) >= max_kw:
                 continue
             seen.add(kw)
+            cached = _USE_CACHE and kw in _cache and _cache_fresh(_cache[kw])
             r = classify(kw)
             if r.get("has_section"):
                 found[kw] = r
@@ -579,8 +634,10 @@ def deep_scan(seeds, max_kw=70, rounds=4, verbose=True):
                 for sub in autocomplete(kw):
                     if sub not in seen and not is_brandish(sub) and not _nickish(kw, sub):
                         nxt.append(sub)
-            c._pause(1.1)
+            if not cached:  # 캐시 히트면 스크랩 안 했으니 대기 불필요(속도↑)
+                c._pause(1.1)
         frontier = list(dict.fromkeys(nxt))
+    _cache_flush()
     return list(found.values())
 
 
@@ -644,6 +701,9 @@ def main():
     mine = "--mine" in args  # 제목 마이닝 추가(노이즈 감수·접미형 니치)
     deep = "--deep" in args  # 심층: 인기탭 승자만 재귀 확장(세부 발굴)
     ad = "--ad" in args  # 검색광고 keywordstool 소싱(검색량 기반·온토픽)
+    global _USE_CACHE
+    if "--fresh" in args:  # 캐시 무시하고 강제 재스캔
+        _USE_CACHE = False
     seeds = [a for i, a in enumerate(args) if not a.startswith("--") and args[i - 1] not in ("--depth", "--max")]
     if not seeds:
         print("사용법: python cafe_kw_probe.py <씨앗|플레이스URL> [--place] [--niche] [--depth N] [--max N] | --self-test")
@@ -666,26 +726,21 @@ def main():
         # ① 넓은→좁은 계층 먼저: (도·시·구·동) × (맛집·업종맛집·회맛집·횟집·업종).
         #    업종(넓은→좁은) 바깥, 지역(넓은→좁은) 안쪽 → 경기도 맛집·수원 맛집…·경기 회 맛집…·수원 횟집.
         rh = region_hierarchy(road, jibun)
-        bh = business_hierarchy(cats)
-        hier = [f"{rl} {bt}" for bt in bh for rl in rh]
+        bh = business_hierarchy(cats, info["keywords"])
+        hier = []
+        for bt in bh:  # 업종(넓은→좁은): 맛집→업종맛집→회맛집→횟집→업종→요리맛집(광어맛집)→요리
+            if bt != "맛집":  # '맛집' 단독(전국)은 너무 넓어 제외, 나머지는 전국 단독도
+                hier.append(bt)
+            for rl in rh:  # 지역(넓은→좁은): 경기도→경기→시→구→동→상권
+                hier.append(f"{rl} {bt}")
+                if " " not in bt:  # 단어형 업종은 붙임형도(수원매운탕맛집·수원광어)
+                    hier.append(f"{rl}{bt}")
         if hier:
-            print(f"  계층(넓은→좁은) {len(hier)}개: {', '.join(hier[:8])}…", flush=True)
+            print(f"  계층 {len(hier)}개(넓은→좁은): {', '.join(hier[:8])}…", flush=True)
         base = []
-        for k in hier + cats + info["keywords"]:  # 계층 먼저 → 플레이스 키워드(세부)
+        for k in hier + cats + info["keywords"]:  # 계층 먼저(넓은→좁은) → 플레이스 키워드
             if k and not is_brandish(k) and k not in base:
                 base.append(k)
-        # 업종 코어 = 업종(category) + 플레이스키워드에서 지역 벗긴 것(상위 3).
-        ups = []
-        for k in cats + info["keywords"]:
-            core = k if not is_regional(k) else strip_region(k)
-            if core and len(core) >= 2 and core not in ups and not is_brandish(core):
-                ups.append(core)
-        ups = ups[:6]  # 업종 코어(생선회·매운탕·광어·우럭·물회·새우구이) 다 커버
-        for reg in regs:  # 시→구→동→상권 각각 × 업종
-            for up in ups:
-                for combo in (reg + up, reg + " " + up):
-                    if combo not in base:
-                        base.append(combo)
         # 검색광고 소싱 — 업종 코어별 연관키워드(검색량순·온토픽)로 시드 보강.
         ad_vol = {}
         if ad:

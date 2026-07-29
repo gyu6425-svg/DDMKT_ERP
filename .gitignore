@@ -65,3 +65,4 @@ crawler/cafe_cmt/.hb_*
 
 # 발굴 스캔 프록시 자격증명(민감 — 절대 커밋 금지)
 crawler/cafe_pub/scan_proxy.txt
+crawler/cafe_kw_cache.json
