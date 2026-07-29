@@ -1312,7 +1312,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                       ? c.created_at.slice(0, 10)
                                       : '--';
                                 // 계약 관리 신규건 = 미승인(승인 전). 고객사 관리 화면에선 최근등록(newIds) 강조 유지.
-                                const isNew = contractsOnly ? !c.contract_approved : newIds.has(c.id);
+                                //   + 등록(created_at) 24h 이내면 두 화면 모두 파란 강조(가입승인 자동등록 건 포함).
+                                const fresh = !!c.created_at && Date.now() - new Date(c.created_at).getTime() < NEW_TTL;
+                                const isNew = (contractsOnly ? !c.contract_approved : newIds.has(c.id)) || fresh;
                                 // 상품 상세 집계 — 카테고리 → 세부유형별 계약/진행/잔여(합산). 월 필터 시 그 달 상품만.
                                 const myCts = scopeMonth(
                                     clientContracts.filter((ct) => ct.client_id === c.id),
