@@ -9,6 +9,7 @@ import { CafeTrackerTab } from '../components/cafeRank/pages/CafeTrackerTab';
 import { CafeSheetTab } from '../components/cafeRank/pages/CafeSheetTab';
 import { CafeCustomerStudio } from '../components/cafe/CafeCustomerStudio';
 import { CafeDeployIntake } from '../components/cafe/CafeDeployIntake';
+import { CafeTokenHistory } from '../components/cafe/CafeTokenHistory';
 import { getCafeAccounts } from '../api/cafeAccounts';
 import { useAuth } from '../hooks/useAuth';
 
@@ -66,7 +67,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const [publishEnabled, setPublishEnabled] = useState(false); // 담당자 세팅 완료(자동화 발행 탭 노출)
     const [loading, setLoading] = useState(true);
     // 사이드바 '카페 배포'(?sub=카페 배포) 로 들어오면 접수 탭으로 연다.
-    const [view, setView] = useState<'tracker' | 'sheet' | 'intake' | 'publish'>(
+    const [view, setView] = useState<'tracker' | 'sheet' | 'intake' | 'publish' | 'charge'>(
         () => (new URLSearchParams(window.location.search).get('sub') === '카페 배포' ? 'intake' : 'tracker'),
     );
     useEffect(() => {
@@ -107,6 +108,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     // 자동화 발행 탭은 담당자 세팅(publish_enabled=true) 후에만 노출.
     const tabs: [string, string][] = [['tracker', '순위 트래커'], ['sheet', '카페 관리 시트'], ['intake', '카페 배포']];
     if (publishEnabled) tabs.push(['publish', '카페 자동화 발행']);
+    tabs.push(['charge', '충전내역']);
     return (
         <>
             <div className="flex gap-1 border-b border-[#e2e8f0]">
@@ -129,7 +131,9 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
                     ? (companyKey ? <CafeSheetTab scopeCompanyKey={companyKey} readOnly /> : noCafe)
                     : view === 'publish'
                         ? <CafeCustomerStudio clientId={scopedClientId} />
-                        : <CafeDeployIntake clientId={scopedClientId} />}
+                        : view === 'charge'
+                            ? <CafeTokenHistory clientId={scopedClientId} />
+                            : <CafeDeployIntake clientId={scopedClientId} />}
         </>
     );
 }
