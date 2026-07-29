@@ -459,6 +459,38 @@ def scan(keywords, verbose=True):
     return results
 
 
+# ── 심층 스캔(인기탭 있는 키워드만 재귀 확장 = 세부까지 loop-until-dry) ──────────
+def deep_scan(seeds, max_kw=70, rounds=4, verbose=True):
+    """인기탭이 잡힌 키워드만 자동완성으로 계속 확장해 세부 키워드를 더 캐낸다.
+    (섹션없는 키워드는 확장 안 함 → 헛발질 최소화. 새 인기탭이 안 나올 때까지 반복.)"""
+    seen = set()
+    found = {}
+    frontier = list(dict.fromkeys(seeds))
+    rnd = 0
+    while frontier and rnd < rounds and len(seen) < max_kw:
+        rnd += 1
+        if verbose:
+            print(f"  ── 라운드 {rnd} · 후보 {len(frontier)}개 (누적 스캔 {len(seen)}) ──", flush=True)
+        nxt = []
+        for kw in frontier:
+            if kw in seen or len(seen) >= max_kw:
+                continue
+            seen.add(kw)
+            r = classify(kw)
+            if r.get("has_section"):
+                found[kw] = r
+                if verbose:
+                    occ = ", ".join(f"{x['rank']}위:{x['who']}" for x in r["rows"] if x["kind"] == "카페") or "(카페없음)"
+                    print(f"    ✅ [{kw}] 「{r['theme']}」 {r['verdict']} | {occ}", flush=True)
+                # 인기탭 있는 '승자'만 자동완성으로 더 파고든다(세부 키워드 발굴).
+                for sub in autocomplete(kw):
+                    if sub not in seen and not is_brandish(sub) and not _nickish(kw, sub):
+                        nxt.append(sub)
+            c._pause(1.1)
+        frontier = list(dict.fromkeys(nxt))
+    return list(found.values())
+
+
 # ── QA 자기검증 ───────────────────────────────────────────────────────────────
 def self_test():
     """알려진 키워드로 파이프라인 검증. SERP 변동 가능 → 실패 시 단정 말고 보고."""
@@ -517,6 +549,7 @@ def main():
     niche = "--niche" in args
     place = "--place" in args
     mine = "--mine" in args  # 제목 마이닝 추가(노이즈 감수·접미형 니치)
+    deep = "--deep" in args  # 심층: 인기탭 승자만 재귀 확장(세부 발굴)
     seeds = [a for i, a in enumerate(args) if not a.startswith("--") and args[i - 1] not in ("--depth", "--max")]
     if not seeds:
         print("사용법: python cafe_kw_probe.py <씨앗|플레이스URL> [--place] [--niche] [--depth N] [--max N] | --self-test")
@@ -553,17 +586,22 @@ def main():
                 for combo in (reg + up, reg + " " + up):
                     if combo not in base:
                         base.append(combo)
-        if niche:  # 각 업체 키워드를 니치까지 확장
-            kws = []
-            for s in base:
-                for k in niche_candidates(s, 6, mine):
-                    if k not in kws:
-                        kws.append(k)
+        if deep:  # 심층: 인기탭 승자만 재귀 확장(세부까지 loop-until-dry)
+            cap = mx if mx > 40 else 80
+            print(f"\n=== 심층 인기탭 스캔 (재귀 확장 · 최대 {cap}키워드) ===", flush=True)
+            results = deep_scan(base, max_kw=cap)
         else:
-            kws = base
-        kws = kws[:mx]
-        print(f"\n=== 인기탭 스캔 · 시드 {len(kws)}{' (니치 확장)' if niche else ''} ===", flush=True)
-        results = scan(kws)
+            if niche:  # 각 업체 키워드를 니치까지 확장
+                kws = []
+                for s in base:
+                    for k in niche_candidates(s, 6, mine):
+                        if k not in kws:
+                            kws.append(k)
+            else:
+                kws = base
+            kws = kws[:mx]
+            print(f"\n=== 인기탭 스캔 · 시드 {len(kws)}{' (니치 확장)' if niche else ''} ===", flush=True)
+            results = scan(kws)
         farm = [r for r in results if r.get("has_section") and r.get("verdict", "").startswith("카페분산")]
         blogonly = [r for r in results if r.get("verdict", "").startswith("블로그섹션")]
         print("\n=== 요약 ===", flush=True)
