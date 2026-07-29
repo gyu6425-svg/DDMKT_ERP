@@ -741,10 +741,11 @@ def main():
         for k in hier + cats + info["keywords"]:  # 계층 먼저(넓은→좁은) → 플레이스 키워드
             if k and not is_brandish(k) and k not in base:
                 base.append(k)
-        # 검색광고 소싱 — 업종 코어별 연관키워드(검색량순·온토픽)로 시드 보강.
+        # 검색광고 소싱 — 업종 코어(category+플레이스키워드)별 연관키워드(검색량순·온토픽)로 보강.
         ad_vol = {}
         if ad:
-            for up in ups:
+            cores = [k for k in (cats + info["keywords"]) if len(k) >= 2 and not is_brandish(k)][:6]
+            for up in cores:
                 for kw, tot in searchad_candidates(up):
                     ad_vol[kw] = tot
                     if kw not in base:
