@@ -754,7 +754,17 @@ def main():
         # 검색광고 소싱 — 업종 코어(category+플레이스키워드)별 연관키워드(검색량순·온토픽)로 보강.
         ad_vol = {}
         if ad:
-            cores = [k for k in (cats + info["keywords"]) if len(k) >= 2 and not is_brandish(k)][:6]
+            # 검색광고 코어 = 업종(category) + 축약코어(인테리어디자인→인테리어) + 플레이스키워드.
+            extra = []
+            for c0 in cats:
+                core = c0
+                for suf in ("디자인", "교육", "요리", "전문점", "전문", "공사", "서비스", "센터"):
+                    if core.endswith(suf) and len(core) - len(suf) >= 2:
+                        core = core[: -len(suf)]
+                        break
+                if core != c0 and core not in extra:
+                    extra.append(core)
+            cores = [k for k in (cats + extra + info["keywords"]) if len(k) >= 2 and not is_brandish(k)][:8]
             for up in cores:
                 for kw, tot in searchad_candidates(up):
                     ad_vol[kw] = tot
