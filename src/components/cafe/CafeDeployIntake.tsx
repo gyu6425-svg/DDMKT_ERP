@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import {
     submitCafeDeployRequest,
     listCafeDeployRequests,
+    listDeployCredentials,
     uploadDeployPhoto,
     signedDeployUrls,
     type CafeDeployRequest,
     type CafeDeployInput,
     type DeployPhotos,
+    type DeployCredential,
 } from '../../api/cafeDeployRequests';
 
 // 카페 배포 '접수' — 고객이 로그인 후 접수 폼 작성 + 사진(메인배너/실사사진/배너) 업로드 → 제출.
@@ -28,6 +30,7 @@ const STATUS_STYLE: Record<string, string> = {
 const empty: CafeDeployInput = {
     company_name: '', url: '', keyword: '', mission_start: '',
     daily_count: null, total_count: null, photo_provided: '', product_type: PRODUCT_FIXED, note: '',
+    cafe_name: '', board_name: '', write_url: '', two_factor: false, naver_id: '', naver_pw: '',
 };
 
 // 업로드 전 압축 — 최대 1600px, JPEG 0.85. (실패 시 원본 반환)
@@ -62,6 +65,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [files, setFiles] = useState<Record<Grp, File[]>>({ main: [], real: [], banner: [] });
     const [rows, setRows] = useState<CafeDeployRequest[]>([]);
     const [urls, setUrls] = useState<Record<string, string>>({});
+    const [creds, setCreds] = useState<Record<string, DeployCredential>>({}); // deploy_request_id → 계정
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
 
@@ -70,6 +74,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setRows(data);
             const paths = data.flatMap((r) => (r.photos ? [...r.photos.main, ...r.photos.real, ...r.photos.banner] : []));
             if (paths.length) setUrls(await signedDeployUrls(paths));
+        });
+        void listDeployCredentials(clientId ?? undefined).then(({ data }) => {
+            const m: Record<string, DeployCredential> = {};
+            data.forEach((c) => { if (c.deploy_request_id) m[c.deploy_request_id] = c; });
+            setCreds(m);
         });
     };
     useEffect(reload, [clientId]);
@@ -159,6 +168,42 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     </div>
                 </div>
 
+                {/* 카페 발행 정보 (대신 발행용) */}
+                <div className="mt-4 rounded-lg border border-[#e2e8f0] bg-[#fafaff] p-4">
+                    <div className="mb-0.5 text-[13px] font-bold text-[#334155]">카페 발행 정보 <span className="text-[#94a3b8]">(대신 발행용)</span></div>
+                    <p className="mb-3 mt-0 text-[12px] text-[#94a3b8]">저희가 대신 발행하기 위해 필요합니다. 네이버 비밀번호는 안전하게 보관되며 화면엔 표시되지 않습니다.</p>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div>
+                            <label className={labelCls}>네이버 아이디</label>
+                            <input className={inputCls} value={form.naver_id ?? ''} onChange={(e) => set('naver_id', e.target.value)} autoComplete="off" placeholder="test" />
+                        </div>
+                        <div>
+                            <label className={labelCls}>네이버 비밀번호 🔒</label>
+                            <input className={inputCls} type="password" value={form.naver_pw ?? ''} onChange={(e) => set('naver_pw', e.target.value)} autoComplete="new-password" placeholder="••••••" />
+                        </div>
+                        <div>
+                            <label className={labelCls}>발행 카페명</label>
+                            <input className={inputCls} value={form.cafe_name ?? ''} onChange={(e) => set('cafe_name', e.target.value)} placeholder="test" />
+                        </div>
+                        <div>
+                            <label className={labelCls}>발행 게시판</label>
+                            <input className={inputCls} value={form.board_name ?? ''} onChange={(e) => set('board_name', e.target.value)} placeholder="test" />
+                        </div>
+                        <div className="md:col-span-2">
+                            <label className={labelCls}>글쓰기 주소 (URL)</label>
+                            <input className={inputCls} value={form.write_url ?? ''} onChange={(e) => set('write_url', e.target.value)} placeholder="cafe.naver.com/ca-fe/cafes/.../articles/write?..." />
+                            <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">카페에서 '글쓰기'를 열었을 때 주소창의 URL 을 붙여넣어 주세요.</p>
+                        </div>
+                        <div className="md:col-span-2">
+                            <label className="flex cursor-pointer items-center gap-2 text-sm text-[#334155]">
+                                <input type="checkbox" checked={!!form.two_factor} onChange={(e) => set('two_factor', e.target.checked)} className="h-4 w-4 accent-[#4338ca]" />
+                                네이버 2단계(2차) 인증을 사용 중입니다
+                                <span className="text-[11px] text-[#94a3b8]">(사용 중이면 자동 로그인에 추가 확인이 필요합니다)</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
                 {/* 사진 전달 — 3종 업로드 */}
                 <div className="mt-4">
                     <label className={labelCls}>사진 전달 (업로드 시 자동 압축)</label>
@@ -207,7 +252,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <table className="w-full min-w-[980px] border-collapse text-[13px]">
                             <thead>
                                 <tr className="border-b border-[#e2e8f0] text-left text-[#64748b]">
-                                    {['작성일', '업체명', 'URL', '키워드(업종)', '미션 시작일', '일 발행', '총 발행', '사진', '비고', '상태'].map((h) => (
+                                    {['작성일', '업체명', 'URL', '키워드(업종)', '미션 시작일', '일 발행', '총 발행', '사진', '발행정보', '비고', '상태'].map((h) => (
                                         <th key={h} className="whitespace-nowrap px-2 py-2 font-semibold">{h}</th>
                                     ))}
                                 </tr>
@@ -236,6 +281,20 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                         ))}
                                                     </div>
                                                 )}
+                                            </td>
+                                            <td className="px-2 py-2 text-[12px]">
+                                                {(() => {
+                                                    const cd = creds[r.id];
+                                                    const hasCafe = r.cafe_name || r.board_name || r.write_url;
+                                                    if (!hasCafe && !cd) return <span className="text-[#94a3b8]">-</span>;
+                                                    return (
+                                                        <div className="grid gap-0.5">
+                                                            {r.cafe_name || r.board_name ? <div>{r.cafe_name ?? ''}{r.board_name ? ` · ${r.board_name}` : ''}</div> : null}
+                                                            {cd ? <div className="text-[#64748b]">네이버 {cd.naver_id ?? '-'} · <span className="font-mono tracking-tight">••••</span></div> : null}
+                                                            {r.two_factor ? <div className="text-[#b45309]">2단계 인증 사용</div> : null}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className="max-w-[140px] truncate px-2 py-2" title={r.note ?? ''}>{r.note ?? '-'}</td>
                                             <td className="whitespace-nowrap px-2 py-2">
