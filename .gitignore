@@ -62,3 +62,6 @@ public/images/_*.png
 .codex/
 # 카페 댓글 자동화 heartbeat(런타임 살아있음 신호 — 커밋 안 함)
 crawler/cafe_cmt/.hb_*
+
+# 발굴 스캔 프록시 자격증명(민감 — 절대 커밋 금지)
+crawler/cafe_pub/scan_proxy.txt

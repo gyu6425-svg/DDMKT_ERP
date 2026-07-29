@@ -13,11 +13,29 @@ UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like 
 REVIEW_RE = re.compile(r'https://s\.search\.naver\.com/p/review/\d+/search\.naver\?[^\s\"\'<>]+')
 CAFE_RE = re.compile(r'cafe\.naver\.com/[A-Za-z0-9_-]+/\d+')
 
-# 발굴 스캔 전용 IP 우회. SCAN_PROXY(예: http://ID:PW@호스트:포트, 또는 모바일 회선 프록시)를
+# 발굴 스캔 전용 IP 우회. 우선순위: 환경변수 SCAN_PROXY > 로컬 파일 scan_proxy.txt.
 #   설정하면 이 발굴 스캔만 그 IP로 나간다. 미설정=직결(기존 동작 그대로, 하위호환).
+#   형식 예: http://ID:PW@호스트:포트   (한국 주거/모바일 프록시)
 #   ⚠️ 이 프록시는 scan_common(발굴)에만 적용된다. 일일 순위 크롤(blog_rank_crawler)은
 #      고객 대시보드 정확도를 위해 절대 프록시를 타지 않는다(우리 IP 유지).
-_SP = os.environ.get('SCAN_PROXY', '').strip()
+#   ⚠️ scan_proxy.txt 는 자격증명이라 git 미추적(.gitignore). 예시는 scan_proxy.txt.example.
+def _load_scan_proxy():
+    v = os.environ.get('SCAN_PROXY', '').strip()
+    if v:
+        return v
+    try:
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scan_proxy.txt')
+        with open(p, encoding='utf-8') as f:
+            for line in f:
+                s = line.strip()
+                if s and not s.startswith('#'):
+                    return s
+    except Exception:
+        pass
+    return ''
+
+
+_SP = _load_scan_proxy()
 _PROXIES = {'http': _SP, 'https': _SP} if _SP else None
 
 

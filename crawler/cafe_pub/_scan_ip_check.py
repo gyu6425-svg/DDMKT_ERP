@@ -8,9 +8,10 @@
 import os, sys, time, json, requests
 requests.packages.urllib3.disable_warnings()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import scan_common as sc
 
-SP = os.environ.get('SCAN_PROXY', '').strip()
-PROXY = {'http': SP, 'https': SP} if SP else None
+SP = sc._SP          # 환경변수 SCAN_PROXY 또는 scan_proxy.txt 에서 로드(scan_common과 동일 소스)
+PROXY = sc._PROXIES
 # 인기탭 충실도 비교용 표본(이미 관측된 정답: 대전/창원 O, 군포 x 등과 대조하기 좋은 키워드).
 SAMPLE_KW = ['대전 회사보안', '창원 회사보안', '군포 회사보안', '강남 입주청소']
 
@@ -45,8 +46,9 @@ def main():
     print(_fmt(direct))
 
     if not PROXY:
-        print('\n※ SCAN_PROXY 미설정 → 프록시 검증 생략.')
-        print('  set SCAN_PROXY=http://ID:PW@호스트:포트  후 다시 실행하세요.')
+        print('\n※ 프록시 미설정 → 프록시 검증 생략.')
+        print('  방법1) scan_proxy.txt 에 프록시 한 줄 붙여넣기(권장, 영속)')
+        print('  방법2) set SCAN_PROXY=http://ID:PW@호스트:포트  후 다시 실행')
         return
 
     print('\n[2] 프록시(SCAN_PROXY) 정보')
