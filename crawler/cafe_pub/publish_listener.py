@@ -32,6 +32,8 @@ MIN_GAP_MIN = int(os.environ.get("CAFE_MIN_GAP_MIN", "20"))  # 발행 최소 간
 # 최대 간격 — MIN~MAX 사이에서 매번 새로 뽑아 발행 간격을 불규칙하게 만든다(같은 간격 반복은 봇 티가 남).
 #   미설정이면 MIN 과 같아 기존처럼 고정 간격으로 동작(하위호환).
 MAX_GAP_MIN = int(os.environ.get("CAFE_MAX_GAP_MIN", str(MIN_GAP_MIN)))
+# 일일 발행 상한(계정=게시판당) — 재차단 방지. 0=무제한(기본, 하위호환). 권장 계정당 2~3, 신규 1~2.
+DAILY_CAP = int(os.environ.get("CAFE_DAILY_CAP", "0"))
 _gap_min = [float(MIN_GAP_MIN)]   # 이번 회차에 적용할 간격(분) — 발행할 때마다 재추첨
 
 
@@ -79,9 +81,24 @@ def _now_iso():
     ⚠️ DB now()/UTC 를 쓰면 안 된다. 저장은 KST 벽시계값을 UTC 라벨로 넣고, 읽을 때 라벨을 버려 상쇄한다.
        청소기 cutoff 도 반드시 이 규약과 같아야 9시간 skew 가 상쇄된다."""
     return datetime.datetime.now().isoformat(timespec="seconds")
+
+
+def _published_today():
+    """오늘(KST 벽시계 0시부터) 이 게시판으로 발행 완료(done/posted)된 건수. DAILY_CAP 판정용."""
+    if DAILY_CAP <= 0:
+        return 0
+    today0 = datetime.datetime.now().strftime("%Y-%m-%dT00:00:00")   # done_at 과 같은 naive KST 규약
+    try:
+        rows = pc.sb_get("cafe_publish_queue",
+                         {"status": "in.(done,posted)", **_owned_filter(),
+                          "done_at": f"gte.{today0}", "select": "id"})
+        return len(rows)
+    except Exception:
+        return 0
 _last_pub = [0.0]
 _last_touch = [0.0]   # 크롬과 마지막 상호작용(발행/핑) 시각 — 세션 유지 판단용
 _stopped = [False]    # CAFE_STOP_AT 지나 발행 중단됨(로그 1회만)
+_capped = [False]     # CAFE_DAILY_CAP 도달로 발행 중단됨(로그 1회만)
 _EXPIRE_FLAG = os.path.join(_DATA_DIR, f".session_expired_{_CDP_PORT}")
 
 
@@ -225,6 +242,13 @@ def main():
                     time.sleep(POLL_SEC); continue      # 아직 시작 전 → 대기(세션핑만)
             except Exception:
                 pass
+        # ── 일일 발행 상한(CAFE_DAILY_CAP) — 계정 안전(재차단 방지). 도달 시 남은 건 내일로 대기. ──
+        if reqs and DAILY_CAP > 0 and _published_today() >= DAILY_CAP:
+            if not _capped[0]:
+                print(f"[{datetime.datetime.now():%H:%M:%S}] ⏸ 오늘 발행 상한({DAILY_CAP}건) 도달 — 남은 {len(reqs)}건은 내일 발행", flush=True)
+                _capped[0] = True
+            time.sleep(POLL_SEC); continue
+        _capped[0] = False
         gap_wait = (not NO_SEND) and (time.time() - _last_pub[0]) < _gap_min[0] * 60
         # 발행할 게 없거나(=유휴) 간격 대기 중이면 → 좀비/stuck 점검 + 세션 유지 핑(주기적)
         if not reqs or gap_wait:
