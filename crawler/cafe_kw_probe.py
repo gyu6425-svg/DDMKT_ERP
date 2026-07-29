@@ -172,6 +172,44 @@ def place_info(pid):
     return {"pid": pid, "name": name, "cats": cats, "keywords": list(dict.fromkeys(kws))}
 
 
+_SIDO = {"경기", "서울", "부산", "인천", "대구", "광주", "대전", "울산", "세종",
+         "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"}
+
+
+def place_address(pid):
+    """placeId → (도로명, 지번) 주소. map summary API."""
+    u = f"https://map.naver.com/p/api/place/summary/{pid}?lang=ko"
+    try:
+        r = requests.get(u, headers={"User-Agent": _PLACE_UA, "Accept-Language": "ko", "Referer": "https://map.naver.com/"}, timeout=15)
+        r.encoding = "utf-8"
+        b = r.text
+    except Exception:
+        return "", ""
+    road = (re.findall(r'"roadAddress"\s*:\s*"([^"]{6,60})"', b) or [""])[0]
+    jibun = (re.findall(r'"address"\s*:\s*"([^"]{6,60})"', b) or [""])[0]
+    return road, jibun
+
+
+def region_tokens(road, jibun):
+    """주소 → [시, 구, 동, 상권] 지역 토큰(광역시/도 제외). 예: 안산·상록구·이동·광덕."""
+    text = (road or "") + " " + (jibun or "")
+    out = []
+
+    def push(t):
+        if t and t not in out and t not in _SIDO:
+            out.append(t)
+
+    for m in re.finditer(r"([가-힣]{2,4})시(?=\s)", text):  # 안산시→안산
+        push(m.group(1))
+    for m in re.finditer(r"([가-힣]{1,3}구)(?=\s)", text):  # 상록구
+        push(m.group(1))
+    for m in re.finditer(r"([가-힣]{1,3}동)(?=\s)", text):  # 지번의 법정동: 이동
+        push(m.group(1))
+    for m in re.finditer(r"([가-힣]{2,4})\d*(?:로|길)(?=\s)", text):  # 광덕1로→광덕
+        push(m.group(1))
+    return out
+
+
 def related_keywords(seed):
     """SERP 연관검색어 → 씨앗과 결합할 수식어 후보(정제)."""
     url = f"https://m.search.naver.com/search.naver?query={quote(seed)}"
@@ -498,6 +536,23 @@ def main():
         for k in cats + info["keywords"]:
             if k and not is_brandish(k) and k not in base:
                 base.append(k)
+        # 주소 → 시/구/동/상권 × 업종 조합(안산인테리어·상록구인테리어·이동인테리어·광덕인테리어).
+        road, jibun = place_address(pid)
+        regs = region_tokens(road, jibun)
+        if road or jibun:
+            print(f"  주소: {road or jibun} → 지역토큰: {', '.join(regs) or '(없음)'}", flush=True)
+        # 업종 코어 = 업종(category) + 플레이스키워드에서 지역 벗긴 것(상위 3).
+        ups = []
+        for k in cats + info["keywords"]:
+            core = k if not is_regional(k) else strip_region(k)
+            if core and len(core) >= 2 and core not in ups and not is_brandish(core):
+                ups.append(core)
+        ups = ups[:3]
+        for reg in regs:  # 시→구→동→상권 각각 × 업종
+            for up in ups:
+                for combo in (reg + up, reg + " " + up):
+                    if combo not in base:
+                        base.append(combo)
         if niche:  # 각 업체 키워드를 니치까지 확장
             kws = []
             for s in base:
