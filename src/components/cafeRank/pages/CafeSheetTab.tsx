@@ -269,6 +269,20 @@ export function CafeSheetTab({
                                             {cafeNameLabel(a.cafe_name)}
                                         </a>
                                         <div className="text-[10px] text-[#94a3b8]">{a.cafe_name}</div>
+                                        {!readOnly ? (
+                                            <input
+                                                className={`mt-1 h-6 w-44 rounded border px-1 text-[10px] ${a.club_id ? 'border-[#e2e8f0]' : 'border-[#fca5a5] bg-[#fef2f2]'}`}
+                                                defaultValue={a.club_id || ''}
+                                                placeholder="club_id 또는 글쓰기URL (세팅)"
+                                                onClick={(e) => e.stopPropagation()}
+                                                onBlur={(e) => {
+                                                    const raw = e.target.value.trim();
+                                                    const cid = /\d/.test(raw) ? (raw.match(/cafes\/(\d+)|clubid=(\d+)|(\d{6,})/) ? raw.replace(/\D/g, '') : raw) : '';
+                                                    if (cid !== (a.club_id || '')) void saveField(a.id, { club_id: cid });
+                                                }}
+                                                title="네이버 카페 club_id (또는 글쓰기 주소 붙여넣으면 자동 추출). 자동발행에 필요."
+                                            />
+                                        ) : null}
                                     </td>
                                     <td className="px-3 py-2">
                                         {readOnly ? (

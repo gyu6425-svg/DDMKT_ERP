@@ -9,4 +9,4 @@ export const AUTH_DISABLED = false;
 // 셀프 회원가입(/signup) 기능 on/off. false = 비활성(로그인 링크·라우트·어드민 승인탭 숨김).
 //   계정은 관리자가 업체 상세 '고객 ERP 발급' 버튼으로 발급하는 방식 사용.
 //   다시 켜려면 true 로 바꿔 재배포.
-export const SIGNUP_ENABLED = false;
+export const SIGNUP_ENABLED = true;

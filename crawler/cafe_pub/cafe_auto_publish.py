@@ -497,24 +497,42 @@ def load_fixed():
 
 # ── 5) varyImage (JS canvas 로직 → PIL) ──
 def vary_image(img_bytes, seed):
+    """이미지 변형 — perceptual hash(near-dup)까지 흔들어 재발행 중복감지 회피.
+    이전엔 ±1%·단일픽셀이라 화면 99% 동일 → pHash 안 바뀜. 이제 비대칭크롭·hue회전·±5%·노이즈로
+    프레이밍/색상/구조를 실제로 이동시킨다(육안으론 자연스러운 범위)."""
     rng = random.Random(seed)
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     sw, sh = img.size
-    crop = rng.randint(0, 3)
-    ow = max(16, sw - crop * 2 + round((rng.random() - 0.5) * 6))
-    oh = max(16, sh - crop * 2 + round((rng.random() - 0.5) * 6))
-    img = img.crop((crop, crop, sw - crop, sh - crop)).resize((ow, oh))
-    img = ImageEnhance.Brightness(img).enhance(1 + (rng.random() - 0.5) * 0.02)
-    img = ImageEnhance.Contrast(img).enhance(1 + (rng.random() - 0.5) * 0.02)
-    img = ImageEnhance.Color(img).enhance(1 + (rng.random() - 0.5) * 0.02)
+    # 1) 비대칭 크롭(각 변 1.5~4%) — 프레이밍 변화가 pHash를 가장 크게 이동시킴
+    cl = int(sw * (0.015 + rng.random() * 0.025)); cr = int(sw * (0.015 + rng.random() * 0.025))
+    ct = int(sh * (0.015 + rng.random() * 0.025)); cb = int(sh * (0.015 + rng.random() * 0.025))
+    img = img.crop((cl, ct, max(cl + 16, sw - cr), max(ct + 16, sh - cb)))
+    # 2) 미세 리사이즈(±1.5%)
+    w2, h2 = img.size
+    ow = max(16, int(w2 * (1 + (rng.random() - 0.5) * 0.03)))
+    oh = max(16, int(h2 * (1 + (rng.random() - 0.5) * 0.03)))
+    img = img.resize((ow, oh))
+    # 3) 밝기/대비/채도/선명도 ±5%(선명도 ±10%)
+    img = ImageEnhance.Brightness(img).enhance(1 + (rng.random() - 0.5) * 0.10)
+    img = ImageEnhance.Contrast(img).enhance(1 + (rng.random() - 0.5) * 0.10)
+    img = ImageEnhance.Color(img).enhance(1 + (rng.random() - 0.5) * 0.10)
+    img = ImageEnhance.Sharpness(img).enhance(1 + (rng.random() - 0.5) * 0.20)
+    # 4) 색상(hue) ±5° 회전 — HSV의 H 채널만 point로(빠름)
+    dh = rng.randint(-5, 5)
+    if dh:
+        h, s, v = img.convert("HSV").split()
+        h = h.point(lambda p, d=dh: (p + d) % 256)
+        img = Image.merge("HSV", (h, s, v)).convert("RGB")
+    # 5) 가벼운 노이즈(화소의 ~1%, ±5) — 파일해시·미세질감 변화
     px = img.load()
-    for _ in range(60):
+    n = min(9000, int(ow * oh * 0.01))
+    for _ in range(n):
         x, y = rng.randint(0, ow - 1), rng.randint(0, oh - 1)
         vals = list(px[x, y]); ch = rng.randint(0, 2)
-        vals[ch] = max(0, min(255, vals[ch] + (-1 if rng.random() < 0.5 else 1)))
+        vals[ch] = max(0, min(255, vals[ch] + rng.randint(-5, 5)))
         px[x, y] = tuple(vals)
     out = io.BytesIO()
-    img.save(out, format="JPEG", quality=int((0.9 + rng.random() * 0.07) * 100))
+    img.save(out, format="JPEG", quality=rng.randint(82, 92))
     return out.getvalue()
 
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { generateCafe, generateCafeReview, generateLongform } from '../../api/cafeWriter';
 import { checkPopularBridge, nusu2Health } from '../../api/nusu2Bridge';
 import { createCustomerPublishJob, listMyCafeJobs, listMyPublishedPairs } from '../../api/cafePublishQueue';
+import { listTokens, balanceOf, consumeToken } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeAgentSetup } from './CafeAgentSetup';
@@ -153,6 +154,10 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     const [jobs, setJobs] = useState<MyJob[]>([]);
     async function loadJobs() { const { data } = await listMyCafeJobs(10); setJobs(data as MyJob[]); }
 
+    // 발행 토큰 잔액 — 발행 1건 = 1토큰. 0이면 발행 차단.
+    const [tokenBal, setTokenBal] = useState(0);
+    async function loadTokens() { if (clientId) { const { data } = await listTokens(clientId); setTokenBal(balanceOf(data)); } }
+
     // 기발행 지역(중복 제외) — 지역형이 이미 발행한 지역을 다시 안 쓰게. region 컬럼 + 옛 잡은 제목으로도 대조.
     const [usedRegions, setUsedRegions] = useState<Set<string>>(() => new Set());
     const [excludeUsed, setExcludeUsed] = useState(true);
@@ -182,6 +187,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         });
         void loadJobs();
         void loadUsed();
+        void loadTokens();
         const t = setInterval(() => { void loadJobs(); }, 15000);
         return () => { alive = false; clearInterval(t); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -244,6 +250,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
 
     async function publish() {
         if (!title.trim() || !body.trim()) { setMsg({ ok: false, text: '제목과 본문이 필요합니다.' }); return; }
+        if (tokenBal <= 0) { setMsg({ ok: false, text: '발행 토큰이 없습니다. 충전 후 이용해 주세요. (충전내역 탭)' }); return; }
         setPubBusy(true); setMsg(null);
         const manual = tags.split(',').map((s) => s.trim()).filter(Boolean);
         const tagList = [...new Set([...autoTags, ...manual])].slice(0, 10);   // 자동태그 + 수동태그(중복 제거·최대 10)
@@ -252,7 +259,8 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
         const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images, layout, tags: tagList, links, region: region.trim() || undefined, keyword: keyword.trim() || undefined });
         setPubBusy(false);
         if (error) { setMsg({ ok: false, text: (error as { message?: string }).message || '발행 등록 실패' }); return; }
-        setMsg({ ok: true, text: `발행 등록 완료 — 대기열에 담겼습니다. (#${(jobId || '').slice(0, 8)})` });
+        if (clientId) { await consumeToken(clientId, `발행: ${title.trim().slice(0, 20)}`); setTokenBal((b) => Math.max(0, b - 1)); }
+        setMsg({ ok: true, text: `발행 등록 완료 — 대기열에 담겼습니다. (#${(jobId || '').slice(0, 8)}) · 잔여 토큰 ${Math.max(0, tokenBal - 1)}건` });
         setTitle(''); setBody(''); setTags(''); setAutoTags([]); setMainBanner([]); setBanners([]); setPhotos([]); void loadJobs(); void loadUsed();
     }
 
@@ -316,11 +324,15 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     async function runPublishRegion(targetsArg?: Array<{ region: string; keyword: string }>) {
         const src = targetsArg ?? passed;
         if (!src.length) return;
+        if (tokenBal <= 0) { setRmsg('발행 토큰이 없습니다. 충전 후 이용해 주세요. (충전내역 탭)'); return; }
         setRphase('publishing');
-        const targets = src.slice(0, count);
+        const targets = src.slice(0, Math.min(count, tokenBal));   // 잔여 토큰만큼만 발행
+        if (targets.length < src.slice(0, count).length) setRmsg(`토큰 ${tokenBal}건만큼만 발행합니다(잔여 부족).`);
+        let remaining = tokenBal;
         const rows = targets.map((p) => ({ label: `${p.region} ${p.keyword}`, status: '대기' }));
         setGenRows([...rows]);
         for (let i = 0; i < targets.length; i += 1) {
+            if (remaining <= 0) { rows[i] = { ...rows[i], status: '토큰 부족' }; setGenRows([...rows]); continue; }
             rows[i] = { ...rows[i], status: '원고 생성중…' }; setGenRows([...rows]);
             try {
                 const p = targets[i];
@@ -329,6 +341,7 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
                 const links = linkUrl.trim() ? [linkUrl.trim()] : [];
                 const { images, layout } = await buildImages();   // 실사 랜덤 좌우페어/낱개(발행마다 다르게)
                 const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images, layout, tags: r.tags, links, region: p.region, keyword: p.keyword });
+                if (!error && clientId) { await consumeToken(clientId, `발행: ${p.region} ${p.keyword}`); remaining -= 1; setTokenBal(remaining); }
                 rows[i] = { ...rows[i], status: error ? '실패' : '큐 등록 완료' };
             } catch (e) { rows[i] = { ...rows[i], status: `실패: ${(e as Error).message?.slice(0, 30)}` }; }
             setGenRows([...rows]);

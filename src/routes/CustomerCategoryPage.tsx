@@ -8,6 +8,8 @@ import { CustomerPlaceRank } from './CustomerPlaceRank';
 import { CafeTrackerTab } from '../components/cafeRank/pages/CafeTrackerTab';
 import { CafeSheetTab } from '../components/cafeRank/pages/CafeSheetTab';
 import { CafeCustomerStudio } from '../components/cafe/CafeCustomerStudio';
+import { CafeDeployIntake } from '../components/cafe/CafeDeployIntake';
+import { CafeTokenHistory } from '../components/cafe/CafeTokenHistory';
 import { getCafeAccounts } from '../api/cafeAccounts';
 import { useAuth } from '../hooks/useAuth';
 
@@ -62,8 +64,23 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const { profile } = useAuth();
     const scopedClientId = previewClientId ?? (profile?.client_id ?? null);
     const [companyKey, setCompanyKey] = useState<string | null>(null);
+    const [publishEnabled, setPublishEnabled] = useState(false); // 담당자 세팅 완료(자동화 발행 탭 노출)
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState<'tracker' | 'sheet' | 'publish'>('tracker');
+    // 사이드바 '카페 배포'(?sub=카페 배포) 로 들어오면 접수 탭으로 연다.
+    const [view, setView] = useState<'tracker' | 'sheet' | 'intake' | 'publish' | 'charge'>(
+        () => (new URLSearchParams(window.location.search).get('sub') === '카페 배포' ? 'intake' : 'tracker'),
+    );
+    useEffect(() => {
+        const sync = () => {
+            if (new URLSearchParams(window.location.search).get('sub') === '카페 배포') setView('intake');
+        };
+        window.addEventListener('app:navigate', sync);
+        window.addEventListener('popstate', sync);
+        return () => {
+            window.removeEventListener('app:navigate', sync);
+            window.removeEventListener('popstate', sync);
+        };
+    }, []);
 
     useEffect(() => {
         let alive = true;
@@ -72,6 +89,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
             if (!alive) return;
             const acc = scopedClientId ? data.find((a) => a.client_id === scopedClientId) : null;
             setCompanyKey(acc?.company_key ?? null);
+            setPublishEnabled(!!acc?.publish_enabled);
             setLoading(false);
         });
         return () => { alive = false; };
@@ -84,19 +102,23 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const noCafe = (
         <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-6 py-16 text-center">
             <div className="text-base font-semibold text-[#475569]">등록된 카페 배포가 없습니다</div>
-            <p className="mx-auto mt-2 max-w-md text-sm text-[#94a3b8]">아직 연결된 카페가 없습니다. "카페 자동화 발행" 탭에서 승인 요청을 남겨 주세요.</p>
+            <p className="mx-auto mt-2 max-w-md text-sm text-[#94a3b8]">아직 연결된 카페가 없습니다. "카페 배포" 탭에서 접수를 남겨 주세요.</p>
         </div>
     );
+    // 자동화 발행 탭은 담당자 세팅(publish_enabled=true) 후에만 노출.
+    const tabs: [string, string][] = [['tracker', '순위 트래커'], ['sheet', '카페 관리 시트'], ['intake', '카페 배포']];
+    if (publishEnabled) tabs.push(['publish', '카페 자동화 발행']);
+    tabs.push(['charge', '충전내역']);
     return (
         <>
             <div className="flex gap-1 border-b border-[#e2e8f0]">
-                {([['tracker', '순위 트래커'], ['sheet', '카페 관리 시트'], ['publish', '카페 자동화 발행']] as const).map(([k, name]) => (
+                {tabs.map(([k, name]) => (
                     <button
                         className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${
                             view === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
                         }`}
                         key={k}
-                        onClick={() => setView(k)}
+                        onClick={() => setView(k as typeof view)}
                         type="button"
                     >
                         {name}
@@ -107,7 +129,11 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
                 ? (companyKey ? <CafeTrackerTab lockCompany={companyKey} /> : noCafe)
                 : view === 'sheet'
                     ? (companyKey ? <CafeSheetTab scopeCompanyKey={companyKey} readOnly /> : noCafe)
-                    : <CafeCustomerStudio clientId={scopedClientId} />}
+                    : view === 'publish'
+                        ? <CafeCustomerStudio clientId={scopedClientId} />
+                        : view === 'charge'
+                            ? <CafeTokenHistory clientId={scopedClientId} />
+                            : <CafeDeployIntake clientId={scopedClientId} />}
         </>
     );
 }

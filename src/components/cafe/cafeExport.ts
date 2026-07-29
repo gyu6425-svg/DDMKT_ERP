@@ -30,33 +30,43 @@ export async function varyImage(dataUrl: string, seed: number): Promise<string> 
     const r = rng(seed);
     const sw = img.naturalWidth || img.width;
     const sh = img.naturalHeight || img.height;
-    const crop = Math.floor(r() * 4);
-    const outW = Math.max(16, sw - crop * 2 + Math.round((r() - 0.5) * 6));
-    const outH = Math.max(16, sh - crop * 2 + Math.round((r() - 0.5) * 6));
+    // 비대칭 크롭(각 변 1.5~4%) — 프레이밍 이동이 perceptual hash(near-dup)를 가장 크게 흔든다.
+    const cl = Math.floor(sw * (0.015 + r() * 0.025));
+    const cr = Math.floor(sw * (0.015 + r() * 0.025));
+    const ct = Math.floor(sh * (0.015 + r() * 0.025));
+    const cb = Math.floor(sh * (0.015 + r() * 0.025));
+    const cw = Math.max(16, sw - cl - cr);
+    const chp = Math.max(16, sh - ct - cb);
+    const outW = Math.max(16, Math.round(cw * (1 + (r() - 0.5) * 0.03)));
+    const outH = Math.max(16, Math.round(chp * (1 + (r() - 0.5) * 0.03)));
     const c = document.createElement('canvas');
     c.width = outW;
     c.height = outH;
     const ctx = c.getContext('2d');
     if (!ctx) return dataUrl;
-    const b = (100 + (r() - 0.5) * 2).toFixed(2);
-    const ctr = (100 + (r() - 0.5) * 2).toFixed(2);
-    const sat = (100 + (r() - 0.5) * 2).toFixed(2);
+    // 밝기/대비/채도 ±5% + 색상(hue) ±5° — 색·톤을 실제로 이동(±1%는 pHash 안 바뀜).
+    const b = (100 + (r() - 0.5) * 10).toFixed(2);
+    const ctr = (100 + (r() - 0.5) * 10).toFixed(2);
+    const sat = (100 + (r() - 0.5) * 10).toFixed(2);
+    const hue = Math.round((r() - 0.5) * 10);
     try {
-        ctx.filter = `brightness(${b}%) contrast(${ctr}%) saturate(${sat}%)`;
+        ctx.filter = `brightness(${b}%) contrast(${ctr}%) saturate(${sat}%) hue-rotate(${hue}deg)`;
     } catch {
         /* filter 미지원 브라우저면 무시 */
     }
-    ctx.drawImage(img, crop, crop, sw - crop * 2, sh - crop * 2, 0, 0, outW, outH);
+    ctx.drawImage(img, cl, ct, cw, chp, 0, 0, outW, outH);
     ctx.filter = 'none';
-    for (let k = 0; k < 60; k += 1) {
+    // 가벼운 노이즈(화소의 ~1%, ±5) — 미세질감·파일해시 변화.
+    const noise = Math.min(9000, Math.floor(outW * outH * 0.01));
+    for (let k = 0; k < noise; k += 1) {
         const x = Math.floor(r() * outW);
         const y = Math.floor(r() * outH);
         const px = ctx.getImageData(x, y, 1, 1);
         const ch = Math.floor(r() * 3);
-        px.data[ch] = Math.max(0, Math.min(255, px.data[ch] + (r() < 0.5 ? -1 : 1)));
+        px.data[ch] = Math.max(0, Math.min(255, px.data[ch] + Math.round((r() - 0.5) * 10)));
         ctx.putImageData(px, x, y);
     }
-    return c.toDataURL('image/jpeg', 0.9 + r() * 0.07);
+    return c.toDataURL('image/jpeg', 0.82 + r() * 0.10);
 }
 
 function dataUrlToU8(dataUrl: string): Uint8Array {
