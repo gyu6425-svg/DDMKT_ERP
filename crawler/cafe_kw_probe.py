@@ -54,6 +54,112 @@ def autocomplete(seed):
     return [k for k in out if not (k in seen or seen.add(k))]
 
 
+# ── 지역형 배제 + 니치 소싱(제목 마이닝 · 연관검색어) ─────────────────────────
+# 지역 신호: 행정구역 접미(시/군/구/동/읍/면/리/도) 토큰 + 주요 도시·상권명.
+_REGION_SUFFIX = re.compile(r"[가-힣]{1,4}(시|군|구|동|읍|면|리|도)\b")
+_REGION_WORDS = set(
+    "서울 부산 대구 인천 광주 대전 울산 세종 수원 성남 용인 고양 부천 안산 안양 남양주 화성 평택 "
+    "의정부 파주 김포 광명 군포 하남 오산 이천 안성 포천 여주 양평 시흥 김해 창원 진주 양산 거제 "
+    "천안 아산 청주 충주 전주 군산 익산 목포 여수 순천 포항 경주 구미 안동 강릉 원주 춘천 속초 제주 "
+    "홍대 강남 이태원 성수 명동 신촌 건대 잠실 압구정 가로수길 연남 망원 을지로 종로 여의도 판교".split()
+)
+# 니치가 아닌 잡토큰(제목/연관에서 걸러낼 것) — 형용사·일반명사·메타.
+_STOP = set(
+    "추천 후기 모음 사랑 종류 서열 가격 순위 브랜드 명품 관련 개요 역사 취미 효과 용도 더보기 방법 "
+    "좋은 좋아하는 고르는 최고 인기 요즘 올해 신상 문서 정보 검색 blog zip best top".split()
+)
+
+
+def is_regional(kw):
+    if _REGION_SUFFIX.search(kw):
+        return True
+    return any(w in kw for w in _REGION_WORDS)
+
+
+def related_keywords(seed):
+    """SERP 연관검색어 → 씨앗과 결합할 수식어 후보(정제)."""
+    url = f"https://m.search.naver.com/search.naver?query={quote(seed)}"
+    try:
+        _code, html = c._fetch_html(url)
+    except Exception:
+        return []
+    rel = re.findall(r'"(?:keyword|relateKeyword|text)"\s*:\s*"([^"]{2,12})"', html)
+    out = []
+    for w in rel:
+        w = w.strip()
+        if not re.fullmatch(r"[가-힣]{2,8}", w):  # 한글 전용(영문 파편 min·channels 배제)
+            continue
+        if w == seed or w in _STOP or is_regional(w):
+            continue
+        out.append(w)
+    seen = set()
+    return [w for w in out if not (w in seen or seen.add(w))]
+
+
+def mine_niches(seed):
+    """씨앗의 '인기글' 제목에서 (수식어+씨앗) 형태의 니치를 캐낸다(예: 향수→고체향수·중동향수)."""
+    url = f"https://m.search.naver.com/search.naver?query={quote(seed)}"
+    try:
+        _code, html = c._fetch_html(url)
+    except Exception:
+        return []
+    titles = []
+    for b in c.extract_bootstrap_json(html):
+        try:
+            j = json.loads(b)
+        except Exception:
+            continue
+        if not c._is_popular_section(j):
+            continue
+
+        def w(o):
+            if isinstance(o, dict):
+                t = o.get("title") or o.get("subject")
+                if isinstance(t, str) and t.strip():
+                    titles.append(re.sub(r"</?mark>|&quot;", "", t).strip())
+                for k, v in o.items():
+                    if k in c._PRIMARY_EXCLUDE_KEYS:
+                        continue
+                    w(v)
+            elif isinstance(o, list):
+                for x in o:
+                    w(x)
+
+        w(j)
+    cands = []
+    for t in titles:
+        for m in re.finditer(rf"([가-힣]{{2,6}})\s?{seed}", t):  # 수식어+씨앗(한글 전용)
+            mod = m.group(1)
+            if not mod or mod == seed or mod in _STOP or is_regional(mod):
+                continue
+            if mod.endswith(("맘", "님", "네", "씨", "러", "족", "일상")):  # 작성자 닉네임 파편 배제
+                continue
+            cands.append((mod + seed).replace(" ", ""))
+    seen = set()
+    return [k for k in cands if not (k in seen or seen.add(k))]
+
+
+def niche_candidates(seed, limit=18):
+    """씨앗 → 지역형 배제한 상품/유형 니치 후보(제목마이닝 + 연관검색어 결합 + 접두 자동완성)."""
+    out = []
+    seen = set()
+
+    def add(k):
+        if k and k not in seen and not is_regional(k):
+            seen.add(k)
+            out.append(k)
+
+    add(seed)
+    for k in mine_niches(seed):  # 향수→고체향수·중동향수… (핵심 소스)
+        add(k)
+    for w in related_keywords(seed):  # 샤넬·조말론… → 샤넬향수
+        add(w + seed)
+        add(seed + w)
+    for k in autocomplete(seed):  # 접두 복합어(향수쇼핑몰 등)
+        add(k)
+    return out[:limit]
+
+
 def expand(seeds, depth):
     """씨앗들을 depth 단계까지 자동완성으로 확장. depth=0 이면 씨앗 그대로."""
     result = []
@@ -258,13 +364,27 @@ def main():
             mx = int(args[args.index("--max") + 1])
         except Exception:
             mx = 40
+    niche = "--niche" in args
     seeds = [a for i, a in enumerate(args) if not a.startswith("--") and args[i - 1] not in ("--depth", "--max")]
     if not seeds:
-        print("사용법: python cafe_kw_probe.py <씨앗키워드...> [--depth N] [--no-expand] [--max N] | --self-test")
+        print("사용법: python cafe_kw_probe.py <씨앗키워드...> [--niche] [--depth N] [--no-expand] [--max N] | --self-test")
         return
-    kws = seeds if no_expand else expand(seeds, depth)
-    kws = kws[:mx]
-    print(f"=== 인기탭 스캔 · 씨앗 {seeds} → 대상 {len(kws)}키워드{' (확장없음)' if no_expand else f' (자동완성 depth {depth})'} ===", flush=True)
+    if niche:  # 지역형 배제 + 상품/유형 니치(향수→고체향수 방식)
+        kws = []
+        seen = set()
+        for s in seeds:
+            for k in niche_candidates(s, mx):
+                if k not in seen:
+                    seen.add(k)
+                    kws.append(k)
+        mode = " (니치 · 지역형 배제)"
+    elif no_expand:
+        kws = seeds[:mx]
+        mode = " (확장없음)"
+    else:
+        kws = expand(seeds, depth)[:mx]
+        mode = f" (자동완성 depth {depth})"
+    print(f"=== 인기탭 스캔 · 씨앗 {seeds} → 대상 {len(kws)}키워드{mode} ===", flush=True)
     results = scan(kws)
     farm = [r for r in results if r.get("has_section") and r.get("verdict", "").startswith("카페분산")]
     blogonly = [r for r in results if r.get("verdict", "").startswith("블로그섹션")]
