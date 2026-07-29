@@ -8,8 +8,7 @@ import {
 
 // 카페 배포 '접수' — 고객이 로그인 후 직접 접수 폼 작성 → 제출 → 하단 '내 접수 목록'.
 //   금액/정산은 접수에 없음(입금·세팅 후 계약관리에서 별도). 미션 종료일도 없음(건수 계약).
-const PHOTO_OPTS = ['제공', '미제공', '일부 제공'];
-const PRODUCT_OPTS = ['카페 배포', '맘카페', '기타'];
+const PHOTO_TYPES = ['메인배너', '실사사진', '배너']; // 사진 전달 세부(복수 선택)
 const STATUS_STYLE: Record<string, string> = {
     접수: 'bg-[#dbeafe] text-[#1e40af]',
     세팅중: 'bg-[#fef9c3] text-[#854d0e]',
@@ -18,7 +17,7 @@ const STATUS_STYLE: Record<string, string> = {
 
 const empty: CafeDeployInput = {
     company_name: '', url: '', keyword: '', mission_start: '',
-    daily_count: null, total_count: null, photo_provided: '', product_type: '', note: '',
+    daily_count: null, total_count: null, photo_provided: '', product_type: '카페', note: '',
 };
 
 export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
@@ -34,6 +33,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
 
     const set = <K extends keyof CafeDeployInput>(k: K, v: CafeDeployInput[K]) =>
         setForm((f) => ({ ...f, [k]: v }));
+
+    // 사진 전달 = 복수 선택(콤마 조인 저장)
+    const photoSel = (form.photo_provided || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const togglePhoto = (t: string) => {
+        const cur = new Set(photoSel);
+        if (cur.has(t)) cur.delete(t); else cur.add(t);
+        set('photo_provided', Array.from(cur).join(', '));
+    };
 
     const submit = async () => {
         if (!clientId) return setMsg('고객 계정이 연결되어 있지 않습니다. 담당자에게 문의하세요.');
@@ -64,7 +71,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     </div>
                     <div className="md:col-span-2">
                         <label className={labelCls}>플레이스 URL 또는 홈페이지</label>
-                        <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder="test" />
+                        <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder="www.cafe.naver.com/..." />
                     </div>
                     <div>
                         <label className={labelCls}>키워드 (업종)</label>
@@ -76,25 +83,26 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     </div>
                     <div>
                         <label className={labelCls}>일 발행건수</label>
-                        <input className={inputCls} type="number" min={0} value={form.daily_count ?? ''} onChange={(e) => set('daily_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="test" />
+                        <input className={inputCls} type="number" min={0} value={form.daily_count ?? ''} onChange={(e) => set('daily_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="0건" />
                     </div>
                     <div>
                         <label className={labelCls}>총 발행건수</label>
-                        <input className={inputCls} type="number" min={0} value={form.total_count ?? ''} onChange={(e) => set('total_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="test" />
+                        <input className={inputCls} type="number" min={0} value={form.total_count ?? ''} onChange={(e) => set('total_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="0건" />
                     </div>
                     <div>
                         <label className={labelCls}>사진 전달</label>
-                        <select className={inputCls} value={form.photo_provided} onChange={(e) => set('photo_provided', e.target.value)}>
-                            <option value="">선택</option>
-                            {PHOTO_OPTS.map((o) => <option key={o} value={o}>{o}</option>)}
-                        </select>
+                        <div className="flex flex-wrap items-center gap-3 pt-1.5">
+                            {PHOTO_TYPES.map((t) => (
+                                <label key={t} className="flex cursor-pointer items-center gap-1.5 text-sm text-[#334155]">
+                                    <input type="checkbox" checked={photoSel.includes(t)} onChange={() => togglePhoto(t)} className="h-4 w-4 accent-[#4338ca]" />
+                                    {t}
+                                </label>
+                            ))}
+                        </div>
                     </div>
                     <div>
                         <label className={labelCls}>상품종류</label>
-                        <select className={inputCls} value={form.product_type} onChange={(e) => set('product_type', e.target.value)}>
-                            <option value="">선택</option>
-                            {PRODUCT_OPTS.map((o) => <option key={o} value={o}>{o}</option>)}
-                        </select>
+                        <input className={`${inputCls} bg-[#f8fafc] text-[#64748b]`} value="카페" readOnly disabled />
                     </div>
                     <div className="md:col-span-2">
                         <label className={labelCls}>비고</label>
