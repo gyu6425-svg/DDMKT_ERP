@@ -62,7 +62,13 @@ _REGION_WORDS = set(
     "서울 부산 대구 인천 광주 대전 울산 세종 수원 성남 용인 고양 부천 안산 안양 남양주 화성 평택 "
     "의정부 파주 김포 광명 군포 하남 오산 이천 안성 포천 여주 양평 시흥 김해 창원 진주 양산 거제 "
     "천안 아산 청주 충주 전주 군산 익산 목포 여수 순천 포항 경주 구미 안동 강릉 원주 춘천 속초 제주 "
-    "홍대 강남 이태원 성수 명동 신촌 건대 잠실 압구정 가로수길 연남 망원 을지로 종로 여의도 판교".split()
+    "홍대 강남 이태원 성수 명동 신촌 건대 잠실 압구정 가로수길 연남 망원 을지로 종로 여의도 판교 "
+    # 해변·관광·먹거리 지역(자동완성 지역형 누수 방지)
+    "해운대 광안리 을왕리 오이도 영종도 대천 무창포 소래 소래포구 정동진 경포 협재 함덕 월정 서귀포 "
+    "애월 강화 대부도 남해 통영 사천 삼천포 완도 보성 담양 곡성 남원 정읍 부안 고창 서산 태안 당진 "
+    "예산 홍성 보령 단양 제천 영월 정선 태백 삼척 동해 양양 고성 인제 홍천 횡성 평창 가평 양주 동두천 "
+    "구리 시흥 안양 의왕 과천 광양 나주 무안 영광 장흥 강진 해남 순창 임실 진안 함양 거창 합천 의령 "
+    "함안 창녕 밀양 청도 영천 상주 문경 예천 영주 봉화 울진 영덕 청송 성주 칠곡 엑스포".split()
 )
 # 니치가 아닌 잡토큰(제목/연관에서 걸러낼 것) — 형용사·일반명사·메타.
 _STOP = set(
@@ -149,7 +155,10 @@ def related_keywords(seed):
         _code, html = c._fetch_html(url)
     except Exception:
         return []
-    rel = re.findall(r'"(?:keyword|relateKeyword|text)"\s*:\s*"([^"]{2,12})"', html)
+    # relateKeyword/relatedKeyword 전용(예전 'text' 필드는 카페명·닉네임까지 잡아 노이즈 → 제외).
+    rel = re.findall(r'"relate[dD]?[kK]eyword[^"]*"\s*:\s*"([^"]{2,12})"', html)
+    rel += re.findall(r'"relationKeywords?"\s*:\s*\[([^\]]{2,300})\]', html)
+    rel = [w for chunk in rel for w in re.findall(r'[가-힣]{2,8}', chunk)]
     out = []
     for w in rel:
         w = w.strip()
@@ -205,25 +214,37 @@ def mine_niches(seed):
     return [k for k in cands if not (k in seen or seen.add(k))]
 
 
-def niche_candidates(seed, limit=18):
-    """씨앗 → 지역형 배제한 상품/유형 니치 후보(제목마이닝 + 연관검색어 결합 + 접두 자동완성)."""
+_NICK_SUFFIX = ("맘", "님", "네", "씨", "러", "족", "일상", "이네", "food", "tv")
+
+
+def _nickish(seed, k):
+    """씨앗을 뺀 수식어가 작성자/식당 닉네임 파편처럼 보이면 True(=제외)."""
+    mod = k.replace(seed, "").strip()
+    return bool(mod) and mod.endswith(_NICK_SUFFIX)
+
+
+def niche_candidates(seed, limit=18, mine=False):
+    """씨앗 → 지역형·브랜드·닉네임 배제한 유형 니치 후보.
+    기본 소스 = 자동완성(접두 복합어) + 연관검색어(수식어 결합). 깨끗함.
+    mine=True 면 인기글 제목 마이닝도 추가(향수→남자향수처럼 접미형까지 잡지만 식당명 노이즈 섞임)."""
     out = []
     seen = set()
 
     def add(k):
-        # 씨앗은 무조건 포함. 그 외엔 지역형·브랜드/고유명 배제.
-        if k and k not in seen and not is_regional(k) and (k == seed or not is_brandish(k)):
+        # 씨앗은 무조건 포함. 그 외엔 지역형·브랜드/고유명·닉네임 파편 배제.
+        if k and k not in seen and (k == seed or (not is_regional(k) and not is_brandish(k) and not _nickish(seed, k))):
             seen.add(k)
             out.append(k)
 
     add(seed)
-    for k in mine_niches(seed):  # 향수→고체향수·중동향수… (핵심 소스)
+    for k in autocomplete(seed):  # 실검 복합어(차돌삼합·조개구이 무한리필 등) — 깨끗
         add(k)
-    for w in related_keywords(seed):  # 샤넬·조말론… → 샤넬향수
+    for w in related_keywords(seed):  # 연관 수식어 결합
         add(w + seed)
         add(seed + w)
-    for k in autocomplete(seed):  # 접두 복합어(향수쇼핑몰 등)
-        add(k)
+    if mine:
+        for k in mine_niches(seed):  # 제목 마이닝(노이즈 가능) — 옵션
+            add(k)
     return out[:limit]
 
 
@@ -433,6 +454,7 @@ def main():
             mx = 40
     niche = "--niche" in args
     place = "--place" in args
+    mine = "--mine" in args  # 제목 마이닝 추가(노이즈 감수·접미형 니치)
     seeds = [a for i, a in enumerate(args) if not a.startswith("--") and args[i - 1] not in ("--depth", "--max")]
     if not seeds:
         print("사용법: python cafe_kw_probe.py <씨앗|플레이스URL> [--place] [--niche] [--depth N] [--max N] | --self-test")
@@ -450,7 +472,7 @@ def main():
         if niche:  # 각 업체 키워드를 니치까지 확장
             kws = []
             for s in base:
-                for k in niche_candidates(s, 6):
+                for k in niche_candidates(s, 6, mine):
                     if k not in kws:
                         kws.append(k)
         else:
@@ -470,7 +492,7 @@ def main():
         kws = []
         seen = set()
         for s in seeds:
-            for k in niche_candidates(s, mx):
+            for k in niche_candidates(s, mx, mine):
                 if k not in seen:
                     seen.add(k)
                     kws.append(k)
