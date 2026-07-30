@@ -145,6 +145,12 @@ export async function listDeployCredentials(clientId?: string) {
     return { data: (data ?? []) as DeployCredential[], error };
 }
 
+// 내부: 접수 상태 변경(접수 → 세팅중 → 완료).
+export async function setCafeDeployStatus(id: string, status: string) {
+    const { error } = await supabase.from('cafe_deploy_requests').update({ status }).eq('id', id);
+    return { error };
+}
+
 // 접수 목록 — clientId 주면 그 업체로 필터(내부 미리보기용). 고객 본인은 RLS 로 자동 스코프.
 export async function listCafeDeployRequests(clientId?: string, limit = 20) {
     let q = supabase.from('cafe_deploy_requests').select('*')

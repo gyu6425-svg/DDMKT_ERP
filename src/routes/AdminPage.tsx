@@ -3,6 +3,7 @@ import ApiUsagePanel from '../components/ApiUsagePanel'
 import AdminUsersPanel from '../components/AdminUsersPanel'
 import PendingSignupsPanel from '../components/PendingSignupsPanel'
 import TokenChargePanel from '../components/TokenChargePanel'
+import CafeDeployAdminPanel from '../components/CafeDeployAdminPanel'
 import { useAuth } from '../hooks/useAuth'
 import { canManagePermissions } from '../lib/permissions'
 import { SIGNUP_ENABLED } from '../lib/authConfig'
@@ -10,7 +11,7 @@ import { SIGNUP_ENABLED } from '../lib/authConfig'
 function AdminPage() {
     const { isAdmin, profile } = useAuth()
     const canUsers = canManagePermissions(profile?.email) // 사원 관리 = 김종인(대표)만
-    const [tab, setTab] = useState<'users' | 'signups' | 'api' | 'cafe' | 'tokens'>(canUsers ? 'users' : 'api')
+    const [tab, setTab] = useState<'users' | 'signups' | 'api' | 'cafe' | 'tokens' | 'deploy'>(canUsers ? 'users' : 'api')
 
     if (!isAdmin) {
         return (
@@ -32,7 +33,9 @@ function AdminPage() {
                 ? 'cafe'
                 : tab === 'tokens'
                   ? 'tokens'
-                  : 'api'
+                  : tab === 'deploy'
+                    ? 'deploy'
+                    : 'api'
 
     return (
         <section className="min-h-[320px] rounded-[8px] border border-[#e5e7eb] bg-white p-8">
@@ -97,6 +100,17 @@ function AdminPage() {
                 >
                     토큰 충전
                 </button>
+                <button
+                    className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
+                        active === 'deploy'
+                            ? 'border-[#1e40af] text-[#1e40af]'
+                            : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
+                    }`}
+                    onClick={() => setTab('deploy')}
+                    type="button"
+                >
+                    카페 접수
+                </button>
             </div>
 
             {active === 'users' ? (
@@ -107,6 +121,8 @@ function AdminPage() {
                 <ApiUsagePanel scope="cafe" />
             ) : active === 'tokens' ? (
                 <TokenChargePanel />
+            ) : active === 'deploy' ? (
+                <CafeDeployAdminPanel />
             ) : (
                 <ApiUsagePanel />
             )}
