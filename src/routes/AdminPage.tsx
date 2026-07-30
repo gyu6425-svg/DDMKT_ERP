@@ -5,7 +5,7 @@ import PendingSignupsPanel from '../components/PendingSignupsPanel'
 import TokenChargePanel from '../components/TokenChargePanel'
 import CafeDeployAdminPanel from '../components/CafeDeployAdminPanel'
 import { useAuth } from '../hooks/useAuth'
-import { canManagePermissions } from '../lib/permissions'
+import { canManagePermissions, canSeeAdminPage } from '../lib/permissions'
 import { SIGNUP_ENABLED } from '../lib/authConfig'
 
 function AdminPage() {
@@ -13,7 +13,7 @@ function AdminPage() {
     const canUsers = canManagePermissions(profile?.email) // 사원 관리 = 김종인(대표)만
     const [tab, setTab] = useState<'users' | 'signups' | 'api' | 'cafe' | 'tokens' | 'deploy'>(canUsers ? 'users' : 'api')
 
-    if (!isAdmin) {
+    if (!isAdmin && !canSeeAdminPage(profile?.email)) {
         return (
             <section className="min-h-[320px] rounded-[8px] border border-[#e5e7eb] bg-white p-12">
                 <h2 className="m-0 text-[24px] font-semibold text-[#111111]">접근 권한이 없습니다</h2>
