@@ -5,8 +5,8 @@ import { supabase } from '../lib/supabase';
 export type KwCafe = { rank: number; who: string; kind?: string; title?: string; article?: string };
 export type KwResult = { keyword: string; volume?: number; theme?: string; cafes: KwCafe[] };
 
-// 큐 등록. target=3~5 권장, regions 기본 수도권. status는 반드시 'queued'(워커가 집는 값).
-export async function enqueuePlaceScan(placeUrl: string, target = 3, regions = '서울,경기,인천') {
+// 큐 등록. target=워커가 인기글 진입 키워드를 몇 개 찾을 때까지 스캔할지(찾으면 멈춤). regions 기본 수도권. status는 반드시 'queued'(워커가 집는 값).
+export async function enqueuePlaceScan(placeUrl: string, target = 10, regions = '서울,경기,인천') {
     const { data: u } = await supabase.auth.getUser();
     const uid = u.user?.id ?? null;
     const { data, error } = await supabase.from('cafe_kw_requests')

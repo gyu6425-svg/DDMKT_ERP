@@ -120,7 +120,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
         setKwErr(''); setKwResult(null); setKwLoading(true);
         try {
-            const { id, error } = await enqueuePlaceScan(u, 3, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
+            // target=10 — 워커가 인기글 진입 키워드를 10개 찾을 때까지 스캔(3이면 3개에서 멈춤). 그만큼 시간은 더 걸린다.
+            const { id, error } = await enqueuePlaceScan(u, 10, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
             if (error || !id) throw new Error(error?.message || '요청 실패');
             const { result } = await pollPlaceScan(id);
             setKwResult(result);
