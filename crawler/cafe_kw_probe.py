@@ -390,26 +390,27 @@ def menu_keywords(name, road, jibun, menus, need, exclude, cats=()):
             out.append(k)
         return len(out) >= need
 
+    # 코어(메뉴/시술)별로 지역을 돌린다 — 동네(동·도로명)까지 골고루 포함되게(예: 전북/군산/선유도 키조개).
     if food:
-        for r in regions:                           # 1) 지역 × 코어 × 맛집
-            for cc in cores:
+        for cc in cores:                            # 1) 코어 × 지역 × 맛집
+            for r in regions:
                 if push(f"{r} {cc} 맛집"):
                     return out
-        for r in regions:                           # 2) 지역 × 코어
-            for cc in cores:
+        for cc in cores:                            # 2) 코어 × 지역
+            for r in regions:
                 if push(f"{r} {cc}"):
                     return out
         for cc in cores:                            # 3) 코어 × 접미
-            for s in ("맛집", "추천", "후기"):
+            for s in ("추천", "후기"):
                 if push(f"{cc} {s}"):
                     return out
     else:
-        for r in regions:                           # 1) 지역 × 시술(인천 내성손톱교정 — 사용자 예시)
-            for cc in cores:
+        for cc in cores:                            # 1) 시술 × 지역(인천/연수구/송도동 내성손톱교정)
+            for r in regions:
                 if push(f"{r} {cc}"):
                     return out
-        for r in regions:                           # 2) 지역 × 시술 × 접미
-            for cc in cores:
+        for cc in cores:                            # 2) 시술 × 지역 × 접미
+            for r in regions:
                 for s in ("추천", "후기", "잘하는곳"):
                     if push(f"{r} {cc} {s}"):
                         return out
