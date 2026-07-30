@@ -251,12 +251,21 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         })}
                     </div>
                     <div className="mt-3 rounded-lg bg-white/70 p-3 text-[13px]">
-                        <div className="font-semibold text-[#9a3412]">입금 계좌</div>
-                        <div className="mt-0.5 text-[#334155]">
+                        <div className="flex items-center gap-1.5">
+                            <span className="rounded bg-[#c2410c] px-1.5 py-0.5 text-[10px] font-bold text-white">계좌이체</span>
+                            <span className="font-semibold text-[#9a3412]">입금 계좌</span>
+                        </div>
+                        <div className="mt-1 text-[#334155]">
                             <b>{PAYMENT_INFO.bank} {PAYMENT_INFO.account}</b> <span className="text-[#64748b]">(예금주 {PAYMENT_INFO.holder})</span>
                         </div>
-                        <div className="mt-0.5 text-[12px] text-[#64748b]">결제 방법: {PAYMENT_INFO.method} · {PAYMENT_INFO.note}</div>
-                        <div className="mt-1 text-[12px] text-[#9a3412]">입금 후 <b>‘충전 내역’ 탭</b>에서 충전 요청을 눌러주시면 담당자가 확인하고 발행 토큰을 지급합니다.</div>
+                        <div className="mt-0.5 text-[12px] text-[#64748b]">{PAYMENT_INFO.note}</div>
+                        {PAYMENT_INFO.cardAvailable ? (
+                            <div className="mt-1.5 flex items-center gap-1.5 border-t border-[#fed7aa] pt-1.5">
+                                <span className="rounded bg-[#e2e8f0] px-1.5 py-0.5 text-[10px] font-bold text-[#475569]">카드결제</span>
+                                <span className="text-[12px] text-[#64748b]">{PAYMENT_INFO.cardNote}</span>
+                            </div>
+                        ) : null}
+                        <div className="mt-1.5 text-[12px] text-[#9a3412]">입금(또는 카드결제) 후 <b>‘충전 내역’ 탭</b>에서 충전 요청을 눌러주시면 담당자가 확인하고 발행 토큰을 지급합니다.</div>
                     </div>
                 </div>
             ) : null}

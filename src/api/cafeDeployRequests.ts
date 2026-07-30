@@ -13,7 +13,9 @@ export const PAYMENT_INFO = {
     bank: '국민은행',
     account: '592201-01-700434',
     holder: '김종인 (든든한마케팅)',
-    method: '계좌이체(무통장 입금)',
+    method: '계좌이체(무통장 입금)',           // 현재 기본 결제수단
+    cardAvailable: true,                         // 카드결제도 가능(담당자 문의)
+    cardNote: '카드결제를 원하시면 담당자에게 문의해 주세요.',
     note: '입금자명을 업체명으로 남겨주세요. 입금 확인 후 발행이 시작됩니다.',
 };
 

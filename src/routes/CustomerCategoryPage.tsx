@@ -11,6 +11,7 @@ import { CafeCustomerStudio } from '../components/cafe/CafeCustomerStudio';
 import { CafeDeployIntake } from '../components/cafe/CafeDeployIntake';
 import { CafeTokenHistory } from '../components/cafe/CafeTokenHistory';
 import { getCafeAccounts } from '../api/cafeAccounts';
+import { listCafeDeployRequests } from '../api/cafeDeployRequests';
 import { useAuth } from '../hooks/useAuth';
 
 export function useAsParam(): string {
@@ -66,6 +67,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const [companyKeys, setCompanyKeys] = useState<string[]>([]); // 트래커용 — 이 고객의 모든 카페(마이클+자체)
     const [sheetKeys, setSheetKeys] = useState<string[]>([]);     // 관리시트용 — 자체 카페만(마이클 ddmkt2 제외)
     const [publishEnabled, setPublishEnabled] = useState(false); // 담당자 세팅 완료(자동화 발행 탭 노출)
+    const [payDue, setPayDue] = useState(0); // 결제대기(승인된 접수) 건수 — 충전내역 탭 알림 뱃지
     const [loading, setLoading] = useState(true);
     // 사이드바 '카페 배포'(?sub=카페 배포) 로 들어오면 접수 탭으로 연다.
     const [view, setView] = useState<'tracker' | 'sheet' | 'intake' | 'publish' | 'charge'>(
@@ -99,6 +101,17 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
         return () => { alive = false; };
     }, [scopedClientId]);
 
+    // 결제대기(승인된 접수) 건수 → 충전내역 탭 알림 뱃지
+    useEffect(() => {
+        let alive = true;
+        if (!scopedClientId) { setPayDue(0); return; }
+        void listCafeDeployRequests(scopedClientId).then(({ data }) => {
+            if (!alive) return;
+            setPayDue(data.filter((r) => r.status === '결제대기').length);
+        });
+        return () => { alive = false; };
+    }, [scopedClientId, view]);
+
     if (loading) {
         return <div className="rounded-xl border border-[#e2e8f0] bg-white px-6 py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
     }
@@ -126,6 +139,9 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
                         type="button"
                     >
                         {name}
+                        {k === 'charge' && payDue > 0 ? (
+                            <span className="ml-1.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ef4444] px-1 text-[10px] font-bold leading-none text-white">{payDue}</span>
+                        ) : null}
                     </button>
                 ))}
             </div>
