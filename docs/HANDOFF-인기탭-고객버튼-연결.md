@@ -5,6 +5,27 @@
 
 ---
 
+## 0. ★ 정정 — 인기탭 조회 IP는 "우리 IP"입니다 (폰 테더링 아님)
+
+코드에 **오래된 주석**이 남아 혼동을 줍니다. 아래 두 곳은 **틀렸으니 고쳐 주세요**(sub4가 예전 모바일테더링이던 시절 잔재):
+
+- `CafeDeployIntake.tsx`: `// 워커(폰 IP) → 진짜 인기탭 결과` → **틀림.**
+- `cafeKwScan.ts` 안에 같은 취지 표현 있으면 함께 정정.
+
+**실제 경로**: 고객 플레이스 인기탭 조회(`runPlaceScan` → `cafe_kw_requests` → `cafe_kw_worker.py`)는
+- **기본 = 우리 IP 직접 스크랩**(m.search/PC 호스트 로테이션). sub4가 처리하면 **사무실 유선 IP**, main이 처리하면 main IP.
+- **main 크롤과 겹칠 때만 CF**(데이터센터 IP)로 자동 전환(부하 회피).
+- **폰 테더링 안 씀.** sub4는 이미 모바일테더링 → 사무실 유선 스캔전용 PC로 전환됨.
+
+> 참고 — `keyword_scan_requests`/`scan_listener.py`/`checkPopular(CF)`는 **발행쪽(AutoPublishPanel) 별개 경로**입니다. 고객 인기탭 조회와 혼동 금지. "한국 모바일 IP" 주석은 그쪽 얘기고, 그마저 sub4가 유선이면 지금은 유선입니다.
+
+정확한 주석으로:
+```
+// 정확 인기탭 분석 — cafe_kw_requests 큐 → 워커(우리 IP: 사무실 유선/ main, 크롤 겹치면 CF) → 진짜 인기탭 결과
+```
+
+---
+
 ## 1. 지금 상태 (왜 이걸 전달하나)
 
 `/portal/cafe` '인기글 조회' 버튼은 **현재 검색량만** 보여줍니다(순수 웹, 인기탭 판정 X).
@@ -15,7 +36,7 @@
 | | 내 시스템(인기탭 발굴) | 당신 시스템(현행) |
 |---|---|---|
 | 큐 테이블 | `cafe_kw_requests` | `keyword_scan_requests` |
-| 워커 | `cafe_kw_worker.py` (사무실/전용PC IP + 크롤 중 CF 자동전환) | `scan_listener.py` (SUB4 모바일 IP) |
+| 워커 | `cafe_kw_worker.py` (**우리 IP**: 사무실 유선/main + 크롤 중 CF 자동전환) | `scan_listener.py` (SUB4 — 지금은 사무실 유선) |
 | 입력 | **플레이스 URL 1개** → 넓은→좁은 키워드 자동 발굴 | 키워드 배열(고객이 이미 아는 키워드) |
 | 출력 | 인기탭 진입가능 키워드 목록 + 점유 카페 | 키워드별 O/X |
 | 캐시 | `cafe_kw_targets` 공유(중복 스크랩 0) | 없음 |
