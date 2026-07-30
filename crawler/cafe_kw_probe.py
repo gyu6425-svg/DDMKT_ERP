@@ -548,15 +548,41 @@ def classify(kw):
     return result
 
 
+# ── 호스트 로테이션 SERP fetch (m.search ↔ PC search, 부하 분산·차단 완화) ──────
+# 두 호스트 모두 인기글 섹션을 동일하게 주고 파서도 동일(검증됨). 키워드마다 번갈아 요청해
+#   각 호스트 부하를 절반으로 → rate limit 도달을 늦춘다. 한쪽 차단 시 다른 호스트로 폴백.
+_PC_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+_SERP_HOSTS = [
+    ("https://m.search.naver.com/search.naver?query=", _PLACE_UA),  # 모바일
+    ("https://search.naver.com/search.naver?query=", _PC_UA),       # PC
+]
+_serp_rr = [0]
+
+
+def _is_blocked(status, text):
+    return status in (403, 429) or "제한되었습니다" in text or "과도한 접근" in text
+
+
+def _fetch_serp(kw):
+    """인기글 SERP를 호스트 로테이션으로 가져온다. (code, html). 둘 다 차단이면 (0,'')."""
+    i = _serp_rr[0] % 2
+    _serp_rr[0] += 1
+    order = [_SERP_HOSTS[i], _SERP_HOSTS[1 - i]]  # 이번 차례 먼저, 실패 시 다른 호스트 폴백
+    for base, ua in order:
+        try:
+            r = requests.get(base + quote(kw), headers={"User-Agent": ua}, timeout=20)
+        except Exception:
+            continue
+        if r.status_code == 200 and not _is_blocked(r.status_code, r.text):
+            return 200, r.text
+    return 0, ""  # 두 호스트 모두 실패/차단
+
+
 def _classify_live(kw):
-    """실제 m.search 스크랩으로 인기탭 판정(캐시 미스 시만 호출)."""
-    url = f"https://m.search.naver.com/search.naver?query={quote(kw)}"
-    try:
-        code, html = c._fetch_html(url)
-    except Exception as e:
-        return {"kw": kw, "err": str(e)[:50], "has_section": False}
+    """실제 인기탭 스크랩 판정(캐시 미스 시만 호출). 호스트 로테이션 사용."""
+    code, html = _fetch_serp(kw)
     if code != 200:
-        return {"kw": kw, "err": f"code {code}", "has_section": False}
+        return {"kw": kw, "err": f"code {code}(차단?)", "has_section": False}
     for b in c.extract_bootstrap_json(html):
         try:
             j = json.loads(b)
