@@ -131,6 +131,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [kwExpanded, setKwExpanded] = useState(false); // '더 보기'로 전체(target 상향) 스캔 완료 여부
     const [kwHidden, setKwHidden] = useState<string[]>([]); // X로 제외한 키워드(화면에서만 숨김)
     const [kwPicked, setKwPicked] = useState<KwResult[]>([]); // 고객이 고른 키워드(발행 대상 → 접수에 전달)
+    const [pickedOpen, setPickedOpen] = useState(false); // 선택 키워드 드롭다운 펼침(기본 접힘 · 우측 N개)
     const togglePick = (k: KwResult) =>
         setKwPicked((prev) => (prev.some((p) => p.keyword === k.keyword) ? prev.filter((p) => p.keyword !== k.keyword) : [...prev, k]));
     const hideKw = (kw: string) => {
@@ -189,6 +190,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const submit = async () => {
         if (!clientId) return setMsg('고객 계정이 연결되어 있지 않습니다. 담당자에게 문의하세요.');
         if (!form.company_name.trim()) return setMsg('업체명을 입력하세요.');
+        if (form.daily_count != null && form.daily_count > 5) return setMsg('일 발행건수는 최대 5건입니다.');
         setBusy(true); setMsg('');
         // 사진 업로드(압축)
         const batch = String(Date.now());
@@ -214,7 +216,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (error) return setMsg(`접수 실패: ${error.message}`);
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
         setForm(empty); setFiles({ main: [], real: [], banner: [] });
-        setKwResult(null); setKwPicked([]); setKwHidden([]); setKwExpanded(false);
+        setKwResult(null); setKwPicked([]); setKwHidden([]); setKwExpanded(false); setPickedOpen(false);
         reload();
     };
 
@@ -267,17 +269,26 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">인기글 조회=업체명 기반 검색량(즉시). 정확 인기탭 분석=실제 인기글 섹션 확인(큐 처리, 수초~수십초).</p> : null}
                         {kwErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{kwErr}</p>}
                         {kwPicked.length ? (
-                            <div className="mt-2 rounded-lg border border-[#c7d2fe] bg-[#eef2ff] p-2">
-                                <div className="mb-1 text-[11px] font-semibold text-[#4338ca]">선택한 발행 키워드 {kwPicked.length}개 — 접수 시 함께 전달됩니다</div>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {kwPicked.map((p) => (
-                                        <span key={p.keyword} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
-                                            {p.keyword}
-                                            {p.volume != null ? <span className="text-[10px] font-normal text-[#94a3b8]">{p.volume.toLocaleString()}</span> : null}
-                                            <button type="button" onClick={() => togglePick(p)} className="text-[#818cf8] hover:text-[#4338ca]" title="선택 해제">×</button>
-                                        </span>
-                                    ))}
-                                </div>
+                            <div className="mt-2 rounded-lg border border-[#c7d2fe] bg-[#eef2ff]">
+                                {/* 접힘 기본 — 헤더 좌: 라벨 / 우: 선택 개수. 클릭 시 드롭다운 펼침 */}
+                                <button type="button" onClick={() => setPickedOpen((o) => !o)} className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-[11px] font-semibold text-[#4338ca]">
+                                    <span className="flex items-center gap-1.5">
+                                        <span className={`text-[9px] transition-transform ${pickedOpen ? 'rotate-90' : ''}`}>▶</span>
+                                        선택한 발행 키워드 — 접수 시 함께 전달됩니다
+                                    </span>
+                                    <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-[#4338ca] ring-1 ring-[#c7d2fe]">{kwPicked.length}개</span>
+                                </button>
+                                {pickedOpen ? (
+                                    <div className="flex flex-wrap gap-1.5 border-t border-[#c7d2fe] p-2">
+                                        {kwPicked.map((p) => (
+                                            <span key={p.keyword} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
+                                                {p.keyword}
+                                                {p.volume != null ? <span className="text-[10px] font-normal text-[#94a3b8]">{p.volume.toLocaleString()}</span> : null}
+                                                <button type="button" onClick={() => togglePick(p)} className="text-[#818cf8] hover:text-[#4338ca]" title="선택 해제">×</button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : null}
                             </div>
                         ) : null}
                         {kwResult && (() => {
@@ -401,12 +412,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <input className={inputCls} type="date" value={form.mission_start} onChange={(e) => set('mission_start', e.target.value)} />
                     </div>
                     <div>
-                        <label className={labelCls}>일 발행건수</label>
-                        <input className={inputCls} type="number" min={0} value={form.daily_count ?? ''} onChange={(e) => set('daily_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="0건" />
+                        <label className={labelCls}>일 발행건수 <span className="font-normal text-[#94a3b8]">(최대 5)</span></label>
+                        <input className={inputCls} type="number" min={0} max={5} value={form.daily_count ?? ''}
+                            onChange={(e) => set('daily_count', e.target.value === '' ? null : Math.min(5, Math.max(0, Number(e.target.value))))}
+                            placeholder="최대 5건" />
                     </div>
                     <div>
-                        <label className={labelCls}>총 발행건수</label>
-                        <input className={inputCls} type="number" min={0} value={form.total_count ?? ''} onChange={(e) => set('total_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="0건" />
+                        <label className={labelCls}>총 발행건수 <span className="font-normal text-[#94a3b8]">(제한 없음)</span></label>
+                        <input className={inputCls} type="number" min={0} value={form.total_count ?? ''} onChange={(e) => set('total_count', e.target.value === '' ? null : Math.max(0, Number(e.target.value)))} placeholder="0건" />
                     </div>
                     <div>
                         <label className={labelCls}>상품종류</label>
