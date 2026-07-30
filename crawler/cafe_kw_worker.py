@@ -46,15 +46,19 @@ _SUDO = set((
 ).split())
 
 
-def _region_ok(kw, provinces):
-    """지역 제약. provinces에 '서울/경기/인천'이 있으면 수도권 지역만(+비지역 니치) 통과."""
-    if not provinces:
-        return True
+def _region_ok(kw, provinces, own):
+    """지역 제약.
+      · 비지역 니치(조개구이·물회 등)는 항상 통과.
+      · 플레이스 '자기 지역'(own: 군산·전북 등)은 항상 통과 — 업체가 실제 있는 곳이니 무조건 우선.
+      · provinces(서울/경기/인천)가 남아있으면 그 수도권만 통과(서비스지역 업체용).
+      · 그 외 '타지역' 지역형 키워드는 컷(영종/부산 등이 군산 업체에 섞이는 것 방지)."""
     if not p.is_regional(kw):
-        return True  # 비지역 니치는 통과
-    if any(w in provinces for w in ("서울", "경기", "인천")):
+        return True
+    if own and any(rt and rt in kw for rt in own):
+        return True
+    if provinces and any(w in provinces for w in ("서울", "경기", "인천")):
         return any(t in kw for t in _SUDO)
-    return True
+    return False
 
 
 # ── Supabase REST ────────────────────────────────────────────────────────────
@@ -102,9 +106,24 @@ def _finish(rid, status, result=None, note=None, extra=None):
         pass
 
 
-# ── 후보 생성 (검증된 durban 방식: 업종 코어 → 검색광고 → 지역/요리 필터) ──────
-def _candidates(info, provinces):
+# ── 후보 생성 ────────────────────────────────────────────────────────────────
+#   ★ 지역형 vs 키워드형은 완전히 다른 처리 (deploy_type로 명시 구분):
+#     · 지역형 : 지역이 핵심. 플레이스 '자기 지역'(군산 등) × 업종 계층. 지역 키워드 유지.
+#     · 키워드형: 지역 무관. 제품/니치 키워드(고체향수 등)만. 지역 키워드는 전부 컷.
+def _is_kw_type(deploy_type, cats):
+    """요청의 deploy_type 우선. 없으면 업종으로 추정(음식/청소/인테리어 등 위치형=지역형)."""
+    dt = (deploy_type or "").replace(" ", "")
+    if "키워드" in dt:
+        return True
+    if "지역" in dt:
+        return False
+    # deploy_type 없을 때 폴백: 음식점은 확실히 지역형. 그 외는 지역형 기본(대부분 로컬 업체).
+    return False
+
+
+def _candidates(info, provinces, pid, deploy_type):
     cats = [x.strip() for cc in info["cats"][:2] for x in re.split(r"[,·/]", cc) if x.strip()]
+    kw_type = _is_kw_type(deploy_type, cats)
     cores = []
     for c0 in cats + info["keywords"]:
         core = c0
@@ -115,14 +134,48 @@ def _candidates(info, provinces):
         for x in (c0, core):
             if x and len(x) >= 2 and x not in cores and not p.is_brandish(x):
                 cores.append(x)
+
+    if kw_type:
+        # ── 키워드형: 지역 완전 배제. 제품/니치 키워드만(전국). 지역 계층·주소 조회 안 함. ──
+        own, provinces, hier = set(), set(), []
+    else:
+        # ── 지역형: 플레이스 '자기 주소'에서 지역 계층. 업체가 실제 있는 곳이 기준. ──
+        road, jibun = p.place_address(pid) if pid else ("", "")
+        rh = p.region_hierarchy(road, jibun)                   # [전북도,전북,군산,선유남…]
+        own = set(t for t in (p.region_tokens(road, jibun) + rh) if t)
+        place_sido = p._sido(road, jibun)                      # '전북','서울','경기'…
+        food = any(any(h in c for h in p._FOOD_HINT) for c in cats)
+        # 잘못된 지역 기본값 자동보정: 맛집(위치형)은 서비스지역 개념 없음→자기 지역만.
+        #   서비스형(청소 등)은 플레이스가 provinces 안이면 서비스지역 유지, 밖이면 자기 지역.
+        if food or (place_sido and place_sido not in provinces):
+            provinces = set()
+        bh = p.business_hierarchy(cats, info["keywords"])
+        hier = []
+        for bt in bh:
+            if bt != "맛집":                                   # '맛집' 단독(전국)은 너무 넓어 제외
+                hier.append(bt)
+            for rl in rh:
+                hier.append(f"{rl} {bt}")
+                if " " not in bt:
+                    hier.append(f"{rl}{bt}")
+
+    # 검색광고 보강(니치·서비스지역 확장)
     vol = {}
     for core in cores[:8]:
         for kw, tot in p.searchad_candidates(core, min_total=80, limit=40):
-            if p.is_offtopic(kw) or not _region_ok(kw, provinces):
-                continue
             vol[kw] = max(vol.get(kw, 0), tot)
-    # 로컬 우선: 지역형 키워드(지역+업종) 먼저 → 그다음 비지역 니치, 각 검색량순
-    return sorted(vol.items(), key=lambda kv: (0 if p.is_regional(kv[0]) else 1, -kv[1]))
+    # 후보 통합 + 필터(오프토픽·타지역 컷). 키워드형은 _region_ok가 지역형 키워드를 전부 컷.
+    base = []
+    for k in hier + cats + info["keywords"]:
+        if k and not p.is_brandish(k) and not p.is_offtopic(k) and _region_ok(k, provinces, own) and k not in base:
+            base.append(k)
+    for kw in sorted(vol, key=lambda k: -vol[k]):
+        if not p.is_offtopic(kw) and _region_ok(kw, provinces, own) and kw not in base:
+            base.append(kw)
+    # 지역형=로컬(자기 지역) 우선 → 검색량순 / 키워드형=검색량순
+    local = [k for k in base if own and any(rt and rt in k for rt in own)]
+    rest = sorted((k for k in base if k not in local), key=lambda k: -vol.get(k, 0))
+    return [(k, vol.get(k, 0)) for k in (local + rest)]
 
 
 def process(req):
@@ -132,7 +185,7 @@ def process(req):
         return _finish(req["id"], "failed", note="플레이스 해석 실패")
     provinces = set((req.get("regions") or "").replace(" ", "").split(",")) if req.get("regions") else set()
     target = int(req.get("target") or 10)
-    cands = _candidates(info, provinces)
+    cands = _candidates(info, provinces, pid, req.get("deploy_type"))
     found = []
     for kw, vol in cands:
         if len(found) >= target:

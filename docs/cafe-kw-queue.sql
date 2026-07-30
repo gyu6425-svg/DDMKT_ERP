@@ -13,7 +13,8 @@ create table if not exists public.cafe_kw_requests (
     place_id     text,                        -- 해석된 placeId(워커가 채움)
     biz_name     text,                        -- 업체명(워커가 채움)
     target       int  not null default 10,    -- 찾을 인기탭 건수(--target)
-    regions      text,                        -- 지역 제약(예: '서울,경기,인천'), null=전체
+    deploy_type  text,                        -- '지역형'|'키워드형'. 지역형=자기지역×업종, 키워드형=제품니치(지역배제). null=지역형
+    regions      text,                        -- 지역 제약(예: '서울,경기,인천'), 서비스형(청소 등)만 의미. 맛집/키워드형은 무시됨
     status       text not null default 'queued',  -- queued/claimed/done/failed
     worker_id    text,                        -- 처리 중인 워커(원자적 클레임)
     claimed_at   timestamptz,
@@ -24,6 +25,9 @@ create table if not exists public.cafe_kw_requests (
     updated_at   timestamptz not null default now()
 );
 create index if not exists cafe_kw_requests_status_idx on public.cafe_kw_requests (status, created_at);
+
+-- 1-b) 기존 테이블에 deploy_type 추가(멱등) — 이미 만들어진 큐에도 컬럼 반영.
+alter table public.cafe_kw_requests add column if not exists deploy_type text;
 
 -- 2) 공유 캐시 — 키워드별 인기탭 판정 결과(모든 워커·고객 공유). 겹치는 키워드 재스크랩 방지.
 create table if not exists public.cafe_kw_targets (
