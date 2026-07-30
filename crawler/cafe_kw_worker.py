@@ -253,6 +253,15 @@ def process(req):
             found.append({"keyword": kw, "volume": v, "theme": r.get("theme"),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
     found.sort(key=lambda f: -(f.get("volume") or 0))  # 고객 화면: 검색량 높은 순
+    # 인기글 진입만으론 target(계약건수) 미달 시 — 플레이스 메뉴 기반 보완 키워드로 채운다.
+    #   예: 메뉴 '키조개 해물삼합' + 지역(전북·군산·선유도) → '전북 키조개 맛집'. 검증X('보완' 표기).
+    #   음식점 아니면 메뉴가 없어 자동 no-op(지역형 청소·보안 등은 hier로 이미 충분).
+    if len(found) < target and pid:
+        road, jibun = p.place_address(pid)
+        menus = p.place_menu(pid)
+        exclude = {f["keyword"].replace(" ", "") for f in found} | seen
+        for kw in p.menu_keywords(info.get("name", ""), road, jibun, menus, target - len(found), exclude):
+            found.append({"keyword": kw, "volume": None, "theme": "보완(메뉴)", "cafes": [], "filled": True})
     _finish(req["id"], "done", result=found,
             extra={"place_id": pid, "biz_name": info.get("name")},
             note=f"{len(found)}건 발견 / 후보 {len(cands)}")

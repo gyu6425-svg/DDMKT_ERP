@@ -291,6 +291,98 @@ def region_tokens(road, jibun):
     return out
 
 
+# ── 플레이스 메뉴 → 보완 키워드(계약건수만큼 못 채울 때 메뉴 기반으로 생성) ──────
+def place_menu(pid):
+    """placeId → 메뉴 항목명 리스트. m.place 메뉴탭 HTML의 name+가격 인접 파싱."""
+    out = []
+    for u in (f"https://m.place.naver.com/restaurant/{pid}/menu/list",
+              f"https://m.place.naver.com/place/{pid}/menu/list"):
+        try:
+            r = requests.get(u, headers={"User-Agent": _PLACE_UA, "Accept-Language": "ko", "Referer": "https://m.place.naver.com/"}, timeout=20)
+            r.encoding = "utf-8"
+            b = r.text
+        except Exception:
+            continue
+        if r.status_code != 200:
+            continue
+        for m in re.finditer(r'"name"\s*:\s*"([^"]{1,50})"[^{}]{0,160}?"(?:price|priceStr|priceNumber|priceText)"\s*:\s*"?([\d,]{2,})', b):
+            nm = m.group(1).strip()
+            if nm and re.search(r"[가-힣]", nm) and nm not in out:
+                out.append(nm)
+        if out:
+            break
+    return out[:60]
+
+
+_MENU_STOP = set("소 중 대 특 특대 인 인분 세트 코스 추천 스페셜 메뉴 모듬 모둠 한상 서비스 무한리필 리필 세트메뉴".split())
+
+
+def menu_cores(menus):
+    """메뉴명 → 요리 코어 토큰(키조개·해물삼합·막회·해물라면·문어…)."""
+    cores = []
+    for nm in menus:
+        t = re.sub(r"\([^)]*\)", " ", nm)          # (2인) 등 괄호 제거
+        t = re.sub(r"[+/·,]", " ", t)               # 삼합+막회 → 삼합 막회
+        t = re.sub(r"\d+\s*인분?", " ", t)          # 2인 제거
+        for tok in t.split():
+            tok = re.sub(r"(세트|메뉴|코스)$", "", tok.strip())
+            if len(tok) >= 2 and tok not in _MENU_STOP and re.fullmatch(r"[가-힣]+", tok) and tok not in cores:
+                cores.append(tok)
+    return cores
+
+
+def menu_region_seeds(name, road, jibun):
+    """메뉴 키워드용 지역 시드 [도(전북), 시(군산), 업체명지명(선유도)…]."""
+    seeds = []
+    sido = _sido(road, jibun)
+    if sido:
+        seeds.append(sido)                          # 전북
+    seeds += region_tokens(road, jibun)             # 군산·선유남 등
+    biz = re.sub(r"(바닷가|횟집|회집|식당|맛집|수산|본점|점|가든|해물|물회|막회|회|반점|촌)$", "", (name or "").replace(" ", ""))
+    if 2 <= len(biz) <= 6 and re.fullmatch(r"[가-힣]+", biz):
+        seeds.append(biz)                           # 선유도바닷가 → 선유도
+    return list(dict.fromkeys(seeds))[:4]
+
+
+_MENU_SUFFIX = ["맛집", "추천", "후기"]
+
+
+def menu_keywords(name, road, jibun, menus, need, exclude):
+    """메뉴 코어 × 지역 × 접미로 보완 키워드 생성. exclude(무공백 정규화 set) 제외, need개까지.
+    예: '전북 키조개 맛집', '군산 키조개 맛집', '선유도 키조개 맛집'."""
+    if need <= 0:
+        return []
+    cores = menu_cores(menus)
+    regions = menu_region_seeds(name, road, jibun)
+    if not cores or not regions:
+        return []
+    seen = set(exclude)
+    out = []
+
+    def push(k):
+        nk = k.replace(" ", "")
+        if nk and nk not in seen:
+            seen.add(nk)
+            out.append(k)
+
+    for r in regions:                               # 1) 지역 × 코어 × 맛집(사용자 예시 우선)
+        for cc in cores:
+            push(f"{r} {cc} 맛집")
+            if len(out) >= need:
+                return out
+    for r in regions:                               # 2) 지역 × 코어
+        for cc in cores:
+            push(f"{r} {cc}")
+            if len(out) >= need:
+                return out
+    for cc in cores:                                # 3) 코어 × 접미
+        for s in _MENU_SUFFIX:
+            push(f"{cc} {s}")
+            if len(out) >= need:
+                return out
+    return out
+
+
 # ── 넓은→좁은 계층(도·시·구·동 × 맛집·업종맛집·횟집·업종) ────────────────────
 _PROVINCES = {"경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"}
 _FOOD_HINT = set(
