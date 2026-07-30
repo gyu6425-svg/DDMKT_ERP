@@ -633,9 +633,14 @@ def scan_until(candidates, target, cap=None, verbose=True):
     cap = 실제 스크랩(라이브) 상한(히트율 낮아도 폭주 방지). 캐시 히트는 상한/대기에서 제외."""
     cap = cap or max(target * 8, 30)  # 안전 상한: 목표의 8배(히트율 12%도 커버) 또는 최소 30
     found, live = [], 0
+    seen_norm = set()  # 붙임/띄어쓰기 중복 제거(군산 맛집 == 군산맛집)
     for kw in candidates:
         if len(found) >= target or live >= cap:
             break
+        norm = kw.replace(" ", "")
+        if norm in seen_norm:  # 같은 컨셉의 띄어쓰기 변형은 건너뜀(스캔·카운트 중복 방지)
+            continue
+        seen_norm.add(norm)
         cached = _USE_CACHE and kw in _cache and _cache_fresh(_cache[kw])
         r = classify(kw)
         if not cached:
