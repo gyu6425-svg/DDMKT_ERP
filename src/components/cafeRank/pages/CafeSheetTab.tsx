@@ -94,15 +94,22 @@ export function CafeSheetTab({
     }, [accounts, posts]);
 
     // 카페 순서 → 업체 순서로 정렬한 평평한 행(블로그 시트처럼). scopeCompanyKey면 그 업체만.
+    //   자체 카페가 있는 업체(더맨·설고 등)는 마이클 공유카페(ddmkt2) 행을 관리시트에서 숨기고
+    //   마지막 등록(자체 카페)만 보여준다. 순위 트래커(CafeTrackerTab)는 별도라 두 카페 모두 유지.
+    const clientsWithOwnCafe = useMemo(
+        () => new Set(accounts.filter((a) => a.cafe_name !== 'ddmkt2' && a.client_id).map((a) => a.client_id)),
+        [accounts],
+    );
     const rows = useMemo(
         () => accounts
             .filter((a) => !scopeCompanyKey || (Array.isArray(scopeCompanyKey) ? scopeCompanyKey.includes(a.company_key) : a.company_key === scopeCompanyKey))
+            .filter((a) => !(a.cafe_name === 'ddmkt2' && a.client_id && clientsWithOwnCafe.has(a.client_id)))
             .sort(
                 (a, b) => cafeNameRank(a.cafe_name) - cafeNameRank(b.cafe_name)
                     || cafeCompanyRank(a.company_key) - cafeCompanyRank(b.company_key)
                     || a.display_name.localeCompare(b.display_name),
             ),
-        [accounts, scopeCompanyKey],
+        [accounts, scopeCompanyKey, clientsWithOwnCafe],
     );
 
     const patchLocal = (id: string, patch: Partial<CafeAccount>) =>
