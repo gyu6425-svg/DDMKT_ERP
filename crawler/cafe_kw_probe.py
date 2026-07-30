@@ -293,7 +293,8 @@ def region_tokens(road, jibun):
 
 # ── 플레이스 메뉴 → 보완 키워드(계약건수만큼 못 채울 때 메뉴 기반으로 생성) ──────
 def place_menu(pid):
-    """placeId → 메뉴 항목명 리스트. m.place 메뉴탭 HTML의 name+가격 인접 파싱."""
+    """placeId → 메뉴/서비스 항목명. m.place 메뉴탭 HTML 파싱.
+    __typename:Menu 로 가격 유무 무관 추출 — 인테리어처럼 '변동'·빈가격 서비스 목록도 포함."""
     out = []
     for u in (f"https://m.place.naver.com/restaurant/{pid}/menu/list",
               f"https://m.place.naver.com/place/{pid}/menu/list"):
@@ -305,31 +306,51 @@ def place_menu(pid):
             continue
         if r.status_code != 200:
             continue
-        for m in re.finditer(r'"name"\s*:\s*"([^"]{1,50})"[^{}]{0,160}?"(?:price|priceStr|priceNumber|priceText)"\s*:\s*"?([\d,]{2,})', b):
+        for m in re.finditer(r'"__typename"\s*:\s*"Menu"[^}]*?"name"\s*:\s*"([^"]{1,60})"', b):
             nm = m.group(1).strip()
             if nm and re.search(r"[가-힣]", nm) and nm not in out:
                 out.append(nm)
+        if not out:  # 폴백: name+가격 인접(구조가 다른 경우)
+            for m in re.finditer(r'"name"\s*:\s*"([^"]{1,50})"[^{}]{0,160}?"(?:price|priceStr|priceNumber|priceText)"\s*:\s*"?([\d,]{2,})', b):
+                nm = m.group(1).strip()
+                if nm and re.search(r"[가-힣]", nm) and nm not in out:
+                    out.append(nm)
         if out:
             break
-    return out[:60]
+    return out[:80]
 
 
 # 요리명이 아닌 수식어·업소명 파편(맛집 붙으면 노이즈): 다이닝·파인·한접시 등도 제외.
 _MENU_STOP = set(("소 중 대 특 특대 인 인분 세트 코스 추천 스페셜 메뉴 모듬 모둠 한상 서비스 무한리필 리필 세트메뉴 "
                   "다이닝 파인 한접시 정식 세트A 세트B 오늘의 시그니처 프리미엄 기본").split())
+# 이모지(메뉴/서비스명 앞 아이콘) 제거용.
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿️←-⇿]")
+# 비음식 서비스명에서 떼어낼 홍보·수식 파편(무료 방문 실측 및 인테리어 상담 → 인테리어).
+_SVC_STRIP = set("무료 방문 실측 맞춤 상담 컨설팅 전문 안내 문의 및 추천 이벤트 특가 할인 예약 견적".split())
 
 
-def menu_cores(menus):
-    """메뉴명 → 요리 코어 토큰(키조개·해물삼합·막회·해물라면·문어…)."""
+def menu_cores(menus, food=True):
+    """메뉴/서비스명 → 코어.
+      음식: 토큰화(키조개 해물삼합 → 키조개, 해물삼합).
+      비음식: 서비스명을 통째로 유지(욕실 리모델링·사무실 인테리어). 이모지·평수·홍보 파편만 제거."""
     cores = []
     for nm in menus:
-        t = re.sub(r"\([^)]*\)", " ", nm)          # (2인) 등 괄호 제거
-        t = re.sub(r"[+/·,]", " ", t)               # 삼합+막회 → 삼합 막회
+        t = _EMOJI.sub("", nm)
+        t = re.sub(r"\([^)]*\)", " ", t)            # (2인) 등 괄호 제거
+        t = re.sub(r"\d+\s*평대?", " ", t)          # 40평대 제거
         t = re.sub(r"\d+\s*인분?", " ", t)          # 2인 제거
-        for tok in t.split():
-            tok = re.sub(r"(세트|메뉴|코스)$", "", tok.strip())
-            if len(tok) >= 2 and tok not in _MENU_STOP and re.fullmatch(r"[가-힣]+", tok) and tok not in cores:
-                cores.append(tok)
+        if food:
+            t = re.sub(r"[+/·,]", " ", t)           # 삼합+막회 → 삼합 막회
+            for tok in t.split():
+                tok = re.sub(r"(세트|메뉴|코스)$", "", tok.strip())
+                if len(tok) >= 2 and tok not in _MENU_STOP and re.fullmatch(r"[가-힣]+", tok) and tok not in cores:
+                    cores.append(tok)
+        else:
+            for part in re.split(r"\s*(?:및|/|\+|·|,)\s*", t):   # '및//+·' 로 분리, 조각은 통째로
+                toks = [x for x in part.split() if x not in _SVC_STRIP]
+                phrase = " ".join(toks).strip()
+                if 2 <= len(phrase) <= 14 and re.search(r"[가-힣]", phrase) and phrase not in _MENU_STOP and phrase not in cores:
+                    cores.append(phrase)
     return cores
 
 
@@ -353,11 +374,11 @@ def menu_keywords(name, road, jibun, menus, need, exclude, cats=()):
       - 비음식(네일·병원·시술 등): '인천 내성손톱교정', '연수구 내성손톱교정' (맛집 X, 지역+시술 우선)."""
     if need <= 0:
         return []
-    cores = menu_cores(menus)
+    food = any(any(h in c for h in _FOOD_HINT) for c in cats)
+    cores = menu_cores(menus, food)
     regions = menu_region_seeds(name, road, jibun)
     if not cores or not regions:
         return []
-    food = any(any(h in c for h in _FOOD_HINT) for c in cats)
     seen = set(exclude)
     out = []
 
