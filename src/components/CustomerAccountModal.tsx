@@ -21,6 +21,7 @@ export default function CustomerAccountModal({
 }) {
   const isReporter = mode === 'reporter'
   const [login, setLogin] = useState('')
+  const [password, setPassword] = useState('') // 관리자가 직접 지정(비우면 초기 비번=아이디)
   // 기자단: 기존 기자단 텍스트(defaultName)가 있으면 자동 채움, 없으면 빈 칸. 고객: 업체명 기본값.
   const [name, setName] = useState(isReporter ? defaultName || '' : companyName || '')
   const [saving, setSaving] = useState(false)
@@ -31,13 +32,16 @@ export default function CustomerAccountModal({
     setErr('')
     if (!login.trim()) return setErr('이메일 또는 아이디를 입력하세요.')
     if (isReporter && !name.trim()) return setErr('기자단 이름을 입력하세요.')
+    const pw = password.trim()
+    if (pw && pw.length < 6) return setErr('비밀번호는 6자 이상이어야 합니다.')
     setSaving(true)
     try {
       // Supabase Edge Function 호출(세션 JWT 자동 포함) — 서버가 관리자 검증 후 계정 생성.
       //   함수 배포 이름이 'clever-processor'(대시보드 자동 생성명)이라 그 이름으로 호출.
+      //   password 지정 시 그 비번으로 생성(강제변경 없음). 비우면 초기 비번=아이디.
       const body = isReporter
-        ? { login: login.trim(), name: name.trim(), role: 'reporter' }
-        : { login: login.trim(), clientId, name: name.trim() }
+        ? { login: login.trim(), name: name.trim(), role: 'reporter', ...(pw ? { password: pw } : {}) }
+        : { login: login.trim(), clientId, name: name.trim(), ...(pw ? { password: pw } : {}) }
       const { data, error } = await supabase.functions.invoke('clever-processor', { body })
       setSaving(false)
       if (error) {
@@ -125,6 +129,16 @@ export default function CustomerAccountModal({
                 />
               </label>
               <label className="text-xs font-semibold text-[#475569]">
+                비밀번호(선택 — 비우면 아이디와 동일)
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="직접 지정 시 6자 이상 (예: junoh1234)"
+                  value={password}
+                  autoComplete="new-password"
+                />
+              </label>
+              <label className="text-xs font-semibold text-[#475569]">
                 {isReporter ? '기자단 이름' : '표시 이름(선택)'}
                 <input
                   className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm"
@@ -134,7 +148,9 @@ export default function CustomerAccountModal({
                 />
               </label>
               <p className="m-0 text-[11px] text-[#94a3b8]">
-                초기 비밀번호 = 아이디(이메일 앞부분).{' '}
+                {password.trim()
+                  ? '입력한 아이디·비밀번호로 즉시 로그인 가능(강제 변경 없음).'
+                  : '비밀번호를 비우면 초기 비번 = 아이디(첫 로그인 시 변경).'}{' '}
                 {isReporter ? '본인 담당 블로그만 열람 가능(수정 불가).' : '이 업체 데이터만 열람 가능(수정 불가).'}
               </p>
               {err ? <p className="m-0 text-xs text-[#dc2626]">{err}</p> : null}
