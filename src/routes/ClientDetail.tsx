@@ -2586,22 +2586,21 @@ export function ClientDetail({
         }
         onToast(products.length ? `정보 입력 + 계약 ${products.length}건 등록 완료` : '정보 입력 완료');
     };
-    // 발급 전 필수 검증 — 기본정보(업체명·거래처명·연락처·이메일) + 업종정보(사업자번호·주소·업종/업태) + 계약(상품) 등록.
-    //   여기까지 채워져야 '고객 ERP 발급'이 활성화된다.
+    // 발급 전 필수 검증 — 발급(열람 계정 생성)에 실제 필요한 최소만 요구: 업체명 + 계약(상품).
+    //   사업자번호·주소·업종 등 나머지는 정산/세금계산서 완성도용이라 발급을 막지 않는다(선택).
     const missingForIssue = (): string[] => {
         const need: [string, string | null][] = [
             ['업체명', client.company],
-            ['거래처명', client.client_partner],
-            ['연락처', client.contact],
-            ['이메일', client.email],
-            ['사업자등록번호', client.business_number],
-            ['사업장 주소', client.address],
-            ['업종/업태', client.industry],
         ];
         const miss = need.filter(([, v]) => !(v && String(v).trim())).map(([k]) => k);
         if (!contracts.some((ct) => (ct.amount || 0) > 0)) miss.push('계약(상품) 등록');
         return miss;
     };
+    // 발급은 되지만 정산/세금계산서용으로 채우면 좋은 항목(안내용 · 발급을 막지 않음).
+    const recommendedForIssue = ([
+        ['거래처명', client.client_partner], ['연락처', client.contact], ['이메일', client.email],
+        ['사업자등록번호', client.business_number], ['사업장 주소', client.address], ['업종/업태', client.industry],
+    ] as [string, string | null][]).filter(([, v]) => !(v && String(v).trim())).map(([k]) => k);
     const issueMiss = missingForIssue();
     const canIssue = issueMiss.length === 0;
     const tryIssue = () => {
@@ -2971,7 +2970,9 @@ export function ClientDetail({
                             onClick={tryIssue}
                             title={
                                 canIssue
-                                    ? '이 업체 전용 열람 계정(고객 ERP) 발급'
+                                    ? (recommendedForIssue.length
+                                        ? `발급 가능 · 정산/세금계산서용 미입력(선택): ${recommendedForIssue.join(', ')}`
+                                        : '이 업체 전용 열람 계정(고객 ERP) 발급')
                                     : `발급 조건 미충족: ${issueMiss.join(', ')}`
                             }
                             type="button"
