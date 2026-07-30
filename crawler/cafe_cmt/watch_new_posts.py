@@ -60,6 +60,9 @@ STAGGER_MIN = float(os.environ.get("CAFE_CMT_STAGGER_MIN", "8"))
 STAGGER_JITTER = float(os.environ.get("CAFE_CMT_STAGGER_JITTER", "4"))
 # 첫 댓글도 발행 직후 바로 달리면 티가 난다 → 최소 이만큼(분) 뒤부터 시작(사장님: 너무 빠르지 않게).
 STAGGER_BASE = float(os.environ.get("CAFE_CMT_STAGGER_BASE", "6"))
+# 카페별 상한이 없는 일반 카페: 글마다 이 범위에서 랜덤 개수(전 계정 도배 방지 — 4/5/6 자연스럽게 섞임).
+DEFAULT_MIN_PER_POST = int(os.environ.get("CAFE_CMT_MIN_PER_POST", "4"))
+DEFAULT_MAX_PER_POST = int(os.environ.get("CAFE_CMT_MAX_PER_POST", "6"))
 # ⚠️ 답글 전용 계정(=글 작성자)은 일반 댓글 대상에서 제외한다.
 #   작성자가 자기 글에 "저도 알아보던 중이었는데" 같은 댓글을 달면 명백히 어색하다.
 #   accounts.txt 에는 답글을 달기 위해 등록돼 있을 뿐이므로 여기서 걸러야 한다.
@@ -184,11 +187,19 @@ def process_watch(page, w, canon_acct=None):
             # ★ 댓글의 지역은 '그 글 제목'에서 뽑는다(안양 글엔 '안양 누수탐지').
             #   제목에서 못 뽑으면 감시 카페에 등록한 지역으로 폴백.
             art_region = region_from_title(title, art_kw, region)
-        # 글당 상한이 있으면, 그 글에 댓글 달 계정을 '글번호로 회전'해 일부만 고른다.
-        #   → 글마다 다른 계정 조합이 나가 특정 계정 쏠림/과다노출을 줄인다.
-        if cap and len(targets) > cap:
+        # 그 글에 댓글 달 계정 수를 정한다.
+        #   - 카페별 상한(더맨=3)이 있으면 그 값.
+        #   - 없으면 글마다 4~6개로 랜덤(전 계정 도배 X → 자연스럽게 4/5/6 섞임).
+        #   고른 뒤엔 '글번호로 회전'해 글마다 다른 계정 조합이 나가게 한다(쏠림 방지).
+        if cap:
+            eff_cap = cap
+        else:
+            hi = min(DEFAULT_MAX_PER_POST, len(targets))
+            lo = min(DEFAULT_MIN_PER_POST, hi)
+            eff_cap = random.randint(lo, hi)
+        if len(targets) > eff_cap:
             start = a["id"] % len(targets)
-            art_targets = [targets[(start + k) % len(targets)] for k in range(cap)]
+            art_targets = [targets[(start + k) % len(targets)] for k in range(eff_cap)]
         else:
             art_targets = targets
         for idx, tname in enumerate(art_targets):
