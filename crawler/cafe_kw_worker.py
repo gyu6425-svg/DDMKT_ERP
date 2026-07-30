@@ -137,11 +137,12 @@ def _candidates(info, provinces, pid, deploy_type):
 
     if kw_type:
         # ── 키워드형: 지역 완전 배제. 제품/니치 키워드만(전국). 지역 계층·주소 조회 안 함. ──
-        own, provinces, hier = set(), set(), []
+        own, provinces, hier, narrow = set(), set(), [], set()
     else:
         # ── 지역형: 플레이스 '자기 주소'에서 지역 계층. 업체가 실제 있는 곳이 기준. ──
         road, jibun = p.place_address(pid) if pid else ("", "")
         rh = p.region_hierarchy(road, jibun)                   # [전북도,전북,군산,선유남…]
+        narrow = set(p.region_tokens(road, jibun))             # 시·구·동(광역 제외) — 실질 타깃
         own = set(t for t in (p.region_tokens(road, jibun) + rh) if t)
         place_sido = p._sido(road, jibun)                      # '전북','서울','경기'…
         food = any(any(h in c for h in p._FOOD_HINT) for c in cats)
@@ -172,10 +173,28 @@ def _candidates(info, provinces, pid, deploy_type):
     for kw in sorted(vol, key=lambda k: -vol[k]):
         if not p.is_offtopic(kw) and _region_ok(kw, provinces, own) and kw not in base:
             base.append(kw)
-    # 지역형=로컬(자기 지역) 우선 → 검색량순 / 키워드형=검색량순
-    local = [k for k in base if own and any(rt and rt in k for rt in own)]
-    rest = sorted((k for k in base if k not in local), key=lambda k: -vol.get(k, 0))
-    return [(k, vol.get(k, 0)) for k in (local + rest)]
+    # 지역형=로컬 우선. 그 안에서도 시·구·동(narrow)을 광역(도)보다 먼저 — 도 단위 헛스캔 축소.
+    def _rank(k):
+        if narrow and any(t in k for t in narrow):
+            return 0  # 시·구·동
+        if own and any(t and t in k for t in own):
+            return 1  # 광역(도) 등 나머지 로컬
+        return 2      # 비지역 니치
+    base.sort(key=lambda k: (_rank(k), -vol.get(k, 0)))
+    return [(k, vol.get(k, 0)) for k in base]
+
+
+def _real_volume(kw):
+    """검색광고에서 이 키워드의 실제 월검색량. hier(지역×업종)로 생성돼 volume 0으로 채택된
+    결과를 고객 화면용으로 백필. CF 경유 공식 API라 IP 위험 없음. 없으면 0(진짜 저검색 지역어)."""
+    norm = kw.replace(" ", "")
+    try:
+        for r in p.searchad_keywords(kw):
+            if (r.get("keyword") or "").replace(" ", "") == norm:
+                return r.get("total", 0)
+    except Exception:
+        pass
+    return 0
 
 
 def process(req):
@@ -199,8 +218,10 @@ def process(req):
             _cache_put(kw, r, vol)
             time.sleep(SCAN_GAP)
         if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
-            found.append({"keyword": kw, "volume": vol, "theme": r.get("theme"),
+            v = vol or _real_volume(kw)  # hier 생성어(volume 0)는 실제 검색량 백필
+            found.append({"keyword": kw, "volume": v, "theme": r.get("theme"),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
+    found.sort(key=lambda f: -(f.get("volume") or 0))  # 고객 화면: 검색량 높은 순
     _finish(req["id"], "done", result=found,
             extra={"place_id": pid, "biz_name": info.get("name")},
             note=f"{len(found)}건 발견 / 후보 {len(cands)}")
