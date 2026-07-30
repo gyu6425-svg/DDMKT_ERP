@@ -69,7 +69,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const [loading, setLoading] = useState(true);
     // 사이드바 '카페 배포'(?sub=카페 배포) 로 들어오면 접수 탭으로 연다.
     const [view, setView] = useState<'tracker' | 'sheet' | 'intake' | 'publish' | 'charge'>(
-        () => (new URLSearchParams(window.location.search).get('sub') === '카페 배포' ? 'intake' : 'tracker'),
+        () => (new URLSearchParams(window.location.search).get('sub') === '카페 배포' ? 'intake' : 'sheet'),
     );
     useEffect(() => {
         const sync = () => {
@@ -110,7 +110,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
         </div>
     );
     // 자동화 발행 탭은 담당자 세팅(publish_enabled=true) 후에만 노출.
-    const tabs: [string, string][] = [['tracker', '순위 트래커'], ['sheet', '카페 관리 시트'], ['intake', '카페 배포']];
+    const tabs: [string, string][] = [['sheet', '카페 관리 시트'], ['tracker', '순위 트래커'], ['intake', '카페 배포']];
     if (publishEnabled) tabs.push(['publish', '카페 자동화 발행']);
     tabs.push(['charge', '충전내역']);
     return (
