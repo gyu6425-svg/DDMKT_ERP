@@ -28,31 +28,27 @@ import truststore
 truststore.inject_into_ssl()
 import blog_rank_crawler as c  # 측정/차단회피/파싱 로직 재사용
 import datetime as _dt
-import time as _time
 
 # ── 크롤 충돌 방지 게이트 (블로그/카페 크롤과 안 겹치게) ──────────────────────
 # cafe_periodic 과 동일: crawl_status.running(+updated_at heartbeat)로 블로그 크롤이
 #   '살아서' 도는지 판별. 도는 중이면 사무실 IP 스크랩을 피한다(→ CF로 자동 전환).
 #   접근 불가(sub3 등 키 없음)면 False=게이트 없음(그 IP는 블로그 크롤과 무관).
-_gate_seen = {"ua": None, "since": 0.0}
-
-
 def blog_crawl_active():
+    """블로그/당일 크롤이 지금 도는가. running=True + updated_at heartbeat가 15분 이내면 active.
+    (단발 호출이라 updated_at 경과시간으로 좀비 판별 — 15분 넘게 굳으면 좀비로 보고 진행.)"""
     try:
         rows = c.sb_get("crawl_status", {"id": "eq.1", "select": "running,updated_at"})
     except Exception:
-        return False
+        return False  # 접근 불가(sub3 등) = 게이트 없음(그 IP는 블로그 크롤과 무관)
     r = (rows or [{}])[0]
     if not r.get("running"):
-        _gate_seen["ua"] = None
         return False
-    ua = r.get("updated_at")
-    now = _time.time()
-    if ua != _gate_seen["ua"]:
-        _gate_seen["ua"] = ua
-        _gate_seen["since"] = now
-        return True
-    return (now - _gate_seen["since"]) <= 900  # 15분 이상 정지=좀비 플래그 → 진행
+    try:
+        d = _dt.datetime.fromisoformat(str(r.get("updated_at")).replace("Z", "+00:00"))
+        age = (_dt.datetime.now(_dt.timezone.utc) - d).total_seconds()
+        return age <= 900  # 15분 내 heartbeat=살아있음(→CF), 넘으면 좀비=진행
+    except Exception:
+        return True  # 파싱 실패 시 보수적으로 active
 
 # ── 스캔 결과 캐시(재스크랩 방지 = 차단 위험↓) ────────────────────────────────
 # 한 번 인기탭 판정한 키워드는 로컬 파일에 저장하고, TTL 이내면 재스캔(스크랩) 안 한다.
