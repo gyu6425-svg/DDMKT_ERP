@@ -31,7 +31,7 @@ const EMPTY = { company_key: '', display_name: '', board_name: '', board_short: 
 export function CafeSheetTab({
     scopeCompanyKey = null,
     readOnly = false,
-}: { scopeCompanyKey?: string | null; readOnly?: boolean } = {}) {
+}: { scopeCompanyKey?: string | string[] | null; readOnly?: boolean } = {}) {
     // scopeCompanyKey: 고객 뷰 — 이 업체만. readOnly: 입력·등록·토글 숨기고 텍스트로 표시.
     const [accounts, setAccounts] = useState<CafeAccount[]>([]);
     const [setupAccount, setSetupAccount] = useState<CafeAccount | null>(null); // 발행 세팅 모달 대상
@@ -96,7 +96,7 @@ export function CafeSheetTab({
     // 카페 순서 → 업체 순서로 정렬한 평평한 행(블로그 시트처럼). scopeCompanyKey면 그 업체만.
     const rows = useMemo(
         () => accounts
-            .filter((a) => !scopeCompanyKey || a.company_key === scopeCompanyKey)
+            .filter((a) => !scopeCompanyKey || (Array.isArray(scopeCompanyKey) ? scopeCompanyKey.includes(a.company_key) : a.company_key === scopeCompanyKey))
             .sort(
                 (a, b) => cafeNameRank(a.cafe_name) - cafeNameRank(b.cafe_name)
                     || cafeCompanyRank(a.company_key) - cafeCompanyRank(b.company_key)
