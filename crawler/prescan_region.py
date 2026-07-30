@@ -75,6 +75,11 @@ def cache_put(kw, r):
 def main():
     ipinfo = public_ip()
     print(f"[prescan] 공인IP {ipinfo.get('query')} · mobile={ipinfo.get('mobile')} · {ipinfo.get('isp')}", flush=True)
+    # ⛔ 안전가드 — 분리(모바일) IP가 아니면 중단. 사무실 유선=메인 새벽크롤 IP라 대량스캔 금지.
+    if not ipinfo.get("mobile") and "--force" not in sys.argv:
+        print("[prescan] ⛔ 모바일(분리)IP 아님 — 사무실 유선/메인 크롤 IP일 수 있어 중단(새벽 크롤 보호).", flush=True)
+        print("[prescan]    폰테더링(분리IP)에서 돌리거나, 정말 유선으로 강행하려면 끝에 --force 붙이세요.", flush=True)
+        return
     print(f"[prescan] 범위 {SIDO_ORDER} · 업종어 {KEYWORDS} · 마감 {DEADLINE:%H:%M}", flush=True)
 
     master = json.loads((HERE / "region_dong_master.json").read_text(encoding="utf-8"))
