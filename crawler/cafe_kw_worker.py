@@ -121,7 +121,8 @@ def _candidates(info, provinces):
             if p.is_offtopic(kw) or not _region_ok(kw, provinces):
                 continue
             vol[kw] = max(vol.get(kw, 0), tot)
-    return sorted(vol.items(), key=lambda x: -x[1])
+    # 로컬 우선: 지역형 키워드(지역+업종) 먼저 → 그다음 비지역 니치, 각 검색량순
+    return sorted(vol.items(), key=lambda kv: (0 if p.is_regional(kv[0]) else 1, -kv[1]))
 
 
 def process(req):

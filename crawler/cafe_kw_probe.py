@@ -141,9 +141,18 @@ _OFFTOPIC = (
 )
 
 
+# 부위/품목별 청소 — 공간 청소업체(더반 등)는 안 함(입주/이사/사무실/상가 청소만). '청소' 붙을 때만 제외.
+_CLEAN_PARTS = ("화장실", "창틀", "창문", "욕실", "냉장고", "베란다", "줄눈", "곰팡이", "물때",
+                "후드", "카펫", "소파", "매트리스", "바닥", "유리", "타일", "셀프")
+
+
 def is_offtopic(kw):
-    """요리/레시피/판매 의도 키워드면 True(식당 타겟 제외)."""
-    return any(s in kw for s in _OFFTOPIC)
+    """요리/레시피/판매 의도 or 부위별 청소면 True(타겟 제외)."""
+    if any(s in kw for s in _OFFTOPIC):
+        return True
+    if "청소" in kw and any(pt in kw for pt in _CLEAN_PARTS):  # 화장실청소·창틀청소 등 부위별 제외
+        return True
+    return False
 
 
 def is_regional(kw):
