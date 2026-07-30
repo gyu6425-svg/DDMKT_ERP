@@ -13,7 +13,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, getRegionDongs, type KwResult } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 
 const REGION_KEYS = ['서울', '경기', '인천'] as const; // 지역형 지역셋
@@ -168,6 +168,32 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setKwLoading(false);
         }
     };
+    // 지역형 — 고정 동 마스터(cafe_region_dong)에서 선택 시도의 동 전부 × 제품키워드로 후보 생성.
+    //   결과를 kwResult 에 넣어 키워드형과 같은 선택 UI(복수선택·×제외·중복제외)로 다룬다. 스캔 없음(동×키워드가 발행 대상).
+    const genRegionKeywords = async () => {
+        const kw = (form.keyword || '').trim();
+        if (!kw) { setKwErr('제품 키워드를 입력하세요. 예: 입주청소'); return; }
+        const sidos = form.region_sets || [];
+        if (!sidos.length) { setKwErr('지역(서울/경기/인천)을 선택하세요.'); return; }
+        setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
+        try {
+            const dongs = await getRegionDongs(sidos);
+            const seen = new Set<string>();
+            const list: KwResult[] = [];
+            for (const d of dongs) {
+                const keyword = `${d.dong} ${kw}`;
+                if (seen.has(keyword)) continue;      // 동명 중복(구 다름) 제거
+                seen.add(keyword);
+                list.push({ keyword, theme: `${d.sido} ${d.gu}`, cafes: [] });
+            }
+            if (!list.length) throw new Error('해당 지역 동 데이터가 없습니다. cafe_region_dong 적재를 확인하세요.');
+            setKwResult(list);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '생성 실패');
+        } finally {
+            setKwLoading(false);
+        }
+    };
     const lookupVolume = async () => {
         let apiUrl: string;
         if (form.deploy_type === '키워드형') {
@@ -229,6 +255,95 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const inputCls = 'h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm outline-none focus:border-[#4338ca]';
     const labelCls = 'mb-1 block text-[13px] font-semibold text-[#334155]';
 
+    // 선택 UI(선택칩 + 결과 리스트) — 키워드형(인기탭 결과)·지역형(동 키워드) 공용. kwResult 에 따라 렌더.
+    const kwPanel = (
+        <>
+            {kwErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{kwErr}</p>}
+            {kwPicked.length ? (
+                <div className="mt-2 rounded-lg border border-[#c7d2fe] bg-[#eef2ff]">
+                    <button type="button" onClick={() => setPickedOpen((o) => !o)} className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-[11px] font-semibold text-[#4338ca]">
+                        <span className="flex items-center gap-1.5">
+                            <span className={`text-[9px] transition-transform ${pickedOpen ? 'rotate-90' : ''}`}>▶</span>
+                            선택한 발행 키워드 — 접수 시 함께 전달됩니다
+                        </span>
+                        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-[#4338ca] ring-1 ring-[#c7d2fe]">{kwPicked.length}개</span>
+                    </button>
+                    {pickedOpen ? (
+                        <div className="flex flex-wrap gap-1.5 border-t border-[#c7d2fe] p-2">
+                            {kwPicked.map((p) => (
+                                <span key={p.keyword} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
+                                    {p.keyword}
+                                    {p.volume != null ? <span className="text-[10px] font-normal text-[#94a3b8]">{p.volume.toLocaleString()}</span> : null}
+                                    <button type="button" onClick={() => togglePick(p)} className="text-[#818cf8] hover:text-[#4338ca]" title="선택 해제">×</button>
+                                </span>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+            {kwResult && (() => {
+                const visible = kwResult.filter((k) => !kwHidden.includes(k.keyword));
+                const fresh = visible.filter((k) => !usedKw.has(normKw(k.keyword)));
+                const used = visible.filter((k) => usedKw.has(normKw(k.keyword)));
+                return (
+                <div className="mt-2 rounded-lg border border-[#ddd6fe] bg-[#faf5ff] p-2">
+                    <div className="mb-1 text-[11px] font-semibold text-[#6d28d9]">
+                        {isKw ? '정확 인기탭 결과 — 진입한 키워드 중 발행할 것을 고르세요(복수 선택). 필요없는 건 × 로 제외.'
+                              : `지역 키워드 ${kwResult.length}개 — 발행할 동을 고르세요(복수 선택). 필요없는 건 × 로 제외.`}
+                    </div>
+                    {fresh.length === 0 ? (
+                        <div className="py-2 text-center text-[12px] text-[#94a3b8]">{used.length ? '새로운 키워드가 없습니다(모두 이미 사용·발행함).' : '키워드가 없습니다.'}</div>
+                    ) : (
+                        <div className="grid max-h-72 gap-1.5 overflow-y-auto">
+                            {fresh.map((k) => {
+                                const picked = kwPicked.some((p) => p.keyword === k.keyword);
+                                return (
+                                <div key={k.keyword} className={`rounded border p-2 ${picked ? 'border-[#4338ca] bg-[#eef2ff] ring-1 ring-[#4338ca]' : 'border-[#eef0f2] bg-white'}`}>
+                                    <div className="flex items-center gap-2 text-[12px]">
+                                        <label className="flex cursor-pointer items-center gap-1.5 font-bold text-[#4338ca]">
+                                            <input type="checkbox" checked={picked} onChange={() => togglePick(k)} className="h-3.5 w-3.5 accent-[#4338ca]" />
+                                            {k.keyword}
+                                        </label>
+                                        {k.volume != null ? <span className="text-[#64748b]">검색량 {k.volume.toLocaleString()}</span> : null}
+                                        {k.theme ? <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px] text-[#6d28d9]">{k.theme}</span> : null}
+                                        <button type="button" onClick={() => hideKw(k.keyword)} className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-[13px] text-[#cbd5e1] hover:bg-[#fee2e2] hover:text-[#dc2626]" title="이 키워드 제외">×</button>
+                                    </div>
+                                    {k.cafes?.length ? (
+                                        <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-[#64748b]">
+                                            {k.cafes.slice(0, 5).map((c, j) => (
+                                                <span key={j} className="rounded bg-[#f1f5f9] px-1.5 py-0.5">{c.rank}위 {c.who}</span>
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                    {used.length ? (
+                        <div className="mt-1.5 rounded border border-dashed border-[#e2e8f0] bg-white/60 p-1.5">
+                            <div className="mb-1 text-[10px] font-semibold text-[#94a3b8]">이미 사용·발행한 키워드 {used.length}개 — 중복 방지로 제외됨</div>
+                            <div className="flex flex-wrap gap-1">
+                                {used.map((k) => (
+                                    <span key={k.keyword} className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[10px] text-[#94a3b8] line-through">{k.keyword}</span>
+                                ))}
+                            </div>
+                        </div>
+                    ) : null}
+                    {isKw && kwResult.length >= 10 && !kwExpanded ? (
+                        <button type="button" onClick={() => void runPlaceScan(50)} disabled={kwLoading}
+                            className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50"
+                            title="후보 키워드를 더 깊이 스캔합니다(최대 50개, 수 분 소요)">
+                            {kwLoading ? '전체 스캔 중… (수 분 소요)' : '더 보기 — 인기탭 진입 키워드 최대 50개 스캔'}
+                        </button>
+                    ) : null}
+                    {isKw && kwExpanded ? <div className="mt-1 text-center text-[11px] text-[#94a3b8]">전체 {kwResult.length}개 · 후보 풀 상한까지 스캔됨</div> : null}
+                </div>
+                );
+            })()}
+        </>
+    );
+
     const pendingPay = rows.filter((r) => r.status === '결제대기');
     // 결제 완료 알림 — 고객이 계좌이체/카드결제 후 누르면 우리쪽에 충전요청(pending) 접수. 담당자가 실제 내역 확인 후 토큰 지급.
     const notifyPaid = async (method: string) => {
@@ -273,7 +388,6 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <div className="mt-1 text-[#334155]">
                             <b>{PAYMENT_INFO.bank} {PAYMENT_INFO.account}</b> <span className="text-[#64748b]">(예금주 {PAYMENT_INFO.holder})</span>
                         </div>
-                        <div className="mt-0.5 text-[12px] text-[#64748b]">{PAYMENT_INFO.note}</div>
                         {PAYMENT_INFO.cardAvailable ? (
                             <div className="mt-1.5 flex items-center gap-1.5 border-t border-[#fed7aa] pt-1.5">
                                 <span className="rounded bg-[#e2e8f0] px-1.5 py-0.5 text-[10px] font-bold text-[#475569]">카드결제</span>
@@ -342,91 +456,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             ) : null}
                         </div>
                         {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">인기글 조회=업체명 기반 검색량(즉시). 정확 인기탭 분석=실제 인기글 섹션 확인(큐 처리, 수초~수십초).</p> : null}
-                        {kwErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{kwErr}</p>}
-                        {kwPicked.length ? (
-                            <div className="mt-2 rounded-lg border border-[#c7d2fe] bg-[#eef2ff]">
-                                {/* 접힘 기본 — 헤더 좌: 라벨 / 우: 선택 개수. 클릭 시 드롭다운 펼침 */}
-                                <button type="button" onClick={() => setPickedOpen((o) => !o)} className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-[11px] font-semibold text-[#4338ca]">
-                                    <span className="flex items-center gap-1.5">
-                                        <span className={`text-[9px] transition-transform ${pickedOpen ? 'rotate-90' : ''}`}>▶</span>
-                                        선택한 발행 키워드 — 접수 시 함께 전달됩니다
-                                    </span>
-                                    <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-[#4338ca] ring-1 ring-[#c7d2fe]">{kwPicked.length}개</span>
-                                </button>
-                                {pickedOpen ? (
-                                    <div className="flex flex-wrap gap-1.5 border-t border-[#c7d2fe] p-2">
-                                        {kwPicked.map((p) => (
-                                            <span key={p.keyword} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
-                                                {p.keyword}
-                                                {p.volume != null ? <span className="text-[10px] font-normal text-[#94a3b8]">{p.volume.toLocaleString()}</span> : null}
-                                                <button type="button" onClick={() => togglePick(p)} className="text-[#818cf8] hover:text-[#4338ca]" title="선택 해제">×</button>
-                                            </span>
-                                        ))}
-                                    </div>
-                                ) : null}
-                            </div>
-                        ) : null}
-                        {kwResult && (() => {
-                            const visible = kwResult.filter((k) => !kwHidden.includes(k.keyword));
-                            const fresh = visible.filter((k) => !usedKw.has(normKw(k.keyword)));
-                            const used = visible.filter((k) => usedKw.has(normKw(k.keyword)));
-                            return (
-                            <div className="mt-2 rounded-lg border border-[#ddd6fe] bg-[#faf5ff] p-2">
-                                <div className="mb-1 text-[11px] font-semibold text-[#6d28d9]">정확 인기탭 결과 — 진입한 키워드 중 발행할 것을 고르세요(복수 선택). 필요없는 건 × 로 제외.</div>
-                                {fresh.length === 0 ? (
-                                    <div className="py-2 text-center text-[12px] text-[#94a3b8]">{used.length ? '새로운 키워드가 없습니다(모두 이미 사용·발행함).' : '인기탭 잡힌 키워드가 없습니다.'}</div>
-                                ) : (
-                                    <div className="grid max-h-72 gap-1.5 overflow-y-auto">
-                                        {fresh.map((k) => {
-                                            const picked = kwPicked.some((p) => p.keyword === k.keyword);
-                                            return (
-                                            <div key={k.keyword} className={`rounded border p-2 ${picked ? 'border-[#4338ca] bg-[#eef2ff] ring-1 ring-[#4338ca]' : 'border-[#eef0f2] bg-white'}`}>
-                                                <div className="flex items-center gap-2 text-[12px]">
-                                                    <label className="flex cursor-pointer items-center gap-1.5 font-bold text-[#4338ca]">
-                                                        <input type="checkbox" checked={picked} onChange={() => togglePick(k)} className="h-3.5 w-3.5 accent-[#4338ca]" />
-                                                        {k.keyword}
-                                                    </label>
-                                                    {k.volume != null ? <span className="text-[#64748b]">검색량 {k.volume.toLocaleString()}</span> : null}
-                                                    {k.theme ? <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px] text-[#6d28d9]">{k.theme}</span> : null}
-                                                    <button type="button" onClick={() => hideKw(k.keyword)} className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-[13px] text-[#cbd5e1] hover:bg-[#fee2e2] hover:text-[#dc2626]" title="이 키워드 제외">×</button>
-                                                </div>
-                                                {k.cafes?.length ? (
-                                                    <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-[#64748b]">
-                                                        {k.cafes.slice(0, 5).map((c, j) => (
-                                                            <span key={j} className="rounded bg-[#f1f5f9] px-1.5 py-0.5">{c.rank}위 {c.who}</span>
-                                                        ))}
-                                                    </div>
-                                                ) : null}
-                                            </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                                {used.length ? (
-                                    <div className="mt-1.5 rounded border border-dashed border-[#e2e8f0] bg-white/60 p-1.5">
-                                        <div className="mb-1 text-[10px] font-semibold text-[#94a3b8]">이미 사용·발행한 키워드 {used.length}개 — 중복 방지로 제외됨</div>
-                                        <div className="flex flex-wrap gap-1">
-                                            {used.map((k) => (
-                                                <span key={k.keyword} className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[10px] text-[#94a3b8] line-through">{k.keyword}</span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ) : null}
-                                {kwResult.length >= 10 && !kwExpanded ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => void runPlaceScan(50)}
-                                        disabled={kwLoading}
-                                        className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50"
-                                        title="후보 키워드를 더 깊이 스캔합니다(최대 50개, 수 분 소요)"
-                                    >
-                                        {kwLoading ? '전체 스캔 중… (수 분 소요)' : '더 보기 — 인기탭 진입 키워드 최대 50개 스캔'}
-                                    </button>
-                                ) : null}
-                                {kwExpanded ? <div className="mt-1 text-center text-[11px] text-[#94a3b8]">전체 {kwResult.length}개 · 후보 풀 상한까지 스캔됨</div> : null}
-                            </div>
-                            );
-                        })()}
+                        {isKw ? kwPanel : null}
                     </div>
                     {!isKw ? (
                         <div className="md:col-span-2">
@@ -446,9 +476,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <div className="flex gap-2">
                             <input className={inputCls} value={form.keyword} onChange={(e) => set('keyword', e.target.value)} placeholder={isKw ? '예: 광교 횟집' : '예: 입주청소 · 상가청소'} />
                             {!isKw ? (
-                                <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
-                                    {volLoading ? '조회 중…' : '인기글 조회'}
-                                </button>
+                                <>
+                                    <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
+                                        {volLoading ? '조회 중…' : '인기글 조회'}
+                                    </button>
+                                    <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50" title="선택 지역(서울/경기/인천)의 모든 동 × 제품키워드로 발행 대상 키워드 생성">
+                                        {kwLoading ? '생성 중…' : '지역 키워드 생성'}
+                                    </button>
+                                </>
                             ) : null}
                         </div>
                         {volErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{volErr}</p>}
@@ -481,6 +516,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 )}
                             </div>
                         )}
+                        {!isKw ? kwPanel : null}
                     </div>
                     <div>
                         <label className={labelCls}>미션 시작일</label>

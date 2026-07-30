@@ -5,6 +5,17 @@ import { supabase } from '../lib/supabase';
 export type KwCafe = { rank: number; who: string; kind?: string; title?: string; article?: string };
 export type KwResult = { keyword: string; volume?: number; theme?: string; cafes: KwCafe[] };
 
+// 지역형 고정 동 마스터 조회(cafe_region_dong). sidos=선택 시도(서울/경기/인천). 기본은 '동'만(읍/면 제외).
+export type RegionDong = { sido: string; gu: string; dong: string };
+export async function getRegionDongs(sidos: string[], dongOnly = true): Promise<RegionDong[]> {
+    if (!sidos.length) return [];
+    const { data } = await supabase.from('cafe_region_dong')
+        .select('sido,gu,dong').in('sido', sidos).order('gu').order('dong').limit(2000);
+    let rows = (data ?? []) as RegionDong[];
+    if (dongOnly) rows = rows.filter((r) => r.dong.endsWith('동'));
+    return rows;
+}
+
 // 큐 등록. target=워커가 인기글 진입 키워드를 몇 개 찾을 때까지 스캔할지(찾으면 멈춤). regions 기본 수도권. status는 반드시 'queued'(워커가 집는 값).
 export async function enqueuePlaceScan(placeUrl: string, target = 10, regions = '서울,경기,인천') {
     const { data: u } = await supabase.auth.getUser();
