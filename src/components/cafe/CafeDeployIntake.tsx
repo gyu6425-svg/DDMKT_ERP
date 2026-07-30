@@ -104,18 +104,28 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const removeFile = (g: Grp, i: number) => setFiles((f) => ({ ...f, [g]: f[g].filter((_, j) => j !== i) }));
     const totalFiles = files.main.length + files.real.length + files.banner.length;
 
-    // 인기글 조회 — 키워드(업종) → 검색광고 keywordstool(검색량 API). 차단 0·즉시(순수 웹).
+    // 인기글 조회 — 지역형=키워드→검색량 / 키워드형=플레이스주소→업체명 추출→검색량. 차단 0·즉시(순수 웹).
     const [volLoading, setVolLoading] = useState(false);
     const [vol, setVol] = useState<{ keyword: string; pc: number; mobile: number; total: number }[] | null>(null);
     const [volErr, setVolErr] = useState('');
+    const [volName, setVolName] = useState(''); // 키워드형: 추출된 업체명
     const lookupVolume = async () => {
-        const q = (form.keyword || '').trim();
-        if (!q) { setVolErr('키워드(업종)를 입력하세요. 예: 광교 횟집'); setVol(null); return; }
-        setVolErr(''); setVolLoading(true); setVol(null);
+        let apiUrl: string;
+        if (form.deploy_type === '키워드형') {
+            const u = (form.url || '').trim();
+            if (!u) { setVolErr('플레이스 주소를 입력하세요.'); setVol(null); return; }
+            apiUrl = `https://ddmkt-erp.pages.dev/api/place-keywords?url=${encodeURIComponent(u)}`;
+        } else {
+            const q = (form.keyword || '').trim();
+            if (!q) { setVolErr('제품 키워드를 입력하세요. 예: 입주청소'); setVol(null); return; }
+            apiUrl = `https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(q)}`;
+        }
+        setVolErr(''); setVolName(''); setVolLoading(true); setVol(null);
         try {
-            const res = await fetch(`https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(q)}`);
+            const res = await fetch(apiUrl);
             const d = await res.json();
             if (!res.ok) throw new Error(d.error || '조회 실패');
+            if (d.name) setVolName(d.name);
             setVol((d.keywords || []).slice(0, 20));
         } catch (e) {
             setVolErr(e instanceof Error ? e.message : '조회 실패');
@@ -187,8 +197,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     </div>
                     <div className="md:col-span-2">
                         <label className={labelCls}>{isKw ? '플레이스 주소 (URL) *' : '홈페이지 (선택)'}</label>
-                        <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder={isKw ? 'https://naver.me/... 또는 place.naver.com/...' : 'www.homepage.com'} />
-                        {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">플레이스 주소를 넣으면 그 업체 기반으로 키워드를 발굴합니다.</p> : null}
+                        <div className="flex gap-2">
+                            <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder={isKw ? 'https://naver.me/... 또는 place.naver.com/...' : 'www.homepage.com'} />
+                            {isKw ? (
+                                <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
+                                    {volLoading ? '조회 중…' : '인기글 조회'}
+                                </button>
+                            ) : null}
+                        </div>
+                        {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">플레이스 주소를 넣고 조회하면 그 업체명 기반으로 키워드·검색량을 발굴합니다.</p> : null}
                     </div>
                     {!isKw ? (
                         <div className="md:col-span-2">
@@ -207,14 +224,16 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <label className={labelCls}>{isKw ? '키워드' : '제품 키워드 (업종)'}</label>
                         <div className="flex gap-2">
                             <input className={inputCls} value={form.keyword} onChange={(e) => set('keyword', e.target.value)} placeholder={isKw ? '예: 광교 횟집' : '예: 입주청소 · 상가청소'} />
-                            <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
-                                {volLoading ? '조회 중…' : '인기글 조회'}
-                            </button>
+                            {!isKw ? (
+                                <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
+                                    {volLoading ? '조회 중…' : '인기글 조회'}
+                                </button>
+                            ) : null}
                         </div>
                         {volErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{volErr}</p>}
                         {vol && (
                             <div className="mt-2 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2">
-                                <div className="mb-1 text-[11px] font-semibold text-[#64748b]">연관 키워드 · 월 검색량 (많은 순) — 검색량이 큰 키워드가 노출 가치가 높습니다</div>
+                                <div className="mb-1 text-[11px] font-semibold text-[#64748b]">{volName ? `업체: ${volName} · ` : ''}연관 키워드 · 월 검색량 (많은 순) — 검색량이 큰 키워드가 노출 가치가 높습니다</div>
                                 {vol.length === 0 ? (
                                     <div className="py-2 text-center text-[12px] text-[#94a3b8]">결과 없음</div>
                                 ) : (
