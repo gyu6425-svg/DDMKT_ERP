@@ -3,6 +3,7 @@ import {
     submitCafeDeployRequest,
     listCafeDeployRequests,
     listDeployCredentials,
+    getClientPublishedKeywords,
     uploadDeployPhoto,
     signedDeployUrls,
     type CafeDeployRequest,
@@ -87,6 +88,18 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     };
     useEffect(reload, [clientId]);
 
+    // '이미 사용' 키워드 집합 갱신 — 과거 접수의 selected_keywords(체크) + 발행 posts(cafe_rank_posts).
+    useEffect(() => {
+        let alive = true;
+        const checked = rows.flatMap((r) => (r.selected_keywords ?? []).map((p) => p.keyword));
+        void (async () => {
+            const published = clientId ? await getClientPublishedKeywords(clientId) : [];
+            if (!alive) return;
+            setUsedKw(new Set([...checked, ...published].map(normKw).filter(Boolean)));
+        })();
+        return () => { alive = false; };
+    }, [rows, clientId]);
+
     const set = <K extends keyof CafeDeployInput>(k: K, v: CafeDeployInput[K]) =>
         setForm((f) => ({ ...f, [k]: v }));
     // 접수 유형 — 지역형(지역+제품키워드) / 키워드형(플레이스 주소 기반)
@@ -124,6 +137,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setKwHidden((prev) => (prev.includes(kw) ? prev : [...prev, kw]));
         setKwPicked((prev) => prev.filter((p) => p.keyword !== kw)); // 숨기면 선택도 해제
     };
+    // 이 업체가 이미 체크(과거 접수 selected_keywords)했거나 카페에 발행(cafe_rank_posts)한 키워드 집합.
+    //   재스캔 시 중복 제외. 공백만 정규화(다른 키워드는 구분 유지).
+    const [usedKw, setUsedKw] = useState<Set<string>>(new Set());
+    const normKw = (s: string) => (s || '').trim().replace(/\s+/g, ' ');
     // target=10 기본(빠름). '더 보기'로 30까지 올려 후보 풀 전체를 훑는다(2~3분 소요).
     const runPlaceScan = async (target = 10) => {
         const u = (form.url || '').trim();
@@ -261,14 +278,18 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 </div>
                             </div>
                         ) : null}
-                        {kwResult && (
+                        {kwResult && (() => {
+                            const visible = kwResult.filter((k) => !kwHidden.includes(k.keyword));
+                            const fresh = visible.filter((k) => !usedKw.has(normKw(k.keyword)));
+                            const used = visible.filter((k) => usedKw.has(normKw(k.keyword)));
+                            return (
                             <div className="mt-2 rounded-lg border border-[#ddd6fe] bg-[#faf5ff] p-2">
                                 <div className="mb-1 text-[11px] font-semibold text-[#6d28d9]">정확 인기탭 결과 — 진입한 키워드 중 발행할 것을 고르세요(복수 선택). 필요없는 건 × 로 제외.</div>
-                                {kwResult.filter((k) => !kwHidden.includes(k.keyword)).length === 0 ? (
-                                    <div className="py-2 text-center text-[12px] text-[#94a3b8]">인기탭 잡힌 키워드가 없습니다.</div>
+                                {fresh.length === 0 ? (
+                                    <div className="py-2 text-center text-[12px] text-[#94a3b8]">{used.length ? '새로운 키워드가 없습니다(모두 이미 사용·발행함).' : '인기탭 잡힌 키워드가 없습니다.'}</div>
                                 ) : (
                                     <div className="grid max-h-72 gap-1.5 overflow-y-auto">
-                                        {kwResult.filter((k) => !kwHidden.includes(k.keyword)).map((k) => {
+                                        {fresh.map((k) => {
                                             const picked = kwPicked.some((p) => p.keyword === k.keyword);
                                             return (
                                             <div key={k.keyword} className={`rounded border p-2 ${picked ? 'border-[#4338ca] bg-[#eef2ff] ring-1 ring-[#4338ca]' : 'border-[#eef0f2] bg-white'}`}>
@@ -293,6 +314,16 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         })}
                                     </div>
                                 )}
+                                {used.length ? (
+                                    <div className="mt-1.5 rounded border border-dashed border-[#e2e8f0] bg-white/60 p-1.5">
+                                        <div className="mb-1 text-[10px] font-semibold text-[#94a3b8]">이미 사용·발행한 키워드 {used.length}개 — 중복 방지로 제외됨</div>
+                                        <div className="flex flex-wrap gap-1">
+                                            {used.map((k) => (
+                                                <span key={k.keyword} className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[10px] text-[#94a3b8] line-through">{k.keyword}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
                                 {kwResult.length >= 10 && !kwExpanded ? (
                                     <button
                                         type="button"
@@ -306,7 +337,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 ) : null}
                                 {kwExpanded ? <div className="mt-1 text-center text-[11px] text-[#94a3b8]">전체 {kwResult.length}개 · 후보 풀 상한까지 스캔됨</div> : null}
                             </div>
-                        )}
+                            );
+                        })()}
                     </div>
                     {!isKw ? (
                         <div className="md:col-span-2">

@@ -148,6 +148,16 @@ export async function submitCafeDeployRequest(clientId: string, input: CafeDeplo
     return { error: null };
 }
 
+// 이 업체(client)가 이미 카페에 발행한 키워드 목록 — cafe_rank_posts(이 client의 카페계정들) 기준.
+//   '정확 인기탭 분석' 재스캔 시 중복 제외에 사용. selected_keywords(체크한 것)와 합쳐 '이미 사용' 집합 구성.
+export async function getClientPublishedKeywords(clientId: string): Promise<string[]> {
+    const { data: accs } = await supabase.from('cafe_accounts').select('id').eq('client_id', clientId);
+    const ids = (accs ?? []).map((a) => (a as { id: string }).id);
+    if (!ids.length) return [];
+    const { data: posts } = await supabase.from('cafe_rank_posts').select('keyword').in('cafe_account_id', ids);
+    return (posts ?? []).map((p) => (p as { keyword: string | null }).keyword ?? '').filter(Boolean);
+}
+
 // 자격증명 조회(고객=본인 / 내부=전체). UI 에서 비번은 마스킹해서 표시할 것.
 export async function listDeployCredentials(clientId?: string) {
     let q = supabase.from('cafe_deploy_credentials').select('*').order('created_at', { ascending: false });
