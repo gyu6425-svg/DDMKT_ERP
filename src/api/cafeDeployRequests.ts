@@ -4,6 +4,26 @@ import { supabase } from '../lib/supabase';
 //   전제: docs/cafe-deploy-requests.sql + cafe-deploy-photos.sql. 금액/정산은 계약관리 별도.
 export const CAFE_DEPLOY_BUCKET = 'deploy-intake';
 
+// 배포 상태 흐름: 접수 → 결제대기(승인) → 세팅중 → 완료
+export const DEPLOY_STATUSES = ['접수', '결제대기', '세팅중', '완료'] as const;
+
+// 결제(입금) 안내 — 승인 시 고객ERP에 노출. 1건 발행 = 1토큰 = 15,000원.
+//   ⚠️ 아래 계좌는 예시값 — 실제 입금계좌로 교체 필요.
+export const PAYMENT_INFO = {
+    unitPrice: 15000,
+    bank: '국민은행',
+    account: '000000-00-000000',
+    holder: '디디마케팅',
+    method: '계좌이체(무통장 입금)',
+    note: '입금자명을 업체명으로 남겨주세요. 입금 확인 후 발행이 시작됩니다.',
+};
+
+// 이 접수의 결제 금액(원) = 발행 건수 × 15,000. total_count 없으면 선택 키워드 수로 대체.
+export function deployAmountKRW(r: { total_count?: number | null; selected_keywords?: { keyword: string }[] | null }): number {
+    const n = r.total_count ?? r.selected_keywords?.length ?? 0;
+    return Math.max(0, n) * PAYMENT_INFO.unitPrice;
+}
+
 // 접수 사진 경로 묶음: 최상위 폴더 = client_id.
 export type DeployPhotos = { main: string[]; real: string[]; banner: string[] };
 

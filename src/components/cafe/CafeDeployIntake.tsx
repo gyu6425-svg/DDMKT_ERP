@@ -6,6 +6,8 @@ import {
     getClientPublishedKeywords,
     uploadDeployPhoto,
     signedDeployUrls,
+    PAYMENT_INFO,
+    deployAmountKRW,
     type CafeDeployRequest,
     type CafeDeployInput,
     type DeployPhotos,
@@ -27,6 +29,7 @@ const GROUPS: { key: Grp; label: string }[] = [
 const PRODUCT_FIXED = '카페';
 const STATUS_STYLE: Record<string, string> = {
     접수: 'bg-[#dbeafe] text-[#1e40af]',
+    결제대기: 'bg-[#ffedd5] text-[#9a3412]',
     세팅중: 'bg-[#fef9c3] text-[#854d0e]',
     완료: 'bg-[#dcfce7] text-[#166534]',
 };
@@ -223,8 +226,41 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const inputCls = 'h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm outline-none focus:border-[#4338ca]';
     const labelCls = 'mb-1 block text-[13px] font-semibold text-[#334155]';
 
+    const pendingPay = rows.filter((r) => r.status === '결제대기');
+
     return (
         <div className="grid gap-5">
+            {/* 결제 안내 알림 — 접수가 '승인(결제대기)'되면 노출 */}
+            {pendingPay.length ? (
+                <div className="rounded-xl border-2 border-[#fb923c] bg-[#fff7ed] p-5">
+                    <div className="mb-1 flex items-center gap-2">
+                        <span className="text-lg">🔔</span>
+                        <span className="text-[15px] font-bold text-[#9a3412]">결제 안내 — 접수가 승인되었습니다</span>
+                    </div>
+                    <p className="mb-3 mt-0 text-[13px] text-[#7c2d12]">아래 계좌로 입금해 주시면 확인 후 발행이 시작됩니다. <b>발행 1건 = {PAYMENT_INFO.unitPrice.toLocaleString('ko-KR')}원</b></p>
+                    <div className="grid gap-2">
+                        {pendingPay.map((r) => {
+                            const amt = deployAmountKRW(r);
+                            return (
+                                <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[#fed7aa] bg-white px-3 py-2 text-[13px]">
+                                    <span className="font-bold text-[#334155]">{r.company_name}</span>
+                                    <span className="text-[#64748b]">발행 {r.total_count ?? r.selected_keywords?.length ?? '-'}건</span>
+                                    <span className="ml-auto font-bold text-[#c2410c]">{amt > 0 ? `결제금액 ₩${amt.toLocaleString('ko-KR')}` : '결제금액 담당자 안내'}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div className="mt-3 rounded-lg bg-white/70 p-3 text-[13px]">
+                        <div className="font-semibold text-[#9a3412]">입금 계좌</div>
+                        <div className="mt-0.5 text-[#334155]">
+                            <b>{PAYMENT_INFO.bank} {PAYMENT_INFO.account}</b> <span className="text-[#64748b]">(예금주 {PAYMENT_INFO.holder})</span>
+                        </div>
+                        <div className="mt-0.5 text-[12px] text-[#64748b]">결제 방법: {PAYMENT_INFO.method} · {PAYMENT_INFO.note}</div>
+                        <div className="mt-1 text-[12px] text-[#9a3412]">입금 후 <b>‘충전 내역’ 탭</b>에서 충전 요청을 눌러주시면 담당자가 확인하고 발행 토큰을 지급합니다.</div>
+                    </div>
+                </div>
+            ) : null}
+
             {/* 접수 폼 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
                 <div className="mb-1 text-[15px] font-bold text-[#0f172a]">카페 배포 접수</div>

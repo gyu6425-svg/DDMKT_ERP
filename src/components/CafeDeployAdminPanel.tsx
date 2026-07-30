@@ -8,10 +8,11 @@ import {
     type DeployCredential,
 } from '../api/cafeDeployRequests';
 
-// 관리자 — 카페 배포 접수 관리(전 고객). 접수 내용·사진·네이버계정·상태(접수→세팅중→완료)를 한 화면에서.
-const STATUSES = ['접수', '세팅중', '완료'];
+// 관리자 — 카페 배포 접수 관리(전 고객). 접수 내용·사진·네이버계정·상태(접수→결제대기→세팅중→완료)를 한 화면에서.
+//   '승인' = 접수→결제대기. 이 순간 고객ERP에 결제(입금계좌) 안내가 노출된다.
+const STATUSES = ['접수', '결제대기', '세팅중', '완료'];
 const ST_STYLE: Record<string, string> = {
-    접수: 'bg-[#dbeafe] text-[#1e40af]', 세팅중: 'bg-[#fef9c3] text-[#854d0e]', 완료: 'bg-[#dcfce7] text-[#166534]',
+    접수: 'bg-[#dbeafe] text-[#1e40af]', 결제대기: 'bg-[#ffedd5] text-[#9a3412]', 세팅중: 'bg-[#fef9c3] text-[#854d0e]', 완료: 'bg-[#dcfce7] text-[#166534]',
 };
 
 export default function CafeDeployAdminPanel() {
@@ -120,9 +121,16 @@ export default function CafeDeployAdminPanel() {
                                         </td>
                                         <td className="whitespace-nowrap px-2 py-2">{r.two_factor ? <span className="font-bold text-[#b45309]">사용</span> : '-'}</td>
                                         <td className="whitespace-nowrap px-2 py-2">
-                                            <select className={`rounded-full px-2 py-1 text-xs font-bold ${ST_STYLE[r.status] ?? 'bg-[#f1f5f9] text-[#64748b]'}`} value={r.status} onChange={(e) => void changeStatus(r.id, e.target.value)}>
-                                                {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                                            </select>
+                                            <div className="flex items-center gap-1.5">
+                                                <select className={`rounded-full px-2 py-1 text-xs font-bold ${ST_STYLE[r.status] ?? 'bg-[#f1f5f9] text-[#64748b]'}`} value={r.status} onChange={(e) => void changeStatus(r.id, e.target.value)}>
+                                                    {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                                                </select>
+                                                {r.status === '접수' ? (
+                                                    <button type="button" onClick={() => void changeStatus(r.id, '결제대기')}
+                                                        className="rounded-md bg-[#ea580c] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#c2410c]"
+                                                        title="승인 → 고객ERP에 입금/결제 안내가 노출됩니다">승인</button>
+                                                ) : null}
+                                            </div>
                                         </td>
                                     </tr>
                                 );
