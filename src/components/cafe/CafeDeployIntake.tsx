@@ -141,7 +141,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   재스캔 시 중복 제외. 공백만 정규화(다른 키워드는 구분 유지).
     const [usedKw, setUsedKw] = useState<Set<string>>(new Set());
     const normKw = (s: string) => (s || '').trim().replace(/\s+/g, ' ');
-    // target=10 기본(빠름). '더 보기'로 30까지 올려 후보 풀 전체를 훑는다(2~3분 소요).
+    // target=10 기본(빠름). '더 보기'로 50까지 올려 후보 풀 전체를 훑는다(수 분 소요).
+    //   실제 개수는 그 플레이스의 인기글 진입 키워드 수가 상한(지역형=많음, 맛집 니치=적음).
     const runPlaceScan = async (target = 10) => {
         const u = (form.url || '').trim();
         if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
@@ -150,7 +151,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { id, error } = await enqueuePlaceScan(u, target, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
             if (error || !id) throw new Error(error?.message || '요청 실패');
-            const { result } = await pollPlaceScan(id);
+            // 대량(50개) 스캔은 수 분 걸릴 수 있어 폴링 타임아웃을 넉넉히(10분).
+            const { result } = await pollPlaceScan(id, { timeoutSec: target > 10 ? 600 : 180 });
             setKwResult(result);
             if (target > 10) setKwExpanded(true);
         } catch (e) {
@@ -327,12 +329,12 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 {kwResult.length >= 10 && !kwExpanded ? (
                                     <button
                                         type="button"
-                                        onClick={() => void runPlaceScan(30)}
+                                        onClick={() => void runPlaceScan(50)}
                                         disabled={kwLoading}
                                         className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50"
-                                        title="후보 키워드를 더 깊이 스캔합니다(2~3분 소요)"
+                                        title="후보 키워드를 더 깊이 스캔합니다(최대 50개, 수 분 소요)"
                                     >
-                                        {kwLoading ? '전체 스캔 중… (2~3분)' : '더 보기 — 인기탭 진입 키워드 전체 스캔'}
+                                        {kwLoading ? '전체 스캔 중… (수 분 소요)' : '더 보기 — 인기탭 진입 키워드 최대 50개 스캔'}
                                     </button>
                                 ) : null}
                                 {kwExpanded ? <div className="mt-1 text-center text-[11px] text-[#94a3b8]">전체 {kwResult.length}개 · 후보 풀 상한까지 스캔됨</div> : null}
