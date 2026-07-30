@@ -113,6 +113,17 @@ _REGION_WORDS |= set(
 
 _REGION_TOK = re.compile(r"[가-힣]{2,4}(시|군|구|동|읍|면|리)$")
 
+# 요리/레시피/판매 의도 — 식당 타겟 아님(항상 제외).
+_OFFTOPIC = (
+    "레시피", "만들기", "만드는법", "끓이는법", "끓이는", "육수", "소스", "양념", "재료", "손질",
+    "밀키트", "택배", "배달", "세트", "보관", "냉동", "도구", "다이어트", "칼로리", "효능",
+)
+
+
+def is_offtopic(kw):
+    """요리/레시피/판매 의도 키워드면 True(식당 타겟 제외)."""
+    return any(s in kw for s in _OFFTOPIC)
+
 
 def is_regional(kw):
     # 접미 행정구역은 '공백으로 분리된 place 토큰'에만 적용(역삼동 맛집). 붙은 복합어(배낚시·물회)는
@@ -341,7 +352,7 @@ def searchad_candidates(root, min_total=100, limit=25):
             continue
         if root not in kw:  # 온-토픽만(업종 코어 포함) — 배낚시→가볼만한곳 같은 이탈 차단
             continue
-        if is_brandish(kw) or _nickish(root, kw):
+        if is_brandish(kw) or _nickish(root, kw) or is_offtopic(kw):  # 요리/레시피/판매 제외
             continue
         out.append((kw, tot))
     return out[:limit]
@@ -629,7 +640,8 @@ def scan_until(candidates, target, cap=None, verbose=True):
         r = classify(kw)
         if not cached:
             live += 1
-        if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산"):
+        # 요리·레시피 인기글은 식당 타겟 아님 → 발견에서 제외.
+        if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
             found.append(r)
             if verbose:
                 occ = ", ".join(f"{x['rank']}위:{x['who']}" for x in r["rows"] if x["kind"] == "카페") or "(카페없음)"
@@ -783,7 +795,7 @@ def main():
             print(f"  계층 {len(hier)}개(넓은→좁은): {', '.join(hier[:8])}…", flush=True)
         base = []
         for k in hier + cats + info["keywords"]:  # 계층 먼저(넓은→좁은) → 플레이스 키워드
-            if k and not is_brandish(k) and k not in base:
+            if k and not is_brandish(k) and not is_offtopic(k) and k not in base:  # 요리/레시피/판매 제외
                 base.append(k)
         # 검색광고 소싱 — 업종 코어(category+플레이스키워드)별 연관키워드(검색량순·온토픽)로 보강.
         ad_vol = {}
