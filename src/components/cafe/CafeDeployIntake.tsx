@@ -115,16 +115,27 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [kwLoading, setKwLoading] = useState(false);
     const [kwResult, setKwResult] = useState<KwResult[] | null>(null);
     const [kwErr, setKwErr] = useState('');
-    const runPlaceScan = async () => {
+    const [kwExpanded, setKwExpanded] = useState(false); // '더 보기'로 전체(target 상향) 스캔 완료 여부
+    const [kwHidden, setKwHidden] = useState<string[]>([]); // X로 제외한 키워드(화면에서만 숨김)
+    const [kwPicked, setKwPicked] = useState<KwResult[]>([]); // 고객이 고른 키워드(발행 대상 → 접수에 전달)
+    const togglePick = (k: KwResult) =>
+        setKwPicked((prev) => (prev.some((p) => p.keyword === k.keyword) ? prev.filter((p) => p.keyword !== k.keyword) : [...prev, k]));
+    const hideKw = (kw: string) => {
+        setKwHidden((prev) => (prev.includes(kw) ? prev : [...prev, kw]));
+        setKwPicked((prev) => prev.filter((p) => p.keyword !== kw)); // 숨기면 선택도 해제
+    };
+    // target=10 기본(빠름). '더 보기'로 30까지 올려 후보 풀 전체를 훑는다(2~3분 소요).
+    const runPlaceScan = async (target = 10) => {
         const u = (form.url || '').trim();
         if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
-        setKwErr(''); setKwResult(null); setKwLoading(true);
+        setKwErr(''); setKwLoading(true);
+        if (target <= 10) { setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]); }
         try {
-            // target=10 — 워커가 인기글 진입 키워드를 10개 찾을 때까지 스캔(3이면 3개에서 멈춤). 그만큼 시간은 더 걸린다.
-            const { id, error } = await enqueuePlaceScan(u, 10, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
+            const { id, error } = await enqueuePlaceScan(u, target, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
             if (error || !id) throw new Error(error?.message || '요청 실패');
             const { result } = await pollPlaceScan(id);
             setKwResult(result);
+            if (target > 10) setKwExpanded(true);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '분석 실패');
         } finally {
@@ -178,11 +189,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             return setMsg('사진 업로드 실패: ' + (e instanceof Error ? e.message : ''));
         }
         const summary = GROUPS.map((g) => (photos[g.key].length ? `${g.label} ${photos[g.key].length}` : '')).filter(Boolean).join(' · ');
-        const { error } = await submitCafeDeployRequest(clientId, { ...form, photos, photo_provided: summary });
+        const picks = kwPicked.map((p) => ({ keyword: p.keyword, volume: p.volume ?? null, theme: p.theme ?? null }));
+        const { error } = await submitCafeDeployRequest(clientId, { ...form, photos, photo_provided: summary, selected_keywords: picks });
         setBusy(false);
         if (error) return setMsg(`접수 실패: ${error.message}`);
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
         setForm(empty); setFiles({ main: [], real: [], banner: [] });
+        setKwResult(null); setKwPicked([]); setKwHidden([]); setKwExpanded(false);
         reload();
     };
 
@@ -234,20 +247,39 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         </div>
                         {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">인기글 조회=업체명 기반 검색량(즉시). 정확 인기탭 분석=실제 인기글 섹션 확인(큐 처리, 수초~수십초).</p> : null}
                         {kwErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{kwErr}</p>}
+                        {kwPicked.length ? (
+                            <div className="mt-2 rounded-lg border border-[#c7d2fe] bg-[#eef2ff] p-2">
+                                <div className="mb-1 text-[11px] font-semibold text-[#4338ca]">선택한 발행 키워드 {kwPicked.length}개 — 접수 시 함께 전달됩니다</div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {kwPicked.map((p) => (
+                                        <span key={p.keyword} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
+                                            {p.keyword}
+                                            {p.volume != null ? <span className="text-[10px] font-normal text-[#94a3b8]">{p.volume.toLocaleString()}</span> : null}
+                                            <button type="button" onClick={() => togglePick(p)} className="text-[#818cf8] hover:text-[#4338ca]" title="선택 해제">×</button>
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : null}
                         {kwResult && (
                             <div className="mt-2 rounded-lg border border-[#ddd6fe] bg-[#faf5ff] p-2">
-                                <div className="mb-1 text-[11px] font-semibold text-[#6d28d9]">정확 인기탭 결과 — 인기글 섹션에 실제 진입한 키워드/카페</div>
-                                {kwResult.length === 0 ? (
+                                <div className="mb-1 text-[11px] font-semibold text-[#6d28d9]">정확 인기탭 결과 — 진입한 키워드 중 발행할 것을 고르세요(복수 선택). 필요없는 건 × 로 제외.</div>
+                                {kwResult.filter((k) => !kwHidden.includes(k.keyword)).length === 0 ? (
                                     <div className="py-2 text-center text-[12px] text-[#94a3b8]">인기탭 잡힌 키워드가 없습니다.</div>
                                 ) : (
                                     <div className="grid max-h-72 gap-1.5 overflow-y-auto">
-                                        {kwResult.map((k, i) => (
-                                            <div key={i} className="rounded border border-[#eef0f2] bg-white p-2">
+                                        {kwResult.filter((k) => !kwHidden.includes(k.keyword)).map((k) => {
+                                            const picked = kwPicked.some((p) => p.keyword === k.keyword);
+                                            return (
+                                            <div key={k.keyword} className={`rounded border p-2 ${picked ? 'border-[#4338ca] bg-[#eef2ff] ring-1 ring-[#4338ca]' : 'border-[#eef0f2] bg-white'}`}>
                                                 <div className="flex items-center gap-2 text-[12px]">
-                                                    <span className="font-bold text-[#4338ca]">{k.keyword}</span>
+                                                    <label className="flex cursor-pointer items-center gap-1.5 font-bold text-[#4338ca]">
+                                                        <input type="checkbox" checked={picked} onChange={() => togglePick(k)} className="h-3.5 w-3.5 accent-[#4338ca]" />
+                                                        {k.keyword}
+                                                    </label>
                                                     {k.volume != null ? <span className="text-[#64748b]">검색량 {k.volume.toLocaleString()}</span> : null}
                                                     {k.theme ? <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px] text-[#6d28d9]">{k.theme}</span> : null}
-                                                    <button type="button" onClick={() => set('keyword', k.keyword)} className="ml-auto text-[11px] text-[#4338ca] hover:underline">선택</button>
+                                                    <button type="button" onClick={() => hideKw(k.keyword)} className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-[13px] text-[#cbd5e1] hover:bg-[#fee2e2] hover:text-[#dc2626]" title="이 키워드 제외">×</button>
                                                 </div>
                                                 {k.cafes?.length ? (
                                                     <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-[#64748b]">
@@ -257,9 +289,22 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                     </div>
                                                 ) : null}
                                             </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 )}
+                                {kwResult.length >= 10 && !kwExpanded ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => void runPlaceScan(30)}
+                                        disabled={kwLoading}
+                                        className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50"
+                                        title="후보 키워드를 더 깊이 스캔합니다(2~3분 소요)"
+                                    >
+                                        {kwLoading ? '전체 스캔 중… (2~3분)' : '더 보기 — 인기탭 진입 키워드 전체 스캔'}
+                                    </button>
+                                ) : null}
+                                {kwExpanded ? <div className="mt-1 text-center text-[11px] text-[#94a3b8]">전체 {kwResult.length}개 · 후보 풀 상한까지 스캔됨</div> : null}
                             </div>
                         )}
                     </div>
@@ -435,7 +480,16 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                 <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.deploy_type === '키워드형' ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-[#e0e7ff] text-[#4338ca]'}`}>{r.deploy_type ?? '지역형'}</span>
                                                 {!r.deploy_type || r.deploy_type === '지역형' ? (r.region_sets?.length ? <div className="mt-0.5 text-[11px] text-[#64748b]">{r.region_sets.join('·')}</div> : null) : null}
                                             </td>
-                                            <td className="whitespace-nowrap px-2 py-2">{r.keyword ?? '-'}</td>
+                                            <td className="px-2 py-2">
+                                                <div className="whitespace-nowrap">{r.keyword ?? '-'}</div>
+                                                {r.selected_keywords?.length ? (
+                                                    <div className="mt-1 flex max-w-[200px] flex-wrap gap-1">
+                                                        {r.selected_keywords.map((p) => (
+                                                            <span key={p.keyword} className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#4338ca]" title={p.volume != null ? `검색량 ${p.volume.toLocaleString()}` : ''}>{p.keyword}</span>
+                                                        ))}
+                                                    </div>
+                                                ) : null}
+                                            </td>
                                             <td className="whitespace-nowrap px-2 py-2">{r.mission_start ?? '-'}</td>
                                             <td className="px-2 py-2 text-center">{r.daily_count ?? '-'}</td>
                                             <td className="px-2 py-2 text-center">{r.total_count ?? '-'}</td>

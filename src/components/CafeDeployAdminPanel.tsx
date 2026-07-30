@@ -83,7 +83,16 @@ export default function CafeDeployAdminPanel() {
                                             <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.deploy_type === '키워드형' ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-[#e0e7ff] text-[#4338ca]'}`}>{r.deploy_type ?? '지역형'}</span>
                                             {r.region_sets?.length ? <div className="mt-0.5 text-[11px] text-[#64748b]">{r.region_sets.join('·')}</div> : null}
                                         </td>
-                                        <td className="whitespace-nowrap px-2 py-2">{r.keyword ?? '-'}</td>
+                                        <td className="px-2 py-2">
+                                            <div className="whitespace-nowrap">{r.keyword ?? '-'}</div>
+                                            {r.selected_keywords?.length ? (
+                                                <div className="mt-1 flex max-w-[220px] flex-wrap gap-1">
+                                                    {r.selected_keywords.map((p) => (
+                                                        <span key={p.keyword} className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#4338ca]" title={p.theme ? `${p.theme}${p.volume != null ? ` · 검색량 ${p.volume.toLocaleString()}` : ''}` : (p.volume != null ? `검색량 ${p.volume.toLocaleString()}` : '')}>{p.keyword}</span>
+                                                    ))}
+                                                </div>
+                                            ) : null}
+                                        </td>
                                         <td className="max-w-[150px] truncate px-2 py-2" title={r.url ?? ''}>{r.url ? <a className="text-[#2563eb] underline" href={r.url} target="_blank" rel="noreferrer">{r.url}</a> : '-'}</td>
                                         <td className="whitespace-nowrap px-2 py-2">{r.mission_start ?? '-'}</td>
                                         <td className="whitespace-nowrap px-2 py-2 text-center">{r.daily_count ?? '-'}/{r.total_count ?? '-'}</td>

@@ -7,6 +7,9 @@ export const CAFE_DEPLOY_BUCKET = 'deploy-intake';
 // 접수 사진 경로 묶음: 최상위 폴더 = client_id.
 export type DeployPhotos = { main: string[]; real: string[]; banner: string[] };
 
+// 고객이 '정확 인기탭 분석'에서 골라 우리에게 전달하는 키워드(발행 대상). 전제: docs/cafe-deploy-selected-keywords.sql
+export type PickedKeyword = { keyword: string; volume?: number | null; theme?: string | null };
+
 export type CafeDeployRequest = {
     id: string;
     created_at: string;
@@ -27,6 +30,7 @@ export type CafeDeployRequest = {
     two_factor: boolean | null;
     deploy_type: string | null;       // 지역형 | 키워드형
     region_sets: string[] | null;     // 지역형 선택 지역셋
+    selected_keywords: PickedKeyword[] | null; // 고객이 고른 인기탭 키워드(발행 대상)
 };
 
 // 네이버 계정(민감) — 별도 테이블. UI 는 비번 마스킹.
@@ -60,6 +64,7 @@ export type CafeDeployInput = {
     // 접수 유형
     deploy_type?: string;             // 지역형 | 키워드형
     region_sets?: string[];           // 지역형 선택 지역셋
+    selected_keywords?: PickedKeyword[]; // 고객이 고른 인기탭 키워드(발행 대상)
 };
 
 // 사진 1장 업로드(압축된 Blob) → 저장 경로 반환. 경로 = <client_id>/<batch>/<type>_<n>.jpg
@@ -84,7 +89,7 @@ export async function signedDeployUrls(paths: string[], expiresSec = 3600): Prom
 // 고객: 접수 등록. client_id 는 RLS(my_client_id) 로 검증되므로 값도 함께 넣는다.
 //   네이버 계정(민감)은 별도 테이블 cafe_deploy_credentials 에 저장(접수 행에는 안 넣음).
 export async function submitCafeDeployRequest(clientId: string, input: CafeDeployInput) {
-    const { data, error } = await supabase.from('cafe_deploy_requests').insert({
+    const base = {
         client_id: clientId,
         company_name: input.company_name.trim(),
         url: input.url?.trim() || null,
@@ -102,7 +107,13 @@ export async function submitCafeDeployRequest(clientId: string, input: CafeDeplo
         deploy_type: input.deploy_type || '지역형',
         region_sets: input.region_sets ?? null,
         status: '접수',
-    }).select('id').single();
+    };
+    const withKw = { ...base, selected_keywords: input.selected_keywords?.length ? input.selected_keywords : null };
+    let { data, error } = await supabase.from('cafe_deploy_requests').insert(withKw).select('id').single();
+    // selected_keywords 컬럼 미적용(SQL 미실행) 시 접수가 통째로 깨지지 않도록 그 필드만 빼고 재시도.
+    if (error && /selected_keywords|42703|column/i.test(error.message)) {
+        ({ data, error } = await supabase.from('cafe_deploy_requests').insert(base).select('id').single());
+    }
     if (error) return { error };
     // 네이버 계정(민감) — 입력됐을 때만 별도 테이블에.
     if (input.naver_id?.trim() || input.naver_pw?.trim()) {
