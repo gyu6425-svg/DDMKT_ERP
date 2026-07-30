@@ -9,6 +9,7 @@ import re
 import sys
 import json
 import time
+import random
 import datetime
 import pathlib
 from urllib.parse import quote
@@ -41,8 +42,12 @@ COMPANIES = {
 KEYWORDS = sorted({kw for lst in COMPANIES.values() for kw in lst})
 
 SIDO_ORDER = [a for a in sys.argv[1:] if a in ("서울", "경기", "인천")] or ["서울"]
-GAP = 1.5             # 스캔 간 스로틀(초)
-BLOCK_STOP = 5        # 연속 차단감지 N회면 중단
+# 차단 안 당하게 넉넉하게 — 사람처럼 느리게 + 랜덤 지터 + 주기 휴식.
+GAP_MIN, GAP_MAX = 3.0, 5.0     # 스캔 간 스로틀(초, 랜덤)
+REST_EVERY = 60                 # 이만큼 스캔하면
+REST_MIN, REST_MAX = 45, 90     # 이만큼 길게 쉼(초, 랜덤)
+BLOCK_STOP = 3                  # 연속 차단감지 N회면 중단(보수적)
+BLOCK_COOLDOWN = 120            # 차단감지 시 쿨다운(초)
 DEADLINE = datetime.datetime.now().replace(hour=23, minute=59, second=0, microsecond=0)
 
 
@@ -106,11 +111,11 @@ def main():
         r = p.classify(kw)
         if "차단" in str(r.get("err", "")):
             blocks += 1
-            print(f"[prescan] ⚠ 차단감지 {blocks}/{BLOCK_STOP}: {kw} ({r.get('err')})", flush=True)
+            print(f"[prescan] ⚠ 차단감지 {blocks}/{BLOCK_STOP}: {kw} ({r.get('err')}) — {BLOCK_COOLDOWN}s 쿨다운", flush=True)
             if blocks >= BLOCK_STOP:
                 print("[prescan] ⏹ 연속 차단 — 자동중단(IP 보호)", flush=True)
                 break
-            time.sleep(30)
+            time.sleep(BLOCK_COOLDOWN)
             continue
         blocks = 0
         cache_put(kw, r)
@@ -121,7 +126,13 @@ def main():
         if done % 25 == 0:
             el = time.time() - t0
             print(f"[prescan] {i}/{len(tasks)} · 스캔 {done} · 인기글 {hits} · skip {skipped} · {el/max(done,1):.1f}s/건", flush=True)
-        time.sleep(GAP)
+        # 주기 휴식(사람처럼) — 지속 부하 완화
+        if done % REST_EVERY == 0:
+            rest = random.uniform(REST_MIN, REST_MAX)
+            print(f"[prescan] ⏸ 휴식 {rest:.0f}s (누적 스캔 {done})", flush=True)
+            time.sleep(rest)
+        else:
+            time.sleep(random.uniform(GAP_MIN, GAP_MAX))
     print(f"[prescan] ✅ 종료: 스캔 {done} · 인기글히트 {hits} · skip(캐시) {skipped}", flush=True)
 
 
