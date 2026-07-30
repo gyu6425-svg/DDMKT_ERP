@@ -359,15 +359,24 @@ _ad_cache = {}
 
 
 def searchad_keywords(seed):
-    """검색광고 연관키워드 [{keyword,total,pc,mobile,comp}] (검색량순). 캐시."""
+    """검색광고 연관키워드 [{keyword,total,pc,mobile,comp}] (검색량순). 캐시.
+    빈 응답(엔드포인트 스로틀·429)은 짧게 쉬고 1회 재시도 — 다수 연속호출 시 뒷호출이 0으로
+    떨어지던 문제 완화. 재시도도 비면 캐시하지 않음(다음 기회에 다시 시도)."""
     if seed in _ad_cache:
         return _ad_cache[seed]
-    try:
-        r = requests.get(f"{_AD_ENDPOINT}?q={quote(seed)}", timeout=25)
-        rows = r.json().get("keywords", []) if r.status_code == 200 else []
-    except Exception:
-        rows = []
-    _ad_cache[seed] = rows
+    rows = []
+    for attempt in range(2):
+        try:
+            r = requests.get(f"{_AD_ENDPOINT}?q={quote(seed)}", timeout=25)
+            rows = r.json().get("keywords", []) if r.status_code == 200 else []
+        except Exception:
+            rows = []
+        if rows:
+            break
+        if attempt == 0:
+            c._pause(1.5)
+    if rows:
+        _ad_cache[seed] = rows
     return rows
 
 

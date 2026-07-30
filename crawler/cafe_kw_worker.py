@@ -38,6 +38,10 @@ WID = f"{socket.gethostname()}-{os.getpid()}"
 POLL_SEC = 15
 SCAN_GAP = 2.0  # 스캔 간격(무리없게)
 
+
+def _ts():
+    return time.strftime("%H:%M:%S")
+
 # 수도권 지역 토큰(--regions 서울/경기/인천 처리용)
 _SUDO = set((
     "강남 강동 강북 강서 관악 광진 구로 금천 노원 도봉 동대문 동작 마포 서대문 서초 성동 성북 송파 양천 영등포 용산 은평 종로 중랑 "
@@ -137,15 +141,18 @@ def _candidates(info, provinces, pid, deploy_type):
 
     if kw_type:
         # ── 키워드형: 지역 완전 배제. 제품/니치 키워드만(전국). 지역 계층·주소 조회 안 함. ──
-        own, provinces, hier, narrow = set(), set(), [], set()
+        own, provinces, hier, narrow, city_seeds = set(), set(), [], [], []
     else:
         # ── 지역형: 플레이스 '자기 주소'에서 지역 계층. 업체가 실제 있는 곳이 기준. ──
         road, jibun = p.place_address(pid) if pid else ("", "")
         rh = p.region_hierarchy(road, jibun)                   # [전북도,전북,군산,선유남…]
-        narrow = set(p.region_tokens(road, jibun))             # 시·구·동(광역 제외) — 실질 타깃
-        own = set(t for t in (p.region_tokens(road, jibun) + rh) if t)
+        narrow = p.region_tokens(road, jibun)                  # 시·구·동(광역 제외, 시 우선) — 실질 타깃
+        own = set(t for t in (narrow + rh) if t)
         place_sido = p._sido(road, jibun)                      # '전북','서울','경기'…
         food = any(any(h in c for h in p._FOOD_HINT) for c in cats)
+        # 시 시드 = '{시} {업종}' (바 지역명은 연관어 거의 없음. '군산 맛집'이라야 500여개 반환).
+        broad = "맛집" if food else (cats[0] if cats else "")
+        city_seeds = [f"{t} {broad}" for t in narrow[:2] if broad]
         # 잘못된 지역 기본값 자동보정: 맛집(위치형)은 서비스지역 개념 없음→자기 지역만.
         #   서비스형(청소 등)은 플레이스가 provinces 안이면 서비스지역 유지, 밖이면 자기 지역.
         if food or (place_sido and place_sido not in provinces):
@@ -160,11 +167,27 @@ def _candidates(info, provinces, pid, deploy_type):
                 if " " not in bt:
                     hier.append(f"{rl}{bt}")
 
-    # 검색광고 보강(니치·서비스지역 확장)
     vol = {}
+    # ★ 시(市) 시드를 '가장 먼저' 호출 — hier(지역×업종 직접 생성)어는 searchad 코어엔 안 잡혀
+    #   volume 0 → 정렬에서 밀려 채택조차 안 되던 버그('군산 맛집' 117,700 미스캔). 개별 백필은
+    #   콜 폭주로 스로틀되므로, searchad_keywords('군산') 1콜이 그 도시 키워드 500여개를 한 번에
+    #   주는 걸 이용해 '스로틀 전에' 확보하고 hier 후보 볼륨을 무한 매칭으로 일괄 수확.
+    city_vol = {}
+    for seed in city_seeds:  # '{시} {업종}' 시드 — 코어보다 먼저(스로틀 전 확보)
+        for r in p.searchad_keywords(seed):
+            kw = (r.get("keyword") or "").replace(" ", "")
+            if kw:
+                city_vol[kw] = max(city_vol.get(kw, 0), r.get("total", 0))
+    # 검색광고 보강(니치·서비스지역 확장)
     for core in cores[:8]:
         for kw, tot in p.searchad_candidates(core, min_total=80, limit=40):
             vol[kw] = max(vol.get(kw, 0), tot)
+    # hier 후보에 시 시드 볼륨 백필
+    for k in hier:
+        if vol.get(k, 0) == 0:
+            rv = city_vol.get(k.replace(" ", ""), 0)
+            if rv:
+                vol[k] = rv
     # 후보 통합 + 필터(오프토픽·타지역 컷). 키워드형은 _region_ok가 지역형 키워드를 전부 컷.
     base = []
     for k in hier + cats + info["keywords"]:
@@ -206,9 +229,16 @@ def process(req):
     target = int(req.get("target") or 10)
     cands = _candidates(info, provinces, pid, req.get("deploy_type"))
     found = []
+    seen = set()  # 띄어쓰기 변형(군산 맛집/군산맛집) 중복 스캔·중복 결과 방지
+    t0 = time.time()
+    scraped = 0  # 실제 라이브 스크랩 횟수(캐시 히트 제외) — 헛스캔 측정용
     for kw, vol in cands:
         if len(found) >= target:
             break
+        nk = kw.replace(" ", "")
+        if nk in seen:
+            continue
+        seen.add(nk)
         cached = _cache_get(kw)
         if cached is not None:
             r = {"has_section": cached.get("has_section"), "theme": cached.get("theme"),
@@ -216,6 +246,7 @@ def process(req):
         else:
             r = p.classify(kw)  # 자기 IP 스캔(게이트 시 CF 자동전환)
             _cache_put(kw, r, vol)
+            scraped += 1
             time.sleep(SCAN_GAP)
         if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
             v = vol or _real_volume(kw)  # hier 생성어(volume 0)는 실제 검색량 백필
@@ -225,7 +256,8 @@ def process(req):
     _finish(req["id"], "done", result=found,
             extra={"place_id": pid, "biz_name": info.get("name")},
             note=f"{len(found)}건 발견 / 후보 {len(cands)}")
-    print(f"[{req['id']}] {info.get('name')} → 인기탭 {len(found)}건", flush=True)
+    top = ", ".join(f"{f['keyword']}({f.get('volume', 0)})" for f in found[:3])
+    print(f"[{_ts()}][{req['id']}] {info.get('name')} → 인기탭 {len(found)}건 · 후보 {len(cands)} · 스크랩 {scraped}회 · {time.time() - t0:.0f}s | {top}", flush=True)
 
 
 def main():
