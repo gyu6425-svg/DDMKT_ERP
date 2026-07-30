@@ -113,6 +113,17 @@ _REGION_WORDS |= set(
 
 _REGION_TOK = re.compile(r"[가-힣]{2,4}(시|군|구|동|읍|면|리)$")
 
+# 요리/레시피/판매 의도 — 식당 타겟 아님(항상 제외).
+_OFFTOPIC = (
+    "레시피", "만들기", "만드는법", "끓이는법", "끓이는", "육수", "소스", "양념", "재료", "손질",
+    "밀키트", "택배", "배달", "세트", "보관", "냉동", "도구", "다이어트", "칼로리", "효능",
+)
+
+
+def is_offtopic(kw):
+    """요리/레시피/판매 의도 키워드면 True(식당 타겟 제외)."""
+    return any(s in kw for s in _OFFTOPIC)
+
 
 def is_regional(kw):
     # 접미 행정구역은 '공백으로 분리된 place 토큰'에만 적용(역삼동 맛집). 붙은 복합어(배낚시·물회)는
@@ -341,7 +352,7 @@ def searchad_candidates(root, min_total=100, limit=25):
             continue
         if root not in kw:  # 온-토픽만(업종 코어 포함) — 배낚시→가볼만한곳 같은 이탈 차단
             continue
-        if is_brandish(kw) or _nickish(root, kw):
+        if is_brandish(kw) or _nickish(root, kw) or is_offtopic(kw):  # 요리/레시피/판매 제외
             continue
         out.append((kw, tot))
     return out[:limit]
@@ -622,14 +633,20 @@ def scan_until(candidates, target, cap=None, verbose=True):
     cap = 실제 스크랩(라이브) 상한(히트율 낮아도 폭주 방지). 캐시 히트는 상한/대기에서 제외."""
     cap = cap or max(target * 8, 30)  # 안전 상한: 목표의 8배(히트율 12%도 커버) 또는 최소 30
     found, live = [], 0
+    seen_norm = set()  # 붙임/띄어쓰기 중복 제거(군산 맛집 == 군산맛집)
     for kw in candidates:
         if len(found) >= target or live >= cap:
             break
+        norm = kw.replace(" ", "")
+        if norm in seen_norm:  # 같은 컨셉의 띄어쓰기 변형은 건너뜀(스캔·카운트 중복 방지)
+            continue
+        seen_norm.add(norm)
         cached = _USE_CACHE and kw in _cache and _cache_fresh(_cache[kw])
         r = classify(kw)
         if not cached:
             live += 1
-        if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산"):
+        # 요리·레시피 인기글은 식당 타겟 아님 → 발견에서 제외.
+        if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
             found.append(r)
             if verbose:
                 occ = ", ".join(f"{x['rank']}위:{x['who']}" for x in r["rows"] if x["kind"] == "카페") or "(카페없음)"
@@ -783,7 +800,7 @@ def main():
             print(f"  계층 {len(hier)}개(넓은→좁은): {', '.join(hier[:8])}…", flush=True)
         base = []
         for k in hier + cats + info["keywords"]:  # 계층 먼저(넓은→좁은) → 플레이스 키워드
-            if k and not is_brandish(k) and k not in base:
+            if k and not is_brandish(k) and not is_offtopic(k) and k not in base:  # 요리/레시피/판매 제외
                 base.append(k)
         # 검색광고 소싱 — 업종 코어(category+플레이스키워드)별 연관키워드(검색량순·온토픽)로 보강.
         ad_vol = {}
@@ -807,12 +824,16 @@ def main():
             if ad_vol:
                 top = sorted(ad_vol.items(), key=lambda x: -x[1])[:10]
                 print(f"  검색광고 연관(검색량순): {', '.join(f'{k}({v})' for k, v in top)}", flush=True)
-        if target:  # 수요 기반: 검색량순으로 N건 찾으면 중단(스크랩 최소화)
-            ordered = [k for k, _ in sorted(ad_vol.items(), key=lambda x: -x[1]) if k in base]
-            for k in base:  # 검색량 있는 것 먼저 → 나머지(계층 넓은→좁은)
+        if target:  # 수요 기반: N건 찾으면 중단(스크랩 최소화)
+            # 로컬 우선 정렬: ① 우리 지역토큰 포함(넓은→좁은) → ② 검색광고 검색량순 니치 → ③ 나머지.
+            regset = set(regs) | set(region_hierarchy(road, jibun))
+            local = [k for k in base if any(rt and rt in k for rt in regset)]
+            adkw = [k for k, _ in sorted(ad_vol.items(), key=lambda x: -x[1]) if k in base and k not in local]
+            ordered = local + adkw
+            for k in base:  # 혹시 빠진 나머지
                 if k not in ordered:
                     ordered.append(k)
-            print(f"\n=== 목표 {target}건까지 스캔 (검색량순 우선 · 발견 시 중단) ===", flush=True)
+            print(f"\n=== 목표 {target}건까지 스캔 (로컬 우선 → 검색량순 · 발견 시 중단) ===", flush=True)
             results = scan_until(ordered, target)
             print("\n=== 요약 ===", flush=True)
             print(f"  업체: {info['name']} · {', '.join(info['cats'][:3])}", flush=True)
