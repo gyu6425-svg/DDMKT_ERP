@@ -111,7 +111,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [volErr, setVolErr] = useState('');
     const [volName, setVolName] = useState(''); // 키워드형: 추출된 업체명
 
-    // 정확 인기탭 분석(키워드형) — cafe_kw_requests 큐 → 워커(폰 IP) → 진짜 인기탭 결과.
+    // 정확 인기탭 분석(키워드형) — cafe_kw_requests 큐 → 워커(우리 IP: 사무실 유선/main, 크롤 겹치면 CF) → 진짜 인기탭 결과.
     const [kwLoading, setKwLoading] = useState(false);
     const [kwResult, setKwResult] = useState<KwResult[] | null>(null);
     const [kwErr, setKwErr] = useState('');
