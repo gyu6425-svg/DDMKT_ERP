@@ -29,6 +29,27 @@ truststore.inject_into_ssl()
 import blog_rank_crawler as c  # 측정/차단회피/파싱 로직 재사용
 import datetime as _dt
 
+# ── 크롤 충돌 방지 게이트 (블로그/카페 크롤과 안 겹치게) ──────────────────────
+# cafe_periodic 과 동일: crawl_status.running(+updated_at heartbeat)로 블로그 크롤이
+#   '살아서' 도는지 판별. 도는 중이면 사무실 IP 스크랩을 피한다(→ CF로 자동 전환).
+#   접근 불가(sub3 등 키 없음)면 False=게이트 없음(그 IP는 블로그 크롤과 무관).
+def blog_crawl_active():
+    """블로그/당일 크롤이 지금 도는가. running=True + updated_at heartbeat가 15분 이내면 active.
+    (단발 호출이라 updated_at 경과시간으로 좀비 판별 — 15분 넘게 굳으면 좀비로 보고 진행.)"""
+    try:
+        rows = c.sb_get("crawl_status", {"id": "eq.1", "select": "running,updated_at"})
+    except Exception:
+        return False  # 접근 불가(sub3 등) = 게이트 없음(그 IP는 블로그 크롤과 무관)
+    r = (rows or [{}])[0]
+    if not r.get("running"):
+        return False
+    try:
+        d = _dt.datetime.fromisoformat(str(r.get("updated_at")).replace("Z", "+00:00"))
+        age = (_dt.datetime.now(_dt.timezone.utc) - d).total_seconds()
+        return age <= 900  # 15분 내 heartbeat=살아있음(→CF), 넘으면 좀비=진행
+    except Exception:
+        return True  # 파싱 실패 시 보수적으로 active
+
 # ── 스캔 결과 캐시(재스크랩 방지 = 차단 위험↓) ────────────────────────────────
 # 한 번 인기탭 판정한 키워드는 로컬 파일에 저장하고, TTL 이내면 재스캔(스크랩) 안 한다.
 #   → 겹치는/반복 키워드의 m.search 요청을 제거해 우리 IP 차단 위험을 실질적으로 낮춘다.
@@ -120,9 +141,18 @@ _OFFTOPIC = (
 )
 
 
+# 부위/품목별 청소 — 공간 청소업체(더반 등)는 안 함(입주/이사/사무실/상가 청소만). '청소' 붙을 때만 제외.
+_CLEAN_PARTS = ("화장실", "창틀", "창문", "욕실", "냉장고", "베란다", "줄눈", "곰팡이", "물때",
+                "후드", "카펫", "소파", "매트리스", "바닥", "유리", "타일", "셀프")
+
+
 def is_offtopic(kw):
-    """요리/레시피/판매 의도 키워드면 True(식당 타겟 제외)."""
-    return any(s in kw for s in _OFFTOPIC)
+    """요리/레시피/판매 의도 or 부위별 청소면 True(타겟 제외)."""
+    if any(s in kw for s in _OFFTOPIC):
+        return True
+    if "청소" in kw and any(pt in kw for pt in _CLEAN_PARTS):  # 화장실청소·창틀청소 등 부위별 제외
+        return True
+    return False
 
 
 def is_regional(kw):
@@ -548,15 +578,67 @@ def classify(kw):
     return result
 
 
-def _classify_live(kw):
-    """실제 m.search 스크랩으로 인기탭 판정(캐시 미스 시만 호출)."""
-    url = f"https://m.search.naver.com/search.naver?query={quote(kw)}"
+# ── 호스트 로테이션 SERP fetch (m.search ↔ PC search, 부하 분산·차단 완화) ──────
+# 두 호스트 모두 인기글 섹션을 동일하게 주고 파서도 동일(검증됨). 키워드마다 번갈아 요청해
+#   각 호스트 부하를 절반으로 → rate limit 도달을 늦춘다. 한쪽 차단 시 다른 호스트로 폴백.
+_PC_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+_CF_SERP = "https://ddmkt-erp.pages.dev/api/serp-probe"  # CF 경유 스크랩(분산 IP)
+_SERP_TOKEN = os.getenv("SERP_TOKEN", "")  # CF env SERP_TOKEN 과 일치해야(설정 시)
+_USE_CF = False  # --cf 로 켬. True=CF경유(즉시/온디맨드), False=사무실 직접(미리크롤·정공법)
+_serp_rr = [0]
+
+
+def _is_blocked(status, text):
+    return status in (403, 429) or "제한되었습니다" in text or "과도한 접근" in text
+
+
+def _fetch_direct(pc, kw):
+    """사무실 IP 직접 스크랩(m.search 또는 PC search)."""
+    base = "https://search.naver.com/search.naver?query=" if pc else "https://m.search.naver.com/search.naver?query="
     try:
-        code, html = c._fetch_html(url)
-    except Exception as e:
-        return {"kw": kw, "err": str(e)[:50], "has_section": False}
+        r = requests.get(base + quote(kw), headers={"User-Agent": _PC_UA if pc else _PLACE_UA}, timeout=20)
+    except Exception:
+        return 0, ""
+    return (200, r.text) if r.status_code == 200 and not _is_blocked(r.status_code, r.text) else (r.status_code, "")
+
+
+def _fetch_cf(pc, kw):
+    """CF 경유 스크랩(CF 분산 IP). CF 함수가 HTML 반환. 콜드스타트/일시실패 1회 재시도."""
+    u = f"{_CF_SERP}?q={quote(kw)}&host={'pc' if pc else 'm'}" + (f"&token={_SERP_TOKEN}" if _SERP_TOKEN else "")
+    for attempt in range(2):
+        try:
+            r = requests.get(u, timeout=40)  # 1.5MB HTML 반환 → 여유 타임아웃
+            if r.status_code == 200:
+                d = r.json()
+                if d.get("blocked"):
+                    return 429, ""  # 차단은 재시도 무의미
+                if d.get("status") == 200 and d.get("html"):
+                    return 200, d["html"]
+        except Exception:
+            pass
+        if attempt == 0:
+            c._pause(1.5)  # 콜드스타트 대비 잠깐 쉬고 재시도
+    return 0, ""
+
+
+def _fetch_serp(kw):
+    """인기글 SERP 가져오기. --cf면 CF경유(즉시용), 아니면 사무실 직접(미리크롤용).
+    각 모드에서 m.search↔PC 호스트 로테이션 + 실패 시 다른 호스트 폴백."""
+    pc = (_serp_rr[0] % 2 == 1)
+    _serp_rr[0] += 1
+    fetch = _fetch_cf if _USE_CF else _fetch_direct
+    for p in (pc, not pc):  # 이번 차례 호스트, 실패 시 다른 호스트
+        code, html = fetch(p, kw)
+        if code == 200 and html:
+            return 200, html
+    return 0, ""
+
+
+def _classify_live(kw):
+    """실제 인기탭 스크랩 판정(캐시 미스 시만 호출). 호스트 로테이션 사용."""
+    code, html = _fetch_serp(kw)
     if code != 200:
-        return {"kw": kw, "err": f"code {code}", "has_section": False}
+        return {"kw": kw, "err": f"code {code}(차단?)", "has_section": False}
     for b in c.extract_bootstrap_json(html):
         try:
             j = json.loads(b)
@@ -762,9 +844,15 @@ def main():
     mine = "--mine" in args  # 제목 마이닝 추가(노이즈 감수·접미형 니치)
     deep = "--deep" in args  # 심층: 인기탭 승자만 재귀 확장(세부 발굴)
     ad = "--ad" in args  # 검색광고 keywordstool 소싱(검색량 기반·온토픽)
-    global _USE_CACHE
+    global _USE_CACHE, _USE_CF
     if "--fresh" in args:  # 캐시 무시하고 강제 재스캔
         _USE_CACHE = False
+    if "--cf" in args:  # CF 경유 스크랩(즉시/온디맨드). 기본은 사무실 직접(미리크롤)
+        _USE_CF = True
+    # 충돌 방지: 사무실 직접 모드인데 블로그/카페 크롤이 도는 중이면 → CF로 자동 전환(IP 안 겹침).
+    if not _USE_CF and blog_crawl_active():
+        print("⚠ 블로그 크롤 실행 중 감지 → 충돌 방지 위해 CF 경유(--cf)로 자동 전환", flush=True)
+        _USE_CF = True
     seeds = [a for i, a in enumerate(args) if not a.startswith("--") and args[i - 1] not in ("--depth", "--max", "--target")]
     if not seeds:
         print("사용법: python cafe_kw_probe.py <씨앗|플레이스URL> [--place] [--niche] [--depth N] [--max N] | --self-test")

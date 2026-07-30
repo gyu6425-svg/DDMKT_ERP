@@ -10,6 +10,9 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
+import { enqueuePlaceScan, pollPlaceScan, type KwResult } from '../../api/cafeKwScan';
+
+const REGION_KEYS = ['서울', '경기', '인천'] as const; // 지역형 지역셋
 
 // 카페 배포 '접수' — 고객이 로그인 후 접수 폼 작성 + 사진(메인배너/실사사진/배너) 업로드 → 제출.
 //   사진은 업로드 시 1600px 로 압축(용량·대역폭↓), deploy-intake 버킷의 본인 client_id 폴더에 저장.
@@ -31,6 +34,7 @@ const empty: CafeDeployInput = {
     company_name: '', url: '', keyword: '', mission_start: '',
     daily_count: null, total_count: null, photo_provided: '', product_type: PRODUCT_FIXED, note: '',
     cafe_name: '', board_name: '', two_factor: false, naver_id: '', naver_pw: '',
+    deploy_type: '지역형', region_sets: [],
 };
 
 // 업로드 전 압축 — 최대 1600px, JPEG 0.85. (실패 시 원본 반환)
@@ -85,6 +89,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
 
     const set = <K extends keyof CafeDeployInput>(k: K, v: CafeDeployInput[K]) =>
         setForm((f) => ({ ...f, [k]: v }));
+    // 접수 유형 — 지역형(지역+제품키워드) / 키워드형(플레이스 주소 기반)
+    const isKw = form.deploy_type === '키워드형';
+    const regionSel = form.region_sets || [];
+    const toggleRegion = (r: string) => {
+        const cur = new Set(regionSel);
+        if (cur.has(r)) cur.delete(r); else cur.add(r);
+        set('region_sets', Array.from(cur));
+    };
     const addFiles = (g: Grp, list: FileList | null) => {
         if (!list?.length) return;
         const arr = Array.from(list); // 동기적으로 캡처(input.value='' 초기화 전에) — 안 하면 목록이 비어 등록 안 됨
@@ -93,18 +105,48 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const removeFile = (g: Grp, i: number) => setFiles((f) => ({ ...f, [g]: f[g].filter((_, j) => j !== i) }));
     const totalFiles = files.main.length + files.real.length + files.banner.length;
 
-    // 인기글 조회 — 키워드(업종) → 검색광고 keywordstool(검색량 API). 차단 0·즉시(순수 웹).
+    // 인기글 조회 — 지역형=키워드→검색량 / 키워드형=플레이스주소→업체명 추출→검색량. 차단 0·즉시(순수 웹).
     const [volLoading, setVolLoading] = useState(false);
     const [vol, setVol] = useState<{ keyword: string; pc: number; mobile: number; total: number }[] | null>(null);
     const [volErr, setVolErr] = useState('');
-    const lookupVolume = async () => {
-        const q = (form.keyword || '').trim();
-        if (!q) { setVolErr('키워드(업종)를 입력하세요. 예: 광교 횟집'); setVol(null); return; }
-        setVolErr(''); setVolLoading(true); setVol(null);
+    const [volName, setVolName] = useState(''); // 키워드형: 추출된 업체명
+
+    // 정확 인기탭 분석(키워드형) — cafe_kw_requests 큐 → 워커(우리 IP: 사무실 유선/main, 크롤 겹치면 CF) → 진짜 인기탭 결과.
+    const [kwLoading, setKwLoading] = useState(false);
+    const [kwResult, setKwResult] = useState<KwResult[] | null>(null);
+    const [kwErr, setKwErr] = useState('');
+    const runPlaceScan = async () => {
+        const u = (form.url || '').trim();
+        if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
+        setKwErr(''); setKwResult(null); setKwLoading(true);
         try {
-            const res = await fetch(`https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(q)}`);
+            const { id, error } = await enqueuePlaceScan(u, 3, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
+            if (error || !id) throw new Error(error?.message || '요청 실패');
+            const { result } = await pollPlaceScan(id);
+            setKwResult(result);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '분석 실패');
+        } finally {
+            setKwLoading(false);
+        }
+    };
+    const lookupVolume = async () => {
+        let apiUrl: string;
+        if (form.deploy_type === '키워드형') {
+            const u = (form.url || '').trim();
+            if (!u) { setVolErr('플레이스 주소를 입력하세요.'); setVol(null); return; }
+            apiUrl = `https://ddmkt-erp.pages.dev/api/place-keywords?url=${encodeURIComponent(u)}`;
+        } else {
+            const q = (form.keyword || '').trim();
+            if (!q) { setVolErr('제품 키워드를 입력하세요. 예: 입주청소'); setVol(null); return; }
+            apiUrl = `https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(q)}`;
+        }
+        setVolErr(''); setVolName(''); setVolLoading(true); setVol(null);
+        try {
+            const res = await fetch(apiUrl);
             const d = await res.json();
             if (!res.ok) throw new Error(d.error || '조회 실패');
+            if (d.name) setVolName(d.name);
             setVol((d.keywords || []).slice(0, 20));
         } catch (e) {
             setVolErr(e instanceof Error ? e.message : '조회 실패');
@@ -153,27 +195,100 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 <div className="mb-1 text-[15px] font-bold text-[#0f172a]">카페 배포 접수</div>
                 <p className="mb-4 mt-0 text-[13px] text-[#64748b]">배포를 원하시는 내용과 사진을 접수해 주세요. 담당자 확인 후 세팅해 드립니다. (금액·정산은 별도 안내)</p>
 
+                {/* 접수 유형 토글 */}
+                <div className="mb-4">
+                    <label className={labelCls}>접수 유형</label>
+                    <div className="inline-flex rounded-lg border border-[#cbd5e1] p-0.5">
+                        {(['지역형', '키워드형'] as const).map((t) => (
+                            <button key={t} type="button" onClick={() => set('deploy_type', t)}
+                                className={`rounded-md px-4 py-1.5 text-sm font-bold ${form.deploy_type === t ? 'bg-[#4338ca] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}>
+                                {t}
+                            </button>
+                        ))}
+                    </div>
+                    <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">
+                        {isKw ? '키워드형 — 플레이스 주소 기반으로 키워드를 잡습니다(맛집 등).' : '지역형 — 서울/경기/인천 지역 선택 + 제품키워드(예: 입주청소·상가청소)로 지역+키워드를 잡습니다.'}
+                    </p>
+                </div>
+
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="md:col-span-2">
                         <label className={labelCls}>업체명 *</label>
                         <input className={inputCls} value={form.company_name} onChange={(e) => set('company_name', e.target.value)} placeholder="test" />
                     </div>
                     <div className="md:col-span-2">
-                        <label className={labelCls}>플레이스 URL 또는 홈페이지</label>
-                        <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder="www.cafe.naver.com/..." />
-                    </div>
-                    <div className="md:col-span-2">
-                        <label className={labelCls}>키워드 (업종)</label>
+                        <label className={labelCls}>{isKw ? '플레이스 주소 (URL) *' : '홈페이지 (선택)'}</label>
                         <div className="flex gap-2">
-                            <input className={inputCls} value={form.keyword} onChange={(e) => set('keyword', e.target.value)} placeholder="예: 광교 횟집" />
-                            <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
-                                {volLoading ? '조회 중…' : '인기글 조회'}
-                            </button>
+                            <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder={isKw ? 'https://naver.me/... 또는 place.naver.com/...' : 'www.homepage.com'} />
+                            {isKw ? (
+                                <>
+                                    <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
+                                        {volLoading ? '조회 중…' : '인기글 조회'}
+                                    </button>
+                                    <button type="button" onClick={() => void runPlaceScan()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50" title="워커가 실제 인기글 섹션을 확인(수초~수십초)">
+                                        {kwLoading ? '분석 중…' : '정확 인기탭 분석'}
+                                    </button>
+                                </>
+                            ) : null}
+                        </div>
+                        {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">인기글 조회=업체명 기반 검색량(즉시). 정확 인기탭 분석=실제 인기글 섹션 확인(큐 처리, 수초~수십초).</p> : null}
+                        {kwErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{kwErr}</p>}
+                        {kwResult && (
+                            <div className="mt-2 rounded-lg border border-[#ddd6fe] bg-[#faf5ff] p-2">
+                                <div className="mb-1 text-[11px] font-semibold text-[#6d28d9]">정확 인기탭 결과 — 인기글 섹션에 실제 진입한 키워드/카페</div>
+                                {kwResult.length === 0 ? (
+                                    <div className="py-2 text-center text-[12px] text-[#94a3b8]">인기탭 잡힌 키워드가 없습니다.</div>
+                                ) : (
+                                    <div className="grid max-h-72 gap-1.5 overflow-y-auto">
+                                        {kwResult.map((k, i) => (
+                                            <div key={i} className="rounded border border-[#eef0f2] bg-white p-2">
+                                                <div className="flex items-center gap-2 text-[12px]">
+                                                    <span className="font-bold text-[#4338ca]">{k.keyword}</span>
+                                                    {k.volume != null ? <span className="text-[#64748b]">검색량 {k.volume.toLocaleString()}</span> : null}
+                                                    {k.theme ? <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px] text-[#6d28d9]">{k.theme}</span> : null}
+                                                    <button type="button" onClick={() => set('keyword', k.keyword)} className="ml-auto text-[11px] text-[#4338ca] hover:underline">선택</button>
+                                                </div>
+                                                {k.cafes?.length ? (
+                                                    <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-[#64748b]">
+                                                        {k.cafes.slice(0, 5).map((c, j) => (
+                                                            <span key={j} className="rounded bg-[#f1f5f9] px-1.5 py-0.5">{c.rank}위 {c.who}</span>
+                                                        ))}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    {!isKw ? (
+                        <div className="md:col-span-2">
+                            <label className={labelCls}>지역 선택 (복수)</label>
+                            <div className="flex flex-wrap gap-2">
+                                {REGION_KEYS.map((r) => (
+                                    <button key={r} type="button" onClick={() => toggleRegion(r)}
+                                        className={`rounded-full border px-3 py-1 text-sm font-semibold ${regionSel.includes(r) ? 'border-[#4338ca] bg-[#4338ca] text-white' : 'border-[#cbd5e1] bg-white text-[#475569]'}`}>
+                                        {r}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ) : null}
+                    <div className="md:col-span-2">
+                        <label className={labelCls}>{isKw ? '키워드' : '제품 키워드 (업종)'}</label>
+                        <div className="flex gap-2">
+                            <input className={inputCls} value={form.keyword} onChange={(e) => set('keyword', e.target.value)} placeholder={isKw ? '예: 광교 횟집' : '예: 입주청소 · 상가청소'} />
+                            {!isKw ? (
+                                <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
+                                    {volLoading ? '조회 중…' : '인기글 조회'}
+                                </button>
+                            ) : null}
                         </div>
                         {volErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{volErr}</p>}
                         {vol && (
                             <div className="mt-2 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2">
-                                <div className="mb-1 text-[11px] font-semibold text-[#64748b]">연관 키워드 · 월 검색량 (많은 순) — 검색량이 큰 키워드가 노출 가치가 높습니다</div>
+                                <div className="mb-1 text-[11px] font-semibold text-[#64748b]">{volName ? `업체: ${volName} · ` : ''}연관 키워드 · 월 검색량 (많은 순) — 검색량이 큰 키워드가 노출 가치가 높습니다</div>
                                 {vol.length === 0 ? (
                                     <div className="py-2 text-center text-[12px] text-[#94a3b8]">결과 없음</div>
                                 ) : (
@@ -302,7 +417,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <table className="w-full min-w-[980px] border-collapse text-[13px]">
                             <thead>
                                 <tr className="border-b border-[#e2e8f0] text-left text-[#64748b]">
-                                    {['작성일', '업체명', 'URL', '키워드(업종)', '미션 시작일', '일 발행', '총 발행', '사진', '발행정보', '비고', '상태'].map((h) => (
+                                    {['작성일', '업체명', '유형', 'URL', '키워드(업종)', '미션 시작일', '일 발행', '총 발행', '사진', '발행정보', '비고', '상태'].map((h) => (
                                         <th key={h} className="whitespace-nowrap px-2 py-2 font-semibold">{h}</th>
                                     ))}
                                 </tr>
@@ -315,6 +430,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                             <td className="whitespace-nowrap px-2 py-2">{r.created_at.slice(0, 10)}</td>
                                             <td className="whitespace-nowrap px-2 py-2 font-semibold">{r.company_name}</td>
                                             <td className="max-w-[160px] truncate px-2 py-2" title={r.url ?? ''}>{r.url ? <a className="text-[#2563eb] underline" href={r.url} target="_blank" rel="noreferrer">{r.url}</a> : '-'}</td>
+                                            <td className="whitespace-nowrap px-2 py-2">
+                                                <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.deploy_type === '키워드형' ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-[#e0e7ff] text-[#4338ca]'}`}>{r.deploy_type ?? '지역형'}</span>
+                                                {!r.deploy_type || r.deploy_type === '지역형' ? (r.region_sets?.length ? <div className="mt-0.5 text-[11px] text-[#64748b]">{r.region_sets.join('·')}</div> : null) : null}
+                                            </td>
                                             <td className="whitespace-nowrap px-2 py-2">{r.keyword ?? '-'}</td>
                                             <td className="whitespace-nowrap px-2 py-2">{r.mission_start ?? '-'}</td>
                                             <td className="px-2 py-2 text-center">{r.daily_count ?? '-'}</td>

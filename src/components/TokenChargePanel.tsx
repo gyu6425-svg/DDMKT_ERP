@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { listTokens, grantTokens, balanceOf, type TokenLedger } from '../api/cafeTokens';
+import { listTokens, grantTokens, balanceOf, listChargeRequests, setChargeRequestStatus, type TokenLedger, type TokenRequest } from '../api/cafeTokens';
 
 type ClientLite = { id: string; company: string | null };
 
@@ -8,6 +8,8 @@ type ClientLite = { id: string; company: string | null };
 export default function TokenChargePanel() {
     const [clients, setClients] = useState<ClientLite[]>([]);
     const [rows, setRows] = useState<TokenLedger[]>([]);
+    const [reqs, setReqs] = useState<TokenRequest[]>([]);
+    const [fulfilling, setFulfilling] = useState<string | null>(null); // 이 요청을 충전으로 처리 중
     const [pick, setPick] = useState('');
     const [search, setSearch] = useState('');
     const [count, setCount] = useState('');
@@ -24,8 +26,20 @@ export default function TokenChargePanel() {
             setRows(tk.data);
             if (tk.error) setMsg(tk.error.message);
         });
+        void listChargeRequests().then(({ data }) => setReqs(data.filter((r) => r.status === 'pending')));
     };
     useEffect(load, []);
+
+    const fromRequest = (q: TokenRequest) => {
+        setPick(q.client_id);
+        setSearch(clients.find((c) => c.id === q.client_id)?.company || '');
+        if (q.requested_count) setCount(String(q.requested_count));
+        if (q.note) setNote(q.note);
+        setFulfilling(q.id);
+    };
+    const rejectReq = async (id: string) => {
+        await setChargeRequestStatus(id, 'rejected'); load();
+    };
 
     const clientName = (id: string) => clients.find((c) => c.id === id)?.company || id.slice(0, 8);
     const matches = useMemo(() => {
@@ -40,8 +54,9 @@ export default function TokenChargePanel() {
         if (!n || n <= 0) return setMsg('건수를 1 이상 입력하세요.');
         setBusy(true); setMsg('');
         const { error } = await grantTokens(pick, n, note);
+        if (error) { setBusy(false); return setMsg('충전 실패: ' + error.message); }
+        if (fulfilling) { await setChargeRequestStatus(fulfilling, 'done'); setFulfilling(null); }
         setBusy(false);
-        if (error) return setMsg('충전 실패: ' + error.message);
         setMsg(`${clientName(pick)} +${n}건 충전 완료`);
         setCount(''); setNote('');
         load();
@@ -49,6 +64,28 @@ export default function TokenChargePanel() {
 
     return (
         <div className="grid gap-5">
+            {/* 충전 요청 대기 */}
+            {reqs.length ? (
+                <div className="rounded-xl border-2 border-[#f59e0b] bg-[#fffbeb] p-4">
+                    <div className="mb-2 text-[14px] font-bold text-[#92400e]">충전 요청 대기 ({reqs.length})</div>
+                    <div className="grid gap-2">
+                        {reqs.map((q) => (
+                            <div key={q.id} className="flex flex-wrap items-center gap-2 rounded border border-[#fde68a] bg-white px-3 py-2 text-[13px]">
+                                <span className="font-bold text-[#334155]">{clientName(q.client_id)}</span>
+                                <span className="text-[#4338ca] font-semibold">{q.requested_count ? `${q.requested_count}건 요청` : '건수 미지정'}</span>
+                                {q.note ? <span className="text-[#64748b]">· {q.note}</span> : null}
+                                <span className="text-[11px] text-[#cbd5e1]">{new Date(q.created_at).toLocaleString('ko-KR')}</span>
+                                <div className="ml-auto flex gap-2">
+                                    <button className="rounded bg-[#059669] px-3 py-1 text-[11px] font-bold text-white" onClick={() => fromRequest(q)} type="button">이 요청으로 충전</button>
+                                    <button className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#64748b]" onClick={() => void rejectReq(q.id)} type="button">반려</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <p className="m-0 mt-2 text-[11px] text-[#92400e]">"이 요청으로 충전" → 아래 폼에 업체·건수 채워짐 → 충전하면 요청이 자동으로 완료 처리됩니다.</p>
+                </div>
+            ) : null}
+
             {/* 충전 */}
             <div className="rounded-xl border border-[#e2e8f0] p-5">
                 <div className="mb-3 text-[15px] font-bold text-[#0f172a]">토큰 충전 (입금 확인 후 건수 지급)</div>

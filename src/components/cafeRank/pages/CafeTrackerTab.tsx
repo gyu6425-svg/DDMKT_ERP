@@ -68,8 +68,8 @@ function RankCell({ ms }: { ms: CafeMeasurement[] }) {
 export function CafeTrackerTab({
     readOnly = false,
     lockCompany = null,
-}: { readOnly?: boolean; lockCompany?: string | null } = {}) {
-    // lockCompany: 고객 뷰 — 이 업체(company_key) 글만. 자동으로 읽기전용(등록·삭제·재검색 숨김).
+}: { readOnly?: boolean; lockCompany?: string | string[] | null } = {}) {
+    // lockCompany: 고객 뷰 — 이 업체(company_key) 글만. 배열이면 그 업체들 모두(한 고객의 여러 카페). 자동으로 읽기전용.
     const external = readOnly || !!lockCompany;
     const [posts, setPosts] = useState<CafeRankPost[]>([]);
     const [loading, setLoading] = useState(true);
@@ -90,7 +90,7 @@ export function CafeTrackerTab({
         setLoading(true);
         const { data, error } = await getCafeRankPosts();
         if (error) setErr(error.message || 'cafe_rank_posts 조회 실패 — docs/cafe-rank-tables.sql 실행 필요');
-        else { setErr(''); setPosts(lockCompany ? data.filter((p) => p.cafe_accounts?.company_key === lockCompany) : data); }
+        else { setErr(''); setPosts(lockCompany ? data.filter((p) => { const ck = p.cafe_accounts?.company_key ?? ''; return Array.isArray(lockCompany) ? lockCompany.includes(ck) : ck === lockCompany; }) : data); }
         setLoading(false);
     };
     useEffect(() => { void reload(); }, []);

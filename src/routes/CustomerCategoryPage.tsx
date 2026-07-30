@@ -63,7 +63,8 @@ function BlogCustomerView() {
 function CafeCustomerView({ previewClientId }: { previewClientId: string | null }) {
     const { profile } = useAuth();
     const scopedClientId = previewClientId ?? (profile?.client_id ?? null);
-    const [companyKey, setCompanyKey] = useState<string | null>(null);
+    const [companyKeys, setCompanyKeys] = useState<string[]>([]); // 트래커용 — 이 고객의 모든 카페(마이클+자체)
+    const [sheetKeys, setSheetKeys] = useState<string[]>([]);     // 관리시트용 — 자체 카페만(마이클 ddmkt2 제외)
     const [publishEnabled, setPublishEnabled] = useState(false); // 담당자 세팅 완료(자동화 발행 탭 노출)
     const [loading, setLoading] = useState(true);
     // 사이드바 '카페 배포'(?sub=카페 배포) 로 들어오면 접수 탭으로 연다.
@@ -87,9 +88,12 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
         setLoading(true);
         void getCafeAccounts().then(({ data }) => {
             if (!alive) return;
-            const acc = scopedClientId ? data.find((a) => a.client_id === scopedClientId) : null;
-            setCompanyKey(acc?.company_key ?? null);
-            setPublishEnabled(!!acc?.publish_enabled);
+            const accs = scopedClientId ? data.filter((a) => a.client_id === scopedClientId) : [];
+            setCompanyKeys(accs.map((a) => a.company_key)); // 트래커 = 전부(마이클 + 자체)
+            // 관리시트 = 자체 카페만(마이클 공유카페 ddmkt2 제외). 자체 없으면(누수/더티 등) 그대로.
+            const own = accs.filter((a) => a.cafe_name !== 'ddmkt2');
+            setSheetKeys((own.length ? own : accs).map((a) => a.company_key));
+            setPublishEnabled(accs.some((a) => a.publish_enabled));
             setLoading(false);
         });
         return () => { alive = false; };
@@ -126,9 +130,9 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
                 ))}
             </div>
             {view === 'tracker'
-                ? (companyKey ? <CafeTrackerTab lockCompany={companyKey} /> : noCafe)
+                ? (companyKeys.length ? <CafeTrackerTab lockCompany={companyKeys} /> : noCafe)
                 : view === 'sheet'
-                    ? (companyKey ? <CafeSheetTab scopeCompanyKey={companyKey} readOnly /> : noCafe)
+                    ? (sheetKeys.length ? <CafeSheetTab scopeCompanyKey={sheetKeys} readOnly /> : noCafe)
                     : view === 'publish'
                         ? <CafeCustomerStudio clientId={scopedClientId} />
                         : view === 'charge'

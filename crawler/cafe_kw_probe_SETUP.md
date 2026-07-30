@@ -8,7 +8,7 @@ git pull 하고 아래 명령만 치면 바로 된다. (읽기 스캔 전용, �
 ## 0. 30초 요약 (바로 쓰기)
 ```bash
 git pull
-pip install truststore requests beautifulsoup4 python-dotenv
+pip install truststore requests beautifulsoup4 python-dotenv feedparser
 cd crawler
 python cafe_kw_probe.py <플레이스URL 또는 placeId> --place --ad --target 5
 ```
@@ -58,7 +58,7 @@ python cafe_kw_probe.py <플레이스URL 또는 placeId> --place --ad --target 5
 ## 4. 세팅 (한 번만)
 ```bash
 git pull                                              # cafe_kw_probe.py + blog_rank_crawler.py 받기
-pip install truststore requests beautifulsoup4 python-dotenv
+pip install truststore requests beautifulsoup4 python-dotenv feedparser
 ```
 - **Supabase 키·.env 불필요** (스캐너 자립형). Python 3.9+.
 

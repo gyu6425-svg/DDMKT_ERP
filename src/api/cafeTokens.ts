@@ -39,3 +39,32 @@ export async function consumeToken(clientId: string, note?: string) {
     });
     return { error };
 }
+
+// ── 충전 요청(고객 → 관리자) ──────────────────────────────
+export type TokenRequest = {
+    id: string; created_at: string; client_id: string;
+    requested_count: number | null; note: string | null; status: string;
+};
+
+// 고객: 충전 요청.
+export async function requestCharge(clientId: string, count: number | null, note?: string) {
+    const { error } = await supabase.from('cafe_token_requests').insert({
+        client_id: clientId, requested_count: count ?? null, note: note?.trim() || null, status: 'pending',
+    });
+    return { error };
+}
+
+// 요청 목록 — clientId 주면 그 고객만(고객 본인 RLS 자동). 없으면 전체(내부).
+export async function listChargeRequests(clientId?: string) {
+    let q = supabase.from('cafe_token_requests').select('*').order('created_at', { ascending: false });
+    if (clientId) q = q.eq('client_id', clientId);
+    const { data, error } = await q;
+    return { data: (data ?? []) as TokenRequest[], error };
+}
+
+// 내부: 요청 처리 상태(done/rejected).
+export async function setChargeRequestStatus(id: string, status: string) {
+    const { error } = await supabase.from('cafe_token_requests')
+        .update({ status, handled_at: new Date().toISOString() }).eq('id', id);
+    return { error };
+}

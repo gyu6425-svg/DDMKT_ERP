@@ -1,0 +1,260 @@
+# -*- coding: utf-8 -*-
+"""카페 인기탭 발굴 — 분산 워커 (각 PC가 자기 IP로 스캔).
+
+  동작: Supabase 큐(cafe_kw_requests)에서 '이 플레이스 조회' 요청을 원자적으로 하나 집어
+        (claim_kw_request RPC · 중복 방지) → 업종·지역 후보를 검색광고로 뽑고 → 자기 IP로
+        인기탭 스캔(공유 캐시 우선) → 결과를 요청.result + 공유 캐시(cafe_kw_targets)에 저장.
+  여러 PC에 설치하면 각자 다른 요청을 맡아 IP가 분산된다(용량 = PC 수 배).
+
+  실행: python cafe_kw_worker.py          (상시 데몬 · 큐 폴링)
+        python cafe_kw_worker.py --once   (한 건만 처리하고 종료 · 테스트)
+  전제: ../.env 의 SUPABASE_URL · SUPABASE_SERVICE_KEY (큐/캐시 접근). docs/cafe-kw-queue.sql 실행됨.
+"""
+import sys
+import os
+import re
+import time
+import json
+import socket
+from urllib.parse import quote
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+import truststore
+
+truststore.inject_into_ssl()
+import requests
+from dotenv import load_dotenv
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
+load_dotenv(os.path.join(_HERE, "..", ".env"))
+load_dotenv(os.path.join(_HERE, ".env"))
+import cafe_kw_probe as p  # 스캔·파싱·검색광고 로직 재사용
+
+SB = os.getenv("SUPABASE_URL", "").rstrip("/")
+KEY = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or ""
+H = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
+WID = f"{socket.gethostname()}-{os.getpid()}"
+POLL_SEC = 15
+SCAN_GAP = 2.0  # 스캔 간격(무리없게)
+
+# 수도권 지역 토큰(--regions 서울/경기/인천 처리용)
+_SUDO = set((
+    "강남 강동 강북 강서 관악 광진 구로 금천 노원 도봉 동대문 동작 마포 서대문 서초 성동 성북 송파 양천 영등포 용산 은평 종로 중랑 "
+    "수원 성남 고양 용인 부천 안산 안양 남양주 화성 평택 의정부 시흥 파주 김포 광명 군포 오산 이천 양주 안성 구리 의왕 하남 여주 동두천 과천 포천 가평 양평 "
+    "인천 미추홀 연수 남동 부평 계양 강화 송도 청라 영종 검단 분당 판교 동탄 광교 위례 미사 다산 별내 운정 삼송 배곧 죽전 수지 정자"
+).split())
+
+
+def _region_ok(kw, provinces, own):
+    """지역 제약.
+      · 비지역 니치(조개구이·물회 등)는 항상 통과.
+      · 플레이스 '자기 지역'(own: 군산·전북 등)은 항상 통과 — 업체가 실제 있는 곳이니 무조건 우선.
+      · provinces(서울/경기/인천)가 남아있으면 그 수도권만 통과(서비스지역 업체용).
+      · 그 외 '타지역' 지역형 키워드는 컷(영종/부산 등이 군산 업체에 섞이는 것 방지)."""
+    if not p.is_regional(kw):
+        return True
+    if own and any(rt and rt in kw for rt in own):
+        return True
+    if provinces and any(w in provinces for w in ("서울", "경기", "인천")):
+        return any(t in kw for t in _SUDO)
+    return False
+
+
+# ── Supabase REST ────────────────────────────────────────────────────────────
+def _claim():
+    try:
+        r = requests.post(f"{SB}/rest/v1/rpc/claim_kw_request", headers=H, json={"p_worker": WID}, timeout=20)
+        rows = r.json() if r.status_code == 200 else []
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+def _cache_get(kw):
+    try:
+        r = requests.get(f"{SB}/rest/v1/cafe_kw_targets?keyword=eq.{quote(kw)}&select=*", headers=H, timeout=15)
+        a = r.json() if r.status_code == 200 else []
+        return a[0] if a else None
+    except Exception:
+        return None
+
+
+def _cache_put(kw, r, vol):
+    row = {
+        "keyword": kw, "has_section": bool(r.get("has_section")), "theme": r.get("theme"),
+        "verdict": r.get("verdict"), "volume": vol,
+        "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"],
+        "scanned_by": WID,
+    }
+    try:
+        requests.post(f"{SB}/rest/v1/cafe_kw_targets", headers={**H, "Prefer": "resolution=merge-duplicates"},
+                      json=[row], timeout=15)
+    except Exception:
+        pass
+
+
+def _finish(rid, status, result=None, note=None, extra=None):
+    body = {"status": status, "note": note}
+    if result is not None:
+        body["result"] = result
+    if extra:
+        body.update(extra)
+    try:
+        requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{rid}", headers=H, json=body, timeout=15)
+    except Exception:
+        pass
+
+
+# ── 후보 생성 ────────────────────────────────────────────────────────────────
+#   ★ 지역형 vs 키워드형은 완전히 다른 처리 (deploy_type로 명시 구분):
+#     · 지역형 : 지역이 핵심. 플레이스 '자기 지역'(군산 등) × 업종 계층. 지역 키워드 유지.
+#     · 키워드형: 지역 무관. 제품/니치 키워드(고체향수 등)만. 지역 키워드는 전부 컷.
+def _is_kw_type(deploy_type, cats):
+    """요청의 deploy_type 우선. 없으면 업종으로 추정(음식/청소/인테리어 등 위치형=지역형)."""
+    dt = (deploy_type or "").replace(" ", "")
+    if "키워드" in dt:
+        return True
+    if "지역" in dt:
+        return False
+    # deploy_type 없을 때 폴백: 음식점은 확실히 지역형. 그 외는 지역형 기본(대부분 로컬 업체).
+    return False
+
+
+def _candidates(info, provinces, pid, deploy_type):
+    cats = [x.strip() for cc in info["cats"][:2] for x in re.split(r"[,·/]", cc) if x.strip()]
+    kw_type = _is_kw_type(deploy_type, cats)
+    cores = []
+    for c0 in cats + info["keywords"]:
+        core = c0
+        for suf in ("디자인", "교육", "요리", "전문점", "전문", "공사", "서비스", "센터"):
+            if core.endswith(suf) and len(core) - len(suf) >= 2:
+                core = core[: -len(suf)]
+                break
+        for x in (c0, core):
+            if x and len(x) >= 2 and x not in cores and not p.is_brandish(x):
+                cores.append(x)
+
+    if kw_type:
+        # ── 키워드형: 지역 완전 배제. 제품/니치 키워드만(전국). 지역 계층·주소 조회 안 함. ──
+        own, provinces, hier, narrow = set(), set(), [], set()
+    else:
+        # ── 지역형: 플레이스 '자기 주소'에서 지역 계층. 업체가 실제 있는 곳이 기준. ──
+        road, jibun = p.place_address(pid) if pid else ("", "")
+        rh = p.region_hierarchy(road, jibun)                   # [전북도,전북,군산,선유남…]
+        narrow = set(p.region_tokens(road, jibun))             # 시·구·동(광역 제외) — 실질 타깃
+        own = set(t for t in (p.region_tokens(road, jibun) + rh) if t)
+        place_sido = p._sido(road, jibun)                      # '전북','서울','경기'…
+        food = any(any(h in c for h in p._FOOD_HINT) for c in cats)
+        # 잘못된 지역 기본값 자동보정: 맛집(위치형)은 서비스지역 개념 없음→자기 지역만.
+        #   서비스형(청소 등)은 플레이스가 provinces 안이면 서비스지역 유지, 밖이면 자기 지역.
+        if food or (place_sido and place_sido not in provinces):
+            provinces = set()
+        bh = p.business_hierarchy(cats, info["keywords"])
+        hier = []
+        for bt in bh:
+            if bt != "맛집":                                   # '맛집' 단독(전국)은 너무 넓어 제외
+                hier.append(bt)
+            for rl in rh:
+                hier.append(f"{rl} {bt}")
+                if " " not in bt:
+                    hier.append(f"{rl}{bt}")
+
+    # 검색광고 보강(니치·서비스지역 확장)
+    vol = {}
+    for core in cores[:8]:
+        for kw, tot in p.searchad_candidates(core, min_total=80, limit=40):
+            vol[kw] = max(vol.get(kw, 0), tot)
+    # 후보 통합 + 필터(오프토픽·타지역 컷). 키워드형은 _region_ok가 지역형 키워드를 전부 컷.
+    base = []
+    for k in hier + cats + info["keywords"]:
+        if k and not p.is_brandish(k) and not p.is_offtopic(k) and _region_ok(k, provinces, own) and k not in base:
+            base.append(k)
+    for kw in sorted(vol, key=lambda k: -vol[k]):
+        if not p.is_offtopic(kw) and _region_ok(kw, provinces, own) and kw not in base:
+            base.append(kw)
+    # 지역형=로컬 우선. 그 안에서도 시·구·동(narrow)을 광역(도)보다 먼저 — 도 단위 헛스캔 축소.
+    def _rank(k):
+        if narrow and any(t in k for t in narrow):
+            return 0  # 시·구·동
+        if own and any(t and t in k for t in own):
+            return 1  # 광역(도) 등 나머지 로컬
+        return 2      # 비지역 니치
+    base.sort(key=lambda k: (_rank(k), -vol.get(k, 0)))
+    return [(k, vol.get(k, 0)) for k in base]
+
+
+def _real_volume(kw):
+    """검색광고에서 이 키워드의 실제 월검색량. hier(지역×업종)로 생성돼 volume 0으로 채택된
+    결과를 고객 화면용으로 백필. CF 경유 공식 API라 IP 위험 없음. 없으면 0(진짜 저검색 지역어)."""
+    norm = kw.replace(" ", "")
+    try:
+        for r in p.searchad_keywords(kw):
+            if (r.get("keyword") or "").replace(" ", "") == norm:
+                return r.get("total", 0)
+    except Exception:
+        pass
+    return 0
+
+
+def process(req):
+    pid = p.parse_place_id(req.get("place_url", ""))
+    info = p.place_info(pid) if pid else None
+    if not info:
+        return _finish(req["id"], "failed", note="플레이스 해석 실패")
+    provinces = set((req.get("regions") or "").replace(" ", "").split(",")) if req.get("regions") else set()
+    target = int(req.get("target") or 10)
+    cands = _candidates(info, provinces, pid, req.get("deploy_type"))
+    found = []
+    for kw, vol in cands:
+        if len(found) >= target:
+            break
+        cached = _cache_get(kw)
+        if cached is not None:
+            r = {"has_section": cached.get("has_section"), "theme": cached.get("theme"),
+                 "verdict": cached.get("verdict"), "rows": cached.get("cafes") or []}
+        else:
+            r = p.classify(kw)  # 자기 IP 스캔(게이트 시 CF 자동전환)
+            _cache_put(kw, r, vol)
+            time.sleep(SCAN_GAP)
+        if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
+            v = vol or _real_volume(kw)  # hier 생성어(volume 0)는 실제 검색량 백필
+            found.append({"keyword": kw, "volume": v, "theme": r.get("theme"),
+                          "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
+    found.sort(key=lambda f: -(f.get("volume") or 0))  # 고객 화면: 검색량 높은 순
+    _finish(req["id"], "done", result=found,
+            extra={"place_id": pid, "biz_name": info.get("name")},
+            note=f"{len(found)}건 발견 / 후보 {len(cands)}")
+    print(f"[{req['id']}] {info.get('name')} → 인기탭 {len(found)}건", flush=True)
+
+
+def main():
+    if not SB or not KEY:
+        print("SUPABASE_URL/SERVICE_KEY 없음 (.env 확인)")
+        return
+    once = "--once" in sys.argv
+    print(f"=== 카페 인기탭 워커 시작 · {WID} ===", flush=True)
+    while True:
+        row = _claim()
+        if row:
+            # IP 공유 대비: main 블로그/당일 크롤이 도는 중이면 이 요청은 CF로(직접 IP 회피),
+            #   아니면 이 PC IP로 직접. sub4처럼 사무실 IP를 공유해도 크롤과 안 부딪힌다.
+            p._USE_CF = p.blog_crawl_active()
+            if p._USE_CF:
+                print(f"[{row['id']}] main 크롤 감지 → 이 요청은 CF 경유(IP 공유 회피)", flush=True)
+            try:
+                process(row)
+            except Exception as e:
+                _finish(row["id"], "failed", note=str(e)[:200])
+                print(f"[{row['id']}] 실패: {e}", flush=True)
+            if once:
+                break
+        else:
+            if once:
+                print("대기 요청 없음")
+                break
+            time.sleep(POLL_SEC)
+
+
+if __name__ == "__main__":
+    main()
