@@ -10,6 +10,7 @@ import {
 import { getCafeRankPosts, type CafeRankPost } from '../../../api/cafeRank';
 import { listPendingCafeRequests, setCafeRequestStatus, type CafeRequest } from '../../../api/cafeRequests';
 import { cafeCompanyRank, cafeNameLabel, cafeNameRank } from '../../../lib/cafeAccounts';
+import { DeployPublishSetupModal } from '../../cafe/DeployPublishSetupModal';
 
 // 카페 관리시트 — 브랜드블로그 관리시트와 동일한 행 테이블 구조.
 //   업체(게시판)별로 계약금액·계약일·담당·진행률·잔여·추적글·인기글 진입·상태·순위 를 한 줄에.
@@ -33,6 +34,7 @@ export function CafeSheetTab({
 }: { scopeCompanyKey?: string | null; readOnly?: boolean } = {}) {
     // scopeCompanyKey: 고객 뷰 — 이 업체만. readOnly: 입력·등록·토글 숨기고 텍스트로 표시.
     const [accounts, setAccounts] = useState<CafeAccount[]>([]);
+    const [setupAccount, setSetupAccount] = useState<CafeAccount | null>(null); // 발행 세팅 모달 대상
     const [posts, setPosts] = useState<CafeRankPost[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -283,6 +285,9 @@ export function CafeSheetTab({
                                                 title="네이버 카페 club_id (또는 글쓰기 주소 붙여넣으면 자동 추출). 자동발행에 필요."
                                             />
                                         ) : null}
+                                        {!readOnly ? (
+                                            <button className="mt-1 block rounded bg-[#eef2ff] px-2 py-0.5 text-[10px] font-bold text-[#4338ca] hover:bg-[#e0e7ff]" onClick={(e) => { e.stopPropagation(); setSetupAccount(a); }} type="button">발행 세팅</button>
+                                        ) : null}
                                     </td>
                                     <td className="px-3 py-2">
                                         {readOnly ? (
@@ -360,6 +365,9 @@ export function CafeSheetTab({
             <p className="m-0 text-[11px] text-[#94a3b8]">
                 ※ 계약금액·건수·계약일·담당은 칸에 바로 입력하면 저장됩니다. 진행률 = 발행완료 / 목표건수. 추적 글·인기글 진입은 순위 트래커 데이터 기준.
             </p>
+            {setupAccount ? (
+                <DeployPublishSetupModal account={setupAccount} onClose={() => setSetupAccount(null)} onSaved={() => void reload()} />
+            ) : null}
         </div>
     );
 }
