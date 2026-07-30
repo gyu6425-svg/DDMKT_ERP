@@ -124,3 +124,23 @@ def reply_account_for(url):
         if tok.lower() in u:
             return acc
     return None
+
+
+# 카페별 '댓글 제외' 계정 — 그 계정이 그 카페에 (미가입 등으로) 댓글을 달면 안 될 때.
+#   reply_account_for 와 별개다: reply 로 넣으면 대댓글을 시도하지만(가입 안 된 계정은 실패),
+#   여기 넣으면 댓글·대댓글 어디에도 안 쓰인다(그냥 그 카페에서 제외).
+#   rlawhddls25(=저스트): 설고점/더맨시스템엔 가입 안 함 → 두 카페 댓글에서 제외.
+COMMENT_EXCLUDE_BY_CAFE = {
+    "ojh097": {"rlawhddls25"},     "31764966": {"rlawhddls25"},   # 설고점
+    "themansys": {"rlawhddls25"},  "31764949": {"rlawhddls25"},   # 더맨시스템
+}
+
+
+def comment_exclude_for(url):
+    """그 카페에서 댓글 대상에서 빼야 할 계정명 집합(소문자). 없으면 빈 set."""
+    u = (url or "").lower()
+    out = set()
+    for tok, names in COMMENT_EXCLUDE_BY_CAFE.items():
+        if tok.lower() in u:
+            out |= {n.lower() for n in names}
+    return out

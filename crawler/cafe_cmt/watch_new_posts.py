@@ -140,12 +140,14 @@ def process_watch(page, w, canon_acct=None):
     # 이 카페의 '작성자=대댓글' 계정은 자기 글에 댓글을 달면 안 되니 제외한다.
     #   마이클 → rlawhddls25 제외, ddnusu → dog6425 제외, 더반 → 제외 없음(댓글만).
     cafe_reply = (acct.reply_account_for(cafe_url) or "").lower()
+    cafe_exclude = acct.comment_exclude_for(cafe_url)   # 이 카페에서 뺄 계정(미가입 등)
     if w.get("account"):
         targets = [canon_acct]
     else:
         targets = [x["name"] for x in acct.load_accounts()
                    if x["name"].lower() not in REPLY_ONLY
-                   and x["name"].lower() != cafe_reply]
+                   and x["name"].lower() != cafe_reply
+                   and x["name"].lower() not in cafe_exclude]
     if not targets:
         _log("⚠️ 댓글 달 계정이 없음(전부 답글 전용?) — 건너뜀")
         return 0
