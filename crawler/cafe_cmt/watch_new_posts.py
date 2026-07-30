@@ -152,6 +152,10 @@ def process_watch(page, w, canon_acct=None):
         _log("⚠️ 댓글 달 계정이 없음(전부 답글 전용?) — 건너뜀")
         return 0
 
+    # 카페별 '글당 최대 댓글 수' + 계정 간 간격(분). 더맨시스템처럼 글당 2~3개만 넉넉한 텀으로.
+    cap = acct.max_comments_for(cafe_url)               # None=전 계정
+    stagger_min = acct.stagger_min_for(cafe_url, STAGGER_MIN)
+
     # ⚠️ 기준선은 '실제로 처리한 글'까지만 전진시킨다. 예약이 실패했는데 max_id 로 밀면
     #   그 글들은 영구히 기준선 아래로 내려가 다시는 댓글이 안 달린다(독립검증 M2·n17).
     advanced_to = last_seen
@@ -180,7 +184,14 @@ def process_watch(page, w, canon_acct=None):
             # ★ 댓글의 지역은 '그 글 제목'에서 뽑는다(안양 글엔 '안양 누수탐지').
             #   제목에서 못 뽑으면 감시 카페에 등록한 지역으로 폴백.
             art_region = region_from_title(title, art_kw, region)
-        for idx, tname in enumerate(targets):
+        # 글당 상한이 있으면, 그 글에 댓글 달 계정을 '글번호로 회전'해 일부만 고른다.
+        #   → 글마다 다른 계정 조합이 나가 특정 계정 쏠림/과다노출을 줄인다.
+        if cap and len(targets) > cap:
+            start = a["id"] % len(targets)
+            art_targets = [targets[(start + k) % len(targets)] for k in range(cap)]
+        else:
+            art_targets = targets
+        for idx, tname in enumerate(art_targets):
             try:
                 dup = cc.already_commented(a["url"], account=tname)
             except Exception as e:
@@ -201,7 +212,7 @@ def process_watch(page, w, canon_acct=None):
             used_bodies.add(body)
             # 같은 글에 여러 계정이 동시에 달리면 티가 나므로 계정마다 시차를 둔다.
             #   n번째 계정 = 기준시각 + (n × STAGGER_MIN) ± 지터. 리스너가 이 시각 전엔 처리하지 않는다.
-            delay = STAGGER_BASE + idx * STAGGER_MIN + random.uniform(-STAGGER_JITTER, STAGGER_JITTER)
+            delay = STAGGER_BASE + idx * stagger_min + random.uniform(-STAGGER_JITTER, STAGGER_JITTER)
             # astimezone(): 오프셋을 붙여 저장해야 DB(timestamptz)가 UTC 로 오해하지 않는다.
             when = datetime.datetime.now().astimezone() + datetime.timedelta(minutes=max(0.0, delay))
             try:

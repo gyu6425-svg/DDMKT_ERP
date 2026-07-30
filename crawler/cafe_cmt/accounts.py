@@ -144,3 +144,32 @@ def comment_exclude_for(url):
         if tok.lower() in u:
             out |= {n.lower() for n in names}
     return out
+
+
+# 카페별 '글당 최대 댓글 수' — 전 계정을 다 달지 않고 일부만(글번호로 회전 선택).
+#   더맨시스템(사설경호): 사장님 요청으로 글당 2~3개만 + 넉넉한 텀. 없으면 전 계정.
+MAX_COMMENTS_BY_CAFE = {
+    "themansys": 3, "31764949": 3,   # 더맨시스템 = 글당 최대 3
+}
+# 카페별 댓글 간격(분) — 같은 글의 계정 간 시차. 없으면 기본(STAGGER_MIN=8).
+STAGGER_MIN_BY_CAFE = {
+    "themansys": 25, "31764949": 25,  # 더맨시스템 = 넉넉히 25분 간격
+}
+
+
+def max_comments_for(url):
+    """그 카페 글당 최대 댓글 수. 지정 없으면 None(전 계정)."""
+    u = (url or "").lower()
+    for tok, n in MAX_COMMENTS_BY_CAFE.items():
+        if tok.lower() in u:
+            return n
+    return None
+
+
+def stagger_min_for(url, default):
+    """그 카페의 계정 간 시차(분). 지정 없으면 default."""
+    u = (url or "").lower()
+    for tok, n in STAGGER_MIN_BY_CAFE.items():
+        if tok.lower() in u:
+            return n
+    return default
