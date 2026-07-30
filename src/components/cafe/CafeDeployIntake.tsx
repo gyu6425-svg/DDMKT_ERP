@@ -15,6 +15,7 @@ import {
 } from '../../api/cafeDeployRequests';
 import { enqueuePlaceScan, pollPlaceScan, getRegionDongs, type KwResult } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
+import { useAuth } from '../../hooks/useAuth';
 
 const REGION_KEYS = ['서울', '경기', '인천'] as const; // 지역형 지역셋
 
@@ -70,7 +71,13 @@ async function compressImage(file: File, maxDim = 1600, quality = 0.85): Promise
 }
 
 export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
-    const [form, setForm] = useState<CafeDeployInput>(empty);
+    const { profile } = useAuth();
+    const bizName = profile?.name || ''; // 로그인한 고객의 업체명(회원가입/발급 시 지정)
+    const [form, setForm] = useState<CafeDeployInput>({ ...empty, company_name: bizName });
+    // 업체명 자동기입 — 프로필(업체명) 로드되면 비어있는 업체명 칸을 채운다.
+    useEffect(() => {
+        if (bizName) setForm((f) => (f.company_name ? f : { ...f, company_name: bizName }));
+    }, [bizName]);
     const [files, setFiles] = useState<Record<Grp, File[]>>({ main: [], real: [], banner: [] });
     const [rows, setRows] = useState<CafeDeployRequest[]>([]);
     const [urls, setUrls] = useState<Record<string, string>>({});
@@ -247,7 +254,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setBusy(false);
         if (error) return setMsg(`접수 실패: ${error.message}`);
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
-        setForm(empty); setFiles({ main: [], real: [], banner: [] });
+        setForm({ ...empty, company_name: bizName }); setFiles({ main: [], real: [], banner: [] });
         setKwResult(null); setKwPicked([]); setKwHidden([]); setKwExpanded(false); setPickedOpen(false);
         reload();
     };
