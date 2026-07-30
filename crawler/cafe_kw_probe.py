@@ -552,10 +552,9 @@ def classify(kw):
 # 두 호스트 모두 인기글 섹션을 동일하게 주고 파서도 동일(검증됨). 키워드마다 번갈아 요청해
 #   각 호스트 부하를 절반으로 → rate limit 도달을 늦춘다. 한쪽 차단 시 다른 호스트로 폴백.
 _PC_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-_SERP_HOSTS = [
-    ("https://m.search.naver.com/search.naver?query=", _PLACE_UA),  # 모바일
-    ("https://search.naver.com/search.naver?query=", _PC_UA),       # PC
-]
+_CF_SERP = "https://ddmkt-erp.pages.dev/api/serp-probe"  # CF 경유 스크랩(분산 IP)
+_SERP_TOKEN = os.getenv("SERP_TOKEN", "")  # CF env SERP_TOKEN 과 일치해야(설정 시)
+_USE_CF = False  # --cf 로 켬. True=CF경유(즉시/온디맨드), False=사무실 직접(미리크롤·정공법)
 _serp_rr = [0]
 
 
@@ -563,19 +562,42 @@ def _is_blocked(status, text):
     return status in (403, 429) or "제한되었습니다" in text or "과도한 접근" in text
 
 
+def _fetch_direct(pc, kw):
+    """사무실 IP 직접 스크랩(m.search 또는 PC search)."""
+    base = "https://search.naver.com/search.naver?query=" if pc else "https://m.search.naver.com/search.naver?query="
+    try:
+        r = requests.get(base + quote(kw), headers={"User-Agent": _PC_UA if pc else _PLACE_UA}, timeout=20)
+    except Exception:
+        return 0, ""
+    return (200, r.text) if r.status_code == 200 and not _is_blocked(r.status_code, r.text) else (r.status_code, "")
+
+
+def _fetch_cf(pc, kw):
+    """CF 경유 스크랩(CF 분산 IP). CF 함수가 HTML 반환."""
+    u = f"{_CF_SERP}?q={quote(kw)}&host={'pc' if pc else 'm'}" + (f"&token={_SERP_TOKEN}" if _SERP_TOKEN else "")
+    try:
+        r = requests.get(u, timeout=30)
+        if r.status_code != 200:
+            return r.status_code, ""
+        d = r.json()
+        if d.get("blocked") or d.get("status") != 200:
+            return 429, ""
+        return 200, d.get("html", "")
+    except Exception:
+        return 0, ""
+
+
 def _fetch_serp(kw):
-    """인기글 SERP를 호스트 로테이션으로 가져온다. (code, html). 둘 다 차단이면 (0,'')."""
-    i = _serp_rr[0] % 2
+    """인기글 SERP 가져오기. --cf면 CF경유(즉시용), 아니면 사무실 직접(미리크롤용).
+    각 모드에서 m.search↔PC 호스트 로테이션 + 실패 시 다른 호스트 폴백."""
+    pc = (_serp_rr[0] % 2 == 1)
     _serp_rr[0] += 1
-    order = [_SERP_HOSTS[i], _SERP_HOSTS[1 - i]]  # 이번 차례 먼저, 실패 시 다른 호스트 폴백
-    for base, ua in order:
-        try:
-            r = requests.get(base + quote(kw), headers={"User-Agent": ua}, timeout=20)
-        except Exception:
-            continue
-        if r.status_code == 200 and not _is_blocked(r.status_code, r.text):
-            return 200, r.text
-    return 0, ""  # 두 호스트 모두 실패/차단
+    fetch = _fetch_cf if _USE_CF else _fetch_direct
+    for p in (pc, not pc):  # 이번 차례 호스트, 실패 시 다른 호스트
+        code, html = fetch(p, kw)
+        if code == 200 and html:
+            return 200, html
+    return 0, ""
 
 
 def _classify_live(kw):
@@ -788,9 +810,11 @@ def main():
     mine = "--mine" in args  # 제목 마이닝 추가(노이즈 감수·접미형 니치)
     deep = "--deep" in args  # 심층: 인기탭 승자만 재귀 확장(세부 발굴)
     ad = "--ad" in args  # 검색광고 keywordstool 소싱(검색량 기반·온토픽)
-    global _USE_CACHE
+    global _USE_CACHE, _USE_CF
     if "--fresh" in args:  # 캐시 무시하고 강제 재스캔
         _USE_CACHE = False
+    if "--cf" in args:  # CF 경유 스크랩(즉시/온디맨드). 기본은 사무실 직접(미리크롤)
+        _USE_CF = True
     seeds = [a for i, a in enumerate(args) if not a.startswith("--") and args[i - 1] not in ("--depth", "--max", "--target")]
     if not seeds:
         print("사용법: python cafe_kw_probe.py <씨앗|플레이스URL> [--place] [--niche] [--depth N] [--max N] | --self-test")

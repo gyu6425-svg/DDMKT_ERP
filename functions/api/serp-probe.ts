@@ -1,7 +1,8 @@
-// (임시 검증용) Cloudflare 서버에서 네이버 m.search 인기글 SERP를 가져올 수 있는지 테스트.
-//   목적: 인기탭 스크랩을 우리 사무실 IP 대신 CF 분산 IP에서 할 수 있는지 실측.
-//   GET /api/serp-probe?q=수원+맛집  →  {status, blocked, hasPopular, len, ip}
-type Ctx = { request: Request };
+// 카페 인기탭 스크랩 보조 — Cloudflare 서버에서 네이버 SERP HTML을 대신 가져온다(분산 IP).
+//   사무실 IP 스크랩과 '섞어서' 부하를 분산하는 용도. GET /api/serp-probe?q=키워드&host=m|pc&token=...
+//   반환 {status, blocked, html}. blocked=true면 CF IP가 네이버에 막힌 것 → 호출측이 다른 갈래로 폴백.
+//   ※ 남용 방지: CF 환경변수 SERP_TOKEN 설정 시 token 일치 필요(미설정이면 개방 — 설정 권장).
+type Ctx = { request: Request; env: Record<string, string | undefined> };
 
 function j(b: unknown, s = 200) {
     return new Response(JSON.stringify(b), {
@@ -10,15 +11,19 @@ function j(b: unknown, s = 200) {
     });
 }
 
-export async function onRequestGet({ request }: Ctx) {
+export async function onRequestGet({ request, env }: Ctx) {
     const url = new URL(request.url);
     const q = (url.searchParams.get('q') || '').trim();
-    const host = url.searchParams.get('host') === 'pc' ? 'https://search.naver.com' : 'https://m.search.naver.com';
     if (!q) return j({ error: 'q 없음' }, 400);
-    const ua =
-        host.includes('m.search')
-            ? 'Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36'
-            : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+    // 토큰 게이트(설정된 경우만)
+    if (env.SERP_TOKEN && url.searchParams.get('token') !== env.SERP_TOKEN) {
+        return j({ error: 'unauthorized' }, 403);
+    }
+    const pc = url.searchParams.get('host') === 'pc';
+    const host = pc ? 'https://search.naver.com' : 'https://m.search.naver.com';
+    const ua = pc
+        ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+        : 'Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36';
     let r: Response;
     let text: string;
     try {
@@ -27,10 +32,8 @@ export async function onRequestGet({ request }: Ctx) {
         });
         text = await r.text();
     } catch (e) {
-        return j({ error: `fetch 실패: ${String(e)}` }, 502);
+        return j({ error: `fetch 실패: ${String(e)}`, blocked: true }, 502);
     }
-    const blocked = text.includes('제한되었습니다') || text.includes('과도한 접근');
-    const hasPopular = text.includes('인기글');
-    const ip = (text.match(/IP:\s*([0-9.]+)/) || [])[1] || null;
-    return j({ host, status: r.status, blocked, hasPopular, len: text.length, ip });
+    const blocked = text.includes('제한되었습니다') || text.includes('과도한 접근') || r.status === 403 || r.status === 429;
+    return j({ status: r.status, blocked, html: blocked ? '' : text });
 }
