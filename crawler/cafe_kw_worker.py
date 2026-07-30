@@ -260,7 +260,7 @@ def process(req):
         road, jibun = p.place_address(pid)
         menus = p.place_menu(pid)
         exclude = {f["keyword"].replace(" ", "") for f in found} | seen
-        for kw in p.menu_keywords(info.get("name", ""), road, jibun, menus, target - len(found), exclude):
+        for kw in p.menu_keywords(info.get("name", ""), road, jibun, menus, target - len(found), exclude, info.get("cats") or []):
             found.append({"keyword": kw, "volume": None, "theme": "보완(메뉴)", "cafes": [], "filled": True})
     _finish(req["id"], "done", result=found,
             extra={"place_id": pid, "biz_name": info.get("name")},

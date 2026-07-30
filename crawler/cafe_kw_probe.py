@@ -344,18 +344,18 @@ def menu_region_seeds(name, road, jibun):
     return list(dict.fromkeys(seeds))[:4]
 
 
-_MENU_SUFFIX = ["맛집", "추천", "후기"]
-
-
-def menu_keywords(name, road, jibun, menus, need, exclude):
-    """메뉴 코어 × 지역 × 접미로 보완 키워드 생성. exclude(무공백 정규화 set) 제외, need개까지.
-    예: '전북 키조개 맛집', '군산 키조개 맛집', '선유도 키조개 맛집'."""
+def menu_keywords(name, road, jibun, menus, need, exclude, cats=()):
+    """메뉴/가격탭 코어 × 지역 × 접미로 보완 키워드 생성. exclude(무공백 정규화 set) 제외, need개까지.
+    업종 분기:
+      - 음식점(cats에 음식힌트): '전북 키조개 맛집', '군산 키조개 맛집' (맛집 붙임).
+      - 비음식(네일·병원·시술 등): '인천 내성손톱교정', '연수구 내성손톱교정' (맛집 X, 지역+시술 우선)."""
     if need <= 0:
         return []
     cores = menu_cores(menus)
     regions = menu_region_seeds(name, road, jibun)
     if not cores or not regions:
         return []
+    food = any(any(h in c for h in _FOOD_HINT) for c in cats)
     seen = set(exclude)
     out = []
 
@@ -364,22 +364,35 @@ def menu_keywords(name, road, jibun, menus, need, exclude):
         if nk and nk not in seen:
             seen.add(nk)
             out.append(k)
+        return len(out) >= need
 
-    for r in regions:                               # 1) 지역 × 코어 × 맛집(사용자 예시 우선)
-        for cc in cores:
-            push(f"{r} {cc} 맛집")
-            if len(out) >= need:
-                return out
-    for r in regions:                               # 2) 지역 × 코어
-        for cc in cores:
-            push(f"{r} {cc}")
-            if len(out) >= need:
-                return out
-    for cc in cores:                                # 3) 코어 × 접미
-        for s in _MENU_SUFFIX:
-            push(f"{cc} {s}")
-            if len(out) >= need:
-                return out
+    if food:
+        for r in regions:                           # 1) 지역 × 코어 × 맛집
+            for cc in cores:
+                if push(f"{r} {cc} 맛집"):
+                    return out
+        for r in regions:                           # 2) 지역 × 코어
+            for cc in cores:
+                if push(f"{r} {cc}"):
+                    return out
+        for cc in cores:                            # 3) 코어 × 접미
+            for s in ("맛집", "추천", "후기"):
+                if push(f"{cc} {s}"):
+                    return out
+    else:
+        for r in regions:                           # 1) 지역 × 시술(인천 내성손톱교정 — 사용자 예시)
+            for cc in cores:
+                if push(f"{r} {cc}"):
+                    return out
+        for r in regions:                           # 2) 지역 × 시술 × 접미
+            for cc in cores:
+                for s in ("추천", "후기", "잘하는곳"):
+                    if push(f"{r} {cc} {s}"):
+                        return out
+        for cc in cores:                            # 3) 시술 × 접미
+            for s in ("추천", "후기", "잘하는곳", "가격"):
+                if push(f"{cc} {s}"):
+                    return out
     return out
 
 
