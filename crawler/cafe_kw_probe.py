@@ -364,7 +364,10 @@ def menu_region_seeds(name, road, jibun):
         seeds.append(sido)                          # 도(광역)는 뒤
     biz = re.sub(r"(바닷가|횟집|회집|식당|맛집|수산|본점|점|가든|해물|물회|막회|회|반점|촌)$", "", (name or "").replace(" ", ""))
     if 2 <= len(biz) <= 6 and re.fullmatch(r"[가-힣]+", biz):
-        seeds.append(biz)                           # 선유도바닷가 → 선유도
+        # 지명형만 채택(선유도바닷가→선유도: 주소 '선유남'과 겹침). 브랜드명(뷰디자인·메디푸스)은 배제.
+        addr = (road or "") + (jibun or "")
+        if any(biz[:2] in t or (len(t) >= 2 and t[:2] in biz) for t in toks) or biz[:2] in addr:
+            seeds.append(biz)                       # 선유도
     return list(dict.fromkeys(seeds))[:6]            # 시·구·동·상권·도 다 들어가도록 캡 확대
 
 
@@ -400,8 +403,13 @@ def menu_keywords(name, road, jibun, menus, need, exclude, cats=()):
             for r in regions:
                 if push(f"{r} {cc}"):
                     return out
-        for cc in cores:                            # 3) 코어 × 접미
-            for s in ("추천", "후기"):
+        for cc in cores:                            # 3) 코어 × 지역 × 접미(코어 적어도 50 채우게)
+            for r in regions:
+                for s in ("추천", "후기", "예약"):
+                    if push(f"{r} {cc} {s}"):
+                        return out
+        for cc in cores:                            # 4) 코어 × 접미
+            for s in ("맛집", "추천", "후기"):
                 if push(f"{cc} {s}"):
                     return out
     else:
