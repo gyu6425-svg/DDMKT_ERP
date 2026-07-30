@@ -35,7 +35,7 @@ DDMKT_ERP\crawler\install_kw_worker.bat
 2. **코드**: `git clone http://github.com/gyu6425-svg/DDMKT_ERP.git` (GitHub 접근 필요) — 또는 main의 `crawler` 폴더 복사
 3. **키**: `DDMKT_ERP\.env` 파일에 SUPABASE_URL·SUPABASE_SERVICE_KEY 2줄 (main의 `.env` 그대로 복사)
 4. **원클릭 설치**: `DDMKT_ERP\crawler\install_kw_worker.bat` 더블클릭
-   - 의존 패키지(truststore·requests·beautifulsoup4·python-dotenv) 설치
+   - 의존 패키지(truststore·requests·beautifulsoup4·python-dotenv·feedparser) 설치
    - Startup 폴더에 자동시작 등록(부팅 시 워커 상시 실행)
    - 워커 즉시 실행
 5. **확인**: `DDMKT_ERP\crawler\kw_worker.log` 에

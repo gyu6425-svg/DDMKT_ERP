@@ -14,7 +14,7 @@ if errorlevel 1 (
 )
 
 echo [2/5] 의존 패키지 설치...
-python -m pip install --quiet --upgrade truststore requests beautifulsoup4 python-dotenv
+python -m pip install --quiet --upgrade truststore requests beautifulsoup4 python-dotenv feedparser
 
 echo [3/5] 최신 코드 받기...
 git pull 2>nul
