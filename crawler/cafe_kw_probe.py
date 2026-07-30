@@ -807,12 +807,16 @@ def main():
             if ad_vol:
                 top = sorted(ad_vol.items(), key=lambda x: -x[1])[:10]
                 print(f"  검색광고 연관(검색량순): {', '.join(f'{k}({v})' for k, v in top)}", flush=True)
-        if target:  # 수요 기반: 검색량순으로 N건 찾으면 중단(스크랩 최소화)
-            ordered = [k for k, _ in sorted(ad_vol.items(), key=lambda x: -x[1]) if k in base]
-            for k in base:  # 검색량 있는 것 먼저 → 나머지(계층 넓은→좁은)
+        if target:  # 수요 기반: N건 찾으면 중단(스크랩 최소화)
+            # 로컬 우선 정렬: ① 우리 지역토큰 포함(넓은→좁은) → ② 검색광고 검색량순 니치 → ③ 나머지.
+            regset = set(regs) | set(region_hierarchy(road, jibun))
+            local = [k for k in base if any(rt and rt in k for rt in regset)]
+            adkw = [k for k, _ in sorted(ad_vol.items(), key=lambda x: -x[1]) if k in base and k not in local]
+            ordered = local + adkw
+            for k in base:  # 혹시 빠진 나머지
                 if k not in ordered:
                     ordered.append(k)
-            print(f"\n=== 목표 {target}건까지 스캔 (검색량순 우선 · 발견 시 중단) ===", flush=True)
+            print(f"\n=== 목표 {target}건까지 스캔 (로컬 우선 → 검색량순 · 발견 시 중단) ===", flush=True)
             results = scan_until(ordered, target)
             print("\n=== 요약 ===", flush=True)
             print(f"  업체: {info['name']} · {', '.join(info['cats'][:3])}", flush=True)
