@@ -20,10 +20,12 @@ function Write-Log($msg) {
 #   hang 감지: 각 데몬이 .hb_<name> 에 heartbeat 를 찍는다. 그 값이 STALE_SEC 보다
 #   오래됐으면 = 살아있어도 멈춘 것 → 죽였다가 되살린다. (프로세스 존재만 보면 hang 을 놓친다)
 $STALE_SEC = 480   # 8분 — 정상 1주기(크롤 최대 수분)보다 넉넉히 크게(오탐 방지)
+# reply_scheduler(대댓글) removed 2026-07-30 by user request (대댓글 중단).
+#   To re-enable replies later: add back @{ script='reply_scheduler.py'; hb='reply' }
+#   and the launch line in start_all.bat.
 $DAEMONS = @(
     @{ script = 'comment_listener.py'; hb = 'listener' },
     @{ script = 'watch_new_posts.py';  hb = 'watch' },
-    @{ script = 'reply_scheduler.py';  hb = 'reply' },
     @{ script = 'keep_alive.py';       hb = 'keepalive' }
 )
 $procs = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='py.exe'"
