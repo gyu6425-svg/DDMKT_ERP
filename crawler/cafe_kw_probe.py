@@ -573,18 +573,22 @@ def _fetch_direct(pc, kw):
 
 
 def _fetch_cf(pc, kw):
-    """CF 경유 스크랩(CF 분산 IP). CF 함수가 HTML 반환."""
+    """CF 경유 스크랩(CF 분산 IP). CF 함수가 HTML 반환. 콜드스타트/일시실패 1회 재시도."""
     u = f"{_CF_SERP}?q={quote(kw)}&host={'pc' if pc else 'm'}" + (f"&token={_SERP_TOKEN}" if _SERP_TOKEN else "")
-    try:
-        r = requests.get(u, timeout=30)
-        if r.status_code != 200:
-            return r.status_code, ""
-        d = r.json()
-        if d.get("blocked") or d.get("status") != 200:
-            return 429, ""
-        return 200, d.get("html", "")
-    except Exception:
-        return 0, ""
+    for attempt in range(2):
+        try:
+            r = requests.get(u, timeout=40)  # 1.5MB HTML 반환 → 여유 타임아웃
+            if r.status_code == 200:
+                d = r.json()
+                if d.get("blocked"):
+                    return 429, ""  # 차단은 재시도 무의미
+                if d.get("status") == 200 and d.get("html"):
+                    return 200, d["html"]
+        except Exception:
+            pass
+        if attempt == 0:
+            c._pause(1.5)  # 콜드스타트 대비 잠깐 쉬고 재시도
+    return 0, ""
 
 
 def _fetch_serp(kw):
