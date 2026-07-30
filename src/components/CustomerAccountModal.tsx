@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { loginId } from '../api/auth'
 
 // 계정 발급 모달 — 관리자만. 서버(Edge Function)가 실제 생성.
 //   mode='customer'(고객 ERP·업체 연결) | 'reporter'(기자단 ERP·업체 연결 없음).
@@ -102,7 +103,7 @@ export default function CustomerAccountModal({
               접속: <b>https://ddmkt-erp.pages.dev/</b>
             </div>
             <div>
-              아이디(이메일): <b>{result.email}</b>
+              아이디: <b>{loginId(result.email)}</b>
             </div>
             <div>
               초기 비밀번호: <b>{result.password}</b>

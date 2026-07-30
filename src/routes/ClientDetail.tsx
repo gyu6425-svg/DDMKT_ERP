@@ -29,6 +29,7 @@ import TaxGuidelineModal, { type ParsedProduct } from '../components/TaxGuidelin
 import { canIssueClientAccount } from '../lib/permissions';
 import { PlaceUrlField } from '../components/PlaceUrlField';
 import { getCustomerAccount } from '../api/profiles';
+import { loginId } from '../api/auth';
 import {
     parseTsvGrid,
     findCol,
@@ -2941,7 +2942,7 @@ export function ClientDetail({
                                 type="button"
                             >
                                 <span className="block text-[10px] font-normal text-[#818cf8]">고객 ERP 아이디 →</span>
-                                {(custAcct.email || '').split('@')[0] || custAcct.email}
+                                {loginId(custAcct.email)}
                             </button>
                             <button
                                 className="rounded-md border border-[#c7d2fe] bg-white px-2 py-1.5 text-[11px] font-semibold text-[#4338ca] hover:bg-[#eef2ff]"
