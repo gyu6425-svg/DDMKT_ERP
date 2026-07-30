@@ -192,6 +192,17 @@ export async function setCafeDeployStatus(id: string, status: string) {
     return { error };
 }
 
+// 내부: 접수내역 삭제 — 사진(스토리지)·자격증명 정리 후 행 삭제(사진/자격 정리는 best-effort).
+export async function deleteCafeDeployRequest(row: CafeDeployRequest) {
+    const paths = row.photos ? [...row.photos.main, ...row.photos.real, ...row.photos.banner] : [];
+    if (paths.length) {
+        try { await supabase.storage.from(CAFE_DEPLOY_BUCKET).remove(paths); } catch { /* 사진 정리 실패 무시 */ }
+    }
+    try { await supabase.from('cafe_deploy_credentials').delete().eq('deploy_request_id', row.id); } catch { /* 자격 정리 무시 */ }
+    const { error } = await supabase.from('cafe_deploy_requests').delete().eq('id', row.id);
+    return { error };
+}
+
 // 접수 목록 — clientId 주면 그 업체로 필터(내부 미리보기용). 고객 본인은 RLS 로 자동 스코프.
 export async function listCafeDeployRequests(clientId?: string, limit = 20) {
     let q = supabase.from('cafe_deploy_requests').select('*')
