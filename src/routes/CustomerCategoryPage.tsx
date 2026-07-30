@@ -11,7 +11,7 @@ import { CafeCustomerStudio } from '../components/cafe/CafeCustomerStudio';
 import { CafeDeployIntake } from '../components/cafe/CafeDeployIntake';
 import { CafeTokenHistory } from '../components/cafe/CafeTokenHistory';
 import { getCafeAccounts } from '../api/cafeAccounts';
-import { listCafeDeployRequests } from '../api/cafeDeployRequests';
+import { listChargeRequests } from '../api/cafeTokens';
 import { useAuth } from '../hooks/useAuth';
 
 export function useAsParam(): string {
@@ -67,7 +67,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const [companyKeys, setCompanyKeys] = useState<string[]>([]); // 트래커용 — 이 고객의 모든 카페(마이클+자체)
     const [sheetKeys, setSheetKeys] = useState<string[]>([]);     // 관리시트용 — 자체 카페만(마이클 ddmkt2 제외)
     const [publishEnabled, setPublishEnabled] = useState(false); // 담당자 세팅 완료(자동화 발행 탭 노출)
-    const [payDue, setPayDue] = useState(0); // 결제대기(승인된 접수) 건수 — 충전내역 탭 알림 뱃지
+    const [chargeDue, setChargeDue] = useState(0); // 미확인 충전요청(고객이 입금/구매) 건수 — 충전내역 탭 알림 뱃지
     const [loading, setLoading] = useState(true);
     // 사이드바 '카페 배포'(?sub=카페 배포) 로 들어오면 접수 탭으로 연다.
     const [view, setView] = useState<'tracker' | 'sheet' | 'intake' | 'publish' | 'charge'>(
@@ -101,13 +101,15 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
         return () => { alive = false; };
     }, [scopedClientId]);
 
-    // 결제대기(승인된 접수) 건수 → 충전내역 탭 알림 뱃지
+    // 충전요청(고객이 계좌이체/카드결제로 토큰 구매 = 충전 요청) 중 '아직 안 본' 건수 → 충전내역 탭 알림 뱃지.
+    //   탭을 열면(클릭) seen 시각을 저장해 뱃지를 지운다. 새 요청이 생기면 다시 뜬다.
     useEffect(() => {
         let alive = true;
-        if (!scopedClientId) { setPayDue(0); return; }
-        void listCafeDeployRequests(scopedClientId).then(({ data }) => {
+        if (!scopedClientId) { setChargeDue(0); return; }
+        void listChargeRequests(scopedClientId).then(({ data }) => {
             if (!alive) return;
-            setPayDue(data.filter((r) => r.status === '결제대기').length);
+            const seen = localStorage.getItem(`cafeChargeSeen:${scopedClientId}`) || '';
+            setChargeDue(data.filter((r) => r.status === 'pending' && (!seen || r.created_at > seen)).length);
         });
         return () => { alive = false; };
     }, [scopedClientId, view]);
@@ -135,12 +137,18 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
                             view === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
                         }`}
                         key={k}
-                        onClick={() => setView(k as typeof view)}
+                        onClick={() => {
+                            if (k === 'charge' && scopedClientId) {
+                                localStorage.setItem(`cafeChargeSeen:${scopedClientId}`, new Date().toISOString());
+                                setChargeDue(0); // 클릭 시 뱃지 해제
+                            }
+                            setView(k as typeof view);
+                        }}
                         type="button"
                     >
                         {name}
-                        {k === 'charge' && payDue > 0 ? (
-                            <span className="ml-1.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ef4444] px-1 text-[10px] font-bold leading-none text-white">{payDue}</span>
+                        {k === 'charge' && chargeDue > 0 ? (
+                            <span className="ml-1.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ef4444] px-1 text-[10px] font-bold leading-none text-white">{chargeDue}</span>
                         ) : null}
                     </button>
                 ))}
