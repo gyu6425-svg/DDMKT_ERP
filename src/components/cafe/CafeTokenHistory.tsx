@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { listTokens, balanceOf, requestCharge, listChargeRequests, type TokenLedger, type TokenRequest } from '../../api/cafeTokens';
+import { listTokens, balanceOf, requestCharge, listChargeRequests, TOKEN_PRICE_KRW, tokenWon, type TokenLedger, type TokenRequest } from '../../api/cafeTokens';
 
 // 고객 '충전내역' — 발행 토큰 잔액 + 충전/사용 히스토리(본인, RLS 스코프).
 export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
@@ -44,26 +44,32 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                     <div className="text-[12px] text-[#64748b]">잔여 발행</div>
                     <div className="text-2xl font-bold text-[#1e40af]">{balance}건</div>
+                    <div className="mt-0.5 text-[11px] text-[#94a3b8]">₩{tokenWon(balance)}</div>
                 </div>
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                     <div className="text-[12px] text-[#64748b]">총 충전</div>
                     <div className="text-2xl font-bold text-[#059669]">{charged}건</div>
+                    <div className="mt-0.5 text-[11px] text-[#94a3b8]">₩{tokenWon(charged)}</div>
                 </div>
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                     <div className="text-[12px] text-[#64748b]">총 사용(발행)</div>
                     <div className="text-2xl font-bold text-[#475569]">{used}건</div>
+                    <div className="mt-0.5 text-[11px] text-[#94a3b8]">₩{tokenWon(used)}</div>
                 </div>
             </div>
 
             {/* 충전 요청 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
                 <div className="mb-1 text-[15px] font-bold text-[#0f172a]">충전 요청</div>
-                <p className="mb-3 mt-0 text-[12px] text-[#64748b]">입금 후 충전을 요청하시면 담당자가 확인하고 충전해 드립니다. (발행 1건 = 1토큰)</p>
+                <p className="mb-3 mt-0 text-[12px] text-[#64748b]">입금 후 충전을 요청하시면 담당자가 확인하고 충전해 드립니다. <b className="text-[#4338ca]">발행 1건 = 1토큰 = {TOKEN_PRICE_KRW.toLocaleString('ko-KR')}원</b></p>
                 <div className="flex flex-wrap items-end gap-2">
                     <div>
                         <div className="mb-1 text-[12px] font-semibold text-[#64748b]">희망 건수</div>
                         <input className="h-9 w-28 rounded border border-[#cbd5e1] px-2 text-sm" type="number" min={1} placeholder="예: 30" value={reqCount} onChange={(e) => setReqCount(e.target.value)} />
                     </div>
+                    {reqCount && Number(reqCount) > 0 ? (
+                        <div className="pb-1.5 text-[13px] font-semibold text-[#1e40af]">= ₩{tokenWon(Number(reqCount))} <span className="text-[11px] font-normal text-[#94a3b8]">입금</span></div>
+                    ) : null}
                     <div className="min-w-[160px] flex-1">
                         <div className="mb-1 text-[12px] font-semibold text-[#64748b]">메모 (입금자명/일자)</div>
                         <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" placeholder="예: 홍길동 7/30 입금" value={reqNote} onChange={(e) => setReqNote(e.target.value)} />
@@ -77,6 +83,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                             <div key={q.id} className="flex items-center gap-2 rounded border border-[#f1f5f9] px-2 py-1 text-[12px]">
                                 <span className="text-[#64748b]">{new Date(q.created_at).toLocaleDateString('ko-KR')}</span>
                                 <span className="font-semibold">{q.requested_count ? `${q.requested_count}건` : '건수 미지정'}</span>
+                                {q.requested_count ? <span className="text-[11px] text-[#94a3b8]">₩{tokenWon(q.requested_count)}</span> : null}
                                 <span className="text-[#94a3b8]">{q.note ?? ''}</span>
                                 <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold ${q.status === 'done' ? 'bg-[#dcfce7] text-[#166534]' : q.status === 'rejected' ? 'bg-[#fee2e2] text-[#b91c1c]' : 'bg-[#fef9c3] text-[#854d0e]'}`}>{q.status === 'done' ? '충전완료' : q.status === 'rejected' ? '반려' : '대기'}</span>
                             </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { listTokens, grantTokens, balanceOf, listChargeRequests, setChargeRequestStatus, type TokenLedger, type TokenRequest } from '../api/cafeTokens';
+import { listTokens, grantTokens, balanceOf, listChargeRequests, setChargeRequestStatus, tokenWon, type TokenLedger, type TokenRequest } from '../api/cafeTokens';
 
 type ClientLite = { id: string; company: string | null };
 
@@ -57,7 +57,7 @@ export default function TokenChargePanel() {
         if (error) { setBusy(false); return setMsg('충전 실패: ' + error.message); }
         if (fulfilling) { await setChargeRequestStatus(fulfilling, 'done'); setFulfilling(null); }
         setBusy(false);
-        setMsg(`${clientName(pick)} +${n}건 충전 완료`);
+        setMsg(`${clientName(pick)} +${n}건 (₩${tokenWon(n)}) 충전 완료`);
         setCount(''); setNote('');
         load();
     };
@@ -73,6 +73,7 @@ export default function TokenChargePanel() {
                             <div key={q.id} className="flex flex-wrap items-center gap-2 rounded border border-[#fde68a] bg-white px-3 py-2 text-[13px]">
                                 <span className="font-bold text-[#334155]">{clientName(q.client_id)}</span>
                                 <span className="text-[#4338ca] font-semibold">{q.requested_count ? `${q.requested_count}건 요청` : '건수 미지정'}</span>
+                                {q.requested_count ? <span className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[11px] font-bold text-[#3730a3]">₩{tokenWon(q.requested_count)} 입금확인</span> : null}
                                 {q.note ? <span className="text-[#64748b]">· {q.note}</span> : null}
                                 <span className="text-[11px] text-[#cbd5e1]">{new Date(q.created_at).toLocaleString('ko-KR')}</span>
                                 <div className="ml-auto flex gap-2">
@@ -102,12 +103,13 @@ export default function TokenChargePanel() {
                             ))}
                             {matches.length === 0 ? <span className="text-xs text-[#94a3b8]">일치 업체 없음</span> : null}
                         </div>
-                        {pick ? <div className="mt-1.5 text-[12px] text-[#1e40af]">선택: <b>{clientName(pick)}</b> · 현재 잔액 <b>{pickedBalance}건</b></div> : null}
+                        {pick ? <div className="mt-1.5 text-[12px] text-[#1e40af]">선택: <b>{clientName(pick)}</b> · 현재 잔액 <b>{pickedBalance}건</b> <span className="text-[#94a3b8]">(₩{tokenWon(pickedBalance)})</span></div> : null}
                     </div>
                     <div className="grid content-start gap-2">
                         <div>
-                            <div className="mb-1 text-[12px] font-semibold text-[#64748b]">충전 건수</div>
+                            <div className="mb-1 text-[12px] font-semibold text-[#64748b]">충전 건수 <span className="font-normal text-[#94a3b8]">(1건 = 15,000원)</span></div>
                             <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" type="number" min={1} placeholder="예: 30" value={count} onChange={(e) => setCount(e.target.value)} />
+                            {count && Number(count) > 0 ? <div className="mt-1 text-[12px] font-bold text-[#059669]">입금 확인 금액: ₩{tokenWon(Number(count))}</div> : null}
                         </div>
                         <div>
                             <div className="mb-1 text-[12px] font-semibold text-[#64748b]">메모 (선택)</div>

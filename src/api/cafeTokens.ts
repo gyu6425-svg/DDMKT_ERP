@@ -1,5 +1,10 @@
 import { supabase } from '../lib/supabase';
 
+// 단가: 1토큰(=카페 1건 발행) = 15,000원. 충전은 이 단가로 입금.
+export const TOKEN_PRICE_KRW = 15000;
+// 건수 → 금액(원) 문자열. 예: tokenWon(3) → "45,000"
+export const tokenWon = (count: number) => (Math.max(0, Math.round(count || 0)) * TOKEN_PRICE_KRW).toLocaleString('ko-KR');
+
 // 카페 발행 토큰(건수) 원장. 발행 1건 = 1토큰. 잔액 = delta 합계.
 export type TokenLedger = {
     id: string;
