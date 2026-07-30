@@ -4,8 +4,31 @@ import { supabase } from '../lib/supabase';
 //   전제: docs/cafe-deploy-requests.sql + cafe-deploy-photos.sql. 금액/정산은 계약관리 별도.
 export const CAFE_DEPLOY_BUCKET = 'deploy-intake';
 
+// 배포 상태 흐름: 접수 → 결제대기(승인) → 세팅중 → 완료
+export const DEPLOY_STATUSES = ['접수', '결제대기', '세팅중', '완료'] as const;
+
+// 결제(입금) 안내 — 승인 시 고객ERP에 노출. 1건 발행 = 1토큰 = 15,000원.
+export const PAYMENT_INFO = {
+    unitPrice: 15000,
+    bank: '국민은행',
+    account: '592201-01-700434',
+    holder: '김종인 (든든한마케팅)',
+    method: '계좌이체(무통장 입금)',           // 현재 기본 결제수단
+    cardAvailable: true,                         // 카드결제도 가능(담당자 문의)
+    cardNote: '카드결제를 원하시면 담당자에게 문의해 주세요.',
+};
+
+// 이 접수의 결제 금액(원) = 발행 건수 × 15,000. total_count 없으면 선택 키워드 수로 대체.
+export function deployAmountKRW(r: { total_count?: number | null; selected_keywords?: { keyword: string }[] | null }): number {
+    const n = r.total_count ?? r.selected_keywords?.length ?? 0;
+    return Math.max(0, n) * PAYMENT_INFO.unitPrice;
+}
+
 // 접수 사진 경로 묶음: 최상위 폴더 = client_id.
 export type DeployPhotos = { main: string[]; real: string[]; banner: string[] };
+
+// 고객이 '정확 인기탭 분석'에서 골라 우리에게 전달하는 키워드(발행 대상). 전제: docs/cafe-deploy-selected-keywords.sql
+export type PickedKeyword = { keyword: string; volume?: number | null; theme?: string | null };
 
 export type CafeDeployRequest = {
     id: string;
@@ -27,6 +50,7 @@ export type CafeDeployRequest = {
     two_factor: boolean | null;
     deploy_type: string | null;       // 지역형 | 키워드형
     region_sets: string[] | null;     // 지역형 선택 지역셋
+    selected_keywords: PickedKeyword[] | null; // 고객이 고른 인기탭 키워드(발행 대상)
 };
 
 // 네이버 계정(민감) — 별도 테이블. UI 는 비번 마스킹.
@@ -60,6 +84,7 @@ export type CafeDeployInput = {
     // 접수 유형
     deploy_type?: string;             // 지역형 | 키워드형
     region_sets?: string[];           // 지역형 선택 지역셋
+    selected_keywords?: PickedKeyword[]; // 고객이 고른 인기탭 키워드(발행 대상)
 };
 
 // 사진 1장 업로드(압축된 Blob) → 저장 경로 반환. 경로 = <client_id>/<batch>/<type>_<n>.jpg
@@ -84,7 +109,7 @@ export async function signedDeployUrls(paths: string[], expiresSec = 3600): Prom
 // 고객: 접수 등록. client_id 는 RLS(my_client_id) 로 검증되므로 값도 함께 넣는다.
 //   네이버 계정(민감)은 별도 테이블 cafe_deploy_credentials 에 저장(접수 행에는 안 넣음).
 export async function submitCafeDeployRequest(clientId: string, input: CafeDeployInput) {
-    const { data, error } = await supabase.from('cafe_deploy_requests').insert({
+    const base = {
         client_id: clientId,
         company_name: input.company_name.trim(),
         url: input.url?.trim() || null,
@@ -102,7 +127,13 @@ export async function submitCafeDeployRequest(clientId: string, input: CafeDeplo
         deploy_type: input.deploy_type || '지역형',
         region_sets: input.region_sets ?? null,
         status: '접수',
-    }).select('id').single();
+    };
+    const withKw = { ...base, selected_keywords: input.selected_keywords?.length ? input.selected_keywords : null };
+    let { data, error } = await supabase.from('cafe_deploy_requests').insert(withKw).select('id').single();
+    // selected_keywords 컬럼 미적용(SQL 미실행) 시 접수가 통째로 깨지지 않도록 그 필드만 빼고 재시도.
+    if (error && /selected_keywords|42703|column/i.test(error.message)) {
+        ({ data, error } = await supabase.from('cafe_deploy_requests').insert(base).select('id').single());
+    }
     if (error) return { error };
     // 네이버 계정(민감) — 입력됐을 때만 별도 테이블에.
     if (input.naver_id?.trim() || input.naver_pw?.trim()) {
@@ -137,6 +168,16 @@ export async function submitCafeDeployRequest(clientId: string, input: CafeDeplo
     return { error: null };
 }
 
+// 이 업체(client)가 이미 카페에 발행한 키워드 목록 — cafe_rank_posts(이 client의 카페계정들) 기준.
+//   '정확 인기탭 분석' 재스캔 시 중복 제외에 사용. selected_keywords(체크한 것)와 합쳐 '이미 사용' 집합 구성.
+export async function getClientPublishedKeywords(clientId: string): Promise<string[]> {
+    const { data: accs } = await supabase.from('cafe_accounts').select('id').eq('client_id', clientId);
+    const ids = (accs ?? []).map((a) => (a as { id: string }).id);
+    if (!ids.length) return [];
+    const { data: posts } = await supabase.from('cafe_rank_posts').select('keyword').in('cafe_account_id', ids);
+    return (posts ?? []).map((p) => (p as { keyword: string | null }).keyword ?? '').filter(Boolean);
+}
+
 // 자격증명 조회(고객=본인 / 내부=전체). UI 에서 비번은 마스킹해서 표시할 것.
 export async function listDeployCredentials(clientId?: string) {
     let q = supabase.from('cafe_deploy_credentials').select('*').order('created_at', { ascending: false });
@@ -148,6 +189,17 @@ export async function listDeployCredentials(clientId?: string) {
 // 내부: 접수 상태 변경(접수 → 세팅중 → 완료).
 export async function setCafeDeployStatus(id: string, status: string) {
     const { error } = await supabase.from('cafe_deploy_requests').update({ status }).eq('id', id);
+    return { error };
+}
+
+// 내부: 접수내역 삭제 — 사진(스토리지)·자격증명 정리 후 행 삭제(사진/자격 정리는 best-effort).
+export async function deleteCafeDeployRequest(row: CafeDeployRequest) {
+    const paths = row.photos ? [...row.photos.main, ...row.photos.real, ...row.photos.banner] : [];
+    if (paths.length) {
+        try { await supabase.storage.from(CAFE_DEPLOY_BUCKET).remove(paths); } catch { /* 사진 정리 실패 무시 */ }
+    }
+    try { await supabase.from('cafe_deploy_credentials').delete().eq('deploy_request_id', row.id); } catch { /* 자격 정리 무시 */ }
+    const { error } = await supabase.from('cafe_deploy_requests').delete().eq('id', row.id);
     return { error };
 }
 

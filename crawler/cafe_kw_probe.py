@@ -291,6 +291,144 @@ def region_tokens(road, jibun):
     return out
 
 
+# ── 플레이스 메뉴 → 보완 키워드(계약건수만큼 못 채울 때 메뉴 기반으로 생성) ──────
+def place_menu(pid):
+    """placeId → 메뉴/서비스 항목명. m.place 메뉴탭 HTML 파싱.
+    __typename:Menu 로 가격 유무 무관 추출 — 인테리어처럼 '변동'·빈가격 서비스 목록도 포함."""
+    out = []
+    for u in (f"https://m.place.naver.com/restaurant/{pid}/menu/list",
+              f"https://m.place.naver.com/place/{pid}/menu/list"):
+        try:
+            r = requests.get(u, headers={"User-Agent": _PLACE_UA, "Accept-Language": "ko", "Referer": "https://m.place.naver.com/"}, timeout=20)
+            r.encoding = "utf-8"
+            b = r.text
+        except Exception:
+            continue
+        if r.status_code != 200:
+            continue
+        for m in re.finditer(r'"__typename"\s*:\s*"Menu"[^}]*?"name"\s*:\s*"([^"]{1,60})"', b):
+            nm = m.group(1).strip()
+            if nm and re.search(r"[가-힣]", nm) and nm not in out:
+                out.append(nm)
+        if not out:  # 폴백: name+가격 인접(구조가 다른 경우)
+            for m in re.finditer(r'"name"\s*:\s*"([^"]{1,50})"[^{}]{0,160}?"(?:price|priceStr|priceNumber|priceText)"\s*:\s*"?([\d,]{2,})', b):
+                nm = m.group(1).strip()
+                if nm and re.search(r"[가-힣]", nm) and nm not in out:
+                    out.append(nm)
+        if out:
+            break
+    return out[:80]
+
+
+# 요리명이 아닌 수식어·업소명 파편(맛집 붙으면 노이즈): 다이닝·파인·한접시 등도 제외.
+_MENU_STOP = set(("소 중 대 특 특대 인 인분 세트 코스 추천 스페셜 메뉴 모듬 모둠 한상 서비스 무한리필 리필 세트메뉴 "
+                  "다이닝 파인 한접시 정식 세트A 세트B 오늘의 시그니처 프리미엄 기본").split())
+# 이모지(메뉴/서비스명 앞 아이콘) 제거용.
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿️←-⇿]")
+# 비음식 서비스명에서 떼어낼 홍보·수식 파편(무료 방문 실측 및 인테리어 상담 → 인테리어).
+_SVC_STRIP = set("무료 방문 실측 맞춤 상담 컨설팅 전문 안내 문의 및 추천 이벤트 특가 할인 예약 견적".split())
+
+
+def menu_cores(menus, food=True):
+    """메뉴/서비스명 → 코어.
+      음식: 토큰화(키조개 해물삼합 → 키조개, 해물삼합).
+      비음식: 서비스명을 통째로 유지(욕실 리모델링·사무실 인테리어). 이모지·평수·홍보 파편만 제거."""
+    cores = []
+    for nm in menus:
+        t = _EMOJI.sub("", nm)
+        t = re.sub(r"\([^)]*\)", " ", t)            # (2인) 등 괄호 제거
+        t = re.sub(r"\d+\s*평대?", " ", t)          # 40평대 제거
+        t = re.sub(r"\d+\s*인분?", " ", t)          # 2인 제거
+        if food:
+            t = re.sub(r"[+/·,]", " ", t)           # 삼합+막회 → 삼합 막회
+            for tok in t.split():
+                tok = re.sub(r"(세트|메뉴|코스)$", "", tok.strip())
+                if len(tok) >= 2 and tok not in _MENU_STOP and re.fullmatch(r"[가-힣]+", tok) and tok not in cores:
+                    cores.append(tok)
+        else:
+            for part in re.split(r"\s*(?:및|/|\+|·|,)\s*", t):   # '및//+·' 로 분리, 조각은 통째로
+                toks = [x for x in part.split() if x not in _SVC_STRIP]
+                phrase = " ".join(toks).strip()
+                if 2 <= len(phrase) <= 14 and re.search(r"[가-힣]", phrase) and phrase not in _MENU_STOP and phrase not in cores:
+                    cores.append(phrase)
+    return cores
+
+
+def menu_region_seeds(name, road, jibun):
+    """메뉴 키워드용 지역 시드. 도로명(광덕1로→광덕)·지번(이동) 동네를 둘 다 잡고 앞에 둔다
+    (동 키워드가 잘 먹힘). 도(광역)는 뒤로. 순서: 시 → 구 → 동(지번) → 상권(도로명) → 도 → 업체명."""
+    sido = _sido(road, jibun)
+    toks = region_tokens(road, jibun)               # [시/군, 구, 동(지번), 상권(도로명)] 순
+    seeds = list(toks)                              # 동네(동·도로명)를 먼저
+    if sido:
+        seeds.append(sido)                          # 도(광역)는 뒤
+    biz = re.sub(r"(바닷가|횟집|회집|식당|맛집|수산|본점|점|가든|해물|물회|막회|회|반점|촌)$", "", (name or "").replace(" ", ""))
+    if 2 <= len(biz) <= 6 and re.fullmatch(r"[가-힣]+", biz):
+        # 지명형만 채택(선유도바닷가→선유도: 주소 '선유남'과 겹침). 브랜드명(뷰디자인·메디푸스)은 배제.
+        addr = (road or "") + (jibun or "")
+        if any(biz[:2] in t or (len(t) >= 2 and t[:2] in biz) for t in toks) or biz[:2] in addr:
+            seeds.append(biz)                       # 선유도
+    return list(dict.fromkeys(seeds))[:6]            # 시·구·동·상권·도 다 들어가도록 캡 확대
+
+
+def menu_keywords(name, road, jibun, menus, need, exclude, cats=()):
+    """메뉴/가격탭 코어 × 지역 × 접미로 보완 키워드 생성. exclude(무공백 정규화 set) 제외, need개까지.
+    업종 분기:
+      - 음식점(cats에 음식힌트): '전북 키조개 맛집', '군산 키조개 맛집' (맛집 붙임).
+      - 비음식(네일·병원·시술 등): '인천 내성손톱교정', '연수구 내성손톱교정' (맛집 X, 지역+시술 우선)."""
+    if need <= 0:
+        return []
+    food = any(any(h in c for h in _FOOD_HINT) for c in cats)
+    cores = menu_cores(menus, food)
+    regions = menu_region_seeds(name, road, jibun)
+    if not cores or not regions:
+        return []
+    seen = set(exclude)
+    out = []
+
+    def push(k):
+        nk = k.replace(" ", "")
+        if nk and nk not in seen:
+            seen.add(nk)
+            out.append(k)
+        return len(out) >= need
+
+    # 코어(메뉴/시술)별로 지역을 돌린다 — 동네(동·도로명)까지 골고루 포함되게(예: 전북/군산/선유도 키조개).
+    if food:
+        for cc in cores:                            # 1) 코어 × 지역 × 맛집
+            for r in regions:
+                if push(f"{r} {cc} 맛집"):
+                    return out
+        for cc in cores:                            # 2) 코어 × 지역
+            for r in regions:
+                if push(f"{r} {cc}"):
+                    return out
+        for cc in cores:                            # 3) 코어 × 지역 × 접미(코어 적어도 50 채우게)
+            for r in regions:
+                for s in ("추천", "후기", "예약"):
+                    if push(f"{r} {cc} {s}"):
+                        return out
+        for cc in cores:                            # 4) 코어 × 접미
+            for s in ("맛집", "추천", "후기"):
+                if push(f"{cc} {s}"):
+                    return out
+    else:
+        for cc in cores:                            # 1) 시술 × 지역(인천/연수구/송도동 내성손톱교정)
+            for r in regions:
+                if push(f"{r} {cc}"):
+                    return out
+        for cc in cores:                            # 2) 시술 × 지역 × 접미
+            for r in regions:
+                for s in ("추천", "후기", "잘하는곳"):
+                    if push(f"{r} {cc} {s}"):
+                        return out
+        for cc in cores:                            # 3) 시술 × 접미
+            for s in ("추천", "후기", "잘하는곳", "가격"):
+                if push(f"{cc} {s}"):
+                    return out
+    return out
+
+
 # ── 넓은→좁은 계층(도·시·구·동 × 맛집·업종맛집·횟집·업종) ────────────────────
 _PROVINCES = {"경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"}
 _FOOD_HINT = set(
@@ -359,15 +497,24 @@ _ad_cache = {}
 
 
 def searchad_keywords(seed):
-    """검색광고 연관키워드 [{keyword,total,pc,mobile,comp}] (검색량순). 캐시."""
+    """검색광고 연관키워드 [{keyword,total,pc,mobile,comp}] (검색량순). 캐시.
+    빈 응답(엔드포인트 스로틀·429)은 짧게 쉬고 1회 재시도 — 다수 연속호출 시 뒷호출이 0으로
+    떨어지던 문제 완화. 재시도도 비면 캐시하지 않음(다음 기회에 다시 시도)."""
     if seed in _ad_cache:
         return _ad_cache[seed]
-    try:
-        r = requests.get(f"{_AD_ENDPOINT}?q={quote(seed)}", timeout=25)
-        rows = r.json().get("keywords", []) if r.status_code == 200 else []
-    except Exception:
-        rows = []
-    _ad_cache[seed] = rows
+    rows = []
+    for attempt in range(2):
+        try:
+            r = requests.get(f"{_AD_ENDPOINT}?q={quote(seed)}", timeout=25)
+            rows = r.json().get("keywords", []) if r.status_code == 200 else []
+        except Exception:
+            rows = []
+        if rows:
+            break
+        if attempt == 0:
+            c._pause(1.5)
+    if rows:
+        _ad_cache[seed] = rows
     return rows
 
 

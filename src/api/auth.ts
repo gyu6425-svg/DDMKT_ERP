@@ -27,6 +27,14 @@ export async function verifyEmailOtp(email: string, token: string) {
     });
 }
 
+// 표시용 아이디 — 내부 발급 계정(@ddmkt.com)은 도메인을 떼고 아이디만 보여준다(로그인도 아이디만으로 됨).
+//   외부 실이메일(예: dog6425@naver.com)은 그대로 표시.
+export function loginId(email: string | null | undefined): string {
+    const e = (email || '').trim();
+    const at = e.toLowerCase().endsWith('@ddmkt.com') ? e.indexOf('@') : -1;
+    return at > 0 ? e.slice(0, at) : e;
+}
+
 // 이메일 + 비밀번호 로그인. 아이디만 입력하면 @ddmkt.com 자동 부착(고객·기자단 계정은 아이디만 배포).
 export async function signInWithPassword(email: string, password: string) {
     if (!hasSupabaseConfig) {

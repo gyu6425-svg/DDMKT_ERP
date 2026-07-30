@@ -11,6 +11,7 @@ import { CafeCustomerStudio } from '../components/cafe/CafeCustomerStudio';
 import { CafeDeployIntake } from '../components/cafe/CafeDeployIntake';
 import { CafeTokenHistory } from '../components/cafe/CafeTokenHistory';
 import { getCafeAccounts } from '../api/cafeAccounts';
+import { listChargeRequests } from '../api/cafeTokens';
 import { useAuth } from '../hooks/useAuth';
 
 export function useAsParam(): string {
@@ -66,10 +67,11 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const [companyKeys, setCompanyKeys] = useState<string[]>([]); // 트래커용 — 이 고객의 모든 카페(마이클+자체)
     const [sheetKeys, setSheetKeys] = useState<string[]>([]);     // 관리시트용 — 자체 카페만(마이클 ddmkt2 제외)
     const [publishEnabled, setPublishEnabled] = useState(false); // 담당자 세팅 완료(자동화 발행 탭 노출)
+    const [chargeDue, setChargeDue] = useState(0); // 미확인 충전요청(고객이 입금/구매) 건수 — 충전내역 탭 알림 뱃지
     const [loading, setLoading] = useState(true);
     // 사이드바 '카페 배포'(?sub=카페 배포) 로 들어오면 접수 탭으로 연다.
     const [view, setView] = useState<'tracker' | 'sheet' | 'intake' | 'publish' | 'charge'>(
-        () => (new URLSearchParams(window.location.search).get('sub') === '카페 배포' ? 'intake' : 'tracker'),
+        () => (new URLSearchParams(window.location.search).get('sub') === '카페 배포' ? 'intake' : 'sheet'),
     );
     useEffect(() => {
         const sync = () => {
@@ -99,6 +101,19 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
         return () => { alive = false; };
     }, [scopedClientId]);
 
+    // 충전요청(고객이 계좌이체/카드결제로 토큰 구매 = 충전 요청) 중 '아직 안 본' 건수 → 충전내역 탭 알림 뱃지.
+    //   탭을 열면(클릭) seen 시각을 저장해 뱃지를 지운다. 새 요청이 생기면 다시 뜬다.
+    useEffect(() => {
+        let alive = true;
+        if (!scopedClientId) { setChargeDue(0); return; }
+        void listChargeRequests(scopedClientId).then(({ data }) => {
+            if (!alive) return;
+            const seen = localStorage.getItem(`cafeChargeSeen:${scopedClientId}`) || '';
+            setChargeDue(data.filter((r) => r.status === 'pending' && (!seen || r.created_at > seen)).length);
+        });
+        return () => { alive = false; };
+    }, [scopedClientId, view]);
+
     if (loading) {
         return <div className="rounded-xl border border-[#e2e8f0] bg-white px-6 py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
     }
@@ -110,7 +125,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
         </div>
     );
     // 자동화 발행 탭은 담당자 세팅(publish_enabled=true) 후에만 노출.
-    const tabs: [string, string][] = [['tracker', '순위 트래커'], ['sheet', '카페 관리 시트'], ['intake', '카페 배포']];
+    const tabs: [string, string][] = [['sheet', '카페 관리 시트'], ['tracker', '순위 트래커'], ['intake', '카페 배포']];
     if (publishEnabled) tabs.push(['publish', '카페 자동화 발행']);
     tabs.push(['charge', '충전내역']);
     return (
@@ -122,10 +137,19 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
                             view === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'
                         }`}
                         key={k}
-                        onClick={() => setView(k as typeof view)}
+                        onClick={() => {
+                            if (k === 'charge' && scopedClientId) {
+                                localStorage.setItem(`cafeChargeSeen:${scopedClientId}`, new Date().toISOString());
+                                setChargeDue(0); // 클릭 시 뱃지 해제
+                            }
+                            setView(k as typeof view);
+                        }}
                         type="button"
                     >
                         {name}
+                        {k === 'charge' && chargeDue > 0 ? (
+                            <span className="ml-1.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ef4444] px-1 text-[10px] font-bold leading-none text-white">{chargeDue}</span>
+                        ) : null}
                     </button>
                 ))}
             </div>

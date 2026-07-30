@@ -3,14 +3,19 @@ import {
     submitCafeDeployRequest,
     listCafeDeployRequests,
     listDeployCredentials,
+    getClientPublishedKeywords,
     uploadDeployPhoto,
     signedDeployUrls,
+    PAYMENT_INFO,
+    deployAmountKRW,
     type CafeDeployRequest,
     type CafeDeployInput,
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, getRegionDongs, type KwResult } from '../../api/cafeKwScan';
+import { requestCharge } from '../../api/cafeTokens';
+import { useAuth } from '../../hooks/useAuth';
 
 const REGION_KEYS = ['서울', '경기', '인천'] as const; // 지역형 지역셋
 
@@ -26,6 +31,7 @@ const GROUPS: { key: Grp; label: string }[] = [
 const PRODUCT_FIXED = '카페';
 const STATUS_STYLE: Record<string, string> = {
     접수: 'bg-[#dbeafe] text-[#1e40af]',
+    결제대기: 'bg-[#ffedd5] text-[#9a3412]',
     세팅중: 'bg-[#fef9c3] text-[#854d0e]',
     완료: 'bg-[#dcfce7] text-[#166534]',
 };
@@ -65,7 +71,13 @@ async function compressImage(file: File, maxDim = 1600, quality = 0.85): Promise
 }
 
 export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
-    const [form, setForm] = useState<CafeDeployInput>(empty);
+    const { profile } = useAuth();
+    const bizName = profile?.name || ''; // 로그인한 고객의 업체명(회원가입/발급 시 지정)
+    const [form, setForm] = useState<CafeDeployInput>({ ...empty, company_name: bizName });
+    // 업체명 자동기입 — 프로필(업체명) 로드되면 비어있는 업체명 칸을 채운다.
+    useEffect(() => {
+        if (bizName) setForm((f) => (f.company_name ? f : { ...f, company_name: bizName }));
+    }, [bizName]);
     const [files, setFiles] = useState<Record<Grp, File[]>>({ main: [], real: [], banner: [] });
     const [rows, setRows] = useState<CafeDeployRequest[]>([]);
     const [urls, setUrls] = useState<Record<string, string>>({});
@@ -86,6 +98,18 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         });
     };
     useEffect(reload, [clientId]);
+
+    // '이미 사용' 키워드 집합 갱신 — 과거 접수의 selected_keywords(체크) + 발행 posts(cafe_rank_posts).
+    useEffect(() => {
+        let alive = true;
+        const checked = rows.flatMap((r) => (r.selected_keywords ?? []).map((p) => p.keyword));
+        void (async () => {
+            const published = clientId ? await getClientPublishedKeywords(clientId) : [];
+            if (!alive) return;
+            setUsedKw(new Set([...checked, ...published].map(normKw).filter(Boolean)));
+        })();
+        return () => { alive = false; };
+    }, [rows, clientId]);
 
     const set = <K extends keyof CafeDeployInput>(k: K, v: CafeDeployInput[K]) =>
         setForm((f) => ({ ...f, [k]: v }));
@@ -115,17 +139,64 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [kwLoading, setKwLoading] = useState(false);
     const [kwResult, setKwResult] = useState<KwResult[] | null>(null);
     const [kwErr, setKwErr] = useState('');
-    const runPlaceScan = async () => {
+    const [kwExpanded, setKwExpanded] = useState(false); // '더 보기'로 전체(target 상향) 스캔 완료 여부
+    const [kwHidden, setKwHidden] = useState<string[]>([]); // X로 제외한 키워드(화면에서만 숨김)
+    const [kwPicked, setKwPicked] = useState<KwResult[]>([]); // 고객이 고른 키워드(발행 대상 → 접수에 전달)
+    const [pickedOpen, setPickedOpen] = useState(false); // 선택 키워드 드롭다운 펼침(기본 접힘 · 우측 N개)
+    const [payBusy, setPayBusy] = useState(false); // 결제완료 알림 전송 중
+    const [payMsg, setPayMsg] = useState(''); // 결제완료 알림 결과
+    const togglePick = (k: KwResult) =>
+        setKwPicked((prev) => (prev.some((p) => p.keyword === k.keyword) ? prev.filter((p) => p.keyword !== k.keyword) : [...prev, k]));
+    const hideKw = (kw: string) => {
+        setKwHidden((prev) => (prev.includes(kw) ? prev : [...prev, kw]));
+        setKwPicked((prev) => prev.filter((p) => p.keyword !== kw)); // 숨기면 선택도 해제
+    };
+    // 이 업체가 이미 체크(과거 접수 selected_keywords)했거나 카페에 발행(cafe_rank_posts)한 키워드 집합.
+    //   재스캔 시 중복 제외. 공백만 정규화(다른 키워드는 구분 유지).
+    const [usedKw, setUsedKw] = useState<Set<string>>(new Set());
+    const normKw = (s: string) => (s || '').trim().replace(/\s+/g, ' ');
+    // target=10 기본(빠름). '더 보기'로 50까지 올려 후보 풀 전체를 훑는다(수 분 소요).
+    //   실제 개수는 그 플레이스의 인기글 진입 키워드 수가 상한(지역형=많음, 맛집 니치=적음).
+    const runPlaceScan = async (target = 10) => {
         const u = (form.url || '').trim();
         if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
-        setKwErr(''); setKwResult(null); setKwLoading(true);
+        setKwErr(''); setKwLoading(true);
+        if (target <= 10) { setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]); }
         try {
-            const { id, error } = await enqueuePlaceScan(u, 3, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
+            const { id, error } = await enqueuePlaceScan(u, target, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
             if (error || !id) throw new Error(error?.message || '요청 실패');
-            const { result } = await pollPlaceScan(id);
+            // 대량(50개) 스캔은 수 분 걸릴 수 있어 폴링 타임아웃을 넉넉히(10분).
+            const { result } = await pollPlaceScan(id, { timeoutSec: target > 10 ? 600 : 180 });
             setKwResult(result);
+            if (target > 10) setKwExpanded(true);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '분석 실패');
+        } finally {
+            setKwLoading(false);
+        }
+    };
+    // 지역형 — 고정 동 마스터(cafe_region_dong)에서 선택 시도의 동 전부 × 제품키워드로 후보 생성.
+    //   결과를 kwResult 에 넣어 키워드형과 같은 선택 UI(복수선택·×제외·중복제외)로 다룬다. 스캔 없음(동×키워드가 발행 대상).
+    const genRegionKeywords = async () => {
+        const kw = (form.keyword || '').trim();
+        if (!kw) { setKwErr('제품 키워드를 입력하세요. 예: 입주청소'); return; }
+        const sidos = form.region_sets || [];
+        if (!sidos.length) { setKwErr('지역(서울/경기/인천)을 선택하세요.'); return; }
+        setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
+        try {
+            const dongs = await getRegionDongs(sidos);
+            const seen = new Set<string>();
+            const list: KwResult[] = [];
+            for (const d of dongs) {
+                const keyword = `${d.dong} ${kw}`;
+                if (seen.has(keyword)) continue;      // 동명 중복(구 다름) 제거
+                seen.add(keyword);
+                list.push({ keyword, theme: `${d.sido} ${d.gu}`, cafes: [] });
+            }
+            if (!list.length) throw new Error('해당 지역 동 데이터가 없습니다. cafe_region_dong 적재를 확인하세요.');
+            setKwResult(list);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '생성 실패');
         } finally {
             setKwLoading(false);
         }
@@ -158,6 +229,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const submit = async () => {
         if (!clientId) return setMsg('고객 계정이 연결되어 있지 않습니다. 담당자에게 문의하세요.');
         if (!form.company_name.trim()) return setMsg('업체명을 입력하세요.');
+        if (form.daily_count != null && form.daily_count > 5) return setMsg('일 발행건수는 최대 5건입니다.');
         setBusy(true); setMsg('');
         // 사진 업로드(압축)
         const batch = String(Date.now());
@@ -177,19 +249,178 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             return setMsg('사진 업로드 실패: ' + (e instanceof Error ? e.message : ''));
         }
         const summary = GROUPS.map((g) => (photos[g.key].length ? `${g.label} ${photos[g.key].length}` : '')).filter(Boolean).join(' · ');
-        const { error } = await submitCafeDeployRequest(clientId, { ...form, photos, photo_provided: summary });
+        const picks = kwPicked.map((p) => ({ keyword: p.keyword, volume: p.volume ?? null, theme: p.theme ?? null }));
+        const { error } = await submitCafeDeployRequest(clientId, { ...form, photos, photo_provided: summary, selected_keywords: picks });
         setBusy(false);
         if (error) return setMsg(`접수 실패: ${error.message}`);
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
-        setForm(empty); setFiles({ main: [], real: [], banner: [] });
+        setForm({ ...empty, company_name: bizName }); setFiles({ main: [], real: [], banner: [] });
+        setKwResult(null); setKwPicked([]); setKwHidden([]); setKwExpanded(false); setPickedOpen(false);
         reload();
     };
 
     const inputCls = 'h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm outline-none focus:border-[#4338ca]';
     const labelCls = 'mb-1 block text-[13px] font-semibold text-[#334155]';
 
+    // 선택 UI(선택칩 + 결과 리스트) — 키워드형(인기탭 결과)·지역형(동 키워드) 공용. kwResult 에 따라 렌더.
+    const kwPanel = (
+        <>
+            {kwErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{kwErr}</p>}
+            {kwPicked.length ? (
+                <div className="mt-2 rounded-lg border border-[#c7d2fe] bg-[#eef2ff]">
+                    <button type="button" onClick={() => setPickedOpen((o) => !o)} className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-[11px] font-semibold text-[#4338ca]">
+                        <span className="flex items-center gap-1.5">
+                            <span className={`text-[9px] transition-transform ${pickedOpen ? 'rotate-90' : ''}`}>▶</span>
+                            선택한 발행 키워드 — 접수 시 함께 전달됩니다
+                        </span>
+                        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-[#4338ca] ring-1 ring-[#c7d2fe]">{kwPicked.length}개</span>
+                    </button>
+                    {pickedOpen ? (
+                        <div className="flex flex-wrap gap-1.5 border-t border-[#c7d2fe] p-2">
+                            {kwPicked.map((p) => (
+                                <span key={p.keyword} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
+                                    {p.keyword}
+                                    {p.volume != null ? <span className="text-[10px] font-normal text-[#94a3b8]">{p.volume.toLocaleString()}</span> : null}
+                                    <button type="button" onClick={() => togglePick(p)} className="text-[#818cf8] hover:text-[#4338ca]" title="선택 해제">×</button>
+                                </span>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+            {kwResult && (() => {
+                const visible = kwResult.filter((k) => !kwHidden.includes(k.keyword));
+                const fresh = visible.filter((k) => !usedKw.has(normKw(k.keyword)));
+                const used = visible.filter((k) => usedKw.has(normKw(k.keyword)));
+                return (
+                <div className="mt-2 rounded-lg border border-[#ddd6fe] bg-[#faf5ff] p-2">
+                    <div className="mb-1 text-[11px] font-semibold text-[#6d28d9]">
+                        {isKw ? '정확 인기탭 결과 — 진입한 키워드 중 발행할 것을 고르세요(복수 선택). 필요없는 건 × 로 제외.'
+                              : `지역 키워드 ${kwResult.length}개 — 발행할 동을 고르세요(복수 선택). 필요없는 건 × 로 제외.`}
+                    </div>
+                    {fresh.length === 0 ? (
+                        <div className="py-2 text-center text-[12px] text-[#94a3b8]">{used.length ? '새로운 키워드가 없습니다(모두 이미 사용·발행함).' : '키워드가 없습니다.'}</div>
+                    ) : (
+                        <div className="grid max-h-72 gap-1.5 overflow-y-auto">
+                            {fresh.map((k) => {
+                                const picked = kwPicked.some((p) => p.keyword === k.keyword);
+                                return (
+                                <div key={k.keyword} className={`rounded border p-2 ${picked ? 'border-[#4338ca] bg-[#eef2ff] ring-1 ring-[#4338ca]' : 'border-[#eef0f2] bg-white'}`}>
+                                    <div className="flex items-center gap-2 text-[12px]">
+                                        <label className="flex cursor-pointer items-center gap-1.5 font-bold text-[#4338ca]">
+                                            <input type="checkbox" checked={picked} onChange={() => togglePick(k)} className="h-3.5 w-3.5 accent-[#4338ca]" />
+                                            {k.keyword}
+                                        </label>
+                                        {k.volume != null ? <span className="text-[#64748b]">검색량 {k.volume.toLocaleString()}</span> : null}
+                                        {k.theme ? <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px] text-[#6d28d9]">{k.theme}</span> : null}
+                                        <button type="button" onClick={() => hideKw(k.keyword)} className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-[13px] text-[#cbd5e1] hover:bg-[#fee2e2] hover:text-[#dc2626]" title="이 키워드 제외">×</button>
+                                    </div>
+                                    {k.cafes?.length ? (
+                                        <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-[#64748b]">
+                                            {k.cafes.slice(0, 5).map((c, j) => (
+                                                <span key={j} className="rounded bg-[#f1f5f9] px-1.5 py-0.5">{c.rank}위 {c.who}</span>
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                    {used.length ? (
+                        <div className="mt-1.5 rounded border border-dashed border-[#e2e8f0] bg-white/60 p-1.5">
+                            <div className="mb-1 text-[10px] font-semibold text-[#94a3b8]">이미 사용·발행한 키워드 {used.length}개 — 중복 방지로 제외됨</div>
+                            <div className="flex flex-wrap gap-1">
+                                {used.map((k) => (
+                                    <span key={k.keyword} className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[10px] text-[#94a3b8] line-through">{k.keyword}</span>
+                                ))}
+                            </div>
+                        </div>
+                    ) : null}
+                    {isKw && kwResult.length >= 10 && !kwExpanded ? (
+                        <button type="button" onClick={() => void runPlaceScan(50)} disabled={kwLoading}
+                            className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50"
+                            title="후보 키워드를 더 깊이 스캔합니다(최대 50개, 수 분 소요)">
+                            {kwLoading ? '전체 스캔 중… (수 분 소요)' : '더 보기 — 인기탭 진입 키워드 최대 50개 스캔'}
+                        </button>
+                    ) : null}
+                    {isKw && kwExpanded ? <div className="mt-1 text-center text-[11px] text-[#94a3b8]">전체 {kwResult.length}개 · 후보 풀 상한까지 스캔됨</div> : null}
+                </div>
+                );
+            })()}
+        </>
+    );
+
+    const pendingPay = rows.filter((r) => r.status === '결제대기');
+    // 결제 완료 알림 — 고객이 계좌이체/카드결제 후 누르면 우리쪽에 충전요청(pending) 접수. 담당자가 실제 내역 확인 후 토큰 지급.
+    const notifyPaid = async (method: string) => {
+        if (!clientId || !pendingPay.length) return;
+        const totalCount = pendingPay.reduce((s, r) => s + (r.total_count ?? r.selected_keywords?.length ?? 0), 0);
+        const totalAmt = pendingPay.reduce((s, r) => s + deployAmountKRW(r), 0);
+        const names = pendingPay.map((r) => r.company_name).join(', ');
+        setPayBusy(true); setPayMsg('');
+        const note = `[${method}] 카페 배포 결제완료 · ${names}${totalAmt ? ` · ₩${totalAmt.toLocaleString('ko-KR')}` : ''} — 입금/결제 내역 확인 요청`;
+        const { error } = await requestCharge(clientId, totalCount || null, note);
+        setPayBusy(false);
+        setPayMsg(error ? `요청 실패: ${error.message}` : '결제 완료 알림이 접수되었습니다. 담당자가 내역 확인 후 발행 토큰을 지급합니다.');
+    };
+
     return (
         <div className="grid gap-5">
+            {/* 결제 안내 알림 — 접수가 '승인(결제대기)'되면 노출 */}
+            {pendingPay.length ? (
+                <div className="rounded-xl border-2 border-[#fb923c] bg-[#fff7ed] p-5">
+                    <div className="mb-1 flex items-center gap-2">
+                        <span className="text-lg">🔔</span>
+                        <span className="text-[15px] font-bold text-[#9a3412]">결제 안내 — 접수가 승인되었습니다</span>
+                    </div>
+                    <p className="mb-3 mt-0 text-[13px] text-[#7c2d12]">아래 계좌로 입금해 주시면 확인 후 발행이 시작됩니다. <b>발행 1건 = {PAYMENT_INFO.unitPrice.toLocaleString('ko-KR')}원</b></p>
+                    <div className="grid gap-2">
+                        {pendingPay.map((r) => {
+                            const amt = deployAmountKRW(r);
+                            return (
+                                <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[#fed7aa] bg-white px-3 py-2 text-[13px]">
+                                    <span className="font-bold text-[#334155]">{r.company_name}</span>
+                                    <span className="text-[#64748b]">발행 {r.total_count ?? r.selected_keywords?.length ?? '-'}건</span>
+                                    <span className="ml-auto font-bold text-[#c2410c]">{amt > 0 ? `결제금액 ₩${amt.toLocaleString('ko-KR')}` : '결제금액 담당자 안내'}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div className="mt-3 rounded-lg bg-white/70 p-3 text-[13px]">
+                        <div className="flex items-center gap-1.5">
+                            <span className="rounded bg-[#c2410c] px-1.5 py-0.5 text-[10px] font-bold text-white">계좌이체</span>
+                            <span className="font-semibold text-[#9a3412]">입금 계좌</span>
+                        </div>
+                        <div className="mt-1 text-[#334155]">
+                            <b>{PAYMENT_INFO.bank} {PAYMENT_INFO.account}</b> <span className="text-[#64748b]">(예금주 {PAYMENT_INFO.holder})</span>
+                        </div>
+                        {PAYMENT_INFO.cardAvailable ? (
+                            <div className="mt-1.5 flex items-center gap-1.5 border-t border-[#fed7aa] pt-1.5">
+                                <span className="rounded bg-[#e2e8f0] px-1.5 py-0.5 text-[10px] font-bold text-[#475569]">카드결제</span>
+                                <span className="text-[12px] text-[#64748b]">{PAYMENT_INFO.cardNote}</span>
+                            </div>
+                        ) : null}
+                        {/* 결제 완료 알림 — 누르면 우리쪽에 접수(담당자가 실제 입금/카드 내역 확인 후 토큰 지급) */}
+                        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[#fed7aa] pt-2">
+                            <span className="text-[12px] font-semibold text-[#9a3412]">결제하셨나요?</span>
+                            <button type="button" disabled={payBusy || !!payMsg} onClick={() => void notifyPaid('계좌이체')}
+                                className="rounded-md bg-[#c2410c] px-3 py-1.5 text-[12px] font-bold text-white hover:bg-[#9a3412] disabled:opacity-50">
+                                계좌이체 완료
+                            </button>
+                            {PAYMENT_INFO.cardAvailable ? (
+                                <button type="button" disabled={payBusy || !!payMsg} onClick={() => void notifyPaid('카드결제')}
+                                    className="rounded-md border border-[#c2410c] bg-white px-3 py-1.5 text-[12px] font-bold text-[#c2410c] hover:bg-[#fff7ed] disabled:opacity-50">
+                                    카드결제 완료
+                                </button>
+                            ) : null}
+                            {payMsg ? <span className="text-[12px] font-semibold text-[#166534]">{payMsg}</span> : null}
+                        </div>
+                        <div className="mt-1 text-[11px] text-[#94a3b8]">‘완료’를 누르면 담당자에게 결제 확인 요청이 접수되고, 실제 입금/카드 내역 확인 후 발행 토큰이 지급됩니다.</div>
+                    </div>
+                </div>
+            ) : null}
+
             {/* 접수 폼 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
                 <div className="mb-1 text-[15px] font-bold text-[#0f172a]">카페 배포 접수</div>
@@ -232,35 +463,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             ) : null}
                         </div>
                         {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">인기글 조회=업체명 기반 검색량(즉시). 정확 인기탭 분석=실제 인기글 섹션 확인(큐 처리, 수초~수십초).</p> : null}
-                        {kwErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{kwErr}</p>}
-                        {kwResult && (
-                            <div className="mt-2 rounded-lg border border-[#ddd6fe] bg-[#faf5ff] p-2">
-                                <div className="mb-1 text-[11px] font-semibold text-[#6d28d9]">정확 인기탭 결과 — 인기글 섹션에 실제 진입한 키워드/카페</div>
-                                {kwResult.length === 0 ? (
-                                    <div className="py-2 text-center text-[12px] text-[#94a3b8]">인기탭 잡힌 키워드가 없습니다.</div>
-                                ) : (
-                                    <div className="grid max-h-72 gap-1.5 overflow-y-auto">
-                                        {kwResult.map((k, i) => (
-                                            <div key={i} className="rounded border border-[#eef0f2] bg-white p-2">
-                                                <div className="flex items-center gap-2 text-[12px]">
-                                                    <span className="font-bold text-[#4338ca]">{k.keyword}</span>
-                                                    {k.volume != null ? <span className="text-[#64748b]">검색량 {k.volume.toLocaleString()}</span> : null}
-                                                    {k.theme ? <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px] text-[#6d28d9]">{k.theme}</span> : null}
-                                                    <button type="button" onClick={() => set('keyword', k.keyword)} className="ml-auto text-[11px] text-[#4338ca] hover:underline">선택</button>
-                                                </div>
-                                                {k.cafes?.length ? (
-                                                    <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-[#64748b]">
-                                                        {k.cafes.slice(0, 5).map((c, j) => (
-                                                            <span key={j} className="rounded bg-[#f1f5f9] px-1.5 py-0.5">{c.rank}위 {c.who}</span>
-                                                        ))}
-                                                    </div>
-                                                ) : null}
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                        {isKw ? kwPanel : null}
                     </div>
                     {!isKw ? (
                         <div className="md:col-span-2">
@@ -280,9 +483,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <div className="flex gap-2">
                             <input className={inputCls} value={form.keyword} onChange={(e) => set('keyword', e.target.value)} placeholder={isKw ? '예: 광교 횟집' : '예: 입주청소 · 상가청소'} />
                             {!isKw ? (
-                                <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
-                                    {volLoading ? '조회 중…' : '인기글 조회'}
-                                </button>
+                                <>
+                                    <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
+                                        {volLoading ? '조회 중…' : '인기글 조회'}
+                                    </button>
+                                    <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50" title="선택 지역(서울/경기/인천)의 모든 동 × 제품키워드로 발행 대상 키워드 생성">
+                                        {kwLoading ? '생성 중…' : '지역 키워드 생성'}
+                                    </button>
+                                </>
                             ) : null}
                         </div>
                         {volErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{volErr}</p>}
@@ -315,18 +523,21 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 )}
                             </div>
                         )}
+                        {!isKw ? kwPanel : null}
                     </div>
                     <div>
                         <label className={labelCls}>미션 시작일</label>
                         <input className={inputCls} type="date" value={form.mission_start} onChange={(e) => set('mission_start', e.target.value)} />
                     </div>
                     <div>
-                        <label className={labelCls}>일 발행건수</label>
-                        <input className={inputCls} type="number" min={0} value={form.daily_count ?? ''} onChange={(e) => set('daily_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="0건" />
+                        <label className={labelCls}>일 발행건수 <span className="font-normal text-[#94a3b8]">(최대 5)</span></label>
+                        <input className={inputCls} type="number" min={0} max={5} value={form.daily_count ?? ''}
+                            onChange={(e) => set('daily_count', e.target.value === '' ? null : Math.min(5, Math.max(0, Number(e.target.value))))}
+                            placeholder="최대 5건" />
                     </div>
                     <div>
-                        <label className={labelCls}>총 발행건수</label>
-                        <input className={inputCls} type="number" min={0} value={form.total_count ?? ''} onChange={(e) => set('total_count', e.target.value === '' ? null : Number(e.target.value))} placeholder="0건" />
+                        <label className={labelCls}>총 발행건수 <span className="font-normal text-[#94a3b8]">(제한 없음)</span></label>
+                        <input className={inputCls} type="number" min={0} value={form.total_count ?? ''} onChange={(e) => set('total_count', e.target.value === '' ? null : Math.max(0, Number(e.target.value)))} placeholder="0건" />
                     </div>
                     <div>
                         <label className={labelCls}>상품종류</label>
@@ -434,7 +645,16 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                 <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.deploy_type === '키워드형' ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-[#e0e7ff] text-[#4338ca]'}`}>{r.deploy_type ?? '지역형'}</span>
                                                 {!r.deploy_type || r.deploy_type === '지역형' ? (r.region_sets?.length ? <div className="mt-0.5 text-[11px] text-[#64748b]">{r.region_sets.join('·')}</div> : null) : null}
                                             </td>
-                                            <td className="whitespace-nowrap px-2 py-2">{r.keyword ?? '-'}</td>
+                                            <td className="px-2 py-2">
+                                                <div className="whitespace-nowrap">{r.keyword ?? '-'}</div>
+                                                {r.selected_keywords?.length ? (
+                                                    <div className="mt-1 flex max-w-[200px] flex-wrap gap-1">
+                                                        {r.selected_keywords.map((p) => (
+                                                            <span key={p.keyword} className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#4338ca]" title={p.volume != null ? `검색량 ${p.volume.toLocaleString()}` : ''}>{p.keyword}</span>
+                                                        ))}
+                                                    </div>
+                                                ) : null}
+                                            </td>
                                             <td className="whitespace-nowrap px-2 py-2">{r.mission_start ?? '-'}</td>
                                             <td className="px-2 py-2 text-center">{r.daily_count ?? '-'}</td>
                                             <td className="px-2 py-2 text-center">{r.total_count ?? '-'}</td>

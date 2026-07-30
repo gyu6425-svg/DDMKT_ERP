@@ -171,7 +171,12 @@ Deno.serve(async (req: Request) => {
   if (!loginRaw) return json({ error: '이메일(또는 아이디)이 필요합니다.' }, 400)
   if (wantRole === 'viewer' && !clientId) return json({ error: '고객 계정은 업체가 필요합니다.' }, 400)
   const email = emailOf(loginRaw)
-  const password = email.split('@')[0]
+  // 관리자가 비밀번호를 직접 지정하면 그 값(6자+)을 사용하고 강제 변경 없이 바로 쓰게 한다.
+  //   비워두면 기존 동작(초기 비번=아이디 · 첫 로그인 시 변경).
+  const customPw = String(body.password || '').trim()
+  if (customPw && customPw.length < 6) return json({ error: '비밀번호는 6자 이상이어야 합니다.' }, 400)
+  const password = customPw || email.split('@')[0]
+  const mustChange = customPw ? false : true
 
   let uid: string | undefined
   const found = await findUser(email)
@@ -202,7 +207,7 @@ Deno.serve(async (req: Request) => {
     duties: [],
     sheet_categories: [],
     client_id: wantRole === 'viewer' ? clientId : null,
-    must_change_password: true,
+    must_change_password: mustChange,
   }
   const pRes = await fetch(
     ex?.length ? `${URL}/rest/v1/profiles?user_id=eq.${uid}` : `${URL}/rest/v1/profiles`,
