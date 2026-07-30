@@ -25,6 +25,8 @@ export type CafeDeployRequest = {
     cafe_name: string | null;
     board_name: string | null;
     two_factor: boolean | null;
+    deploy_type: string | null;       // 지역형 | 키워드형
+    region_sets: string[] | null;     // 지역형 선택 지역셋
 };
 
 // 네이버 계정(민감) — 별도 테이블. UI 는 비번 마스킹.
@@ -55,6 +57,9 @@ export type CafeDeployInput = {
     // 네이버 계정(민감) — 별도 테이블에 저장
     naver_id?: string;
     naver_pw?: string;
+    // 접수 유형
+    deploy_type?: string;             // 지역형 | 키워드형
+    region_sets?: string[];           // 지역형 선택 지역셋
 };
 
 // 사진 1장 업로드(압축된 Blob) → 저장 경로 반환. 경로 = <client_id>/<batch>/<type>_<n>.jpg
@@ -94,6 +99,8 @@ export async function submitCafeDeployRequest(clientId: string, input: CafeDeplo
         cafe_name: input.cafe_name?.trim() || null,
         board_name: input.board_name?.trim() || null,
         two_factor: input.two_factor ?? false,
+        deploy_type: input.deploy_type || '지역형',
+        region_sets: input.region_sets ?? null,
         status: '접수',
     }).select('id').single();
     if (error) return { error };
