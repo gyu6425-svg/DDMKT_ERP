@@ -8,12 +8,11 @@ export const CAFE_DEPLOY_BUCKET = 'deploy-intake';
 export const DEPLOY_STATUSES = ['접수', '결제대기', '세팅중', '완료'] as const;
 
 // 결제(입금) 안내 — 승인 시 고객ERP에 노출. 1건 발행 = 1토큰 = 15,000원.
-//   ⚠️ 아래 계좌는 예시값 — 실제 입금계좌로 교체 필요.
 export const PAYMENT_INFO = {
     unitPrice: 15000,
     bank: '국민은행',
-    account: '000000-00-000000',
-    holder: '디디마케팅',
+    account: '592201-01-700434',
+    holder: '김종인 (든든한마케팅)',
     method: '계좌이체(무통장 입금)',
     note: '입금자명을 업체명으로 남겨주세요. 입금 확인 후 발행이 시작됩니다.',
 };
