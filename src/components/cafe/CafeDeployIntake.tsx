@@ -10,6 +10,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
+import { enqueuePlaceScan, pollPlaceScan, type KwResult } from '../../api/cafeKwScan';
 
 const REGION_KEYS = ['서울', '경기', '인천'] as const; // 지역형 지역셋
 
@@ -109,6 +110,26 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [vol, setVol] = useState<{ keyword: string; pc: number; mobile: number; total: number }[] | null>(null);
     const [volErr, setVolErr] = useState('');
     const [volName, setVolName] = useState(''); // 키워드형: 추출된 업체명
+
+    // 정확 인기탭 분석(키워드형) — cafe_kw_requests 큐 → 워커(폰 IP) → 진짜 인기탭 결과.
+    const [kwLoading, setKwLoading] = useState(false);
+    const [kwResult, setKwResult] = useState<KwResult[] | null>(null);
+    const [kwErr, setKwErr] = useState('');
+    const runPlaceScan = async () => {
+        const u = (form.url || '').trim();
+        if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
+        setKwErr(''); setKwResult(null); setKwLoading(true);
+        try {
+            const { id, error } = await enqueuePlaceScan(u, 3, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
+            if (error || !id) throw new Error(error?.message || '요청 실패');
+            const { result } = await pollPlaceScan(id);
+            setKwResult(result);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '분석 실패');
+        } finally {
+            setKwLoading(false);
+        }
+    };
     const lookupVolume = async () => {
         let apiUrl: string;
         if (form.deploy_type === '키워드형') {
@@ -200,12 +221,46 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <div className="flex gap-2">
                             <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder={isKw ? 'https://naver.me/... 또는 place.naver.com/...' : 'www.homepage.com'} />
                             {isKw ? (
-                                <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
-                                    {volLoading ? '조회 중…' : '인기글 조회'}
-                                </button>
+                                <>
+                                    <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
+                                        {volLoading ? '조회 중…' : '인기글 조회'}
+                                    </button>
+                                    <button type="button" onClick={() => void runPlaceScan()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50" title="워커가 실제 인기글 섹션을 확인(수초~수십초)">
+                                        {kwLoading ? '분석 중…' : '정확 인기탭 분석'}
+                                    </button>
+                                </>
                             ) : null}
                         </div>
-                        {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">플레이스 주소를 넣고 조회하면 그 업체명 기반으로 키워드·검색량을 발굴합니다.</p> : null}
+                        {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">인기글 조회=업체명 기반 검색량(즉시). 정확 인기탭 분석=실제 인기글 섹션 확인(큐 처리, 수초~수십초).</p> : null}
+                        {kwErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{kwErr}</p>}
+                        {kwResult && (
+                            <div className="mt-2 rounded-lg border border-[#ddd6fe] bg-[#faf5ff] p-2">
+                                <div className="mb-1 text-[11px] font-semibold text-[#6d28d9]">정확 인기탭 결과 — 인기글 섹션에 실제 진입한 키워드/카페</div>
+                                {kwResult.length === 0 ? (
+                                    <div className="py-2 text-center text-[12px] text-[#94a3b8]">인기탭 잡힌 키워드가 없습니다.</div>
+                                ) : (
+                                    <div className="grid max-h-72 gap-1.5 overflow-y-auto">
+                                        {kwResult.map((k, i) => (
+                                            <div key={i} className="rounded border border-[#eef0f2] bg-white p-2">
+                                                <div className="flex items-center gap-2 text-[12px]">
+                                                    <span className="font-bold text-[#4338ca]">{k.keyword}</span>
+                                                    {k.volume != null ? <span className="text-[#64748b]">검색량 {k.volume.toLocaleString()}</span> : null}
+                                                    {k.theme ? <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px] text-[#6d28d9]">{k.theme}</span> : null}
+                                                    <button type="button" onClick={() => set('keyword', k.keyword)} className="ml-auto text-[11px] text-[#4338ca] hover:underline">선택</button>
+                                                </div>
+                                                {k.cafes?.length ? (
+                                                    <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-[#64748b]">
+                                                        {k.cafes.slice(0, 5).map((c, j) => (
+                                                            <span key={j} className="rounded bg-[#f1f5f9] px-1.5 py-0.5">{c.rank}위 {c.who}</span>
+                                                        ))}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                     {!isKw ? (
                         <div className="md:col-span-2">
