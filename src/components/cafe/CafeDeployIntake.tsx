@@ -14,6 +14,7 @@ import {
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
 import { enqueuePlaceScan, pollPlaceScan, type KwResult } from '../../api/cafeKwScan';
+import { requestCharge } from '../../api/cafeTokens';
 
 const REGION_KEYS = ['서울', '경기', '인천'] as const; // 지역형 지역셋
 
@@ -135,6 +136,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [kwHidden, setKwHidden] = useState<string[]>([]); // X로 제외한 키워드(화면에서만 숨김)
     const [kwPicked, setKwPicked] = useState<KwResult[]>([]); // 고객이 고른 키워드(발행 대상 → 접수에 전달)
     const [pickedOpen, setPickedOpen] = useState(false); // 선택 키워드 드롭다운 펼침(기본 접힘 · 우측 N개)
+    const [payBusy, setPayBusy] = useState(false); // 결제완료 알림 전송 중
+    const [payMsg, setPayMsg] = useState(''); // 결제완료 알림 결과
     const togglePick = (k: KwResult) =>
         setKwPicked((prev) => (prev.some((p) => p.keyword === k.keyword) ? prev.filter((p) => p.keyword !== k.keyword) : [...prev, k]));
     const hideKw = (kw: string) => {
@@ -227,6 +230,18 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const labelCls = 'mb-1 block text-[13px] font-semibold text-[#334155]';
 
     const pendingPay = rows.filter((r) => r.status === '결제대기');
+    // 결제 완료 알림 — 고객이 계좌이체/카드결제 후 누르면 우리쪽에 충전요청(pending) 접수. 담당자가 실제 내역 확인 후 토큰 지급.
+    const notifyPaid = async (method: string) => {
+        if (!clientId || !pendingPay.length) return;
+        const totalCount = pendingPay.reduce((s, r) => s + (r.total_count ?? r.selected_keywords?.length ?? 0), 0);
+        const totalAmt = pendingPay.reduce((s, r) => s + deployAmountKRW(r), 0);
+        const names = pendingPay.map((r) => r.company_name).join(', ');
+        setPayBusy(true); setPayMsg('');
+        const note = `[${method}] 카페 배포 결제완료 · ${names}${totalAmt ? ` · ₩${totalAmt.toLocaleString('ko-KR')}` : ''} — 입금/결제 내역 확인 요청`;
+        const { error } = await requestCharge(clientId, totalCount || null, note);
+        setPayBusy(false);
+        setPayMsg(error ? `요청 실패: ${error.message}` : '결제 완료 알림이 접수되었습니다. 담당자가 내역 확인 후 발행 토큰을 지급합니다.');
+    };
 
     return (
         <div className="grid gap-5">
@@ -265,7 +280,22 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 <span className="text-[12px] text-[#64748b]">{PAYMENT_INFO.cardNote}</span>
                             </div>
                         ) : null}
-                        <div className="mt-1.5 text-[12px] text-[#9a3412]">입금(또는 카드결제) 후 <b>‘충전 내역’ 탭</b>에서 충전 요청을 눌러주시면 담당자가 확인하고 발행 토큰을 지급합니다.</div>
+                        {/* 결제 완료 알림 — 누르면 우리쪽에 접수(담당자가 실제 입금/카드 내역 확인 후 토큰 지급) */}
+                        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[#fed7aa] pt-2">
+                            <span className="text-[12px] font-semibold text-[#9a3412]">결제하셨나요?</span>
+                            <button type="button" disabled={payBusy || !!payMsg} onClick={() => void notifyPaid('계좌이체')}
+                                className="rounded-md bg-[#c2410c] px-3 py-1.5 text-[12px] font-bold text-white hover:bg-[#9a3412] disabled:opacity-50">
+                                계좌이체 완료
+                            </button>
+                            {PAYMENT_INFO.cardAvailable ? (
+                                <button type="button" disabled={payBusy || !!payMsg} onClick={() => void notifyPaid('카드결제')}
+                                    className="rounded-md border border-[#c2410c] bg-white px-3 py-1.5 text-[12px] font-bold text-[#c2410c] hover:bg-[#fff7ed] disabled:opacity-50">
+                                    카드결제 완료
+                                </button>
+                            ) : null}
+                            {payMsg ? <span className="text-[12px] font-semibold text-[#166534]">{payMsg}</span> : null}
+                        </div>
+                        <div className="mt-1 text-[11px] text-[#94a3b8]">‘완료’를 누르면 담당자에게 결제 확인 요청이 접수되고, 실제 입금/카드 내역 확인 후 발행 토큰이 지급됩니다.</div>
                     </div>
                 </div>
             ) : null}
