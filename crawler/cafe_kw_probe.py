@@ -355,16 +355,17 @@ def menu_cores(menus, food=True):
 
 
 def menu_region_seeds(name, road, jibun):
-    """메뉴 키워드용 지역 시드 [도(전북), 시(군산), 업체명지명(선유도)…]."""
-    seeds = []
+    """메뉴 키워드용 지역 시드. 도로명(광덕1로→광덕)·지번(이동) 동네를 둘 다 잡고 앞에 둔다
+    (동 키워드가 잘 먹힘). 도(광역)는 뒤로. 순서: 시 → 구 → 동(지번) → 상권(도로명) → 도 → 업체명."""
     sido = _sido(road, jibun)
+    toks = region_tokens(road, jibun)               # [시/군, 구, 동(지번), 상권(도로명)] 순
+    seeds = list(toks)                              # 동네(동·도로명)를 먼저
     if sido:
-        seeds.append(sido)                          # 전북
-    seeds += region_tokens(road, jibun)             # 군산·선유남 등
+        seeds.append(sido)                          # 도(광역)는 뒤
     biz = re.sub(r"(바닷가|횟집|회집|식당|맛집|수산|본점|점|가든|해물|물회|막회|회|반점|촌)$", "", (name or "").replace(" ", ""))
     if 2 <= len(biz) <= 6 and re.fullmatch(r"[가-힣]+", biz):
         seeds.append(biz)                           # 선유도바닷가 → 선유도
-    return list(dict.fromkeys(seeds))[:4]
+    return list(dict.fromkeys(seeds))[:6]            # 시·구·동·상권·도 다 들어가도록 캡 확대
 
 
 def menu_keywords(name, road, jibun, menus, need, exclude, cats=()):
