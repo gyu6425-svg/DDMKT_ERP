@@ -10,6 +10,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
     const [reqNote, setReqNote] = useState('');
     const [reqMsg, setReqMsg] = useState('');
     const [reqBusy, setReqBusy] = useState(false);
+    const [txFilter, setTxFilter] = useState<'all' | 'charge' | 'use'>('all'); // 충전·사용 내역 토글
 
     const reloadReqs = () => { void listChargeRequests(clientId ?? undefined).then(({ data }) => setReqs(data)); };
     useEffect(() => {
@@ -93,11 +94,23 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
             </div>
 
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
-                <div className="mb-3 text-[15px] font-bold text-[#0f172a]">충전·사용 내역</div>
-                {loading ? (
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <div className="text-[15px] font-bold text-[#0f172a]">충전·사용 내역</div>
+                    <div className="ml-auto inline-flex rounded-lg border border-[#e2e8f0] p-0.5">
+                        {([['all', '전체'], ['charge', '충전'], ['use', '사용(발행)']] as const).map(([k, label]) => (
+                            <button key={k} type="button" onClick={() => setTxFilter(k)}
+                                className={`rounded-md px-3 py-1 text-xs font-bold ${txFilter === k ? (k === 'use' ? 'bg-[#e0e7ff] text-[#4338ca]' : k === 'charge' ? 'bg-[#dcfce7] text-[#166534]' : 'bg-[#1e40af] text-white') : 'text-[#64748b] hover:text-[#334155]'}`}>
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                {(() => {
+                    const txRows = rows.filter((r) => (txFilter === 'all' ? true : txFilter === 'charge' ? r.delta > 0 : r.delta < 0));
+                    return loading ? (
                     <div className="py-8 text-center text-sm text-[#94a3b8]">불러오는 중…</div>
-                ) : rows.length === 0 ? (
-                    <div className="py-8 text-center text-sm text-[#94a3b8]">아직 충전 내역이 없습니다. 입금 후 담당자가 충전해 드립니다.</div>
+                ) : txRows.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-[#94a3b8]">{txFilter === 'charge' ? '충전 내역이 없습니다.' : txFilter === 'use' ? '사용(발행) 내역이 없습니다.' : '아직 충전 내역이 없습니다. 입금 후 담당자가 충전해 드립니다.'}</div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full min-w-[420px] border-collapse text-[13px]">
@@ -107,7 +120,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                                 </tr>
                             </thead>
                             <tbody>
-                                {rows.map((r) => (
+                                {txRows.map((r) => (
                                     <tr key={r.id} className="border-b border-[#f1f5f9] text-[#334155]">
                                         <td className="whitespace-nowrap px-2 py-2">{new Date(r.created_at).toLocaleString('ko-KR')}</td>
                                         <td className="whitespace-nowrap px-2 py-2">
@@ -120,7 +133,8 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                             </tbody>
                         </table>
                     </div>
-                )}
+                );
+                })()}
             </div>
         </div>
     );

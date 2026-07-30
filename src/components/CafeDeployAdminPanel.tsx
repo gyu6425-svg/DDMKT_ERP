@@ -7,6 +7,7 @@ import {
     type CafeDeployRequest,
     type DeployCredential,
 } from '../api/cafeDeployRequests';
+import { grantTokens, listChargeRequests, setChargeRequestStatus } from '../api/cafeTokens';
 
 // 관리자 — 카페 배포 접수 관리(전 고객). 접수 내용·사진·네이버계정·상태(접수→결제대기→세팅중→완료)를 한 화면에서.
 //   '승인' = 접수→결제대기. 이 순간 고객ERP에 결제(입금계좌) 안내가 노출된다.
@@ -22,6 +23,7 @@ export default function CafeDeployAdminPanel() {
     const [reveal, setReveal] = useState<Record<string, boolean>>({});
     const [filter, setFilter] = useState<string>('전체');
     const [msg, setMsg] = useState('');
+    const [issuing, setIssuing] = useState<string | null>(null); // 토큰 발행 중인 행
 
     const load = () => {
         void listCafeDeployRequests(undefined, 200).then(async ({ data, error }) => {
@@ -42,6 +44,26 @@ export default function CafeDeployAdminPanel() {
         const { error } = await setCafeDeployStatus(id, status);
         if (error) return setMsg('상태 변경 실패: ' + error.message);
         setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
+    };
+
+    // 토큰 발행 — 결제 확인 후 이 건의 발행건수(=토큰수)만큼 고객에게 지급 + 상태 세팅중 + 대기 충전요청 정리.
+    const tokenCountOf = (r: CafeDeployRequest) => r.total_count ?? r.selected_keywords?.length ?? 0;
+    const issueTokens = async (r: CafeDeployRequest) => {
+        const count = tokenCountOf(r);
+        if (count <= 0) {
+            setMsg(`${r.company_name}: 총 발행건수가 없어 토큰 수를 알 수 없습니다. 접수의 '총 발행건수'를 먼저 입력하세요.`);
+            return;
+        }
+        setIssuing(r.id); setMsg('');
+        const { error } = await grantTokens(r.client_id, count, `카페 배포 결제확인 · ${r.company_name}`);
+        if (error) { setIssuing(null); return setMsg('토큰 발행 실패: ' + error.message); }
+        await setCafeDeployStatus(r.id, '세팅중');
+        // 이 고객의 대기 충전요청을 완료 처리(중복 방지)
+        const { data: reqs } = await listChargeRequests(r.client_id);
+        await Promise.all((reqs || []).filter((q) => q.status === 'pending').map((q) => setChargeRequestStatus(q.id, 'done')));
+        setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, status: '세팅중' } : x)));
+        setIssuing(null);
+        setMsg(`${r.company_name} +${count}건(토큰) 발행 완료 → 세팅중`);
     };
 
     const shown = filter === '전체' ? rows : rows.filter((r) => r.status === filter);
@@ -129,6 +151,13 @@ export default function CafeDeployAdminPanel() {
                                                     <button type="button" onClick={() => void changeStatus(r.id, '결제대기')}
                                                         className="rounded-md bg-[#ea580c] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#c2410c]"
                                                         title="승인 → 고객ERP에 입금/결제 안내가 노출됩니다">승인</button>
+                                                ) : null}
+                                                {r.status === '결제대기' ? (
+                                                    <button type="button" disabled={issuing === r.id} onClick={() => void issueTokens(r)}
+                                                        className="rounded-md bg-[#059669] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                                                        title="결제 확인 → 이 건의 발행건수만큼 토큰 지급">
+                                                        {issuing === r.id ? '발행 중…' : `토큰 발행${tokenCountOf(r) ? ` (${tokenCountOf(r)})` : ''}`}
+                                                    </button>
                                                 ) : null}
                                             </div>
                                         </td>
