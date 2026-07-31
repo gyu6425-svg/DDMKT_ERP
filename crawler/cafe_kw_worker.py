@@ -232,6 +232,10 @@ def process(req):
     seen = set()  # 띄어쓰기 변형(군산 맛집/군산맛집) 중복 스캔·중복 결과 방지
     t0 = time.time()
     scraped = 0  # 실제 라이브 스크랩 횟수(캐시 히트 제외) — 헛스캔 측정용
+    # 온디맨드 라이브 스크랩 상한 — 웹 timeout(target>10=600s / 이하=180s) 초과 방지.
+    #   캐시 히트는 무제한(선수집된 플레이스는 전체 반환). 상한 도달 후 미수집분은 prescan 에 맡김.
+    MAX_LIVE = 90 if target > 10 else 28
+    capped = False
     for kw, vol in cands:
         if len(found) >= target:
             break
@@ -243,6 +247,9 @@ def process(req):
         if cached is not None:
             r = {"has_section": cached.get("has_section"), "theme": cached.get("theme"),
                  "verdict": cached.get("verdict"), "rows": cached.get("cafes") or []}
+        elif scraped >= MAX_LIVE:
+            capped = True
+            continue  # 라이브 상한 도달 — 미수집분은 스캔 안 함(timeout·차단 방지, prescan 이 채움)
         else:
             r = p.classify(kw)  # 자기 IP 스캔(게이트 시 CF 자동전환)
             _cache_put(kw, r, vol)
@@ -275,6 +282,9 @@ def process(req):
             if cached is not None:
                 r = {"has_section": cached.get("has_section"), "theme": cached.get("theme"),
                      "verdict": cached.get("verdict"), "rows": cached.get("cafes") or []}
+            elif scraped >= MAX_LIVE:
+                capped = True
+                break  # 라이브 상한 도달 — 보완 스크랩 중단(timeout·차단 방지, prescan 이 채움)
             else:
                 r = p.classify(kw)
                 _cache_put(kw, r, None)
@@ -284,9 +294,10 @@ def process(req):
                 found.append({"keyword": kw, "volume": _real_volume(kw), "theme": r.get("theme"),
                               "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
         found.sort(key=lambda f: -(f.get("volume") or 0))
+    cap_note = f" · ⚠라이브상한({MAX_LIVE}) 도달-부분결과(prescan 권장)" if capped else ""
     _finish(req["id"], "done", result=found,
             extra={"place_id": pid, "biz_name": info.get("name")},
-            note=f"{len(found)}건 발견 / 후보 {len(cands)}")
+            note=f"{len(found)}건 발견 / 후보 {len(cands)} / 라이브 {scraped}{cap_note}")
     top = ", ".join(f"{f['keyword']}({f.get('volume', 0)})" for f in found[:3])
     print(f"[{_ts()}][{req['id']}] {info.get('name')} → 인기탭 {len(found)}건 · 후보 {len(cands)} · 스크랩 {scraped}회 · {time.time() - t0:.0f}s | {top}", flush=True)
 
