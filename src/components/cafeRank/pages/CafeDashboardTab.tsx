@@ -1,27 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getCafeRankPosts, type CafeRankPost } from '../../../api/cafeRank';
 
-// 카페 · 대시보드 — 업체(게시판)별 성과를 한눈에. 각 카드: 글 수 · 인기글 진입 · 최고순위 · 상위 키워드.
-const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템', '더반클린', '누수상담소'];
+// 카페 · 대시보드 — '오늘 발행해야 할 업체' 체크. 더맨·더티·더반·설고 각 하루 5건씩 발행 → 담당자가 매일 확인.
+//   기록은 cafe_rank_posts.published_date 기준으로 쌓인다(발행 시 자동 편입). 60초 자동 갱신.
+const DAILY_TARGETS = ['더맨시스템', '더티클리닉', '더반클린', '설고점']; // 하루 5건씩 발행하는 업체
+const DAILY_QUOTA = 5;
 const boardKey = (p: CafeRankPost) => p.board || p.cafe_accounts?.board_short || '미분류';
-const companyName = (p: CafeRankPost) => p.cafe_accounts?.display_name || boardKey(p);
-const boardRank = (b: string) => {
-    const i = BOARD_ORDER.indexOf(b);
-    return i >= 0 ? i : b === '미분류' ? 999 : 500;
-};
 const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
-    누수: { bg: '#eff6ff', fg: '#1d4ed8' },
-    더티클리닉: { bg: '#f0fdfa', fg: '#0d9488' },
-    설고점: { bg: '#fff7ed', fg: '#c2410c' },
     더맨시스템: { bg: '#faf5ff', fg: '#7c3aed' },
+    더티클리닉: { bg: '#f0fdfa', fg: '#0d9488' },
     더반클린: { bg: '#fdf2f8', fg: '#be185d' },
-    누수상담소: { bg: '#f0f9ff', fg: '#0369a1' },
+    설고점: { bg: '#fff7ed', fg: '#c2410c' },
 };
 
 function todayKST(): string {
     const now = new Date();
     return new Date(now.getTime() + (now.getTimezoneOffset() + 540) * 60000).toISOString().slice(0, 10);
 }
+function ymdKST(offsetDays: number): string {
+    const t = todayKST();
+    const [y, m, d] = t.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + offsetDays)).toISOString().slice(0, 10);
+}
+const mmdd = (iso: string) => { const [, mo, d] = iso.split('-'); return `${Number(mo)}월 ${Number(d)}일`; };
 
 export function CafeDashboardTab() {
     const [posts, setPosts] = useState<CafeRankPost[]>([]);
@@ -39,83 +40,104 @@ export function CafeDashboardTab() {
     }, []);
 
     const today = todayKST();
-    const cards = useMemo(() => {
-        const map = new Map<string, CafeRankPost[]>();
-        for (const p of posts) {
-            const b = boardKey(p);
-            (map.get(b) || map.set(b, []).get(b)!).push(p);
-        }
-        for (const b of BOARD_ORDER) if (!map.has(b)) map.set(b, []);
-        return [...map.entries()]
-            .map(([b, ps]) => {
-                const withRank = ps
-                    .map((p) => ({ p, m: p.measurements?.[p.measurements.length - 1] }))
-                    .filter((x) => x.m && x.m.ti_status === 'ok')
-                    .sort((a, b2) => (a.m!.ti - b2.m!.ti));
-                const measuredToday = ps.filter((p) => p.measurements?.[p.measurements.length - 1]?.date === today).length;
-                return {
-                    board: b,
-                    company: ps[0] ? companyName(ps[0]) : b,
-                    total: ps.length,
-                    ranked: withRank.length,
-                    best: withRank[0]?.m?.ti ?? null,
-                    measuredToday,
-                    top: withRank.slice(0, 3).map((x) => ({ kw: x.p.keyword_manual || x.p.keyword || '—', ti: x.m!.ti })),
-                };
-            })
-            .sort((a, b) => boardRank(a.board) - boardRank(b.board) || a.board.localeCompare(b.board));
-    }, [posts, today]);
+    const yesterday = ymdKST(-1);
+
+    // 발행일(published_date) 기준 그 날짜 글만.
+    const onDate = (date: string) => posts.filter((p) => (p.published_date || '').slice(0, 10) === date);
+    const countBy = (date: string, board: string) => onDate(date).filter((p) => boardKey(p) === board).length;
+
+    const todayTotal = DAILY_TARGETS.reduce((s, b) => s + countBy(today, b), 0);
+    const goalTotal = DAILY_TARGETS.length * DAILY_QUOTA;
+
+    // 발행 글 목록(업체 순 → 최신순).
+    const listOf = (date: string) =>
+        onDate(date)
+            .filter((p) => DAILY_TARGETS.includes(boardKey(p)))
+            .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    const todayList = useMemo(() => listOf(today), [posts, today]);
+    const yList = useMemo(() => listOf(yesterday), [posts, yesterday]);
 
     if (loading) {
         return <div className="rounded-xl border border-[#e2e8f0] bg-white px-6 py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
     }
 
+    const kw = (p: CafeRankPost) => p.keyword_manual || p.keyword || '—';
+
     return (
         <div className="grid gap-4">
             <div>
-                <h2 className="m-0 text-base font-bold text-[#0f172a]">카페 · 대시보드</h2>
-                <p className="m-0 mt-0.5 text-xs text-[#64748b]">마이클의 정보 세상 · 업체(게시판)별 인기글 성과 · 60초마다 자동 갱신</p>
+                <h2 className="m-0 text-base font-bold text-[#0f172a]">카페 · 오늘 발행 현황</h2>
+                <p className="m-0 mt-0.5 text-xs text-[#64748b]">{mmdd(today)} · 업체별 하루 {DAILY_QUOTA}건 발행 체크 · 발행 시 자동 집계 · 60초 자동 갱신</p>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {cards.map((c) => {
-                    const st = BOARD_STYLE[c.board] || { bg: '#f8fafc', fg: '#475569' };
+            {/* 업체별 오늘 발행 KPI 카드 */}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+                {DAILY_TARGETS.map((b) => {
+                    const done = countBy(today, b);
+                    const st = BOARD_STYLE[b] || { bg: '#f8fafc', fg: '#475569' };
+                    const complete = done >= DAILY_QUOTA;
+                    const box = complete
+                        ? 'border-2 border-[#16a34a] bg-[#f0fdf4]'
+                        : done > 0
+                            ? 'border-2 border-[#eab308] bg-[#fefce8]'
+                            : 'border-2 border-[#e2e8f0] bg-white';
                     return (
-                        <div className="rounded-xl border border-[#e5e7eb] bg-white p-4" key={c.board}>
-                            <div className="flex items-center justify-between">
-                                <span className="rounded-full px-2.5 py-1 text-[12px] font-bold" style={{ background: st.bg, color: st.fg }}>
-                                    {c.company}
-                                </span>
-                                <span className="text-[11px] text-[#94a3b8]">{c.total}글</span>
+                        <div className={`rounded-xl p-4 ${box}`} key={b}>
+                            <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: st.bg, color: st.fg }}>{b}</span>
+                            <div className="mt-2 flex items-end gap-1">
+                                <span className={`text-[28px] font-bold leading-none ${complete ? 'text-[#15803d]' : done > 0 ? 'text-[#a16207]' : 'text-[#94a3b8]'}`}>{done}</span>
+                                <span className="mb-0.5 text-[13px] font-semibold text-[#94a3b8]">/ {DAILY_QUOTA}</span>
                             </div>
-                            {c.total === 0 ? (
-                                <div className="mt-4 text-center text-[13px] text-[#94a3b8]">발행 전<br /><span className="text-[11px]">발행 시 자동 편입</span></div>
-                            ) : (
-                                <>
-                                    <div className="mt-3 flex items-end gap-3">
-                                        <div>
-                                            <div className="text-[26px] font-bold leading-none" style={{ color: st.fg }}>{c.best !== null ? `${c.best}위` : '—'}</div>
-                                            <div className="mt-1 text-[10px] text-[#9ca3af]">최고 순위</div>
-                                        </div>
-                                        <div className="ml-auto text-right">
-                                            <div className="text-[15px] font-bold text-[#059669]">{c.ranked}<span className="text-[11px] font-normal text-[#94a3b8]">/{c.total}</span></div>
-                                            <div className="mt-1 text-[10px] text-[#9ca3af]">인기글 진입</div>
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 border-t border-[#f1f5f9] pt-2">
-                                        {c.top.length ? c.top.map((t, i) => (
-                                            <div className="flex items-center justify-between py-0.5 text-[12px]" key={i}>
-                                                <span className="truncate text-[#475569]">{t.kw}</span>
-                                                <span className="ml-2 shrink-0 font-bold" style={{ color: st.fg }}>{t.ti}위</span>
-                                            </div>
-                                        )) : <div className="py-1 text-[11px] text-[#94a3b8]">인기글 진입 없음</div>}
-                                    </div>
-                                </>
-                            )}
+                            <div className={`mt-1 text-[11px] font-bold ${complete ? 'text-[#15803d]' : 'text-[#b45309]'}`}>
+                                {complete ? '✓ 완료' : `${DAILY_QUOTA - done}건 남음`}
+                            </div>
                         </div>
                     );
                 })}
+                {/* 오늘 총합 카드 */}
+                <div className={`rounded-xl p-4 ${todayTotal >= goalTotal ? 'border-2 border-[#16a34a] bg-[#f0fdf4]' : 'border-2 border-[#7c3aed] bg-[#f5f3ff]'}`}>
+                    <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[11px] font-bold text-[#6d28d9]">오늘 총 발행</span>
+                    <div className="mt-2 flex items-end gap-1">
+                        <span className="text-[28px] font-bold leading-none text-[#6d28d9]">{todayTotal}</span>
+                        <span className="mb-0.5 text-[13px] font-semibold text-[#94a3b8]">/ {goalTotal}</span>
+                    </div>
+                    <div className="mt-1 text-[11px] font-bold text-[#6d28d9]">{todayTotal >= goalTotal ? '✓ 전 업체 완료' : `${goalTotal - todayTotal}건 남음`}</div>
+                </div>
             </div>
+
+            {/* 오늘 / 어제 발행 글 목록(기록 누적) */}
+            {[{ label: `오늘(${mmdd(today)}) 발행`, rows: todayList }, { label: `어제(${mmdd(yesterday)}) 발행`, rows: yList }].map((sec) => (
+                <div className="rounded-xl border border-[#e2e8f0] bg-white p-4" key={sec.label}>
+                    <div className="mb-2 text-[14px] font-bold text-[#0f172a]">{sec.label} <span className="text-[12px] font-normal text-[#94a3b8]">{sec.rows.length}건</span></div>
+                    {sec.rows.length === 0 ? (
+                        <div className="py-6 text-center text-[13px] text-[#94a3b8]">발행 기록이 없습니다.</div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[560px] border-collapse text-[13px]">
+                                <thead>
+                                    <tr className="border-b border-[#e2e8f0] text-left text-[#64748b]">
+                                        {['업체', '키워드', '제목', '카페/게시판'].map((h) => <th key={h} className="px-2 py-1.5 font-semibold">{h}</th>)}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {sec.rows.map((p) => {
+                                        const b = boardKey(p);
+                                        const st = BOARD_STYLE[b] || { bg: '#f8fafc', fg: '#475569' };
+                                        return (
+                                            <tr key={p.id} className="border-b border-[#f1f5f9] text-[#334155]">
+                                                <td className="px-2 py-1.5"><span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: st.bg, color: st.fg }}>{b}</span></td>
+                                                <td className="whitespace-nowrap px-2 py-1.5 font-semibold">{kw(p)}</td>
+                                                <td className="max-w-[280px] truncate px-2 py-1.5" title={p.title ?? ''}>{p.title ?? '—'}</td>
+                                                <td className="whitespace-nowrap px-2 py-1.5 text-[12px] text-[#64748b]">{p.cafe_accounts?.display_name || p.cafe_name || '—'}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            ))}
         </div>
     );
 }
