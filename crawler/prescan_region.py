@@ -1,5 +1,7 @@
 # [SUB4 분리IP 전용] 5개 업체 지역키워드 미리 스캔 → cafe_kw_targets(공유캐시) 적재.
-#   목적: 지역형 접수가 '동 업종키워드'의 인기글 진입/카페수를 즉시 읽게 미리 채워둠.
+#   목적: 지역형 접수가 '행정구 업종키워드'의 인기글 진입/카페수를 즉시 읽게 미리 채워둠.
+#   ※ 실측(2026-07): 동(洞) 단위는 인기탭 진입 ~0%, 구/시 단위라야 잡힘 → 동 태스크 폐기, 구/시로.
+#     경기는 시 단위(수원·성남·과천 등)에서 통과가 많이 나와 시·구 토큰을 함께 생성.
 #   ⚠️ 대량 naver 조회라 반드시 SUB4 분리IP(폰/별도 라우팅)에서. 메인 순위크롤 IP 보호.
 #   가드: 23:59 하드 시간컷(새벽 크롤 회피) · 연속 차단감지 시 자동중단 · 이미 캐시된 건 skip · 스로틀.
 #   실행: py prescan_region.py               (서울만 — 기본)
@@ -58,6 +60,25 @@ def public_ip():
         return {}
 
 
+def region_tokens(gu):
+    """행정구 문자열 → 스캔 지역토큰들. '수원시 장안구'→{수원시,수원,장안구,장안}, '강남구'→{강남구,강남}.
+       '고양시덕양구'(붙은형)도 시/구로 분리. 접미형·기본형 둘 다 생성(SUB4 실측: 업종별로 통과 형태가 갈림)."""
+    toks = set()
+    parts = []
+    for part in (gu or "").split():
+        mm = re.match(r"^(.+?시)(.+구)$", part)   # 고양시덕양구 → 고양시 + 덕양구
+        parts += [mm.group(1), mm.group(2)] if mm else [part]
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        toks.add(part)
+        base = re.sub(r"(특별시|광역시|자치시|자치구|시|군|구)$", "", part)
+        if len(base) >= 2:
+            toks.add(base)
+    return toks
+
+
 def cache_put(kw, r):
     row = {
         "keyword": kw, "has_section": bool(r.get("has_section")), "theme": r.get("theme"),
@@ -92,17 +113,20 @@ def main():
         pass
     print(f"[prescan] 기존 캐시 {len(existing)}건 로드", flush=True)
 
-    # 태스크: 시도 순서대로 동(동-only) × 업종어 → '동 업종어'
+    # 태스크: 시도 순서대로 행정구/시 토큰 × 업종어 → '강남 입주청소'. (동 폐기 — 실측상 인기탭 0)
     tasks, seen = [], set()
     for sido in SIDO_ORDER:
-        dongs = sorted({m["dong"] for m in master if m["sido"] == sido and m["dong"].endswith("동")})
+        toks = set()
+        for m in master:
+            if m["sido"] == sido:
+                toks |= region_tokens(m["gu"])
         for kw in KEYWORDS:
-            for dong in dongs:
-                t = f"{dong} {kw}"
+            for tk in sorted(toks):
+                t = f"{tk} {kw}"
                 if t not in seen:
                     seen.add(t)
                     tasks.append(t)
-    print(f"[prescan] 총 태스크 {len(tasks)}건", flush=True)
+    print(f"[prescan] 총 태스크 {len(tasks)}건 (구/시 토큰 기반)", flush=True)
 
     done = hits = skipped = blocks = 0
     t0 = time.time()
