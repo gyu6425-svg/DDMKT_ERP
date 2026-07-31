@@ -200,6 +200,11 @@ export default function CafeDeployAdminPanel() {
                                                         </button>
                                                     )
                                                 ) : null}
+                                                {r.status === '세팅중' ? (
+                                                    <button type="button" onClick={() => { window.location.href = '/cafe'; }}
+                                                        className="rounded-md bg-[#7c3aed] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#6d28d9]"
+                                                        title="이 건 자동화 발행 화면으로 이동">발행하러 가기</button>
+                                                ) : null}
                                                 {delId === r.id ? (
                                                     <span className="flex items-center gap-1">
                                                         <button type="button" onClick={() => void remove(r)} className="rounded-md bg-[#dc2626] px-2 py-1 text-[11px] font-bold text-white hover:bg-[#b91c1c]">삭제 확인</button>

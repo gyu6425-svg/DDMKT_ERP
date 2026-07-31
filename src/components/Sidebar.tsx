@@ -3,7 +3,8 @@ import { useAuth } from '../hooks/useAuth';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { getClientContracts, type ClientContract } from '../api/clientContracts';
 import { CONTAINER_SUBS, PRODUCT_CATEGORIES } from '../lib/products';
-import { canSeeAdminPage } from '../lib/permissions';
+import { canSeeAdminPage, canManagePermissions } from '../lib/permissions';
+import { SIGNUP_ENABLED } from '../lib/authConfig';
 
 const navigationItems = [
     // 대시보드는 좌측 상단 'DDMKT ERP' 로고 클릭으로 이동(아래 참고).
@@ -329,16 +330,60 @@ function Sidebar() {
                         {isAdmin || role === 'manager'
                             ? navigationItems.slice(afterContracts).map(renderNavItem)
                             : null}
-                        {canSeeAdminPage(profile?.email) ? (
-                            <a
-                                aria-current={currentPath === '/admin' ? 'page' : undefined}
-                                className={linkClassName('/admin')}
-                                href="/admin"
-                                onClick={(event) => navigate(event, '/admin')}
-                            >
-                                관리자 페이지
-                            </a>
-                        ) : null}
+                        {canSeeAdminPage(profile?.email) ? (() => {
+                            const adminActive = currentPath === '/admin';
+                            const curTab = new URLSearchParams(loc.search).get('tab') || '';
+                            const expanded = openKeys.has('admin') || hoverKey === 'admin';
+                            const adminSubs = [
+                                ...(canManagePermissions(profile?.email) ? [{ key: 'users', label: '사원 관리' }] : []),
+                                ...(SIGNUP_ENABLED ? [{ key: 'signups', label: '가입 승인' }] : []),
+                                { key: 'deploy', label: '카페 접수' },
+                                { key: 'tokens', label: '토큰 충전' },
+                                { key: 'cafe', label: '카페 원고 생성기' },
+                                { key: 'api', label: 'API 사용량' },
+                            ];
+                            return (
+                                <div
+                                    onMouseEnter={() => setHoverKey('admin')}
+                                    onMouseLeave={() => setHoverKey((k) => (k === 'admin' ? null : k))}
+                                >
+                                    <button
+                                        aria-expanded={expanded}
+                                        className={`flex w-full items-center justify-between text-[16px] no-underline ${
+                                            adminActive ? 'font-semibold text-[#FF6000]' : 'font-normal text-[#777777] hover:text-[#000000]'
+                                        }`}
+                                        onClick={() => toggleOpen('admin')}
+                                        type="button"
+                                    >
+                                        <span>관리자 페이지</span>
+                                        <svg aria-hidden="true" className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24">
+                                            <path d="M9 6l6 6-6 6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+                                        </svg>
+                                    </button>
+                                    <div className={`grid transition-all duration-300 ease-in-out ${expanded ? 'mt-3.5 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+                                        <div className="overflow-hidden">
+                                            <div className="ml-2 grid gap-2 border-l border-[#eef0f2] pl-3">
+                                                {adminSubs.map((s) => {
+                                                    const href = `/admin?tab=${s.key}`;
+                                                    const active = adminActive && curTab === s.key;
+                                                    return (
+                                                        <a
+                                                            key={s.key}
+                                                            className={`text-[14px] no-underline ${active ? 'font-semibold text-[#FF6000]' : 'font-normal text-[#888888] hover:text-[#000000]'}`}
+                                                            href={href}
+                                                            onClick={(event) => navigate(event, href)}
+                                                            tabIndex={expanded ? 0 : -1}
+                                                        >
+                                                            {s.label}
+                                                        </a>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })() : null}
                     </>
                 )}
             </nav>
