@@ -5,6 +5,7 @@ import { createCustomerPublishJob, listMyCafeJobs, listCafeJobsByCompanies, list
 import { listTokens, balanceOf, consumeToken } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
+import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { REGION_GROUPS, type RegionSet } from './regions';
 
 type MyJob = { id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string };
@@ -13,7 +14,6 @@ const TONES: { key: Tone; name: string }[] = [
     { key: 'review', name: '후기형' }, { key: 'info', name: '정보형' }, { key: 'story', name: '스토리형' }, { key: 'talk', name: '대화형' },
 ];
 const STATUS_KO: Record<string, string> = { pending: '대기', processing: '작성 중', posted: '게시됨(확인중)', done: '완료', fail: '실패' };
-const NAVER_KW_API = 'https://ddmkt-erp.pages.dev/api/naver-keywords';
 
 // 업종 → longform 종류. 더반클린(입주청소)=clean · 누수탐지=leak. 그 외는 null(기존 후기 경로로 폴백).
 function bizKind(business: string): 'leak' | 'clean' | null {
@@ -109,10 +109,6 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [mode, setMode] = useState<'keyword' | 'region'>('region');
 
     // SEO 키워드 찾기
-    const [seoQ, setSeoQ] = useState('');
-    const [seoBusy, setSeoBusy] = useState(false);
-    const [seoErr, setSeoErr] = useState('');
-    const [seo, setSeo] = useState<Array<{ keyword: string; total: number; comp: string }> | null>(null);
 
     // 키워드형
     const [keyword, setKeyword] = useState('');
@@ -202,27 +198,6 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clientId]);
 
-    async function findSeo() {
-        const q = (seoQ || business || '').trim();
-        if (!q) { setSeoErr('업종/키워드를 입력하세요.'); return; }
-        setSeoBusy(true); setSeoErr(''); setSeo(null);
-        try {
-            const res = await fetch(`${NAVER_KW_API}?q=${encodeURIComponent(q)}`);
-            const data = await res.json();
-            if (!res.ok) throw new Error((data && data.error) || `오류 ${res.status}`);
-            const rows = ((data && data.keywords) || []) as Array<{ keyword: string; total: number; comp: string }>;
-            // 관련 키워드만 — ①서비스 접미(입주청소→'청소', 누수탐지→'탐지') 포함 ②지역명 붙은 것 제거
-            //   (예: '의정부 입주청소'·'강서구 입주청소'·'초파리'는 뺀다 → 입주청소·화장실청소·이사청소만).
-            const core = q.replace(/\s/g, '').slice(-2);
-            const regionNames = new Set<string>();
-            Object.values(REGION_GROUPS).forEach((g) => g.forEach((r) => { if (r.label.length >= 2) regionNames.add(r.label.replace(/\s/g, '')); }));
-            const hasRegion = (kw: string) => [...regionNames].some((n) => kw.replace(/\s/g, '').includes(n));
-            const related = rows.filter((r) => r.keyword.includes(core) && !hasRegion(r.keyword));
-            const top = (related.length ? related : rows).sort((a, b) => b.total - a.total).slice(0, 30);
-            setSeo(top);
-            setSelectedKw(new Set(top.map((r) => r.keyword)));   // 나온 키워드 전부 자동 선택 → 지역형이 다 씀(빼려면 클릭)
-        } catch (e) { setSeoErr(String((e as Error).message || e)); } finally { setSeoBusy(false); }
-    }
 
     // 원고 1건 — 업종이 누수/청소면 더반·누수와 '똑같은' longform 양식(제목 "{지역}{업종}" 시작·본문 골격·자동태그).
     //   그 외 업종은 기존 후기 경로로 폴백. tags 는 하단 태그칩(발행 시 함께 입력).
@@ -439,30 +414,15 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 <p className="m-0 mt-2 text-[11px] text-[#94a3b8]">배치: <b>상단 배너 1장</b> → <b>실사(문단 사이 · 발행마다 2장 좌우/낱개 랜덤)</b> → <b>끝 배너 1장</b> (더반·누수 스타일). 배너 남발 금지, 실사 위주. 넣지 않으면 텍스트만 발행됩니다.</p>
             </div>
 
-            {/* SEO 연관키워드 찾기 (최상단) */}
-            <div className="rounded-xl border-2 border-[#0369a1] bg-[#f0f9ff] p-4">
-                <div className="mb-2 text-[13px] font-bold text-[#075985]">🔍 SEO 연관키워드 찾기</div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <input className={`${inputCls} flex-1 min-w-[160px]`} onChange={(e) => setSeoQ(e.target.value)} placeholder={business ? `예) ${business}` : '업종/키워드 (예: 입주청소)'} value={seoQ} />
-                    <button className="h-10 rounded-lg bg-[#0369a1] px-4 text-sm font-bold text-white disabled:opacity-50" disabled={seoBusy} onClick={() => void findSeo()} type="button">{seoBusy ? '검색 중…' : '키워드 찾기'}</button>
-                    {seoErr ? <span className="text-xs text-[#dc2626]">{seoErr}</span> : null}
-                </div>
-                {seo ? (
-                    <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-[#bae6fd] bg-white p-1">
-                        {seo.length ? seo.map((r) => {
-                            const sel = selectedKw.has(r.keyword);
-                            return (
-                                <button className={`flex w-full items-center justify-between rounded px-2 py-1 text-left text-[13px] ${sel ? 'bg-[#dbeafe]' : 'hover:bg-[#f0f9ff]'}`} key={r.keyword}
-                                    onClick={() => { toggleKw(r.keyword); if (mode === 'region') setRegionKw(r.keyword); else setKeyword(r.keyword); }} type="button">
-                                    <span className="font-medium text-[#0f172a]">{sel ? '✓ ' : ''}{r.keyword}</span>
-                                    <span className="text-[12px] text-[#64748b]">월 {r.total.toLocaleString()} · 경쟁 {r.comp}</span>
-                                </button>
-                            );
-                        }) : <div className="px-2 py-1 text-[13px] text-[#94a3b8]">추천 키워드 없음</div>}
-                        <div className="px-2 py-1 text-[11px] text-[#94a3b8]">나온 키워드는 <b>전부 지역형에 자동 사용</b>됩니다(빼려면 클릭). {selectedKw.size ? `· 사용 ${selectedKw.size}개` : ''} · "지역형" 탭에서 지역·발행건수 정하고 스캔하세요.</div>
-                    </div>
-                ) : null}
-            </div>
+            {/* SEO 키워드 찾기 — 접수(고객ERP)와 동일: 검색량 + SUB4 정확 인기탭 분석(최대 50) + 선택. */}
+            <CafeKeywordFinder
+                clientId={clientId}
+                mode={mode}
+                onPick={(kws) => {
+                    setSelectedKw(new Set(kws));
+                    if (kws[0]) { if (mode === 'region') setRegionKw(kws[0]); else setKeyword(kws[0]); }
+                }}
+            />
 
             {mode === 'keyword' ? (
                 <>
