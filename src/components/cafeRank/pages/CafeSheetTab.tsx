@@ -126,6 +126,15 @@ export function CafeSheetTab({
         return m;
     }, [accounts, clientsWithOwnCafe, statByAccount]);
     // 합산 귀속 대상 = 업체별 첫 자체행(중복 합산 방지).
+    // 계약 목표건수(goal_count)는 같은 업체(client)의 계정 중 아무 곳에 있어도 그 업체 행에 적용.
+    //   (계약은 마이클 ddmkt2 계정에 있는데 관리시트는 자체 카페 행을 보여줘 goal 이 '—' 로 비던 문제 해결.)
+    const goalByClient = useMemo(() => {
+        const m = new Map<string, number>();
+        for (const a of accounts) {
+            if (a.client_id && a.goal_count != null) m.set(a.client_id, Math.max(m.get(a.client_id) || 0, a.goal_count));
+        }
+        return m;
+    }, [accounts]);
     const firstRowIdOfClient = useMemo(() => {
         const m = new Map<string, string>();
         for (const a of rows) if (a.client_id && !m.has(a.client_id)) m.set(a.client_id, a.id);
@@ -249,7 +258,7 @@ export function CafeSheetTab({
                             const st = { total: own.total + merged.total, ranked: own.ranked + merged.ranked, achieved: own.achieved + merged.achieved };
                             const base = a.done_count || 0;   // 수동 베이스라인
                             const done = base + st.achieved;  // 실적 = 베이스라인 + 자동 달성(5위 24h)
-                            const goal = a.goal_count || 0;
+                            const goal = a.goal_count || (a.client_id ? goalByClient.get(a.client_id) || 0 : 0);
                             const pct = goal ? Math.min(100, Math.round((done / goal) * 100)) : 0;
                             const pc = !goal ? '#cbd5e1' : pct >= 70 ? '#059669' : pct >= 40 ? '#d97706' : '#dc2626';
                             const remain = goal ? Math.max(0, goal - done) : null;
