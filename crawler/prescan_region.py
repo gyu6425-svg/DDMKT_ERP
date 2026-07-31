@@ -35,8 +35,8 @@ H = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "applicati
 
 # 업체별 업종키워드(기존 발행글에서 확정). 입주청소는 더티·더반 공유 → 유니크로 스캔.
 COMPANIES = {
-    "더맨": ["회사보안", "사설경호"],
-    "설고": ["소방업체"],
+    "더맨": ["경호업체", "경호", "신변보호", "행사경호", "회사보안", "보안업체", "사설경호"],
+    "설고": ["소방점검", "소방시설", "소방공사", "소방관리", "소방업체", "소방수리"],
     "더티": ["입주청소"],
     "더반": ["입주청소", "이사청소", "청소업체", "사무실청소"],
     "누수": ["누수탐지"],
@@ -44,6 +44,15 @@ COMPANIES = {
 KEYWORDS = sorted({kw for lst in COMPANIES.values() for kw in lst})
 
 SIDO_ORDER = [a for a in sys.argv[1:] if a in ("서울", "경기", "인천")] or ["서울"]
+# --cap N : 업종어별로 인기글 N건 확보하면 그 업종은 남은 지역 스캔 생략(부하·차단 방지, 테스트용). 0=무제한.
+CAP = 0
+if "--cap" in sys.argv:
+    _ci = sys.argv.index("--cap")
+    if _ci + 1 < len(sys.argv):
+        try:
+            CAP = int(sys.argv[_ci + 1])
+        except ValueError:
+            CAP = 0
 # 차단 안 당하게 넉넉하게 — 사람처럼 느리게 + 랜덤 지터 + 주기 휴식.
 GAP_MIN, GAP_MAX = 3.0, 5.0     # 스캔 간 스로틀(초, 랜덤)
 REST_EVERY = 60                 # 이만큼 스캔하면
@@ -129,33 +138,37 @@ def main():
                 t = f"{tk} {kw}"
                 if t not in seen:
                     seen.add(t)
-                    tasks.append(t)
-    print(f"[prescan] 총 태스크 {len(tasks)}건 (구/시 토큰 기반)", flush=True)
+                    tasks.append((t, kw))   # (스캔어, 업종어) — --cap 업종별 집계용
+    print(f"[prescan] 총 태스크 {len(tasks)}건 (구/시 토큰 기반){' · cap ' + str(CAP) + '/업종' if CAP else ''}", flush=True)
 
     done = hits = skipped = blocks = 0
+    hits_by_biz = {}
     t0 = time.time()
-    for i, kw in enumerate(tasks, 1):
+    for i, (task, biz) in enumerate(tasks, 1):
         if datetime.datetime.now() >= DEADLINE:
             print(f"[prescan] ⏹ 23:59 시간가드 도달 — 중단 ({i-1}/{len(tasks)})", flush=True)
             break
-        if kw in existing:
+        if CAP and hits_by_biz.get(biz, 0) >= CAP:
+            continue  # 이 업종어 목표수(--cap) 달성 — 남은 지역 스캔 생략
+        if task in existing:
             skipped += 1
             continue
-        r = p.classify(kw)
+        r = p.classify(task)
         if "차단" in str(r.get("err", "")):
             blocks += 1
-            print(f"[prescan] ⚠ 차단감지 {blocks}/{BLOCK_STOP}: {kw} ({r.get('err')}) — {BLOCK_COOLDOWN}s 쿨다운", flush=True)
+            print(f"[prescan] ⚠ 차단감지 {blocks}/{BLOCK_STOP}: {task} ({r.get('err')}) — {BLOCK_COOLDOWN}s 쿨다운", flush=True)
             if blocks >= BLOCK_STOP:
                 print("[prescan] ⏹ 연속 차단 — 자동중단(IP 보호)", flush=True)
                 break
             time.sleep(BLOCK_COOLDOWN)
             continue
         blocks = 0
-        cache_put(kw, r)
-        existing.add(kw)
+        cache_put(task, r)
+        existing.add(task)
         done += 1
         if r.get("has_section"):
             hits += 1
+            hits_by_biz[biz] = hits_by_biz.get(biz, 0) + 1
         if done % 25 == 0:
             el = time.time() - t0
             print(f"[prescan] {i}/{len(tasks)} · 스캔 {done} · 인기글 {hits} · skip {skipped} · {el/max(done,1):.1f}s/건", flush=True)
@@ -166,7 +179,9 @@ def main():
             time.sleep(rest)
         else:
             time.sleep(random.uniform(GAP_MIN, GAP_MAX))
+    biz_summary = " · ".join(f"{b}:{hits_by_biz.get(b, 0)}" for b in KEYWORDS)
     print(f"[prescan] ✅ 종료: 스캔 {done} · 인기글히트 {hits} · skip(캐시) {skipped}", flush=True)
+    print(f"[prescan]    업종별 인기글: {biz_summary}", flush=True)
 
 
 if __name__ == "__main__":
