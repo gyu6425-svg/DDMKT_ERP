@@ -8,14 +8,14 @@ const DAILY_TARGETS: { board: string; goal: number }[] = [
     { board: '더맨시스템', goal: 50 },
     { board: '더티클리닉', goal: 10 },
     { board: '더반클린', goal: 50 },
-    { board: '설고', goal: 40 },
+    { board: '설고점', goal: 40 }, // 크롤러가 board='설고점'으로 저장(cafe_board_crawl.py)
 ];
 const boardKey = (p: CafeRankPost) => p.board || p.cafe_accounts?.board_short || '미분류';
 const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
     더맨시스템: { bg: '#faf5ff', fg: '#7c3aed' },
     더티클리닉: { bg: '#f0fdfa', fg: '#0d9488' },
     더반클린: { bg: '#fdf2f8', fg: '#be185d' },
-    설고: { bg: '#fff7ed', fg: '#c2410c' },
+    설고점: { bg: '#fff7ed', fg: '#c2410c' },
 };
 
 function todayKST(): string {
