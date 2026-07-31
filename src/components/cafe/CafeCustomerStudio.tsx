@@ -4,6 +4,7 @@ import { checkPopularBridge, nusu2Health } from '../../api/nusu2Bridge';
 import { createCustomerPublishJob, listMyCafeJobs, listCafeJobsByCompanies, listMyPublishedPairs } from '../../api/cafePublishQueue';
 import { listTokens, balanceOf, consumeToken } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
+import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls } from '../../api/cafeStudioSettings';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { REGION_GROUPS, type RegionSet } from './regions';
@@ -123,6 +124,34 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [mainBanner, setMainBanner] = useState<string[]>([]);
     const [banners, setBanners] = useState<string[]>([]);
     const [photos, setPhotos] = useState<string[]>([]);
+
+    // 값 저장하기 — 업체명·업종·홈페이지·유형·실사·마지막배너 저장/복원. 저장돼 있으면 '초기화'.
+    const [settingsSaved, setSettingsSaved] = useState(false);
+    const [savingSettings, setSavingSettings] = useState(false);
+    const [settingsMsg, setSettingsMsg] = useState('');
+    const saveSettings = async () => {
+        if (!clientId) return;
+        setSavingSettings(true); setSettingsMsg('');
+        try {
+            const photoPaths: string[] = [];
+            for (let i = 0; i < photos.length; i += 1) { const p = await uploadStudioImage(clientId, 'photos', i, photos[i]); if (p) photoPaths.push(p); }
+            const bannerPaths: string[] = [];
+            for (let i = 0; i < banners.length; i += 1) { const p = await uploadStudioImage(clientId, 'banners', i, banners[i]); if (p) bannerPaths.push(p); }
+            const { error } = await saveStudioSettings({
+                client_id: clientId, brand: brand || null, business: business || null, homepage: linkUrl || null,
+                deploy_type: mode === 'region' ? '지역형' : '키워드형', photos: photoPaths, banners: bannerPaths,
+            });
+            if (error) throw new Error(error.message);
+            setSettingsSaved(true); setSettingsMsg('저장됨 · 다음부터 이 값으로 열립니다');
+        } catch (e) { setSettingsMsg('저장 실패: ' + (e instanceof Error ? e.message : '')); }
+        finally { setSavingSettings(false); }
+    };
+    const resetSettings = async () => {
+        if (!clientId) return;
+        await clearStudioSettings(clientId);
+        setBrand(brandDefault); setBusiness(''); setLinkUrl(''); setPhotos([]); setBanners([]);
+        setSettingsSaved(false); setSettingsMsg('초기화됨');
+    };
     // 발행용 이미지 조립 — 실사를 랜덤으로 좌우페어/낱개 섞고, [상단배너 + 실사 + 끝배너] 순서·layout 반환.
     async function buildImages(): Promise<{ images: string[]; layout: { top: number; mid: number; tail: number } }> {
         const mids = photos.length ? await pairPhotosRandom(photos) : [];
@@ -195,6 +224,27 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         void loadTokens();
         const t = setInterval(() => { void loadJobs(); }, 15000);
         return () => { alive = false; clearInterval(t); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clientId]);
+
+    // 저장된 발행 설정 불러오기 — 있으면 업체명·업종·홈페이지·유형·실사·배너 자동 채움('초기화' 표시).
+    useEffect(() => {
+        if (!clientId) { setSettingsSaved(false); return; }
+        let alive = true;
+        void getStudioSettings(clientId).then(async ({ data }) => {
+            if (!alive || !data) return;
+            if (data.brand) setBrand(data.brand);
+            if (data.business) setBusiness(data.business);
+            if (data.homepage) setLinkUrl(data.homepage);
+            if (data.deploy_type === '지역형') setMode('region');
+            else if (data.deploy_type === '키워드형') setMode('keyword');
+            const [ph, bn] = await Promise.all([signedStudioUrls(data.photos || []), signedStudioUrls(data.banners || [])]);
+            if (!alive) return;
+            if (ph.length) setPhotos(ph);
+            if (bn.length) setBanners(bn);
+            setSettingsSaved(true);
+        });
+        return () => { alive = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clientId]);
 
@@ -381,11 +431,21 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 <span className="ml-2 text-[#64748b]">— 발행하면 본인 카페의 이 게시판에 자동 게시됩니다.</span>
             </div>
 
-            {/* 발행 유형 먼저 선택 — 지역형 / 키워드형 */}
-            <div className="flex gap-1 border-b border-[#e2e8f0]">
+            {/* 발행 유형 먼저 선택 — 지역형 / 키워드형 · 우측: 값 저장/초기화 */}
+            <div className="flex items-center gap-1 border-b border-[#e2e8f0]">
                 {([['region', '지역형'], ['keyword', '키워드형']] as const).map(([k, name]) => (
                     <button className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${mode === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'}`} key={k} onClick={() => setMode(k)} type="button">{name}</button>
                 ))}
+                {settingsMsg ? <span className="ml-auto mr-2 text-[11px] font-semibold text-[#059669]">{settingsMsg}</span> : null}
+                <button
+                    type="button"
+                    onClick={() => void (settingsSaved ? resetSettings() : saveSettings())}
+                    disabled={savingSettings}
+                    className={`${settingsMsg ? '' : 'ml-auto'} mb-1 shrink-0 rounded-md px-3 py-1.5 text-xs font-bold disabled:opacity-50 ${settingsSaved ? 'border border-[#cbd5e1] bg-white text-[#64748b] hover:bg-[#f1f5f9]' : 'bg-[#4338ca] text-white hover:bg-[#3730a3]'}`}
+                    title="업체명·업종·홈페이지·유형·실사·마지막배너를 저장 — 다음 선택 시 자동 복원"
+                >
+                    {savingSettings ? '저장 중…' : settingsSaved ? '초기화' : '값 저장하기'}
+                </button>
             </div>
 
             {/* 공통 업체정보 */}
