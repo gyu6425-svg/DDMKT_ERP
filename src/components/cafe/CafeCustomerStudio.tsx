@@ -114,6 +114,12 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     // SEO 키워드 찾기
 
     const [linkUrl, setLinkUrl] = useState('');   // 본문 끝 링크카드(홈페이지 등) — 저장 설정에 포함.
+    // 발행 재사용 정보 — 네이버 로그인 + 발행 게시판(이름·주소). 저장 설정에 포함.
+    const [naverId, setNaverId] = useState('');
+    const [naverPw, setNaverPw] = useState('');
+    const [showPw, setShowPw] = useState(false);
+    const [boardName, setBoardName] = useState('');
+    const [boardUrl, setBoardUrl] = useState('');
     // 업체가 넣는 이미지 — 메인배너(맨 위 1장) + 배너(카드) + 실사(현장사진). 두 모드 발행에 함께 사용.
     const [mainBanner, setMainBanner] = useState<string[]>([]);
     const [banners, setBanners] = useState<string[]>([]);
@@ -134,6 +140,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             const { error } = await saveStudioSettings({
                 client_id: clientId, brand: brand || null, business: business || null, homepage: linkUrl || null,
                 deploy_type: mode === 'region' ? '지역형' : '키워드형', photos: photoPaths, banners: bannerPaths,
+                naver_id: naverId || null, naver_pw: naverPw || null, board_name: boardName || null, board_url: boardUrl || null,
             });
             if (error) throw new Error(error.message);
             setSettingsSaved(true); setSettingsMsg('저장됨 · 다음부터 이 값으로 열립니다');
@@ -144,6 +151,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         if (!clientId) return;
         await clearStudioSettings(clientId);
         setBrand(brandDefault); setBusiness(''); setLinkUrl(''); setPhotos([]); setBanners([]);
+        setNaverId(''); setNaverPw(''); setBoardName(''); setBoardUrl('');
         setSettingsSaved(false); setSettingsMsg('초기화됨');
     };
     // 발행용 이미지 조립 — 실사를 랜덤으로 좌우페어/낱개 섞고, [상단배너 + 실사 + 끝배너] 순서·layout 반환.
@@ -227,6 +235,10 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             if (data.brand) setBrand(data.brand);
             if (data.business) setBusiness(data.business);
             if (data.homepage) setLinkUrl(data.homepage);
+            if (data.naver_id) setNaverId(data.naver_id);
+            if (data.naver_pw) setNaverPw(data.naver_pw);
+            if (data.board_name) setBoardName(data.board_name);
+            if (data.board_url) setBoardUrl(data.board_url);
             if (data.deploy_type === '지역형') setMode('region');
             else if (data.deploy_type === '키워드형') setMode('keyword');
             const [ph, bn] = await Promise.all([signedStudioUrls(data.photos || []), signedStudioUrls(data.banners || [])]);
@@ -423,6 +435,28 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 <label className="mt-3 grid gap-1 text-xs font-semibold text-[#475569]">홈페이지·링크 (선택) — 본문 맨 끝에 링크카드로 삽입
                     <input className={inputCls} onChange={(e) => setLinkUrl(e.target.value)} placeholder="예) https://내홈페이지.com (더반·누수처럼 글 마지막에 카드로 배치)" value={linkUrl} />
                 </label>
+            </div>
+
+            {/* 발행 계정·게시판 — 네이버 로그인 + 발행 게시판(이름·주소). '값 저장하기'에 함께 저장돼 재사용 */}
+            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <div className="mb-3 text-[13px] font-bold text-[#334155]">발행 계정·게시판 <span className="font-normal text-[#94a3b8]">— 값 저장하기 시 함께 저장되어 다음 발행에 재사용됩니다</span></div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">네이버 아이디
+                        <input className={inputCls} autoComplete="off" onChange={(e) => setNaverId(e.target.value)} placeholder="발행에 사용할 네이버 아이디" value={naverId} />
+                    </label>
+                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">네이버 비밀번호
+                        <span className="relative flex">
+                            <input className={`${inputCls} w-full pr-14`} autoComplete="new-password" type={showPw ? 'text' : 'password'} onChange={(e) => setNaverPw(e.target.value)} placeholder="비밀번호" value={naverPw} />
+                            <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#64748b]">{showPw ? '숨김' : '표시'}</button>
+                        </span>
+                    </label>
+                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">발행 게시판 이름
+                        <input className={inputCls} onChange={(e) => setBoardName(e.target.value)} placeholder="예) 시설경호업체" value={boardName} />
+                    </label>
+                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">발행 게시판 주소
+                        <input className={inputCls} onChange={(e) => setBoardUrl(e.target.value)} placeholder="예) https://cafe.naver.com/…/menuid" value={boardUrl} />
+                    </label>
+                </div>
             </div>
 
             {/* 발행 이미지 — 업체가 넣는 메인배너·배너·실사(모든 발행에 함께 게시) */}

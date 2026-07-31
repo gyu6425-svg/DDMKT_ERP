@@ -201,9 +201,13 @@ export default function CafeDeployAdminPanel() {
                                                     )
                                                 ) : null}
                                                 {r.status === '세팅중' ? (
-                                                    <button type="button" onClick={() => { window.location.href = '/cafe'; }}
+                                                    <button type="button" onClick={() => {
+                                                        const path = '/cafe-rank?sub=' + encodeURIComponent('카페 배포') + '&tab=automation';
+                                                        window.history.pushState(null, '', path);
+                                                        window.dispatchEvent(new Event('app:navigate'));
+                                                    }}
                                                         className="rounded-md bg-[#7c3aed] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#6d28d9]"
-                                                        title="이 건 자동화 발행 화면으로 이동">발행하러 가기</button>
+                                                        title="이 건 카페 배포 > 자동화 발행 화면으로 이동">발행하러 가기</button>
                                                 ) : null}
                                                 {delId === r.id ? (
                                                     <span className="flex items-center gap-1">

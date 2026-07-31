@@ -11,6 +11,10 @@ export type StudioSettings = {
     deploy_type: string | null;
     photos: string[] | null;    // 실사 storage 경로
     banners: string[] | null;   // 마지막 배너 storage 경로
+    naver_id?: string | null;   // 발행 네이버 아이디
+    naver_pw?: string | null;   // 발행 네이버 비밀번호
+    board_name?: string | null; // 발행 게시판 이름
+    board_url?: string | null;  // 발행 게시판 주소
 };
 
 export async function getStudioSettings(clientId: string) {

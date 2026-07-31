@@ -24,3 +24,9 @@ create policy "css 고객 본인" on public.cafe_studio_settings
     for all to authenticated using (client_id = public.my_client_id()) with check (client_id = public.my_client_id());
 
 comment on table public.cafe_studio_settings is '카페 발행 스튜디오 업체별 저장 설정(업체명·업종·홈페이지·유형·실사·배너). client_id당 1행.';
+
+-- 2026-07-31: 발행에 재사용할 네이버 로그인 + 발행 게시판 정보 저장(멱등).
+alter table public.cafe_studio_settings add column if not exists naver_id   text;  -- 발행 네이버 아이디
+alter table public.cafe_studio_settings add column if not exists naver_pw   text;  -- 발행 네이버 비밀번호
+alter table public.cafe_studio_settings add column if not exists board_name text;  -- 발행 게시판 이름
+alter table public.cafe_studio_settings add column if not exists board_url  text;  -- 발행 게시판 주소
