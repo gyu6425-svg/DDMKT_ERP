@@ -91,7 +91,7 @@ export function CafeDashboardTab() {
 
             {/* 오늘까지 발행 건 — 업체별 누적/계약목표 드롭다운 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-                <div className="mb-2 text-[14px] font-bold text-[#0f172a]">오늘까지 발행 건 <span className="text-[12px] font-normal text-[#94a3b8]">{cumGrand}건</span></div>
+                <div className="mb-2 text-[14px] font-bold text-[#0f172a]">누적 발행 건 <span className="text-[12px] font-normal text-[#94a3b8]">{cumGrand}건</span></div>
                 <div className="grid gap-2">
                     {DAILY_TARGETS.map((t) => {
                         const bp = cumList(t.board);
