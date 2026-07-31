@@ -60,9 +60,14 @@ def main():
         pass
     try:
         import cafe_top5_tracker
-        cafe_top5_tracker.run()   # 5위 24h 유지 실적 집계
+        cafe_top5_tracker.run()   # 5위 24h 유지 실적 집계(+1)
     except Exception as exc:
         print(f"  top5 집계 오류: {exc}", flush=True)
+    try:
+        import cafe_contract_sync
+        cafe_contract_sync.sync()  # 실적(+1) → 계약관리 '카페 배포' remain 반영(고객ERP/우리ERP 일치)
+    except Exception as exc:
+        print(f"  계약 sync 오류: {exc}", flush=True)
 
 
 if __name__ == "__main__":
