@@ -24,6 +24,9 @@ function goTracker(companyKey: string) {
 }
 
 const EMPTY = { company_key: '', display_name: '', board_name: '', board_short: '' };
+// 자사(우리 회사) 운영 카페 — 계약/진행률 개념이 없어 관리시트에서 진행률 UI를 숨긴다.
+const OWN_COMPANY_KEYS = new Set(['nusu']);
+const OWN_COMPANY_NAMES = new Set(['누수상담소']);
 
 export function CafeSheetTab({
     scopeCompanyKey = null,
@@ -250,6 +253,7 @@ export function CafeSheetTab({
                             const pct = goal ? Math.min(100, Math.round((done / goal) * 100)) : 0;
                             const pc = !goal ? '#cbd5e1' : pct >= 70 ? '#059669' : pct >= 40 ? '#d97706' : '#dc2626';
                             const remain = goal ? Math.max(0, goal - done) : null;
+                            const isOwn = OWN_COMPANY_KEYS.has(a.company_key) || OWN_COMPANY_NAMES.has(a.board_short) || OWN_COMPANY_NAMES.has(a.display_name);
                             return (
                                 <tr
                                     key={a.id}
@@ -294,17 +298,21 @@ export function CafeSheetTab({
                                         )}
                                     </td>
                                     <td className="px-3 py-2">
-                                        <div className="min-w-[120px]">
-                                            <div className="flex items-baseline justify-between gap-2">
-                                                <span className="text-sm font-bold" style={{ color: pc }}>{goal ? `${pct}%` : '—'}</span>
-                                                <span className="text-[10px] text-[#94a3b8]">
-                                                    {done}/{goal || '—'}건{st.achieved > 0 ? <span className="ml-0.5 font-bold text-[#059669]" title="자동 달성(5위 24h)">(+{st.achieved})</span> : null}
-                                                </span>
+                                        {isOwn ? (
+                                            <span className="text-[11px] text-[#94a3b8]">자사 운영</span>
+                                        ) : (
+                                            <div className="min-w-[120px]">
+                                                <div className="flex items-baseline justify-between gap-2">
+                                                    <span className="text-sm font-bold" style={{ color: pc }}>{goal ? `${pct}%` : '—'}</span>
+                                                    <span className="text-[10px] text-[#94a3b8]">
+                                                        {done}/{goal || '—'}건{st.achieved > 0 ? <span className="ml-0.5 font-bold text-[#059669]" title="자동 달성(5위 24h)">(+{st.achieved})</span> : null}
+                                                    </span>
+                                                </div>
+                                                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#eef2f7]">
+                                                    <div style={{ background: pc, width: `${pct}%`, height: '100%' }} />
+                                                </div>
                                             </div>
-                                            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#eef2f7]">
-                                                <div style={{ background: pc, width: `${pct}%`, height: '100%' }} />
-                                            </div>
-                                        </div>
+                                        )}
                                     </td>
                                     <td className="px-2 py-2 text-center text-[13px] font-semibold" style={{ color: remain === 0 ? '#059669' : '#475569' }}>
                                         {remain == null ? '—' : remain}
