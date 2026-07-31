@@ -36,12 +36,9 @@ function Sidebar() {
     const [openKeys, setOpenKeys] = useState<Set<string>>(
         () => new Set(SIDEBAR_CATEGORIES.filter((c) => c.dashHref === window.location.pathname).map((c) => c.key)),
     );
+    // 아코디언 — 다른 카테고리를 열면 기존 열린 건 자동으로 닫힌다(한 번에 하나만).
     const toggleOpen = (key: string) =>
-        setOpenKeys((prev) => {
-            const next = new Set(prev);
-            next.has(key) ? next.delete(key) : next.add(key);
-            return next;
-        });
+        setOpenKeys((prev) => (prev.has(key) ? new Set<string>() : new Set<string>([key])));
     const { signOut, role, isAdmin, canManageSheet, profile } = useAuth();
     // 고객(viewer) — 자기 계약(RLS 스코프) 중 '시트 승인(sheet_approved)'된 것만 메뉴에 노출.
     //   내부(관리자) '고객 ERP' 토글 미리보기(?as=<업체>)면 그 업체 계약으로 로드 → 실제 로그인과 동일 메뉴.
