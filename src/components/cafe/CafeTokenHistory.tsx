@@ -113,10 +113,10 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                     <div className="py-8 text-center text-sm text-[#94a3b8]">{txFilter === 'charge' ? '충전 내역이 없습니다.' : txFilter === 'use' ? '사용(발행) 내역이 없습니다.' : '아직 충전 내역이 없습니다. 입금 후 담당자가 충전해 드립니다.'}</div>
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[420px] border-collapse text-[13px]">
+                        <table className="w-full min-w-[520px] border-collapse text-[13px]">
                             <thead>
                                 <tr className="border-b border-[#e2e8f0] text-left text-[#64748b]">
-                                    {['일시', '구분', '건수', '메모'].map((h) => <th key={h} className="px-2 py-2 font-semibold">{h}</th>)}
+                                    {['일시', '구분', '건수', '금액', '메모'].map((h) => <th key={h} className="px-2 py-2 font-semibold">{h}</th>)}
                                 </tr>
                             </thead>
                             <tbody>
@@ -127,6 +127,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                                             <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.kind === '충전' ? 'bg-[#dcfce7] text-[#166534]' : r.kind === '발행' ? 'bg-[#e0e7ff] text-[#4338ca]' : 'bg-[#f1f5f9] text-[#64748b]'}`}>{r.kind}</span>
                                         </td>
                                         <td className={`px-2 py-2 font-bold ${r.delta >= 0 ? 'text-[#059669]' : 'text-[#dc2626]'}`}>{r.delta > 0 ? `+${r.delta}` : r.delta}</td>
+                                        <td className={`whitespace-nowrap px-2 py-2 font-semibold ${r.delta > 0 ? 'text-[#059669]' : 'text-[#64748b]'}`}>{r.delta > 0 ? `₩${tokenWon(r.delta)}` : `₩${tokenWon(Math.abs(r.delta))}`}</td>
                                         <td className="px-2 py-2 text-[#64748b]">{r.note ?? '-'}</td>
                                     </tr>
                                 ))}
