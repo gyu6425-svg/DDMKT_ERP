@@ -6,7 +6,7 @@ import { getCafeRankPosts, type CafeRankPost } from '../../../api/cafeRank';
 // board=크롤러 저장값 · goal=계약 총건수 · daily=하루 발행 목표(업체별 상이)
 const DAILY_TARGETS: { board: string; goal: number; daily: number }[] = [
     { board: '더맨시스템', goal: 50, daily: 5 },
-    { board: '더티클리닉', goal: 10, daily: 5 },
+    { board: '더티클리닉', goal: 10, daily: 0 }, // 현재 일일 발행 안 함
     { board: '더반클린', goal: 50, daily: 5 },
     { board: '설고점', goal: 40, daily: 1 }, // 설고점만 하루 1건
 ];
@@ -66,8 +66,9 @@ export function CafeDashboardTab() {
                 {DAILY_TARGETS.map((t) => {
                     const done = todayCount(t.board);
                     const st = BOARD_STYLE[t.board] || { bg: '#f8fafc', fg: '#475569' };
-                    const complete = done >= t.daily;
-                    const box = complete ? 'border-2 border-[#16a34a] bg-[#f0fdf4]' : done > 0 ? 'border-2 border-[#eab308] bg-[#fefce8]' : 'border-2 border-[#e2e8f0] bg-white';
+                    const off = t.daily === 0; // 일일 발행 안 하는 업체
+                    const complete = !off && done >= t.daily;
+                    const box = off ? 'border-2 border-[#e2e8f0] bg-[#f8fafc] opacity-70' : complete ? 'border-2 border-[#16a34a] bg-[#f0fdf4]' : done > 0 ? 'border-2 border-[#eab308] bg-[#fefce8]' : 'border-2 border-[#e2e8f0] bg-white';
                     return (
                         <div className={`rounded-xl p-4 ${box}`} key={t.board}>
                             <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: st.bg, color: st.fg }}>{t.board}</span>
@@ -75,7 +76,7 @@ export function CafeDashboardTab() {
                                 <span className={`text-[28px] font-bold leading-none ${complete ? 'text-[#15803d]' : done > 0 ? 'text-[#a16207]' : 'text-[#94a3b8]'}`}>{done}</span>
                                 <span className="mb-0.5 text-[13px] font-semibold text-[#94a3b8]">/ {t.daily}</span>
                             </div>
-                            <div className={`mt-1 text-[11px] font-bold ${complete ? 'text-[#15803d]' : 'text-[#b45309]'}`}>{complete ? '✓ 완료' : `${t.daily - done}건 남음`}</div>
+                            <div className={`mt-1 text-[11px] font-bold ${off ? 'text-[#94a3b8]' : complete ? 'text-[#15803d]' : 'text-[#b45309]'}`}>{off ? '미진행' : complete ? '✓ 완료' : `${t.daily - done}건 남음`}</div>
                         </div>
                     );
                 })}
