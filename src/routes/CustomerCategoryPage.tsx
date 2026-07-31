@@ -11,7 +11,7 @@ import { CafeCustomerStudio } from '../components/cafe/CafeCustomerStudio';
 import { CafeDeployIntake } from '../components/cafe/CafeDeployIntake';
 import { CafeTokenHistory } from '../components/cafe/CafeTokenHistory';
 import { getCafeAccounts } from '../api/cafeAccounts';
-import { listChargeRequests } from '../api/cafeTokens';
+import { listChargeRequests, listTokens, balanceOf } from '../api/cafeTokens';
 import { useAuth } from '../hooks/useAuth';
 
 export function useAsParam(): string {
@@ -68,6 +68,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const [sheetKeys, setSheetKeys] = useState<string[]>([]);     // 관리시트용 — 자체 카페만(마이클 ddmkt2 제외)
     const [publishEnabled, setPublishEnabled] = useState(false); // 담당자 세팅 완료(자동화 발행 탭 노출)
     const [chargeDue, setChargeDue] = useState(0); // 미확인 충전요청(고객이 입금/구매) 건수 — 충전내역 탭 알림 뱃지
+    const [tokenBal, setTokenBal] = useState(0); // 발행 토큰 잔액 — 자동화 발행 탭 게이팅(잔액>0이면 노출)
     const [loading, setLoading] = useState(true);
     // 사이드바 '카페 배포'(?sub=카페 배포) 로 들어오면 접수 탭으로 연다.
     const [view, setView] = useState<'tracker' | 'sheet' | 'intake' | 'publish' | 'charge'>(
@@ -111,6 +112,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
             const seen = localStorage.getItem(`cafeChargeSeen:${scopedClientId}`) || '';
             setChargeDue(data.filter((r) => r.status === 'pending' && (!seen || r.created_at > seen)).length);
         });
+        void listTokens(scopedClientId).then(({ data }) => { if (alive) setTokenBal(balanceOf(data)); });
         return () => { alive = false; };
     }, [scopedClientId, view]);
 
@@ -126,7 +128,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     );
     // 자동화 발행 탭 = 순위 트래커와 카페 배포 사이. 토큰 발급(publish_enabled=true) 후에만 노출.
     const tabs: [string, string][] = [['sheet', '카페 관리 시트'], ['tracker', '순위 트래커']];
-    if (publishEnabled) tabs.push(['publish', '자동화 발행']);
+    if (publishEnabled || tokenBal > 0) tabs.push(['publish', '자동화 발행']);
     tabs.push(['intake', '카페 배포'], ['charge', '충전내역']);
     return (
         <>
