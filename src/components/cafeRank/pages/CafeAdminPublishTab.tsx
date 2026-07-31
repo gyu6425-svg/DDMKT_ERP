@@ -72,9 +72,9 @@ export function CafeAdminPublishTab() {
                 </div>
             </div>
 
-            {/* 선택 고객사 발행 스튜디오 */}
+            {/* 선택 고객사 발행 스튜디오 — key=client 로 업체 전환 시 전체 remount(이전 업체 값·키워드·계정 누출 방지) */}
             {sel ? (
-                <CafeCustomerStudio clientId={sel} />
+                <CafeCustomerStudio key={sel} clientId={sel} />
             ) : (
                 <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-6 py-12 text-center text-sm text-[#94a3b8]">
                     위에서 발행할 고객사를 선택하세요.

@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { enqueuePlaceScan, pollPlaceScan, getRegionDongs, type KwResult } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
+
+type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
 
 // 공용 '인기탭 키워드 찾기' — 접수(CafeDeployIntake)와 동일 UX.
 //   지역형: 시도 선택 + 제품키워드 → 검색량 조회 / 고정 동마스터로 동×키워드 생성.
@@ -10,10 +12,16 @@ export function CafeKeywordFinder({
     clientId,
     mode,
     onPick,
+    initialPicked,
+    extraUsed,
+    goalCount,
 }: {
     clientId: string | null;
     mode: 'region' | 'keyword';
     onPick: (keywords: string[], productKeyword: string) => void;
+    initialPicked?: PickSeed[];      // 접수 때 고른 키워드 — 최초 1회 선택칩으로 시딩
+    extraUsed?: string[];            // 재조회 결과에서 추가로 제외할 키워드(접수 선택분 등)
+    goalCount?: number;              // 계약 목표 건수 — "앞으로 N개 더" 안내
 }) {
     const REGION_KEYS = ['서울', '경기', '인천'] as const;
     const [keyword, setKeyword] = useState('');   // 지역형=제품키워드 / 키워드형=참고
@@ -35,14 +43,23 @@ export function CafeKeywordFinder({
     const normKw = (s: string) => (s || '').trim().replace(/\s+/g, ' ');
 
     useEffect(() => { onPick(kwPicked.map((k) => k.keyword), keyword.trim()); }, [kwPicked, keyword, onPick]);
+    // 접수 선택 키워드 시딩 — 최초 1회만(이후엔 사용자가 자유롭게 가감). 값이 처음 들어올 때 채운다.
+    const seededRef = useRef(false);
+    useEffect(() => {
+        if (seededRef.current || !initialPicked?.length) return;
+        seededRef.current = true;
+        setKwPicked(initialPicked.map((p) => ({ keyword: p.keyword, volume: p.volume ?? undefined, theme: p.theme ?? undefined, cafes: [] })));
+    }, [initialPicked]);
+    const extraKey = (extraUsed ?? []).join('|');
     useEffect(() => {
         let alive = true;
         void (async () => {
             const pub = clientId ? await getClientPublishedKeywords(clientId) : [];
-            if (alive) setUsedKw(new Set(pub.map(normKw).filter(Boolean)));
+            if (alive) setUsedKw(new Set([...pub, ...(extraUsed ?? [])].map(normKw).filter(Boolean)));
         })();
         return () => { alive = false; };
-    }, [clientId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clientId, extraKey]);
 
     const togglePick = (k: KwResult) =>
         setKwPicked((prev) => (prev.some((p) => p.keyword === k.keyword) ? prev.filter((p) => p.keyword !== k.keyword) : [...prev, k]));
@@ -77,7 +94,8 @@ export function CafeKeywordFinder({
         const u = url.trim();
         if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
         setKwErr(''); setKwLoading(true);
-        if (target <= 10) { setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]); }
+        // 스튜디오 top-up(접수 선택분 시딩)에선 재조회해도 기존 선택 유지 — 그 위에 더 고른다.
+        if (target <= 10) { setKwResult(null); setKwExpanded(false); setKwHidden([]); if (!initialPicked?.length) setKwPicked([]); }
         try {
             const { id, error } = await enqueuePlaceScan(u, target, regionSel.length ? regionSel.join(',') : '서울,경기,인천');
             if (error || !id) throw new Error(error?.message || '요청 실패');
@@ -94,7 +112,7 @@ export function CafeKeywordFinder({
         const kw = keyword.trim();
         if (!kw) { setKwErr('제품 키워드를 입력하세요. 예: 입주청소'); return; }
         if (!regionSel.length) { setKwErr('지역(서울/경기/인천)을 선택하세요.'); return; }
-        setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
+        setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); if (!initialPicked?.length) setKwPicked([]);
         try {
             const dongs = await getRegionDongs(regionSel);
             const seen = new Set<string>();
@@ -155,6 +173,16 @@ export function CafeKeywordFinder({
                 </div>
             ) : null}
 
+            {/* 목표 대비 선택 현황 — 계약 목표가 있으면 "앞으로 N개 더" 안내 */}
+            {goalCount ? (
+                <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-[#bfdbfe] bg-white px-3 py-2 text-[12px]">
+                    <span className="font-bold text-[#075985]">선택 {kwPicked.length}개 / 목표 {goalCount}건</span>
+                    {kwPicked.length < goalCount
+                        ? <span className="font-semibold text-[#c2410c]">앞으로 {goalCount - kwPicked.length}개 더 선택 (정확 인기탭 재조회 시 이미 선택한 건 제외됩니다)</span>
+                        : <span className="font-semibold text-[#166534]">목표 건수 달성 ✓</span>}
+                </div>
+            ) : null}
+
             {/* 선택 패널 */}
             {kwPicked.length ? (
                 <div className="mt-2 rounded-lg border border-[#c7d2fe] bg-[#eef2ff] p-2">
@@ -201,7 +229,7 @@ export function CafeKeywordFinder({
                     )}
                     {used.length ? (
                         <div className="mt-1.5 rounded border border-dashed border-[#e2e8f0] bg-white/60 p-1.5">
-                            <div className="mb-1 text-[10px] font-semibold text-[#94a3b8]">이미 발행한 키워드 {used.length}개 — 중복 제외</div>
+                            <div className="mb-1 text-[10px] font-semibold text-[#94a3b8]">이미 선택·발행한 키워드 {used.length}개 — 중복 제외</div>
                             <div className="flex flex-wrap gap-1">{used.map((k) => <span key={k.keyword} className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[10px] text-[#94a3b8] line-through">{k.keyword}</span>)}</div>
                         </div>
                     ) : null}

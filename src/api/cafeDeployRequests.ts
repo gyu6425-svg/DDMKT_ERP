@@ -178,6 +178,37 @@ export async function getClientPublishedKeywords(clientId: string): Promise<stri
     return (posts ?? []).map((p) => (p as { keyword: string | null }).keyword ?? '').filter(Boolean);
 }
 
+// 발행 스튜디오 프리필 — 이 업체(client)의 최신 접수 + 네이버 계정 + 서명된 사진URL(3종).
+//   자동화 발행 화면이 "접수 때 채워온 값"으로 자동 채워지도록 사용. 접수 없으면 req=null(기존 기본값 유지).
+export type StudioPrefill = {
+    req: CafeDeployRequest | null;
+    cred: DeployCredential | null;
+    photoUrls: { main: string[]; real: string[]; banner: string[] };
+};
+export async function getLatestDeployForStudio(clientId: string): Promise<StudioPrefill> {
+    const { data: rows } = await listCafeDeployRequests(clientId, 1);
+    const req = rows[0] ?? null;
+    const { data: creds } = await listDeployCredentials(clientId);
+    const cred = (req ? creds.find((c) => c.deploy_request_id === req.id) : null) ?? creds[0] ?? null;
+    const photoUrls = { main: [] as string[], real: [] as string[], banner: [] as string[] };
+    if (req?.photos) {
+        const all = [...req.photos.main, ...req.photos.real, ...req.photos.banner];
+        const map = await signedDeployUrls(all);
+        const pick = (ps: string[]) => ps.map((p) => map[p]).filter((u): u is string => !!u);
+        photoUrls.main = pick(req.photos.main);
+        photoUrls.real = pick(req.photos.real);
+        photoUrls.banner = pick(req.photos.banner);
+    }
+    return { req, cred, photoUrls };
+}
+
+// 이 업체의 '카페 배포' 계약 목표 건수 합(있으면). 발행 스튜디오에서 "앞으로 N개 더 선택" 안내에 사용.
+export async function getCafeDeployGoal(clientId: string): Promise<number> {
+    const { data } = await supabase.from('client_contracts')
+        .select('goal_count').eq('client_id', clientId).eq('subtype', '카페 배포');
+    return (data ?? []).reduce((s, c) => s + ((c as { goal_count: number | null }).goal_count ?? 0), 0);
+}
+
 // 자격증명 조회(고객=본인 / 내부=전체). UI 에서 비번은 마스킹해서 표시할 것.
 export async function listDeployCredentials(clientId?: string) {
     let q = supabase.from('cafe_deploy_credentials').select('*').order('created_at', { ascending: false });

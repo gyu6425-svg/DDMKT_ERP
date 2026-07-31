@@ -5,6 +5,7 @@ import { createCustomerPublishJob, listMyCafeJobs, listCafeJobsByCompanies, list
 import { listTokens, balanceOf, consumeToken } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls } from '../../api/cafeStudioSettings';
+import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { enqueueGenRequests, publishTargetFor } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
@@ -120,6 +121,9 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [showPw, setShowPw] = useState(false);
     const [boardName, setBoardName] = useState('');
     const [boardUrl, setBoardUrl] = useState('');
+    // 접수 때 고른 SEO 키워드(10~50) — 파인더에 시딩 + 재조회 제외. 계약 목표 건수.
+    const [intakePicked, setIntakePicked] = useState<{ keyword: string; volume?: number | null; theme?: string | null }[]>([]);
+    const [goalCount, setGoalCount] = useState(0);
     // 업체가 넣는 이미지 — 메인배너(맨 위 1장) + 배너(카드) + 실사(현장사진). 두 모드 발행에 함께 사용.
     const [mainBanner, setMainBanner] = useState<string[]>([]);
     const [banners, setBanners] = useState<string[]>([]);
@@ -150,7 +154,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const resetSettings = async () => {
         if (!clientId) return;
         await clearStudioSettings(clientId);
-        setBrand(brandDefault); setBusiness(''); setLinkUrl(''); setPhotos([]); setBanners([]);
+        setBrand(brandDefault); setBusiness(''); setLinkUrl(''); setPhotos([]); setBanners([]); setMainBanner([]);
         setNaverId(''); setNaverPw(''); setBoardName(''); setBoardUrl('');
         setSettingsSaved(false); setSettingsMsg('초기화됨');
     };
@@ -226,27 +230,43 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clientId]);
 
-    // 저장된 발행 설정 불러오기 — 있으면 업체명·업종·홈페이지·유형·실사·배너 자동 채움('초기화' 표시).
+    // 발행값 자동 채움 — ①저장설정('값 저장하기') ②접수(고객이 접수 때 넣은 값)를 병합.
+    //   우선순위: 저장설정 > 접수. 저장설정이 없는 항목(메인배너·지역셋·선택키워드)은 접수에서 가져온다.
     useEffect(() => {
         if (!clientId) { setSettingsSaved(false); return; }
         let alive = true;
-        void getStudioSettings(clientId).then(async ({ data }) => {
-            if (!alive || !data) return;
-            if (data.brand) setBrand(data.brand);
-            if (data.business) setBusiness(data.business);
-            if (data.homepage) setLinkUrl(data.homepage);
-            if (data.naver_id) setNaverId(data.naver_id);
-            if (data.naver_pw) setNaverPw(data.naver_pw);
-            if (data.board_name) setBoardName(data.board_name);
-            if (data.board_url) setBoardUrl(data.board_url);
-            if (data.deploy_type === '지역형') setMode('region');
-            else if (data.deploy_type === '키워드형') setMode('keyword');
-            const [ph, bn] = await Promise.all([signedStudioUrls(data.photos || []), signedStudioUrls(data.banners || [])]);
+        void (async () => {
+            const [{ data: s }, prefill, goal] = await Promise.all([
+                getStudioSettings(clientId),
+                getLatestDeployForStudio(clientId),
+                getCafeDeployGoal(clientId),
+            ]);
             if (!alive) return;
-            if (ph.length) setPhotos(ph);
-            if (bn.length) setBanners(bn);
-            setSettingsSaved(true);
-        });
+            setGoalCount(goal);
+            const req = prefill.req; const cred = prefill.cred;
+            // 텍스트 값 — 저장설정 우선, 없으면 접수값.
+            const brandV = s?.brand ?? req?.company_name; if (brandV) setBrand(brandV);
+            const bizV = s?.business ?? req?.keyword; if (bizV) setBusiness(bizV);
+            const homeV = s?.homepage ?? req?.url; if (homeV) setLinkUrl(homeV);
+            const nid = s?.naver_id ?? cred?.naver_id; if (nid) setNaverId(nid);
+            const npw = s?.naver_pw ?? cred?.naver_pw; if (npw) setNaverPw(npw);
+            const bname = s?.board_name ?? req?.board_name; if (bname) setBoardName(bname);
+            if (s?.board_url) setBoardUrl(s.board_url);
+            // 유형/지역 — 저장설정 유형 우선, 지역셋은 접수에서.
+            const dtype = s?.deploy_type ?? req?.deploy_type;
+            if (dtype === '지역형') setMode('region'); else if (dtype === '키워드형') setMode('keyword');
+            if (req?.region_sets?.length) setRegionSets(new Set(req.region_sets as RegionSet[]));
+            // 접수 선택 키워드 — 파인더 시딩 + 재조회 제외.
+            const picks = (req?.selected_keywords ?? []).map((p) => ({ keyword: p.keyword, volume: p.volume ?? null, theme: p.theme ?? null }));
+            if (picks.length) setIntakePicked(picks);
+            // 이미지 — 저장설정(실사/끝배너) 우선, 없으면 접수. 메인배너는 저장설정에 없어 접수에서만.
+            if (prefill.photoUrls.main.length) setMainBanner(prefill.photoUrls.main);
+            const [ph, bn] = await Promise.all([signedStudioUrls(s?.photos || []), signedStudioUrls(s?.banners || [])]);
+            if (!alive) return;
+            if (ph.length) setPhotos(ph); else if (prefill.photoUrls.real.length) setPhotos(prefill.photoUrls.real);
+            if (bn.length) setBanners(bn); else if (prefill.photoUrls.banner.length) setBanners(prefill.photoUrls.banner);
+            setSettingsSaved(!!s);
+        })();
         return () => { alive = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clientId]);
@@ -474,6 +494,9 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             <CafeKeywordFinder
                 clientId={clientId}
                 mode={mode}
+                initialPicked={intakePicked}
+                extraUsed={intakePicked.map((p) => p.keyword)}
+                goalCount={goalCount}
                 onPick={(kws, pk) => {
                     setSelectedKw(new Set(kws));
                     setProductKw(pk);
