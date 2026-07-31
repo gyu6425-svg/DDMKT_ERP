@@ -8,7 +8,12 @@ import { CafeCustomerStudio } from '../../cafe/CafeCustomerStudio';
 export function CafeAdminPublishTab() {
     const [accts, setAccts] = useState<CafeAccount[]>([]);
     const [balById, setBalById] = useState<Record<string, number>>({}); // client_id → 잔여 토큰
-    const [sel, setSel] = useState<string | null>(null); // 선택 고객 client_id
+    // 선택 고객 client_id — 세팅해두면 유지(새로고침·재방문에도). localStorage 지속.
+    const [sel, setSelState] = useState<string | null>(() => localStorage.getItem('cafeAdminPubSel'));
+    const setSel = (id: string | null) => {
+        setSelState(id);
+        if (id) localStorage.setItem('cafeAdminPubSel', id); else localStorage.removeItem('cafeAdminPubSel');
+    };
     const [loading, setLoading] = useState(true);
 
     const reload = () => {

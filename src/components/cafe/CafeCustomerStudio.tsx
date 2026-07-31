@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { generateCafe, generateCafeReview, generateLongform } from '../../api/cafeWriter';
 import { checkPopularBridge, nusu2Health } from '../../api/nusu2Bridge';
-import { createCustomerPublishJob, listMyCafeJobs, listMyPublishedPairs } from '../../api/cafePublishQueue';
+import { createCustomerPublishJob, listMyCafeJobs, listCafeJobsByCompanies, listMyPublishedPairs } from '../../api/cafePublishQueue';
 import { listTokens, balanceOf, consumeToken } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
@@ -149,9 +149,16 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const toggleKw = (kw: string) => setSelectedKw((prev) => { const n = new Set(prev); if (n.has(kw)) n.delete(kw); else n.add(kw); return n; });
     const toggleSet = (s: RegionSet) => setRegionSets((prev) => { const n = new Set(prev); if (n.has(s)) n.delete(s); else n.add(s); return n; });
 
-    // 발행 현황
+    // 발행 현황 — 관리자가 고객사 선택 발행 시엔 그 업체(들) 히스토리만. 고객 셀프뷰는 RLS로 본인만.
     const [jobs, setJobs] = useState<MyJob[]>([]);
-    async function loadJobs() { const { data } = await listMyCafeJobs(10); setJobs(data as MyJob[]); }
+    const companiesRef = useRef<string[]>([]); // 이 client 의 업체키들(theman/theman2 등) — 히스토리 필터
+    async function loadJobs() {
+        const cos = companiesRef.current;
+        const { data } = (clientId && cos.length)
+            ? await listCafeJobsByCompanies(cos, 10)
+            : await listMyCafeJobs(10);
+        setJobs(data as MyJob[]);
+    }
 
     // 발행 토큰 잔액 — 발행 1건 = 1토큰. 0이면 발행 차단.
     const [tokenBal, setTokenBal] = useState(0);
@@ -179,14 +186,15 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             if (!alive) return;
             // clientId 로 스코프(관리자가 고객사별 발행 시 그 업체 계정만). 고객 컨텍스트는 RLS로 이미 본인만.
             const scoped = clientId ? data.filter((x) => x.client_id === clientId) : data;
+            companiesRef.current = scoped.map((x) => x.company_key).filter(Boolean); // 히스토리 필터용 업체키
             const enabled = scoped.find((x) => x.active && (x as { publish_enabled?: boolean }).publish_enabled !== false);
             setBoard(enabled?.board_name ?? null);
             setCompany(enabled?.company_key ?? null);
             setBrandDefault(enabled?.display_name ?? '');
             if (!brand && enabled?.display_name) setBrand(enabled.display_name);
             setApproved(!!enabled);
+            void loadJobs(); // 업체키 세팅 후 로드(그 업체 히스토리만)
         });
-        void loadJobs();
         void loadUsed();
         void loadTokens();
         const t = setInterval(() => { void loadJobs(); }, 15000);

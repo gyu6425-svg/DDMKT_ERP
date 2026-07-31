@@ -204,6 +204,19 @@ export async function listMyCafeJobs(limit = 10) {
     return { data: data ?? [], error };
 }
 
+// 특정 업체(들)의 발행 현황 — 관리자가 고객사 선택해 발행할 때 그 업체 히스토리만. company(업체키) 필터.
+export async function listCafeJobsByCompanies(companies: string[], limit = 10) {
+    const cos = companies.filter(Boolean);
+    if (!cos.length) return { data: [] as Array<{ id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string }>, error: null };
+    const { data, error } = await supabase
+        .from('cafe_publish_queue')
+        .select('id,title,status,posted_url,reason,created_at')
+        .in('company', cos)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    return { data: data ?? [], error };
+}
+
 // 발행 큐 현황(내부) — 최근순.
 export async function listPublishJobs(limit = 20) {
     const { data, error } = await supabase
