@@ -50,6 +50,7 @@ export type CafeDeployRequest = {
     two_factor: boolean | null;
     deploy_type: string | null;       // 지역형 | 키워드형
     region_sets: string[] | null;     // 지역형 선택 지역셋
+    product_keywords: string[] | null; // 지역형: 고객 제품키워드 칩(입주청소·상가청소 …)
     selected_keywords: PickedKeyword[] | null; // 고객이 고른 인기탭 키워드(발행 대상)
 };
 
@@ -84,6 +85,7 @@ export type CafeDeployInput = {
     // 접수 유형
     deploy_type?: string;             // 지역형 | 키워드형
     region_sets?: string[];           // 지역형 선택 지역셋
+    product_keywords?: string[];      // 지역형: 고객이 넣는 제품키워드 칩(입주청소·상가청소 …)
     selected_keywords?: PickedKeyword[]; // 고객이 고른 인기탭 키워드(발행 대상)
 };
 
@@ -128,10 +130,14 @@ export async function submitCafeDeployRequest(clientId: string, input: CafeDeplo
         region_sets: input.region_sets ?? null,
         status: '접수',
     };
-    const withKw = { ...base, selected_keywords: input.selected_keywords?.length ? input.selected_keywords : null };
+    const withKw = {
+        ...base,
+        selected_keywords: input.selected_keywords?.length ? input.selected_keywords : null,
+        product_keywords: input.product_keywords?.length ? input.product_keywords : null,
+    };
     let { data, error } = await supabase.from('cafe_deploy_requests').insert(withKw).select('id').single();
-    // selected_keywords 컬럼 미적용(SQL 미실행) 시 접수가 통째로 깨지지 않도록 그 필드만 빼고 재시도.
-    if (error && /selected_keywords|42703|column/i.test(error.message)) {
+    // selected_keywords/product_keywords 컬럼 미적용(SQL 미실행) 시 접수가 통째로 깨지지 않도록 그 필드만 빼고 재시도.
+    if (error && /selected_keywords|product_keywords|42703|column/i.test(error.message)) {
         ({ data, error } = await supabase.from('cafe_deploy_requests').insert(base).select('id').single());
     }
     if (error) return { error };

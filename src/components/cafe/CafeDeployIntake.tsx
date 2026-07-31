@@ -13,7 +13,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, getRegionDongs, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, getRegionGuTokens, type KwResult } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -40,7 +40,7 @@ const empty: CafeDeployInput = {
     company_name: '', url: '', keyword: '', mission_start: '',
     daily_count: null, total_count: null, photo_provided: '', product_type: PRODUCT_FIXED, note: '',
     cafe_name: '', board_name: '', two_factor: false, naver_id: '', naver_pw: '',
-    deploy_type: '지역형', region_sets: [],
+    deploy_type: '지역형', region_sets: [], product_keywords: [],
 };
 
 // 업로드 전 압축 — 최대 1600px, JPEG 0.85. (실패 시 원본 반환)
@@ -121,6 +121,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (cur.has(r)) cur.delete(r); else cur.add(r);
         set('region_sets', Array.from(cur));
     };
+    // 지역형 제품키워드 칩 — 입력 후 엔터/추가 → 아래 칩으로 쌓임. 중복·공백 제거.
+    const productKws = form.product_keywords || [];
+    const addProductKw = () => {
+        const v = (form.keyword || '').trim().replace(/\s+/g, ' ');
+        if (!v) return;
+        if (!productKws.includes(v)) set('product_keywords', [...productKws, v]);
+        set('keyword', '');
+    };
+    const removeProductKw = (kw: string) => set('product_keywords', productKws.filter((k) => k !== kw));
     const addFiles = (g: Grp, list: FileList | null) => {
         if (!list?.length) return;
         const arr = Array.from(list); // 동기적으로 캡처(input.value='' 초기화 전에) — 안 하면 목록이 비어 등록 안 됨
@@ -177,23 +186,27 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     };
     // 지역형 — 고정 동 마스터(cafe_region_dong)에서 선택 시도의 동 전부 × 제품키워드로 후보 생성.
     //   결과를 kwResult 에 넣어 키워드형과 같은 선택 UI(복수선택·×제외·중복제외)로 다룬다. 스캔 없음(동×키워드가 발행 대상).
+    // 지역형 키워드 생성 — 고객 제품키워드 칩 × 선택 지역의 '행정구/시'. (동 아님 — 실측상 동 인기탭 0)
+    //   예: 칩[누수탐지,누수] × 서울·경기 → '강남 누수탐지','강남 누수','수원 누수탐지'…
     const genRegionKeywords = async () => {
-        const kw = (form.keyword || '').trim();
-        if (!kw) { setKwErr('제품 키워드를 입력하세요. 예: 입주청소'); return; }
+        const kws = (productKws.length ? productKws : [(form.keyword || '').trim()]).filter(Boolean);
+        if (!kws.length) { setKwErr('제품 키워드를 추가하세요(입력 후 엔터/추가). 예: 누수탐지'); return; }
         const sidos = form.region_sets || [];
         if (!sidos.length) { setKwErr('지역(서울/경기/인천)을 선택하세요.'); return; }
         setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
         try {
-            const dongs = await getRegionDongs(sidos);
+            const gus = await getRegionGuTokens(sidos);
             const seen = new Set<string>();
             const list: KwResult[] = [];
-            for (const d of dongs) {
-                const keyword = `${d.dong} ${kw}`;
-                if (seen.has(keyword)) continue;      // 동명 중복(구 다름) 제거
-                seen.add(keyword);
-                list.push({ keyword, theme: `${d.sido} ${d.gu}`, cafes: [] });
+            for (const g of gus) {
+                for (const kw of kws) {
+                    const keyword = `${g.token} ${kw}`;
+                    if (seen.has(keyword)) continue;
+                    seen.add(keyword);
+                    list.push({ keyword, theme: g.sido, cafes: [] });
+                }
             }
-            if (!list.length) throw new Error('해당 지역 동 데이터가 없습니다. cafe_region_dong 적재를 확인하세요.');
+            if (!list.length) throw new Error('해당 지역 행정구 데이터가 없습니다. cafe_region_dong 적재를 확인하세요.');
             setKwResult(list);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '생성 실패');
@@ -481,18 +494,33 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     <div className="md:col-span-2">
                         <label className={labelCls}>{isKw ? '키워드' : '제품 키워드 (업종)'}</label>
                         <div className="flex gap-2">
-                            <input className={inputCls} value={form.keyword} onChange={(e) => set('keyword', e.target.value)} placeholder={isKw ? '예: 광교 횟집' : '예: 입주청소 · 상가청소'} />
+                            <input className={inputCls} value={form.keyword}
+                                onChange={(e) => set('keyword', e.target.value)}
+                                onKeyDown={(e) => { if (!isKw && e.key === 'Enter') { e.preventDefault(); addProductKw(); } }}
+                                placeholder={isKw ? '예: 광교 횟집' : '예: 입주청소 (입력 후 엔터/추가)'} />
                             {!isKw ? (
                                 <>
+                                    <button type="button" onClick={addProductKw} className="h-10 shrink-0 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white hover:bg-[#3730a3]">추가</button>
                                     <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
                                         {volLoading ? '조회 중…' : '인기글 조회'}
                                     </button>
-                                    <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50" title="선택 지역(서울/경기/인천)의 모든 동 × 제품키워드로 발행 대상 키워드 생성">
+                                    <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50" title="선택 지역(서울/경기/인천)의 행정구 × 제품키워드 칩으로 발행 대상 키워드 생성">
                                         {kwLoading ? '생성 중…' : '지역 키워드 생성'}
                                     </button>
                                 </>
                             ) : null}
                         </div>
+                        {!isKw && productKws.length ? (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                                {productKws.map((kw) => (
+                                    <span key={kw} className="inline-flex items-center gap-1 rounded-full bg-[#eef2ff] px-2.5 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
+                                        {kw}
+                                        <button type="button" onClick={() => removeProductKw(kw)} className="text-[#818cf8] hover:text-[#4338ca]">×</button>
+                                    </span>
+                                ))}
+                            </div>
+                        ) : null}
+                        {!isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">제품키워드를 여러 개 추가하면, 아래 선택한 지역의 행정구마다 각 키워드로 인기탭을 찾습니다. 예: [누수탐지·누수] × 서울·경기 → 강남 누수탐지, 수원 누수 …</p> : null}
                         {volErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{volErr}</p>}
                         {vol && (
                             <div className="mt-2 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2">

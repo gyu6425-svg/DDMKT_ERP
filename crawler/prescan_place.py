@@ -33,6 +33,15 @@ H = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "applicati
 
 # 플레이스당 뽑을 후보 상한(스캔해서 통과분만 캐시에 남음). 넉넉히 — 차단 방지는 스로틀이 담당.
 NEED_PER_PLACE = 80
+# --cap N : 플레이스당 인기글 N건 확보하면 그 플레이스는 남은 후보 스캔 생략(부하·차단 방지). 0=무제한.
+CAP = 0
+if "--cap" in sys.argv:
+    _ci = sys.argv.index("--cap")
+    if _ci + 1 < len(sys.argv):
+        try:
+            CAP = int(sys.argv[_ci + 1])
+        except ValueError:
+            CAP = 0
 # 차단 안 당하게 넉넉하게 — 사람처럼 느리게 + 랜덤 지터 + 주기 휴식(prescan_region 과 동일 하네스).
 GAP_MIN, GAP_MAX = 3.0, 5.0     # 스캔 간 스로틀(초, 랜덤)
 REST_EVERY = 60                 # 이만큼 스캔하면
@@ -146,10 +155,14 @@ def main():
         except Exception as e:
             print(f"[prescan_place] 후보생성 실패 {pnm}({pu}): {e}", flush=True)
             continue
-        print(f"[prescan_place] ▶ {name}({pnm}) — 후보 {len(cands)}건", flush=True)
+        print(f"[prescan_place] ▶ {name}({pnm}) — 후보 {len(cands)}건{' · cap ' + str(CAP) if CAP else ''}", flush=True)
+        place_hits = 0
         for kw in cands:
             if datetime.datetime.now() >= DEADLINE:
                 print("[prescan_place] ⏹ 23:59 시간가드 도달 — 중단", flush=True)
+                break
+            if CAP and place_hits >= CAP:
+                print(f"[prescan_place]    ✓ {name} 목표 {CAP}건 달성 — 남은 후보 생략", flush=True)
                 break
             if kw in existing:
                 skipped += 1
@@ -169,6 +182,7 @@ def main():
             done += 1
             if r.get("has_section"):
                 hits += 1
+                place_hits += 1
             if done % 25 == 0:
                 el = time.time() - t0
                 print(f"[prescan_place] 스캔 {done} · 인기글 {hits} · skip {skipped} · {el/max(done,1):.1f}s/건", flush=True)

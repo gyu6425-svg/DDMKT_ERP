@@ -16,6 +16,45 @@ export async function getRegionDongs(sidos: string[], dongOnly = true): Promise<
     return rows;
 }
 
+// 행정구/시 토큰 — cafe_region_dong 의 gu 를 시/구로 쪼갠다.
+//   '수원시 장안구'→[수원시,수원,장안구,장안], '고양시덕양구'(붙은형)→[고양시,고양,덕양구,덕양], '강남구'→[강남구,강남].
+//   ※ 실측(2026-07): 동(洞) 단위는 인기탭 진입 ~0%, 구/시 단위라야 잡힘 → 지역형은 이 토큰을 쓴다.
+function guTokens(gu: string): string[] {
+    const out = new Set<string>();
+    const parts: string[] = [];
+    for (const part of (gu || '').split(/\s+/)) {
+        const m = part.match(/^(.+?시)(.+구)$/);
+        if (m) parts.push(m[1], m[2]); else if (part) parts.push(part);
+    }
+    for (const part of parts) {
+        const t = part.trim();
+        if (!t) continue;
+        out.add(t);
+        const base = t.replace(/(특별시|광역시|자치시|자치구|시|군|구)$/, '');
+        if (base.length >= 2) out.add(base);
+    }
+    return [...out];
+}
+
+// 선택 시도(서울/경기/인천)의 행정구/시 토큰 목록. 지역형 '지역 키워드 생성'의 지역 축.
+export async function getRegionGuTokens(sidos: string[]): Promise<{ sido: string; token: string }[]> {
+    if (!sidos.length) return [];
+    const { data } = await supabase.from('cafe_region_dong')
+        .select('sido,gu').in('sido', sidos).limit(5000);
+    const rows = (data ?? []) as { sido: string; gu: string }[];
+    const seen = new Set<string>();
+    const out: { sido: string; token: string }[] = [];
+    for (const r of rows) {
+        for (const token of guTokens(r.gu)) {
+            const key = `${r.sido}|${token}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ sido: r.sido, token });
+        }
+    }
+    return out;
+}
+
 // 큐 등록. target=워커가 인기글 진입 키워드를 몇 개 찾을 때까지 스캔할지(찾으면 멈춤). regions 기본 수도권. status는 반드시 'queued'(워커가 집는 값).
 export async function enqueuePlaceScan(placeUrl: string, target = 10, regions = '서울,경기,인천') {
     const { data: u } = await supabase.auth.getUser();
