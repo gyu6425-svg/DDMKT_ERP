@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
     getCafeAccounts,
     setCafeAccountActive,
-    setCafeAccountPublish,
     updateCafeAccount,
     upsertCafeAccount,
     type CafeAccount,
@@ -24,8 +23,6 @@ function goTracker(companyKey: string) {
     window.dispatchEvent(new Event('app:navigate'));
 }
 
-const fmtWon = (n?: number | null) => (n ? n.toLocaleString('ko-KR') : '');
-const onlyDigits = (s: string) => (s || '').replace(/[^\d]/g, '');
 const EMPTY = { company_key: '', display_name: '', board_name: '', board_short: '' };
 
 export function CafeSheetTab({
@@ -172,33 +169,6 @@ export function CafeSheetTab({
         if (result.error) setError(result.error.message);
     };
 
-    // 고객 셀프 발행 승인 토글 — 켜면 그 고객이 ERP '카페 자동화 발행' 탭에서 직접 발행 가능.
-    const togglePublish = async (a: CafeAccount) => {
-        const next = !a.publish_enabled;
-        patchLocal(a.id, { publish_enabled: next });
-        const result = await setCafeAccountPublish(a.id, next);
-        if (result.error) setError(result.error.message);
-    };
-
-    const numCell = (a: CafeAccount, key: 'goal_count' | 'done_count' | 'amount', ph: string, w: string) => (
-        readOnly ? (
-            <span className="text-[12px] font-semibold text-[#334155]">{a[key] != null ? fmtWon(a[key]) : '—'}</span>
-        ) : (
-        <input
-            className={`h-8 ${w} rounded border border-[#e2e8f0] px-1.5 text-right text-[12px]`}
-            defaultValue={a[key] != null ? fmtWon(a[key]) : ''}
-            onBlur={(e) => {
-                const v = onlyDigits(e.target.value);
-                // done_count 는 NOT NULL(기본 0) 컬럼 → 빈 칸은 null 대신 0으로(제약 위반 방지).
-                const next = v ? Number(v) : key === 'done_count' ? 0 : null;
-                void saveField(a.id, { [key]: next } as Partial<CafeAccount>);
-            }}
-            onClick={(e) => e.stopPropagation()}
-            placeholder={ph}
-        />
-        )
-    );
-
     return (
         <div className="grid gap-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -257,19 +227,17 @@ export function CafeSheetTab({
                             <th className="px-3 py-2 font-semibold">업체</th>
                             <th className="px-3 py-2 font-semibold">카페</th>
                             <th className="px-3 py-2 font-semibold">계약일</th>
-                            <th className="px-3 py-2 font-semibold">담당</th>
                             <th className="px-3 py-2 font-semibold">진행률</th>
                             <th className="px-2 py-2 text-center font-semibold">잔여</th>
                             <th className="px-2 py-2 text-center font-semibold">추적 글</th>
                             <th className="px-2 py-2 text-center font-semibold">인기글 진입</th>
                             <th className="px-2 py-2 text-center font-semibold">상태</th>
-                            {!readOnly ? <th className="px-2 py-2 text-center font-semibold">발행 승인</th> : null}
                             {!readOnly ? <th className="px-2 py-2 text-center font-semibold">순위</th> : null}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={readOnly ? 9 : 11}>불러오는 중…</td></tr>
+                            <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={readOnly ? 8 : 9}>불러오는 중…</td></tr>
                         ) : rows.length ? rows.map((a) => {
                             const own = statByAccount.get(a.id) || { total: 0, ranked: 0, achieved: 0 };
                             const merged = (a.client_id && firstRowIdOfClient.get(a.client_id) === a.id)
@@ -298,26 +266,18 @@ export function CafeSheetTab({
                                         <span className="mt-0.5 inline-block rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[10px] font-semibold text-[#475569]">{a.board_short}</span>
                                     </td>
                                     <td className="px-3 py-2">
-                                        <a className="text-[12px] font-semibold text-[#475569] hover:text-[#1e40af] hover:underline" href={`https://cafe.naver.com/${a.cafe_name}`} rel="noreferrer" target="_blank">
+                                        <a className="text-[13px] font-semibold text-[#475569] hover:text-[#1e40af] hover:underline" href={`https://cafe.naver.com/${a.cafe_name}`} rel="noreferrer" target="_blank">
                                             {cafeNameLabel(a.cafe_name)}
                                         </a>
-                                        <div className="text-[10px] text-[#94a3b8]">{a.cafe_name}</div>
                                         {!readOnly ? (
-                                            <input
-                                                className={`mt-1 h-6 w-44 rounded border px-1 text-[10px] ${a.club_id ? 'border-[#e2e8f0]' : 'border-[#fca5a5] bg-[#fef2f2]'}`}
-                                                defaultValue={a.club_id || ''}
-                                                placeholder="club_id 또는 글쓰기URL (세팅)"
-                                                onClick={(e) => e.stopPropagation()}
-                                                onBlur={(e) => {
-                                                    const raw = e.target.value.trim();
-                                                    const cid = /\d/.test(raw) ? (raw.match(/cafes\/(\d+)|clubid=(\d+)|(\d{6,})/) ? raw.replace(/\D/g, '') : raw) : '';
-                                                    if (cid !== (a.club_id || '')) void saveField(a.id, { club_id: cid });
-                                                }}
-                                                title="네이버 카페 club_id (또는 글쓰기 주소 붙여넣으면 자동 추출). 자동발행에 필요."
-                                            />
-                                        ) : null}
-                                        {!readOnly ? (
-                                            <button className="mt-1 block rounded bg-[#eef2ff] px-2 py-0.5 text-[10px] font-bold text-[#4338ca] hover:bg-[#e0e7ff]" onClick={(e) => { e.stopPropagation(); setSetupAccount(a); }} type="button">발행 세팅</button>
+                                            <button
+                                                className={`mt-1.5 block rounded px-2 py-1 text-[11px] font-bold ${a.publish_enabled ? 'bg-[#dcfce7] text-[#15803d] hover:bg-[#bbf7d0]' : 'bg-[#eef2ff] text-[#4338ca] hover:bg-[#e0e7ff]'}`}
+                                                onClick={(e) => { e.stopPropagation(); setSetupAccount(a); }}
+                                                title={a.publish_enabled ? '발행(자동발행) 중 · 클릭하면 세팅 변경' : '발행 세팅(글쓰기 주소·계정 확인·발행 승인)'}
+                                                type="button"
+                                            >
+                                                {a.publish_enabled ? '● 발행 중' : '발행 세팅'}
+                                            </button>
                                         ) : null}
                                     </td>
                                     <td className="px-3 py-2">
@@ -334,28 +294,16 @@ export function CafeSheetTab({
                                         )}
                                     </td>
                                     <td className="px-3 py-2">
-                                        {readOnly ? (
-                                            <span className="text-[12px] text-[#334155]">{a.manager || '—'}</span>
-                                        ) : (
-                                            <input
-                                                className="h-8 w-16 rounded border border-[#e2e8f0] px-1.5 text-[12px]"
-                                                defaultValue={a.manager || ''}
-                                                onBlur={(e) => void saveField(a.id, { manager: e.target.value.trim() || null })}
-                                                onClick={(e) => e.stopPropagation()}
-                                                placeholder="담당"
-                                            />
-                                        )}
-                                    </td>
-                                    <td className="px-3 py-2">
-                                        <div className="flex items-center gap-1.5 text-[12px]" title="실적 = 베이스라인(수동) + 자동달성(인기글 5위 24h 유지) / 목표">
-                                            {numCell(a, 'done_count', '실적', 'w-12')}
-                                            {st.achieved > 0 ? <span className="text-[10px] font-bold text-[#059669]" title="자동 달성(5위 24h)">+{st.achieved}</span> : null}
-                                            <span className="text-[11px] text-[#94a3b8]">/</span>
-                                            {numCell(a, 'goal_count', '목표', 'w-12')}
-                                            <span className="ml-0.5 text-[11px] font-semibold text-[#475569]">= {done}</span>
-                                        </div>
-                                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-[#f1f5f9]">
-                                            <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pc }} />
+                                        <div className="min-w-[120px]">
+                                            <div className="flex items-baseline justify-between gap-2">
+                                                <span className="text-sm font-bold" style={{ color: pc }}>{goal ? `${pct}%` : '—'}</span>
+                                                <span className="text-[10px] text-[#94a3b8]">
+                                                    {done}/{goal || '—'}건{st.achieved > 0 ? <span className="ml-0.5 font-bold text-[#059669]" title="자동 달성(5위 24h)">(+{st.achieved})</span> : null}
+                                                </span>
+                                            </div>
+                                            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#eef2f7]">
+                                                <div style={{ background: pc, width: `${pct}%`, height: '100%' }} />
+                                            </div>
                                         </div>
                                     </td>
                                     <td className="px-2 py-2 text-center text-[13px] font-semibold" style={{ color: remain === 0 ? '#059669' : '#475569' }}>
@@ -372,24 +320,12 @@ export function CafeSheetTab({
                                     </td>
                                     {!readOnly ? (
                                         <td className="px-2 py-2 text-center">
-                                            <button
-                                                className={`rounded px-2 py-1 text-[11px] font-bold ${a.publish_enabled ? 'bg-[#dcfce7] text-[#15803d]' : 'bg-[#fee2e2] text-[#b91c1c]'}`}
-                                                onClick={(e) => { e.stopPropagation(); void togglePublish(a); }}
-                                                title="고객이 ERP에서 직접 카페 발행하도록 승인/해제"
-                                                type="button"
-                                            >
-                                                {a.publish_enabled ? '승인됨' : '미승인'}
-                                            </button>
-                                        </td>
-                                    ) : null}
-                                    {!readOnly ? (
-                                        <td className="px-2 py-2 text-center">
                                             <button className="rounded bg-[#1e40af] px-3 py-1 text-[11px] font-bold text-white" onClick={(e) => { e.stopPropagation(); goTracker(a.company_key); }} type="button">순위 보기</button>
                                         </td>
                                     ) : null}
                                 </tr>
                             );
-                        }) : <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={readOnly ? 9 : 11}>등록된 카페 업체가 없습니다.</td></tr>}
+                        }) : <tr><td className="px-3 py-10 text-center text-[#94a3b8]" colSpan={readOnly ? 8 : 9}>등록된 카페 업체가 없습니다.</td></tr>}
                     </tbody>
                 </table>
             </div>
