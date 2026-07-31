@@ -10,10 +10,6 @@ const navigationItems = [
     // 대시보드는 좌측 상단 'DDMKT ERP' 로고 클릭으로 이동(아래 참고).
     { path: '/clients', label: '고객사 관리' },
     { path: '/contracts', label: '계약 관리' },
-    // 리포트·메모·캘린더는 추후 구현 — 지금은 비활성(클릭 불가).
-    { path: '/calendar', label: '캘린더', disabled: true },
-    { path: '/reports', label: '리포트', disabled: true },
-    { path: '/memos', label: '메모', disabled: true },
     { path: '/banner-generator', label: '배너 생성기' },
     // 카페 원고 생성기는 '카페' 카테고리 하위로 이동(categories.ts subs) — 최상위에서 제거.
     { path: '/powerlink', label: '파워링크' },
