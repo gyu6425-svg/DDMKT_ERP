@@ -239,10 +239,20 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         }
     };
 
-    const submit = async () => {
+    // 접수 시: 총 발행건수보다 선택 키워드가 적으면 '미입력 N건' 확인(직접 고르기 / 담당자에게 맡기기).
+    const [remainAsk, setRemainAsk] = useState<number | null>(null);
+    const submit = () => {
         if (!clientId) return setMsg('고객 계정이 연결되어 있지 않습니다. 담당자에게 문의하세요.');
         if (!form.company_name.trim()) return setMsg('업체명을 입력하세요.');
         if (form.daily_count != null && form.daily_count > 5) return setMsg('일 발행건수는 최대 5건입니다.');
+        const target = form.total_count ?? 0;
+        const shortfall = target - kwPicked.length;
+        if (target > 0 && shortfall > 0) { setRemainAsk(shortfall); return; } // 미입력 → 확인 창
+        void doSubmit(false);
+    };
+    const doSubmit = async (delegate: boolean) => {
+        if (!clientId) return;
+        setRemainAsk(null);
         setBusy(true); setMsg('');
         // 사진 업로드(압축)
         const batch = String(Date.now());
@@ -263,7 +273,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         }
         const summary = GROUPS.map((g) => (photos[g.key].length ? `${g.label} ${photos[g.key].length}` : '')).filter(Boolean).join(' · ');
         const picks = kwPicked.map((p) => ({ keyword: p.keyword, volume: p.volume ?? null, theme: p.theme ?? null }));
-        const { error } = await submitCafeDeployRequest(clientId, { ...form, photos, photo_provided: summary, selected_keywords: picks });
+        // 나머지 키워드를 담당자에게 맡긴 경우 — 비고에 위임 표시(담당자가 스튜디오에서 목표까지 채움).
+        const shortfall = (form.total_count ?? 0) - kwPicked.length;
+        const delegateNote = delegate && shortfall > 0 ? `[키워드 ${shortfall}건 선정 위임 — 담당자가 나머지 키워드 선정]` : '';
+        const note = [form.note?.trim(), delegateNote].filter(Boolean).join(' ');
+        const { error } = await submitCafeDeployRequest(clientId, { ...form, note, photos, photo_provided: summary, selected_keywords: picks });
         setBusy(false);
         if (error) return setMsg(`접수 실패: ${error.message}`);
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
@@ -637,6 +651,28 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         ))}
                     </div>
                 </div>
+
+                {/* 키워드 미입력 확인 — 총 발행건수보다 적게 고른 경우: 직접 고르기 / 담당자에게 맡기기 */}
+                {remainAsk !== null ? (
+                    <div className="mt-4 rounded-xl border-2 border-[#fb923c] bg-[#fff7ed] p-4">
+                        <div className="flex items-center gap-2 text-[14px] font-bold text-[#9a3412]">
+                            <span>⚠️</span> 키워드 {remainAsk}건이 아직 선택되지 않았습니다
+                        </div>
+                        <p className="mb-3 mt-1 text-[13px] leading-relaxed text-[#7c2d12]">
+                            총 발행 {form.total_count}건 중 <b>{kwPicked.length}건</b>만 키워드를 고르셨습니다. 나머지 <b>{remainAsk}건</b>의 키워드를 어떻게 할까요?
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={() => setRemainAsk(null)}
+                                className="h-10 rounded-md border border-[#4338ca] bg-white px-5 text-sm font-bold text-[#4338ca] hover:bg-[#eef2ff]">
+                                직접 고를게요 (돌아가서 선택)
+                            </button>
+                            <button type="button" disabled={busy} onClick={() => void doSubmit(true)}
+                                className="h-10 rounded-md bg-[#c2410c] px-5 text-sm font-bold text-white hover:bg-[#9a3412] disabled:opacity-50">
+                                {busy ? '접수 중…' : `나머지 ${remainAsk}건은 맡길게요 (담당자가 선정)`}
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
 
                 <div className="mt-4 flex items-center gap-3">
                     <button className="h-10 rounded-md bg-[#4338ca] px-6 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50" disabled={busy || !clientId} onClick={() => void submit()} type="button">
