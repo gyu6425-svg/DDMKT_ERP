@@ -5,7 +5,6 @@ import { createCustomerPublishJob, listMyCafeJobs, listMyPublishedPairs } from '
 import { listTokens, balanceOf, consumeToken } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
-import { CafeAgentSetup } from './CafeAgentSetup';
 import { REGION_GROUPS, type RegionSet } from './regions';
 
 type MyJob = { id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string };
@@ -99,7 +98,7 @@ async function pairPhotosRandom(list: string[]): Promise<string[]> {
 export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string | null; onGoCharge?: () => void }) {
     const [approved, setApproved] = useState<boolean | null>(null);
     const [board, setBoard] = useState<string | null>(null);
-    const [company, setCompany] = useState<string | null>(null);
+    const [, setCompany] = useState<string | null>(null);
     const [brandDefault, setBrandDefault] = useState('');
 
     // 공통 업체정보
@@ -107,7 +106,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [business, setBusiness] = useState('');
 
     // 모드
-    const [mode, setMode] = useState<'keyword' | 'region'>('keyword');
+    const [mode, setMode] = useState<'keyword' | 'region'>('region');
 
     // SEO 키워드 찾기
     const [seoQ, setSeoQ] = useState('');
@@ -391,8 +390,6 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     }
 
     const inputCls = 'h-10 rounded-lg border border-[#cbd5e1] bg-white px-3 text-sm';
-    const now = Date.now();
-    const stuck = jobs.some((j) => j.status === 'pending' && now - new Date(j.created_at).getTime() > 3 * 60 * 1000);
 
     return (
         <div className="grid gap-4">
@@ -401,13 +398,12 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 <span className="ml-2 text-[#64748b]">— 발행하면 본인 카페의 이 게시판에 자동 게시됩니다.</span>
             </div>
 
-            <CafeAgentSetup board={board} companyKey={company} />
-
-            {stuck ? (
-                <div className="rounded-lg border border-[#fca5a5] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]">
-                    ⚠️ 대기 중인 글이 게시되지 않고 있습니다. 내 PC의 <b>발행 프로그램(DDMKT-Agent)</b>이 실행 중인지 확인해 주세요.
-                </div>
-            ) : null}
+            {/* 발행 유형 먼저 선택 — 지역형 / 키워드형 */}
+            <div className="flex gap-1 border-b border-[#e2e8f0]">
+                {([['region', '지역형'], ['keyword', '키워드형']] as const).map(([k, name]) => (
+                    <button className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${mode === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'}`} key={k} onClick={() => setMode(k)} type="button">{name}</button>
+                ))}
+            </div>
 
             {/* 공통 업체정보 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
@@ -458,13 +454,6 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                         <div className="px-2 py-1 text-[11px] text-[#94a3b8]">나온 키워드는 <b>전부 지역형에 자동 사용</b>됩니다(빼려면 클릭). {selectedKw.size ? `· 사용 ${selectedKw.size}개` : ''} · "지역형" 탭에서 지역·발행건수 정하고 스캔하세요.</div>
                     </div>
                 ) : null}
-            </div>
-
-            {/* 모드 탭 */}
-            <div className="flex gap-1 border-b border-[#e2e8f0]">
-                {([['keyword', '키워드형'], ['region', '지역형']] as const).map(([k, name]) => (
-                    <button className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${mode === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'}`} key={k} onClick={() => setMode(k)} type="button">{name}</button>
-                ))}
             </div>
 
             {mode === 'keyword' ? (
