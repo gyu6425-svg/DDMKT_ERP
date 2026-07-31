@@ -3,12 +3,12 @@ import { getCafeRankPosts, type CafeRankPost } from '../../../api/cafeRank';
 
 // 카페 · 대시보드 — '오늘 발행 현황'(하루 5건 KPI) + '오늘까지 발행 건'(누적/계약 목표).
 //   대상 업체·계약건수는 고정(계약 기준). 글은 cafe_rank_posts.board 로 매칭.
-const DAILY_QUOTA = 5; // 하루 발행 목표(업체당)
-const DAILY_TARGETS: { board: string; goal: number }[] = [
-    { board: '더맨시스템', goal: 50 },
-    { board: '더티클리닉', goal: 10 },
-    { board: '더반클린', goal: 50 },
-    { board: '설고점', goal: 40 }, // 크롤러가 board='설고점'으로 저장(cafe_board_crawl.py)
+// board=크롤러 저장값 · goal=계약 총건수 · daily=하루 발행 목표(업체별 상이)
+const DAILY_TARGETS: { board: string; goal: number; daily: number }[] = [
+    { board: '더맨시스템', goal: 50, daily: 5 },
+    { board: '더티클리닉', goal: 10, daily: 5 },
+    { board: '더반클린', goal: 50, daily: 5 },
+    { board: '설고점', goal: 40, daily: 1 }, // 설고점만 하루 1건
 ];
 const boardKey = (p: CafeRankPost) => p.board || p.cafe_accounts?.board_short || '미분류';
 const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
@@ -47,7 +47,7 @@ export function CafeDashboardTab() {
     const cumList = (b: string) => posts.filter((p) => boardKey(p) === b).sort((x, y) => (y.created_at || '').localeCompare(x.created_at || ''));
 
     const todayTotal = DAILY_TARGETS.reduce((s, t) => s + todayCount(t.board), 0);
-    const goalTodayTotal = DAILY_TARGETS.length * DAILY_QUOTA;
+    const goalTodayTotal = DAILY_TARGETS.reduce((s, t) => s + t.daily, 0);
     const cumGrand = DAILY_TARGETS.reduce((s, t) => s + cumList(t.board).length, 0);
 
     if (loading) {
@@ -58,7 +58,7 @@ export function CafeDashboardTab() {
         <div className="grid gap-4">
             <div>
                 <h2 className="m-0 text-base font-bold text-[#0f172a]">카페 · 오늘 발행 현황</h2>
-                <p className="m-0 mt-0.5 text-xs text-[#64748b]">{mmdd(today)} · 업체별 하루 {DAILY_QUOTA}건 발행 체크 · 발행 시 자동 집계 · 60초 자동 갱신</p>
+                <p className="m-0 mt-0.5 text-xs text-[#64748b]">{mmdd(today)} · 업체별 하루 목표 발행 체크(설고점=1건, 그 외 5건) · 발행 시 자동 집계 · 60초 자동 갱신</p>
             </div>
 
             {/* 업체별 오늘 발행 KPI */}
@@ -66,16 +66,16 @@ export function CafeDashboardTab() {
                 {DAILY_TARGETS.map((t) => {
                     const done = todayCount(t.board);
                     const st = BOARD_STYLE[t.board] || { bg: '#f8fafc', fg: '#475569' };
-                    const complete = done >= DAILY_QUOTA;
+                    const complete = done >= t.daily;
                     const box = complete ? 'border-2 border-[#16a34a] bg-[#f0fdf4]' : done > 0 ? 'border-2 border-[#eab308] bg-[#fefce8]' : 'border-2 border-[#e2e8f0] bg-white';
                     return (
                         <div className={`rounded-xl p-4 ${box}`} key={t.board}>
                             <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: st.bg, color: st.fg }}>{t.board}</span>
                             <div className="mt-2 flex items-end gap-1">
                                 <span className={`text-[28px] font-bold leading-none ${complete ? 'text-[#15803d]' : done > 0 ? 'text-[#a16207]' : 'text-[#94a3b8]'}`}>{done}</span>
-                                <span className="mb-0.5 text-[13px] font-semibold text-[#94a3b8]">/ {DAILY_QUOTA}</span>
+                                <span className="mb-0.5 text-[13px] font-semibold text-[#94a3b8]">/ {t.daily}</span>
                             </div>
-                            <div className={`mt-1 text-[11px] font-bold ${complete ? 'text-[#15803d]' : 'text-[#b45309]'}`}>{complete ? '✓ 완료' : `${DAILY_QUOTA - done}건 남음`}</div>
+                            <div className={`mt-1 text-[11px] font-bold ${complete ? 'text-[#15803d]' : 'text-[#b45309]'}`}>{complete ? '✓ 완료' : `${t.daily - done}건 남음`}</div>
                         </div>
                     );
                 })}
