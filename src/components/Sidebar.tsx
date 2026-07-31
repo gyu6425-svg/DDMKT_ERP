@@ -334,7 +334,6 @@ function Sidebar() {
                                 ...(canManagePermissions(profile?.email) ? [{ key: 'users', label: '사원 관리' }] : []),
                                 ...(SIGNUP_ENABLED ? [{ key: 'signups', label: '가입 승인' }] : []),
                                 { key: 'deploy', label: '카페 접수' },
-                                { key: 'tokens', label: '토큰 충전' },
                                 { key: 'cafe', label: '카페 원고 생성기' },
                                 { key: 'api', label: 'API 사용량' },
                             ];

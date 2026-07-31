@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import ApiUsagePanel from '../components/ApiUsagePanel'
 import AdminUsersPanel from '../components/AdminUsersPanel'
 import PendingSignupsPanel from '../components/PendingSignupsPanel'
-import TokenChargePanel from '../components/TokenChargePanel'
 import CafeDeployAdminPanel from '../components/CafeDeployAdminPanel'
 import { useAuth } from '../hooks/useAuth'
 import { canManagePermissions, canSeeAdminPage } from '../lib/permissions'
@@ -11,7 +10,7 @@ import { SIGNUP_ENABLED } from '../lib/authConfig'
 function AdminPage() {
     const { isAdmin, profile } = useAuth()
     const canUsers = canManagePermissions(profile?.email) // 사원 관리 = 김종인(대표)만
-    type AdminTab = 'users' | 'signups' | 'api' | 'cafe' | 'tokens' | 'deploy'
+    type AdminTab = 'users' | 'signups' | 'api' | 'cafe' | 'deploy'
     const tabFromUrl = () => (new URLSearchParams(window.location.search).get('tab') || '') as AdminTab
     const [tab, setTab] = useState<AdminTab>(() => tabFromUrl() || (canUsers ? 'users' : 'api'))
     // 사이드바 하위메뉴(/admin?tab=)로 진입 시 탭 동기화.
@@ -40,11 +39,9 @@ function AdminPage() {
               ? 'signups'
               : tab === 'cafe'
                 ? 'cafe'
-                : tab === 'tokens'
-                  ? 'tokens'
-                  : tab === 'deploy'
-                    ? 'deploy'
-                    : 'api'
+                : tab === 'deploy'
+                  ? 'deploy'
+                  : 'api'
 
     return (
         <section className="min-h-[320px] rounded-[8px] border border-[#e5e7eb] bg-white p-8">
@@ -53,7 +50,6 @@ function AdminPage() {
                 {active === 'users' ? '사원 관리'
                     : active === 'signups' ? '가입 승인'
                     : active === 'cafe' ? '카페 원고 생성기'
-                    : active === 'tokens' ? '토큰 충전'
                     : active === 'deploy' ? '카페 접수'
                     : 'API 사용량'}
             </div>
@@ -64,8 +60,6 @@ function AdminPage() {
                 <PendingSignupsPanel />
             ) : active === 'cafe' ? (
                 <ApiUsagePanel scope="cafe" />
-            ) : active === 'tokens' ? (
-                <TokenChargePanel />
             ) : active === 'deploy' ? (
                 <CafeDeployAdminPanel />
             ) : (
