@@ -6,6 +6,7 @@ import { listTokens, balanceOf, consumeToken } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls } from '../../api/cafeStudioSettings';
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
+import { getCafeRankPostsForClient, latestCafeMeasure, type CafeRankPost } from '../../api/cafeRank';
 import { enqueueGenRequests, publishTargetFor } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
@@ -190,6 +191,16 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         setJobs(data as MyJob[]);
     }
 
+    // 발행 히스토리(순위 트래커 기준) — 이 업체의 실제 발행·측정된 글. 더맨/설고/더반처럼 SUB PC 발행분도 여기 잡힘.
+    const [rankPosts, setRankPosts] = useState<CafeRankPost[]>([]);
+    const [rankLoading, setRankLoading] = useState(false);
+    async function loadRankPosts() {
+        if (!clientId) { setRankPosts([]); return; }
+        setRankLoading(true);
+        try { setRankPosts(await getCafeRankPostsForClient(clientId)); }
+        finally { setRankLoading(false); }
+    }
+
     // 발행 토큰 잔액 — 발행 1건 = 1토큰. 0이면 발행 차단.
     const [tokenBal, setTokenBal] = useState(0);
     async function loadTokens() { if (clientId) { const { data } = await listTokens(clientId); setTokenBal(balanceOf(data)); } }
@@ -227,6 +238,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         });
         void loadUsed();
         void loadTokens();
+        void loadRankPosts();
         const t = setInterval(() => { void loadJobs(); }, 15000);
         return () => { alive = false; clearInterval(t); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -631,6 +643,51 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                         })}
                     </div>
                 ) : <div className="py-4 text-center text-[12px] text-[#94a3b8]">아직 발행 내역이 없습니다.</div>}
+            </div>
+
+            {/* 발행 히스토리 — 순위 트래커 기준(실제 발행·측정된 글). 더맨/설고/더반 등 SUB PC 발행분 포함. */}
+            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <div className="mb-2 flex items-center justify-between">
+                    <div className="text-[13px] font-bold text-[#334155]">발행 히스토리 <span className="font-normal text-[#94a3b8]">— 순위 트래커 기준 · 총 {rankPosts.length}건</span></div>
+                    <button className="text-xs font-semibold text-[#4338ca] hover:underline" onClick={() => void loadRankPosts()} type="button">새로고침</button>
+                </div>
+                {rankLoading ? (
+                    <div className="py-4 text-center text-[12px] text-[#94a3b8]">불러오는 중…</div>
+                ) : rankPosts.length ? (
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[640px] border-collapse text-[12px]">
+                            <thead>
+                                <tr className="border-b border-[#e2e8f0] text-left text-[#64748b]">
+                                    {['발행일', '키워드', '게시판', '현재 순위', '실적', '글'].map((h) => <th key={h} className="whitespace-nowrap px-2 py-1.5 font-semibold">{h}</th>)}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rankPosts.map((p) => {
+                                    const m = latestCafeMeasure(p.measurements);
+                                    const rankText = !m ? '-' : m.ti_status === 'ok' ? `${m.ti}위` : m.ti_status === 'out' ? '권외' : m.ti_status === 'no_section' ? '측정불가' : '실패';
+                                    const rankCls = m?.ti_status === 'ok' ? (m.ti <= 5 ? 'font-bold text-[#166534]' : 'text-[#334155]') : 'text-[#94a3b8]';
+                                    const achieved = p.top5_achieved_at && !p.top5_seeded;
+                                    const url = p.post_url || (p.cafe_name && p.article_id ? `https://cafe.naver.com/${p.cafe_name}/${p.article_id}` : null);
+                                    return (
+                                        <tr className="border-b border-[#f1f5f9] align-top text-[#334155]" key={p.id}>
+                                            <td className="whitespace-nowrap px-2 py-1.5">{p.published_date ?? '-'}</td>
+                                            <td className="px-2 py-1.5">{p.keyword_manual || p.keyword || '-'}</td>
+                                            <td className="whitespace-nowrap px-2 py-1.5 text-[#64748b]">{p.board ?? p.cafe_accounts?.board_short ?? '-'}</td>
+                                            <td className={`whitespace-nowrap px-2 py-1.5 ${rankCls}`}>{rankText}</td>
+                                            <td className="whitespace-nowrap px-2 py-1.5">
+                                                {achieved ? <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#166534]">✓ 실적</span>
+                                                    : p.top5_seeded ? <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#94a3b8]">기준</span>
+                                                    : p.top5_since ? <span className="text-[11px] text-[#b45309]">5위 진입</span>
+                                                    : <span className="text-[11px] text-[#cbd5e1]">-</span>}
+                                            </td>
+                                            <td className="whitespace-nowrap px-2 py-1.5">{url ? <a className="text-[#2563eb] hover:underline" href={url} rel="noreferrer" target="_blank">보기</a> : '-'}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : <div className="py-4 text-center text-[12px] text-[#94a3b8]">순위 트래커에 등록된 발행 글이 없습니다.</div>}
             </div>
         </div>
     );

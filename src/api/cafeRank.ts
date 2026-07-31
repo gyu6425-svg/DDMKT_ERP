@@ -56,6 +56,32 @@ export async function getCafeRankPosts() {
     return { data: (legacy.data ?? []) as CafeRankPost[], error: legacy.error };
 }
 
+// 이 업체(client)의 순위 트래킹 글 목록 — 자동화발행 스튜디오 하단 '발행 히스토리'.
+//   실적 집계(cafe_contract_sync)와 동일 매칭: cafe_account_id ∈ 이 client 계정 OR board ∈ board_short.
+export async function getCafeRankPostsForClient(clientId: string): Promise<CafeRankPost[]> {
+    const { data: accs } = await supabase.from('cafe_accounts')
+        .select('id,board_short,company_key').eq('client_id', clientId);
+    const ids = new Set((accs ?? []).map((a) => (a as { id: string }).id));
+    const boards = new Set((accs ?? []).map((a) => (a as { board_short: string | null }).board_short).filter(Boolean));
+    const keys = new Set((accs ?? []).map((a) => (a as { company_key: string | null }).company_key).filter(Boolean));
+    const { data } = await supabase.from('cafe_rank_posts')
+        .select('*,cafe_accounts(company_key,display_name,board_short)')
+        .eq('excluded', false)
+        .order('published_date', { ascending: false, nullsFirst: false });
+    const rows = (data ?? []) as unknown as CafeRankPost[];
+    return rows.filter((p) =>
+        (p.cafe_account_id && ids.has(p.cafe_account_id)) ||
+        (p.board && boards.has(p.board)) ||
+        (p.cafe_accounts?.company_key && keys.has(p.cafe_accounts.company_key)),
+    );
+}
+
+// 측정 배열에서 가장 최근(날짜 큰) 1건.
+export function latestCafeMeasure(ms: CafeMeasurement[] | null | undefined): CafeMeasurement | null {
+    if (!ms?.length) return null;
+    return [...ms].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+}
+
 // 등록 — (cafe_name, article_id) 유니크. 이미 있으면 keyword/title/url 갱신(measurements 보존).
 export async function upsertCafeRankPost(input: {
     club_id: string | null;
