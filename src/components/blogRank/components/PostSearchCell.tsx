@@ -5,7 +5,9 @@ import {
     todayKST,
     updatePostKeyword,
     updatePostMeasurements,
+    updatePostExtraKeywords,
     type BlogAccount,
+    type BlogExtraKeyword,
     type BlogMeasurement,
     type BlogPost,
 } from '../../../api/blogRank';
@@ -72,8 +74,8 @@ export function PostSearchCell({
     }
     const blogId = account.blog_id || extractBlogId(account.blog_url);
 
-    // 검색 = 입력 키워드로 이 글을 측정해 '우측 통합탭/블로그탭(저장값)'에 바로 반영.
-    //   (키워드 자체는 저장 안 함 — 그건 '수정'. 다음 자동 크롤은 기존 키워드로 측정.)
+    // 검색 = 입력 키워드로 이 글을 측정 + '추가 키워드'로 저장(우측 1,2,3 슬롯).
+    //   → 저장되면 다음 크롤부터 자동 키워드와 함께 매일 측정된다. (자동 키워드는 그대로.)
     const run = async () => {
         const q = kw.trim();
         if (!q || !blogId) {
@@ -84,20 +86,21 @@ export function PostSearchCell({
         try {
             // 이 '글' 단위로 측정(블로그탭은 logNo 매칭).
             const r = await searchRankPC(q, blogId, extractLogNo(post.post_url || ''));
-            if (onExtraResult) {
-                // 새 방식: 자동키워드 순위(통합/블로그)는 그대로 두고, 검색한 키워드 결과를 우측 슬롯에 추가.
-                onExtraResult(q, { ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status });
-                setKw('');
-            } else {
-                // 폴백: 자동키워드 저장값을 덮어씀(옛 동작).
-                const today = todayKST();
-                const next: BlogMeasurement[] = [
-                    ...post.measurements.filter((m) => m.date !== today),
-                    { date: today, ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status },
-                ];
-                await updatePostMeasurements(post.id, next);
-                await onSaved();
-            }
+            const today = todayKST();
+            const meas: BlogMeasurement = { date: today, ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status };
+            // 추가 키워드에 병합 — 같은 키워드는 오늘값 교체, 최대 3개(최신이 뒤).
+            const cur = post.extra_keywords || [];
+            const existing = cur.find((e) => e.keyword === q);
+            const merged: BlogExtraKeyword = {
+                keyword: q,
+                measurements: [...(existing?.measurements || []).filter((m) => m.date !== today), meas],
+            };
+            const next = [...cur.filter((e) => e.keyword !== q), merged].slice(-3);
+            const { error } = await updatePostExtraKeywords(post.id, next);
+            if (error) throw new Error(error.message);
+            onExtraResult?.(q, { ti: r.ti, ti_status: r.ti_status, bl: r.bl, bl_status: r.bl_status }); // 즉시 표시(리로드 전)
+            setKw('');
+            await onSaved(); // 저장분 반영(트래커가 post.extra_keywords 를 읽어 슬롯 표시)
         } catch (e) {
             setErr(e instanceof Error ? e.message : '검색 실패');
         } finally {

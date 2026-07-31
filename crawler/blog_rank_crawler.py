@@ -1382,6 +1382,33 @@ def measure_rank(keyword, blog_id, post_url):
     return ti, bl, ti_status, bl_status, ws
 
 
+def measure_extra_keywords(row, blog_id, url):
+    """글의 추가 검색 키워드(extra_keywords, 트래커 우측 1,2,3)를 본 키워드와 별개로 측정.
+    오늘 이미 측정(비-fail)된 건 건너뜀 → 라운드 반복·안정글 스킵과 무관하게 하루 1회만 측정."""
+    eks = row.get("extra_keywords") or []
+    if not eks:
+        return
+    changed = False
+    for ek in eks:
+        ekw = (ek.get("keyword") or "").strip()
+        if not ekw:
+            continue
+        et = next((r for r in (ek.get("measurements") or []) if r.get("date") == TODAY), None)
+        if et and et.get("ti_status") != "fail" and et.get("bl_status") != "fail":
+            continue
+        ti, bl, ti_s, bl_s, ws = measure_rank(ekw, blog_id, url)
+        ems = [r for r in (ek.get("measurements") or []) if r.get("date") != TODAY]
+        ems.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s, "ws": ws})
+        ek["measurements"] = ems
+        changed = True
+    if changed:
+        try:
+            sb_patch("blog_posts", {"id": f"eq.{row['id']}"}, {"extra_keywords": eks})
+            row["extra_keywords"] = eks
+        except Exception as exc:
+            print(f"  [추가키워드 저장실패] {row.get('id')}: {exc}", flush=True)
+
+
 def _skip_stable(measurements, today):
     """요청 절감(2026-06-25) — 직전 측정 2회가 동일(ti·bl 같고 실패 아님)하고 3일 이내면 오늘 측정 스킵.
     변동 가능성 낮은 안정 글은 매일 안 재고, 3일 넘으면 다시 점검. 이력 2건 미만이면 측정."""
@@ -1742,14 +1769,18 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
     # ── 1b) DB 추적글 전체(창 이내) 병합 — RSS 최신 N글에 없는 옛 추적글도 매일 재측정(우측 최신화). ──
     #   블로그당 최신글만이 아니라, 추적 중인 모든 글(발행일 최근 RECENT_DAYS일 이내, 최신순)을 측정 대상에 포함.
     cutoff = recent_cutoff()
+    _base_sel = "id,blog_account_id,post_url,title,keyword,keyword_manual,published_date,measurements"
+    _where = {"or": f"(published_date.gte.{cutoff},published_date.is.null)"}
     try:
-        all_posts = sb_get("blog_posts", {
-            "select": "id,blog_account_id,post_url,title,keyword,keyword_manual,published_date,measurements",
-            "or": f"(published_date.gte.{cutoff},published_date.is.null)",
-        })
-    except Exception as exc:
-        print(f"  DB 추적글 조회 실패(RSS만 측정): {exc}", flush=True)
-        all_posts = []
+        all_posts = sb_get("blog_posts", {"select": _base_sel + ",extra_keywords", **_where})
+    except Exception:
+        # extra_keywords 컬럼 미적용(SQL 미실행) 등 → 그 컬럼만 빼고 재조회(크롤 정상 유지).
+        try:
+            all_posts = sb_get("blog_posts", {"select": _base_sel, **_where})
+            print("  (extra_keywords 컬럼 없음 → 추가키워드 측정 생략. docs/blog-post-extra-keywords.sql 실행 필요)", flush=True)
+        except Exception as exc:
+            print(f"  DB 추적글 조회 실패(RSS만 측정): {exc}", flush=True)
+            all_posts = []
     posts_by_acc = {}
     for p in all_posts:
         posts_by_acc.setdefault(p.get("blog_account_id"), []).append(p)
@@ -1782,6 +1813,8 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
             if not extract_log_no(item.get("url", "")):
                 done += 1
                 continue
+            # 추가 검색 키워드(우측 1,2,3) — 본 키워드와 독립. 스킵 전에 처리해 새로 저장한 키워드도 측정되게.
+            measure_extra_keywords(row, blog_id, item.get("url", ""))
             tr = next((r for r in (row.get("measurements") or []) if r.get("date") == TODAY), None)
             if not force and tr and tr.get("ti_status") != "fail" and tr.get("bl_status") != "fail":
                 done += 1
