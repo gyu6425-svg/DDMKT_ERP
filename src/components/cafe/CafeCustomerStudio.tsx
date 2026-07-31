@@ -178,7 +178,9 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         let alive = true;
         void getCafeAccounts().then(({ data }) => {
             if (!alive) return;
-            const enabled = data.find((x) => x.active && (x as { publish_enabled?: boolean }).publish_enabled !== false);
+            // clientId 로 스코프(관리자가 고객사별 발행 시 그 업체 계정만). 고객 컨텍스트는 RLS로 이미 본인만.
+            const scoped = clientId ? data.filter((x) => x.client_id === clientId) : data;
+            const enabled = scoped.find((x) => x.active && (x as { publish_enabled?: boolean }).publish_enabled !== false);
             setBoard(enabled?.board_name ?? null);
             setCompany(enabled?.company_key ?? null);
             setBrandDefault(enabled?.display_name ?? '');
