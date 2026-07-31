@@ -5,6 +5,7 @@ import { createCustomerPublishJob, listMyCafeJobs, listCafeJobsByCompanies, list
 import { listTokens, balanceOf, consumeToken } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls } from '../../api/cafeStudioSettings';
+import { enqueueGenRequests, publishTargetFor } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { REGION_GROUPS, type RegionSet } from './regions';
@@ -99,7 +100,7 @@ async function pairPhotosRandom(list: string[]): Promise<string[]> {
 export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string | null; onGoCharge?: () => void }) {
     const [approved, setApproved] = useState<boolean | null>(null);
     const [board, setBoard] = useState<string | null>(null);
-    const [, setCompany] = useState<string | null>(null);
+    const [company, setCompany] = useState<string | null>(null);
     const [brandDefault, setBrandDefault] = useState('');
 
     // 공통 업체정보
@@ -108,6 +109,11 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
 
     // 모드
     const [mode, setMode] = useState<'keyword' | 'region'>('region');
+
+    // 발행 요청(cafe_gen_requests) — finder 선택 키워드 → 발행PC(SUB1/SUB2) 대기열로.
+    const [productKw, setProductKw] = useState(''); // finder 제품키워드(입주청소/사설경호/누수탐지…)
+    const [reqBusy, setReqBusy] = useState(false);
+    const [reqMsg, setReqMsg] = useState('');
 
     // SEO 키워드 찾기
 
@@ -478,11 +484,37 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             <CafeKeywordFinder
                 clientId={clientId}
                 mode={mode}
-                onPick={(kws) => {
+                onPick={(kws, pk) => {
                     setSelectedKw(new Set(kws));
+                    setProductKw(pk);
                     if (kws[0]) { if (mode === 'region') setRegionKw(kws[0]); else setKeyword(kws[0]); }
                 }}
             />
+            {/* 발행 요청 보내기 — 고른 키워드를 발행PC 대기열(cafe_gen_requests)로. 원고·이미지는 그 PC가 자기 양식으로 생성·게시. */}
+            {(() => {
+                const target = publishTargetFor(company);
+                const n = selectedKw.size;
+                if (!target) return null;
+                const send = async () => {
+                    if (!n) { setReqMsg('finder에서 발행할 키워드를 고르세요.'); return; }
+                    setReqBusy(true); setReqMsg('');
+                    const { error, count } = await enqueueGenRequests(company!, [...selectedKw], productKw);
+                    setReqBusy(false);
+                    if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
+                    setReqMsg(`${count}건 발행 요청 전송 완료 — ${target.pc} 발행 대기열에 담겼습니다(그 PC가 순차 게시).`);
+                    setSelectedKw(new Set());
+                };
+                return (
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#c4b5fd] bg-[#f5f3ff] p-3">
+                        <div className="text-[13px] font-bold text-[#6d28d9]">발행 요청 → {target.pc} <span className="font-normal text-[#94a3b8]">(게시판: {target.board})</span></div>
+                        <button type="button" onClick={() => void send()} disabled={reqBusy || !n}
+                            className="ml-auto h-10 rounded-lg bg-[#7c3aed] px-5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
+                            {reqBusy ? '전송 중…' : `${target.pc} 발행 요청 (${n}건)`}
+                        </button>
+                        {reqMsg ? <span className="w-full text-[12px] font-semibold text-[#166534]">{reqMsg}</span> : null}
+                    </div>
+                );
+            })()}
 
             {mode === 'keyword' ? (
                 <>

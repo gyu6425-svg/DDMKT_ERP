@@ -13,7 +13,7 @@ export function CafeKeywordFinder({
 }: {
     clientId: string | null;
     mode: 'region' | 'keyword';
-    onPick: (keywords: string[]) => void;
+    onPick: (keywords: string[], productKeyword: string) => void;
 }) {
     const REGION_KEYS = ['서울', '경기', '인천'] as const;
     const [keyword, setKeyword] = useState('');   // 지역형=제품키워드 / 키워드형=참고
@@ -34,7 +34,7 @@ export function CafeKeywordFinder({
     const [usedKw, setUsedKw] = useState<Set<string>>(new Set());
     const normKw = (s: string) => (s || '').trim().replace(/\s+/g, ' ');
 
-    useEffect(() => { onPick(kwPicked.map((k) => k.keyword)); }, [kwPicked, onPick]);
+    useEffect(() => { onPick(kwPicked.map((k) => k.keyword), keyword.trim()); }, [kwPicked, keyword, onPick]);
     useEffect(() => {
         let alive = true;
         void (async () => {
