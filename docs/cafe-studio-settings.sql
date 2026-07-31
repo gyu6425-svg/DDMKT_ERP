@@ -30,3 +30,4 @@ alter table public.cafe_studio_settings add column if not exists naver_id   text
 alter table public.cafe_studio_settings add column if not exists naver_pw   text;  -- 발행 네이버 비밀번호
 alter table public.cafe_studio_settings add column if not exists board_name text;  -- 발행 게시판 이름
 alter table public.cafe_studio_settings add column if not exists board_url  text;  -- 발행 게시판 주소
+alter table public.cafe_studio_settings add column if not exists kakao_url  text;  -- 카카오톡 상담 링크(본문 끝 CTA)

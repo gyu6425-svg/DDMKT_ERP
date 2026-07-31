@@ -121,6 +121,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [showPw, setShowPw] = useState(false);
     const [boardName, setBoardName] = useState('');
     const [boardUrl, setBoardUrl] = useState('');
+    const [kakaoUrl, setKakaoUrl] = useState('');   // 카카오톡 상담 링크 — 본문 끝 CTA. 저장 설정에 포함.
     // 접수 때 고른 SEO 키워드(10~50) — 파인더에 시딩 + 재조회 제외. 계약 목표 건수.
     const [intakePicked, setIntakePicked] = useState<{ keyword: string; volume?: number | null; theme?: string | null }[]>([]);
     const [goalCount, setGoalCount] = useState(0);
@@ -145,6 +146,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 client_id: clientId, brand: brand || null, business: business || null, homepage: linkUrl || null,
                 deploy_type: mode === 'region' ? '지역형' : '키워드형', photos: photoPaths, banners: bannerPaths,
                 naver_id: naverId || null, naver_pw: naverPw || null, board_name: boardName || null, board_url: boardUrl || null,
+                kakao_url: kakaoUrl || null,
             });
             if (error) throw new Error(error.message);
             setSettingsSaved(true); setSettingsMsg('저장됨 · 다음부터 이 값으로 열립니다');
@@ -155,7 +157,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         if (!clientId) return;
         await clearStudioSettings(clientId);
         setBrand(brandDefault); setBusiness(''); setLinkUrl(''); setPhotos([]); setBanners([]); setMainBanner([]);
-        setNaverId(''); setNaverPw(''); setBoardName(''); setBoardUrl('');
+        setNaverId(''); setNaverPw(''); setBoardName(''); setBoardUrl(''); setKakaoUrl('');
         setSettingsSaved(false); setSettingsMsg('초기화됨');
     };
     // 발행용 이미지 조립 — 실사를 랜덤으로 좌우페어/낱개 섞고, [상단배너 + 실사 + 끝배너] 순서·layout 반환.
@@ -252,6 +254,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             const npw = s?.naver_pw ?? cred?.naver_pw; if (npw) setNaverPw(npw);
             const bname = s?.board_name ?? req?.board_name; if (bname) setBoardName(bname);
             if (s?.board_url) setBoardUrl(s.board_url);
+            if (s?.kakao_url) setKakaoUrl(s.kakao_url);
             // 유형/지역 — 저장설정 유형 우선, 지역셋은 접수에서.
             const dtype = s?.deploy_type ?? req?.deploy_type;
             if (dtype === '지역형') setMode('region'); else if (dtype === '키워드형') setMode('keyword');
@@ -366,7 +369,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 const p = targets[i];
                 const r = await genOne(`${p.region} ${p.keyword}`, p.region);
                 rows[i] = { ...rows[i], status: '발행 등록중…' }; setGenRows([...rows]);
-                const links = linkUrl.trim() ? [linkUrl.trim()] : [];
+                const links = [linkUrl.trim(), kakaoUrl.trim()].filter(Boolean);
                 const { images, layout } = await buildImages();   // 실사 랜덤 좌우페어/낱개(발행마다 다르게)
                 const { error } = await createCustomerPublishJob({ title: r.title, body: r.body, images, layout, tags: r.tags, links, region: p.region, keyword: p.keyword });
                 if (!error && clientId) { await consumeToken(clientId, `발행: ${p.region} ${p.keyword}`); remaining -= 1; setTokenBal(remaining); }
@@ -454,6 +457,9 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 </div>
                 <label className="mt-3 grid gap-1 text-xs font-semibold text-[#475569]">홈페이지·링크 (선택) — 본문 맨 끝에 링크카드로 삽입
                     <input className={inputCls} onChange={(e) => setLinkUrl(e.target.value)} placeholder="예) https://내홈페이지.com (더반·누수처럼 글 마지막에 카드로 배치)" value={linkUrl} />
+                </label>
+                <label className="mt-3 grid gap-1 text-xs font-semibold text-[#475569]">카카오톡 상담 링크 (선택) — 본문 끝 상담 CTA
+                    <input className={inputCls} onChange={(e) => setKakaoUrl(e.target.value)} placeholder="예) https://pf.kakao.com/_xxx/chat" value={kakaoUrl} />
                 </label>
             </div>
 

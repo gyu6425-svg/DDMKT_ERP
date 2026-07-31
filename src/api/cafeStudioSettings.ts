@@ -15,6 +15,7 @@ export type StudioSettings = {
     naver_pw?: string | null;   // 발행 네이버 비밀번호
     board_name?: string | null; // 발행 게시판 이름
     board_url?: string | null;  // 발행 게시판 주소
+    kakao_url?: string | null;  // 카카오톡 상담 링크
 };
 
 export async function getStudioSettings(clientId: string) {
