@@ -18,11 +18,6 @@ function todayKST(): string {
     const now = new Date();
     return new Date(now.getTime() + (now.getTimezoneOffset() + 540) * 60000).toISOString().slice(0, 10);
 }
-function ymdKST(offsetDays: number): string {
-    const t = todayKST();
-    const [y, m, d] = t.split('-').map(Number);
-    return new Date(Date.UTC(y, m - 1, d + offsetDays)).toISOString().slice(0, 10);
-}
 const mmdd = (iso: string) => { const [, mo, d] = iso.split('-'); return `${Number(mo)}월 ${Number(d)}일`; };
 
 export function CafeDashboardTab() {
@@ -52,22 +47,12 @@ export function CafeDashboardTab() {
     }, []);
 
     const today = todayKST();
-    const yesterday = ymdKST(-1);
-
-    // 발행일(published_date) 기준 그 날짜 글만.
+    // 발행일(published_date) 기준 그 날짜 글만 — KPI 카드(오늘 발행 X/5)용.
     const onDate = (date: string) => posts.filter((p) => (p.published_date || '').slice(0, 10) === date);
     const countBy = (date: string, board: string) => onDate(date).filter((p) => boardKey(p) === board).length;
 
     const todayTotal = DAILY_TARGETS.reduce((s, b) => s + countBy(today, b), 0);
     const goalTotal = DAILY_TARGETS.length * DAILY_QUOTA;
-
-    // 발행 글 목록(업체 순 → 최신순).
-    const listOf = (date: string) =>
-        onDate(date)
-            .filter((p) => DAILY_TARGETS.includes(boardKey(p)))
-            .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-    const todayList = useMemo(() => listOf(today), [posts, today]);
-    const yList = useMemo(() => listOf(yesterday), [posts, yesterday]);
 
     if (loading) {
         return <div className="rounded-xl border border-[#e2e8f0] bg-white px-6 py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
@@ -117,17 +102,21 @@ export function CafeDashboardTab() {
                 </div>
             </div>
 
-            {/* 오늘 / 어제 발행 글 — 업체별 드롭다운으로 확인 */}
-            {[{ key: 'today', label: `오늘(${mmdd(today)}) 발행`, rows: todayList }, { key: 'yest', label: `어제(${mmdd(yesterday)}) 발행`, rows: yList }].map((sec) => (
-                <div className="rounded-xl border border-[#e2e8f0] bg-white p-4" key={sec.key}>
-                    <div className="mb-2 text-[14px] font-bold text-[#0f172a]">{sec.label} <span className="text-[12px] font-normal text-[#94a3b8]">{sec.rows.length}건</span></div>
+            {/* 오늘까지 발행 건 — 업체별 누적 발행(계약 목표 대비) 드롭다운 */}
+            {(() => {
+                const cumList = (b: string) => posts.filter((p) => boardKey(p) === b).sort((x, y) => (y.created_at || '').localeCompare(x.created_at || ''));
+                const cumTotal = DAILY_TARGETS.reduce((s, b) => s + cumList(b).length, 0);
+                return (
+                <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                    <div className="mb-2 text-[14px] font-bold text-[#0f172a]">오늘까지 발행 건 <span className="text-[12px] font-normal text-[#94a3b8]">{cumTotal}건</span></div>
                     <div className="grid gap-2">
                         {DAILY_TARGETS.map((b) => {
-                            const bp = sec.rows.filter((p) => boardKey(p) === b);
-                            const okey = `${sec.key}:${b}`;
+                            const bp = cumList(b);
+                            const okey = `cum:${b}`;
                             const isOpen = !!open[okey];
                             const st = BOARD_STYLE[b] || { bg: '#f8fafc', fg: '#475569' };
-                            const complete = sec.key === 'today' && bp.length >= DAILY_QUOTA;
+                            const goal = goalByBoard[b] ?? 0;
+                            const complete = goal > 0 && bp.length >= goal;
                             return (
                                 <div className="rounded-lg border border-[#eef0f2]" key={b}>
                                     <button type="button" onClick={() => setOpen((o) => ({ ...o, [okey]: !o[okey] }))}
@@ -135,8 +124,8 @@ export function CafeDashboardTab() {
                                         <span className={`text-[9px] text-[#94a3b8] transition-transform ${isOpen ? 'rotate-90' : ''}`}>▶</span>
                                         <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: st.bg, color: st.fg }}>{b}</span>
                                         <span className="text-[13px] font-bold text-[#334155]">{bp.length}건</span>
-                                        <span className="text-[11px] font-semibold text-[#94a3b8]" title="계약 총 발행건수(목표)">/ 총 {goalByBoard[b] ?? 0}건</span>
-                                        {sec.key === 'today' && complete ? <span className="text-[11px] font-bold text-[#15803d]">✓ 완료</span> : null}
+                                        <span className="text-[11px] font-semibold text-[#94a3b8]" title="계약 총 발행건수(목표)">/ 총 {goal}건</span>
+                                        {complete ? <span className="text-[11px] font-bold text-[#15803d]">✓ 완료</span> : null}
                                         {bp.length === 0 ? <span className="ml-auto text-[11px] text-[#cbd5e1]">발행 없음</span> : null}
                                     </button>
                                     {isOpen && bp.length ? (
@@ -164,7 +153,8 @@ export function CafeDashboardTab() {
                         })}
                     </div>
                 </div>
-            ))}
+                );
+            })()}
         </div>
     );
 }
