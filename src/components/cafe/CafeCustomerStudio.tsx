@@ -96,7 +96,7 @@ async function pairPhotosRandom(list: string[]): Promise<string[]> {
     return out;
 }
 
-export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
+export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string | null; onGoCharge?: () => void }) {
     const [approved, setApproved] = useState<boolean | null>(null);
     const [board, setBoard] = useState<string | null>(null);
     const [company, setCompany] = useState<string | null>(null);
@@ -370,6 +370,23 @@ export function CafeCustomerStudio({ clientId }: { clientId: string | null }) {
     );
 
     if (approved === false) return <CafeCustomerRequest clientId={clientId} />;
+
+    // 토큰 소진(잔여 0) — 발행 사용 불가 + 연장(충전) 안내. (approved 상태는 유지되어 탭은 그대로 노출)
+    if (approved && tokenBal <= 0) {
+        return (
+            <div className="rounded-2xl border-2 border-[#fb923c] bg-[#fff7ed] p-10 text-center">
+                <div className="text-2xl">🎫</div>
+                <div className="mt-2 text-lg font-bold text-[#9a3412]">발행 토큰이 모두 소진되었습니다</div>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#7c2d12]">
+                    자동화 발행을 계속하시려면 토큰을 연장(충전)해 주세요. 충전이 완료되면 바로 다시 발행하실 수 있습니다.
+                </p>
+                <button type="button" onClick={() => onGoCharge?.()}
+                    className="mt-5 rounded-lg bg-[#c2410c] px-6 py-2.5 text-sm font-bold text-white hover:bg-[#9a3412]">
+                    연장(충전)하기 →
+                </button>
+            </div>
+        );
+    }
 
     const inputCls = 'h-10 rounded-lg border border-[#cbd5e1] bg-white px-3 text-sm';
     const now = Date.now();

@@ -124,10 +124,10 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
             <p className="mx-auto mt-2 max-w-md text-sm text-[#94a3b8]">아직 연결된 카페가 없습니다. "카페 배포" 탭에서 접수를 남겨 주세요.</p>
         </div>
     );
-    // 자동화 발행 탭은 담당자 세팅(publish_enabled=true) 후에만 노출.
-    const tabs: [string, string][] = [['sheet', '카페 관리 시트'], ['tracker', '순위 트래커'], ['intake', '카페 배포']];
-    if (publishEnabled) tabs.push(['publish', '카페 자동화 발행']);
-    tabs.push(['charge', '충전내역']);
+    // 자동화 발행 탭 = 순위 트래커와 카페 배포 사이. 토큰 발급(publish_enabled=true) 후에만 노출.
+    const tabs: [string, string][] = [['sheet', '카페 관리 시트'], ['tracker', '순위 트래커']];
+    if (publishEnabled) tabs.push(['publish', '자동화 발행']);
+    tabs.push(['intake', '카페 배포'], ['charge', '충전내역']);
     return (
         <>
             <div className="flex gap-1 border-b border-[#e2e8f0]">
@@ -158,7 +158,7 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
                 : view === 'sheet'
                     ? (sheetKeys.length ? <CafeSheetTab scopeCompanyKey={sheetKeys} readOnly /> : noCafe)
                     : view === 'publish'
-                        ? <CafeCustomerStudio clientId={scopedClientId} />
+                        ? <CafeCustomerStudio clientId={scopedClientId} onGoCharge={() => setView('charge')} />
                         : view === 'charge'
                             ? <CafeTokenHistory clientId={scopedClientId} />
                             : <CafeDeployIntake clientId={scopedClientId} />}

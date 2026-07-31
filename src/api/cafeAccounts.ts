@@ -61,3 +61,19 @@ export async function setCafeAccountPublish(id: string, publish_enabled: boolean
     const { error } = await supabase.from('cafe_accounts').update({ publish_enabled }).eq('id', id);
     return { error };
 }
+
+// 토큰 발급 시 자동화 발행 탭 활성화 — 이 고객의 카페 계정을 발행 승인(publish_enabled=true).
+//   계정이 없으면 생성(접수 없이 토큰만 준 경우 대비). 여러 개면 전부 켠다.
+export async function enablePublishByClient(clientId: string, displayName?: string) {
+    const { data } = await supabase.from('cafe_accounts').select('id').eq('client_id', clientId);
+    if (data && data.length) {
+        const { error } = await supabase.from('cafe_accounts')
+            .update({ publish_enabled: true, active: true }).eq('client_id', clientId);
+        return { error };
+    }
+    const { error } = await supabase.from('cafe_accounts').insert({
+        company_key: `dep_${clientId}`, display_name: displayName || '고객사',
+        client_id: clientId, active: true, publish_enabled: true,
+    });
+    return { error };
+}

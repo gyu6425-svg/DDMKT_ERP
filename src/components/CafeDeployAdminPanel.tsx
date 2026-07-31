@@ -9,6 +9,7 @@ import {
     type DeployCredential,
 } from '../api/cafeDeployRequests';
 import { grantTokens, listChargeRequests, setChargeRequestStatus } from '../api/cafeTokens';
+import { enablePublishByClient } from '../api/cafeAccounts';
 
 // 관리자 — 카페 배포 접수 관리(전 고객). 접수 내용·사진·네이버계정·상태(접수→결제대기→세팅중→완료)를 한 화면에서.
 //   '승인' = 접수→결제대기. 이 순간 고객ERP에 결제(입금계좌) 안내가 노출된다.
@@ -60,6 +61,7 @@ export default function CafeDeployAdminPanel() {
         setIssuing(r.id); setMsg('');
         const { error } = await grantTokens(r.client_id, count, `카페 배포 결제확인 · ${r.company_name}`);
         if (error) { setIssuing(null); return setMsg('토큰 발행 실패: ' + error.message); }
+        await enablePublishByClient(r.client_id, r.company_name); // 자동화 발행 탭 활성화
         await setCafeDeployStatus(r.id, '세팅중');
         // 이 고객의 대기 충전요청을 완료 처리(중복 방지)
         const { data: reqs } = await listChargeRequests(r.client_id);
