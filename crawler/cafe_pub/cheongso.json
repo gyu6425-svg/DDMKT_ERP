@@ -1,0 +1,67 @@
+{
+  "step1": [
+    {
+      "region": "수원",
+      "cafe": 3
+    },
+    {
+      "region": "성남",
+      "cafe": 6
+    },
+    {
+      "region": "용인",
+      "cafe": 5
+    },
+    {
+      "region": "부천",
+      "cafe": 6
+    },
+    {
+      "region": "안산",
+      "cafe": 6
+    },
+    {
+      "region": "안양",
+      "cafe": 6
+    },
+    {
+      "region": "평택",
+      "cafe": 3
+    },
+    {
+      "region": "김포",
+      "cafe": 6
+    },
+    {
+      "region": "화성",
+      "cafe": 6
+    },
+    {
+      "region": "의왕",
+      "cafe": 6
+    },
+    {
+      "region": "오산",
+      "cafe": 6
+    },
+    {
+      "region": "광주",
+      "cafe": 3
+    },
+    {
+      "region": "인천",
+      "cafe": 3
+    },
+    {
+      "region": "부평",
+      "cafe": 6
+    }
+  ],
+  "step2": [
+    {
+      "gu": "강남",
+      "form": "일반형",
+      "cafe": 3
+    }
+  ]
+}

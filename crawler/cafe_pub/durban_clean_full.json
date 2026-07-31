@@ -1,0 +1,230 @@
+{
+  "이사청소": [
+    {
+      "region": "중구",
+      "cafe": 6
+    },
+    {
+      "region": "용산",
+      "cafe": 4
+    },
+    {
+      "region": "노원",
+      "cafe": 4
+    },
+    {
+      "region": "마포",
+      "cafe": 6
+    },
+    {
+      "region": "서초",
+      "cafe": 6
+    },
+    {
+      "region": "강남",
+      "cafe": 6
+    },
+    {
+      "region": "강동",
+      "cafe": 6
+    },
+    {
+      "region": "수원",
+      "cafe": 3
+    },
+    {
+      "region": "성남",
+      "cafe": 6
+    },
+    {
+      "region": "용인",
+      "cafe": 6
+    },
+    {
+      "region": "부천",
+      "cafe": 3
+    },
+    {
+      "region": "안산",
+      "cafe": 3
+    },
+    {
+      "region": "안양",
+      "cafe": 3
+    },
+    {
+      "region": "평택",
+      "cafe": 3
+    },
+    {
+      "region": "김포",
+      "cafe": 5
+    },
+    {
+      "region": "광명",
+      "cafe": 4
+    },
+    {
+      "region": "군포",
+      "cafe": 6
+    },
+    {
+      "region": "의왕",
+      "cafe": 6
+    },
+    {
+      "region": "하남",
+      "cafe": 6
+    },
+    {
+      "region": "구리",
+      "cafe": 6
+    },
+    {
+      "region": "광주",
+      "cafe": 3
+    },
+    {
+      "region": "과천",
+      "cafe": 6
+    },
+    {
+      "region": "인천",
+      "cafe": 3
+    }
+  ],
+  "청소업체": [
+    {
+      "region": "강남",
+      "cafe": 3
+    },
+    {
+      "region": "수원",
+      "cafe": 3
+    },
+    {
+      "region": "성남",
+      "cafe": 6
+    },
+    {
+      "region": "용인",
+      "cafe": 5
+    },
+    {
+      "region": "부천",
+      "cafe": 6
+    },
+    {
+      "region": "안산",
+      "cafe": 6
+    },
+    {
+      "region": "안양",
+      "cafe": 6
+    },
+    {
+      "region": "평택",
+      "cafe": 3
+    },
+    {
+      "region": "김포",
+      "cafe": 6
+    },
+    {
+      "region": "의왕",
+      "cafe": 6
+    },
+    {
+      "region": "오산",
+      "cafe": 6
+    },
+    {
+      "region": "광주",
+      "cafe": 3
+    },
+    {
+      "region": "인천",
+      "cafe": 3
+    },
+    {
+      "region": "부평",
+      "cafe": 6
+    }
+  ],
+  "준공청소": [
+    {
+      "region": "강남",
+      "cafe": 3
+    },
+    {
+      "region": "수원",
+      "cafe": 4
+    },
+    {
+      "region": "용인",
+      "cafe": 1
+    },
+    {
+      "region": "부천",
+      "cafe": 5
+    },
+    {
+      "region": "안산",
+      "cafe": 4
+    },
+    {
+      "region": "안양",
+      "cafe": 5
+    },
+    {
+      "region": "파주",
+      "cafe": 3
+    },
+    {
+      "region": "광주",
+      "cafe": 3
+    },
+    {
+      "region": "인천",
+      "cafe": 6
+    }
+  ],
+  "거주청소": [
+    {
+      "region": "수원",
+      "cafe": 6
+    },
+    {
+      "region": "용인",
+      "cafe": 6
+    },
+    {
+      "region": "부천",
+      "cafe": 5
+    },
+    {
+      "region": "안양",
+      "cafe": 6
+    },
+    {
+      "region": "평택",
+      "cafe": 4
+    },
+    {
+      "region": "파주",
+      "cafe": 5
+    },
+    {
+      "region": "김포",
+      "cafe": 5
+    },
+    {
+      "region": "광주",
+      "cafe": 3
+    },
+    {
+      "region": "인천",
+      "cafe": 6
+    }
+  ]
+}

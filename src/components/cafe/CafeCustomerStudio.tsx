@@ -11,10 +11,6 @@ import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { REGION_GROUPS, type RegionSet } from './regions';
 
 type MyJob = { id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string };
-type Tone = 'review' | 'info' | 'story' | 'talk';
-const TONES: { key: Tone; name: string }[] = [
-    { key: 'review', name: '후기형' }, { key: 'info', name: '정보형' }, { key: 'story', name: '스토리형' }, { key: 'talk', name: '대화형' },
-];
 const STATUS_KO: Record<string, string> = { pending: '대기', processing: '작성 중', posted: '게시됨(확인중)', done: '완료', fail: '실패' };
 
 // 업종 → longform 종류. 더반클린(입주청소)=clean · 누수탐지=leak. 그 외는 null(기존 후기 경로로 폴백).
@@ -117,15 +113,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
 
     // SEO 키워드 찾기
 
-    // 키워드형
-    const [keyword, setKeyword] = useState('');
-    const [region, setRegion] = useState('');
-    const [tone, setTone] = useState<Tone>('review');
-    const [tags, setTags] = useState('');
-    const [linkUrl, setLinkUrl] = useState('');   // 본문 끝 링크카드(홈페이지 등) — 더반·누수처럼 마지막에 OG 썸네일 카드로.
-    const [autoTags, setAutoTags] = useState<string[]>([]);   // longform 자동 태그(수동 tags 와 합쳐 발행).
-    const [title, setTitle] = useState('');
-    const [body, setBody] = useState('');
+    const [linkUrl, setLinkUrl] = useState('');   // 본문 끝 링크카드(홈페이지 등) — 저장 설정에 포함.
     // 업체가 넣는 이미지 — 메인배너(맨 위 1장) + 배너(카드) + 실사(현장사진). 두 모드 발행에 함께 사용.
     const [mainBanner, setMainBanner] = useState<string[]>([]);
     const [banners, setBanners] = useState<string[]>([]);
@@ -163,9 +151,6 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         const mids = photos.length ? await pairPhotosRandom(photos) : [];
         return { images: [...mainBanner, ...mids, ...banners], layout: { top: mainBanner.length, mid: mids.length, tail: banners.length } };
     }
-    const [genBusy, setGenBusy] = useState(false);
-    const [pubBusy, setPubBusy] = useState(false);
-    const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
     // 지역형 — 다중 지역셋 + 다중 SEO 키워드
     const [regionSets, setRegionSets] = useState<Set<RegionSet>>(() => new Set<RegionSet>(['서울']));
@@ -254,30 +239,17 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clientId]);
 
-
-    // 원고 1건 — 업종이 누수/청소면 더반·누수와 '똑같은' longform 양식(제목 "{지역}{업종}" 시작·본문 골격·자동태그).
-    //   그 외 업종은 기존 후기 경로로 폴백. tags 는 하단 태그칩(발행 시 함께 입력).
+    // 지역형 직접발행용 원고 1건 — 누수/청소 업종이면 더반·누수 longform 양식, 그 외는 후기 경로.
     async function genOne(kw: string, reg: string): Promise<{ title: string; body: string; tags: string[] }> {
         const kind = bizKind(business);
         const region2 = (reg || '').trim() || (kind ? deriveRegion(kw, business) : '');
         if (kind && region2) {
-            // phone='' 명시 — 고객은 전화 없음. 안 넘기면 서버가 업종 기본전화(더반/누수)로 채운다.
             const r = await generateLongform({ region: region2, businessKind: kind, brand: brand.trim() || brandDefault || undefined, phone: '' });
             return { title: r.title, body: r.body, tags: longformTags(kind, region2) };
         }
         const g = await generateCafe({ keyword: kw, region: reg || undefined, brand: brand.trim() || brandDefault || undefined, business: business.trim() || undefined });
-        const rv = await generateCafeReview({ keyword: kw, region: reg || undefined, brand: brand.trim() || brandDefault || undefined, business: business.trim() || undefined, content: g.content, tone, count: 6, layout: 'bottom' });
+        const rv = await generateCafeReview({ keyword: kw, region: reg || undefined, brand: brand.trim() || brandDefault || undefined, business: business.trim() || undefined, content: g.content, tone: 'review', count: 6, layout: 'bottom' });
         return { title: rv.title || '', body: rv.reviewBody || '', tags: [] };
-    }
-
-    async function generate() {
-        if (!keyword.trim()) { setMsg({ ok: false, text: '주제(키워드)를 입력해 주세요.' }); return; }
-        setGenBusy(true); setMsg(null);
-        try {
-            const r = await genOne(keyword.trim(), region.trim());
-            setTitle(r.title); setBody(r.body); setAutoTags(r.tags);
-            setMsg({ ok: true, text: '원고를 생성했습니다. 확인·수정 후 발행하세요.' });
-        } catch (e) { setMsg({ ok: false, text: (e as Error).message || '원고 생성 실패' }); } finally { setGenBusy(false); }
     }
 
     async function addFiles(setter: (u: (prev: string[]) => string[]) => void, files: FileList | null, max: number) {
@@ -285,23 +257,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         try {
             const urls = await Promise.all(Array.from(files).slice(0, max).map(fileToDataUrl));
             setter((prev) => [...prev, ...urls].slice(0, max));
-        } catch (e) { setMsg({ ok: false, text: (e as Error).message || '사진 오류' }); }
-    }
-
-    async function publish() {
-        if (!title.trim() || !body.trim()) { setMsg({ ok: false, text: '제목과 본문이 필요합니다.' }); return; }
-        if (tokenBal <= 0) { setMsg({ ok: false, text: '발행 토큰이 없습니다. 충전 후 이용해 주세요. (충전내역 탭)' }); return; }
-        setPubBusy(true); setMsg(null);
-        const manual = tags.split(',').map((s) => s.trim()).filter(Boolean);
-        const tagList = [...new Set([...autoTags, ...manual])].slice(0, 10);   // 자동태그 + 수동태그(중복 제거·최대 10)
-        const links = linkUrl.trim() ? [linkUrl.trim()] : [];                  // 본문 끝 링크카드
-        const { images, layout } = await buildImages();                        // 실사 랜덤 좌우페어/낱개 + 배치
-        const { error, jobId } = await createCustomerPublishJob({ title: title.trim(), body, images, layout, tags: tagList, links, region: region.trim() || undefined, keyword: keyword.trim() || undefined });
-        setPubBusy(false);
-        if (error) { setMsg({ ok: false, text: (error as { message?: string }).message || '발행 등록 실패' }); return; }
-        if (clientId) { await consumeToken(clientId, `발행: ${title.trim().slice(0, 20)}`); setTokenBal((b) => Math.max(0, b - 1)); }
-        setMsg({ ok: true, text: `발행 등록 완료 — 대기열에 담겼습니다. (#${(jobId || '').slice(0, 8)}) · 잔여 토큰 ${Math.max(0, tokenBal - 1)}건` });
-        setTitle(''); setBody(''); setTags(''); setAutoTags([]); setMainBanner([]); setBanners([]); setPhotos([]); void loadJobs(); void loadUsed();
+        } catch { /* 사진 변환 실패 무시 */ }
     }
 
     // 지역형: 선택 지역셋 × 선택 SEO 키워드 인기글 스캔 → 발행건수(N) 채우면 중단.
@@ -487,7 +443,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 onPick={(kws, pk) => {
                     setSelectedKw(new Set(kws));
                     setProductKw(pk);
-                    if (kws[0]) { if (mode === 'region') setRegionKw(kws[0]); else setKeyword(kws[0]); }
+                    if (kws[0] && mode === 'region') setRegionKw(kws[0]);
                 }}
             />
             {/* 발행 요청 보내기 — 고른 키워드를 발행PC 대기열(cafe_gen_requests)로. 원고·이미지는 그 PC가 자기 양식으로 생성·게시. */}
@@ -516,49 +472,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 );
             })()}
 
-            {mode === 'keyword' ? (
-                <>
-                    <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-                        <div className="mb-3 text-[13px] font-bold text-[#334155]">1. 주제 입력 후 원고 자동생성</div>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            <label className="grid gap-1 text-xs font-semibold text-[#475569]">주제 · 키워드 (필수)
-                                <input className={inputCls} onChange={(e) => setKeyword(e.target.value)} placeholder="예) 광교동 입주청소" value={keyword} />
-                            </label>
-                            <label className="grid gap-1 text-xs font-semibold text-[#475569]">지역 (선택)
-                                <input className={inputCls} onChange={(e) => setRegion(e.target.value)} placeholder="예) 수원 광교동" value={region} />
-                            </label>
-                            <label className="grid gap-1 text-xs font-semibold text-[#475569]">말투
-                                <select className={inputCls} onChange={(e) => setTone(e.target.value as Tone)} value={tone}>
-                                    {TONES.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
-                                </select>
-                            </label>
-                        </div>
-                        <button className="mt-3 h-10 rounded-lg bg-[#4338ca] px-5 text-sm font-bold text-white disabled:opacity-50" disabled={genBusy} onClick={generate} type="button">{genBusy ? '원고 생성 중…' : '원고 자동생성'}</button>
-                    </div>
-
-                    <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-                        <div className="mb-3 text-[13px] font-bold text-[#334155]">2. 확인·수정 후 발행</div>
-                        <label className="grid gap-1 text-xs font-semibold text-[#475569]">제목
-                            <input className={inputCls} maxLength={100} onChange={(e) => setTitle(e.target.value)} placeholder="원고 생성 시 자동 입력" value={title} />
-                        </label>
-                        <label className="mt-3 grid gap-1 text-xs font-semibold text-[#475569]">본문
-                            <textarea className="min-h-[240px] rounded-lg border border-[#cbd5e1] px-3 py-2 text-sm font-normal leading-relaxed" onChange={(e) => setBody(e.target.value)} placeholder="원고 생성 시 자동 입력. 직접 수정 가능." value={body} />
-                        </label>
-                        <label className="mt-3 grid gap-1 text-xs font-semibold text-[#475569]">태그 (선택, 쉼표 · 최대 10개)
-                            <input className={inputCls} onChange={(e) => setTags(e.target.value)} placeholder="예) 광교동청소, 입주청소" value={tags} />
-                        </label>
-                        {autoTags.length ? (
-                            <p className="mt-1 text-[11px] text-[#64748b]">자동 태그: {autoTags.join(', ')} <span className="text-[#94a3b8]">(위 칸에 추가 입력 가능)</span></p>
-                        ) : null}
-                        <p className="mt-2 text-[11px] text-[#94a3b8]">※ 이미지(메인배너·배너·실사)는 위 "발행 이미지" 칸에서 넣습니다 — 모든 발행에 함께 들어갑니다.</p>
-                        {msg ? <div className={`mt-3 rounded-lg px-4 py-3 text-sm ${msg.ok ? 'bg-[#ecfdf5] text-[#047857]' : 'bg-[#fef2f2] text-[#b91c1c]'}`}>{msg.text}</div> : null}
-                        <div className="mt-3 flex items-center gap-3">
-                            <button className="h-10 rounded-lg bg-[#0f766e] px-5 text-sm font-bold text-white disabled:opacity-50" disabled={pubBusy || genBusy} onClick={publish} type="button">{pubBusy ? '등록 중…' : '발행하기'}</button>
-                            <span className="text-xs text-[#94a3b8]">등록 후 내 PC 발행 프로그램이 순서대로 게시(즉시 아님).</span>
-                        </div>
-                    </div>
-                </>
-            ) : (
+            {mode === 'region' ? (
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                     <div className="mb-1 text-[13px] font-bold text-[#334155]">지역형 — 지역 × SEO키워드 인기글 스캔 후 통과분만 발행</div>
                     <div className="mb-3 text-[11px] text-[#94a3b8]">선택한 지역들의 시·구 × 선택한 키워드 조합을 인기글 검사 → 발행 건수만큼 채우면 멈춥니다.</div>
@@ -631,7 +545,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     ) : null}
                     <div className="mt-2 text-[11px] text-[#94a3b8]">※ 지역형은 발행 건수만큼 한 번에 생성·발행합니다(원고 자동생성 = 비용 발생). 발행은 내 PC 프로그램이 간격 두고 순차 게시.</div>
                 </div>
-            )}
+            ) : null}
 
             {/* 히스토리(발행 현황) */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">

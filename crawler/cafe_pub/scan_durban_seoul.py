@@ -6,27 +6,13 @@ from urllib.parse import quote
 # 검증된 카페 인기탭 탐지(모바일 m.search 부트스트랩) 재사용 — PC검색+리뷰부트스트랩은 입주청소에서 안 잡힘.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import blog_rank_crawler as c
+from scan_common import cafe_popular as pop_count   # 카페 카드 ≥3 기준(블로그위주 섹션 오탐 방지)
 
 BUSINESS = '입주청소'   # 업종어. 누수탐지로 바꾸려면 이 한 줄만 수정.
 
 
 def has_pop(kw):
-    """이 키워드에 '인기글 테마 섹션'이 존재하는가 — 카페 순위 크롤러와 동일 판정(measure_cafe_rank 참고)."""
-    url = f'https://m.search.naver.com/search.naver?query={quote(kw)}'
-    try:
-        code, html_text = c._fetch_html(url)
-    except Exception:
-        return False
-    if not html_text:
-        return False
-    for b in c.extract_bootstrap_json(html_text):
-        try:
-            j = json.loads(b)
-        except Exception:
-            continue
-        if c._is_popular_section(j):
-            return True
-    return False
+    return pop_count(kw)[0]
 
 
 # 서울 자치구 × 실재 동(주거 밀집 위주). 인기탭 없는 동은 자동 탈락하므로 넉넉히 포함.
@@ -58,27 +44,41 @@ SEOUL = {
 }
 
 
+# 이미 통과·발행한 서울 5동(재발굴 제외)
+EXCLUDE = {'길동', '번동', '창동', '목동', '등촌동'}
+
+
 def main():
+    # gu_dong 형태는 0건 확정 → 제거, dong 단독형만. 서울은 이미 스캔완료(5동) → 경기·인천 METRO_DONG 확장.
+    import cafe_auto_publish_ddclean as D
+    metro = getattr(D, 'METRO_DONG', {})
     cands = []
-    for gu, dongs in SEOUL.items():
+    seen = set()
+    for city, dongs in metro.items():
         for dong in dongs:
-            cands.append((gu, dong, 'gu_dong', f'{gu} {dong} {BUSINESS}'))   # 예: 광진구 자양동 입주청소
-            cands.append((gu, dong, 'dong', f'{dong} {BUSINESS}'))           # 예: 자양동 입주청소
+            if dong in EXCLUDE or dong in seen:
+                continue
+            seen.add(dong)
+            cands.append((city, dong, 'dong', f'{dong} {BUSINESS}'))
     total = len(cands)
-    print(f'[더반 서울 스캔] 업종={BUSINESS} · 후보 {total}개 (약 {total*3//60}분)', flush=True)
+    print(f'[더반 METRO 동 스캔] 업종={BUSINESS} · 경기/인천 후보 {total}개 (약 {total*3//60}분) · 서울 5동은 기존 통과분', flush=True)
     hits = []
-    for i, (gu, dong, form, kw) in enumerate(cands, 1):
-        ok = has_pop(kw)
-        print(f'{i:>3}/{total} {"O" if ok else "x"} {kw}', flush=True)
+    for i, (city, dong, form, kw) in enumerate(cands, 1):
+        ok, n = pop_count(kw)
+        print(f'{i:>3}/{total} {"O" if ok else "x"} {kw}' + (f' 상위{n}' if ok else ''), flush=True)
         if ok:
-            hits.append({'gu': gu, 'dong': dong, 'form': form, 'keyword': kw})
+            hits.append({'city': city, 'dong': dong, 'form': 'dong', 'keyword': kw, 'top': n})
         time.sleep(random.uniform(2.5, 4.0))
-    with open('dong_durban_seoul.json', 'w', encoding='utf-8') as f:
-        json.dump(hits, f, ensure_ascii=False, indent=2)
-    print('\n===== 인기탭 통과 키워드 =====', flush=True)
+    # 기존 서울 5동 + 신규 METRO 통과분 병합 저장
+    seoul5 = [{'city': '서울', 'dong': d, 'form': 'dong', 'keyword': f'{d} 입주청소', 'top': None}
+              for d in ['길동', '번동', '창동', '목동', '등촌동']]
+    allhits = seoul5 + hits
+    with open('dong_durban_metro.json', 'w', encoding='utf-8') as f:
+        json.dump(allhits, f, ensure_ascii=False, indent=2)
+    print('\n===== METRO 인기탭 통과(신규) =====', flush=True)
     for h in hits:
-        print(f'  {h["keyword"]}', flush=True)
-    print(f'\n통과 {len(hits)}/{total} · dong_durban_seoul.json 저장 완료', flush=True)
+        print(f'  [{h["city"]}] {h["keyword"]} (상위{h["top"]})', flush=True)
+    print(f'\n신규 통과 {len(hits)}/{total} · 서울 기존 5동 포함 총 {len(allhits)} · dong_durban_metro.json 저장', flush=True)
 
 
 if __name__ == '__main__':

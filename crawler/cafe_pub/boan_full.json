@@ -1,0 +1,328 @@
+{
+  "사설경호": [
+    {
+      "region": "종로",
+      "cafe": 6
+    },
+    {
+      "region": "성동",
+      "cafe": 6
+    },
+    {
+      "region": "광진",
+      "cafe": 5
+    },
+    {
+      "region": "중랑",
+      "cafe": 6
+    },
+    {
+      "region": "성북",
+      "cafe": 4
+    },
+    {
+      "region": "강북",
+      "cafe": 6
+    },
+    {
+      "region": "노원",
+      "cafe": 6
+    },
+    {
+      "region": "은평",
+      "cafe": 5
+    },
+    {
+      "region": "금천",
+      "cafe": 6
+    },
+    {
+      "region": "관악",
+      "cafe": 6
+    },
+    {
+      "region": "송파",
+      "cafe": 6
+    },
+    {
+      "region": "강동",
+      "cafe": 6
+    },
+    {
+      "region": "성남",
+      "cafe": 6
+    },
+    {
+      "region": "고양",
+      "cafe": 6
+    },
+    {
+      "region": "안산",
+      "cafe": 6
+    },
+    {
+      "region": "안양",
+      "cafe": 6
+    },
+    {
+      "region": "평택",
+      "cafe": 6
+    },
+    {
+      "region": "파주",
+      "cafe": 6
+    },
+    {
+      "region": "광명",
+      "cafe": 6
+    },
+    {
+      "region": "군포",
+      "cafe": 6
+    },
+    {
+      "region": "의왕",
+      "cafe": 4
+    },
+    {
+      "region": "오산",
+      "cafe": 5
+    },
+    {
+      "region": "하남",
+      "cafe": 5
+    },
+    {
+      "region": "구리",
+      "cafe": 5
+    },
+    {
+      "region": "광주",
+      "cafe": 6
+    },
+    {
+      "region": "남동",
+      "cafe": 1
+    },
+    {
+      "region": "계양",
+      "cafe": 5
+    },
+    {
+      "region": "광주",
+      "cafe": 6
+    },
+    {
+      "region": "전주",
+      "cafe": 6
+    }
+  ],
+  "보안업체": [
+    {
+      "region": "중랑",
+      "cafe": 1
+    },
+    {
+      "region": "성북",
+      "cafe": 2
+    },
+    {
+      "region": "구로",
+      "cafe": 2
+    },
+    {
+      "region": "금천",
+      "cafe": 4
+    },
+    {
+      "region": "강동",
+      "cafe": 3
+    },
+    {
+      "region": "수원",
+      "cafe": 5
+    },
+    {
+      "region": "고양",
+      "cafe": 1
+    },
+    {
+      "region": "용인",
+      "cafe": 5
+    },
+    {
+      "region": "부천",
+      "cafe": 4
+    },
+    {
+      "region": "안산",
+      "cafe": 4
+    },
+    {
+      "region": "시흥",
+      "cafe": 3
+    },
+    {
+      "region": "광명",
+      "cafe": 4
+    },
+    {
+      "region": "화성",
+      "cafe": 5
+    },
+    {
+      "region": "군포",
+      "cafe": 6
+    },
+    {
+      "region": "의왕",
+      "cafe": 3
+    },
+    {
+      "region": "하남",
+      "cafe": 4
+    },
+    {
+      "region": "연수",
+      "cafe": 3
+    },
+    {
+      "region": "서구",
+      "cafe": 0
+    },
+    {
+      "region": "대전",
+      "cafe": 4
+    },
+    {
+      "region": "창원",
+      "cafe": 5
+    }
+  ],
+  "경호업체": [
+    {
+      "region": "종로",
+      "cafe": 6
+    },
+    {
+      "region": "중랑",
+      "cafe": 2
+    },
+    {
+      "region": "강북",
+      "cafe": 2
+    },
+    {
+      "region": "도봉",
+      "cafe": 3
+    },
+    {
+      "region": "노원",
+      "cafe": 4
+    },
+    {
+      "region": "은평",
+      "cafe": 3
+    },
+    {
+      "region": "마포",
+      "cafe": 6
+    },
+    {
+      "region": "양천",
+      "cafe": 6
+    },
+    {
+      "region": "구로",
+      "cafe": 5
+    },
+    {
+      "region": "금천",
+      "cafe": 4
+    },
+    {
+      "region": "관악",
+      "cafe": 3
+    },
+    {
+      "region": "송파",
+      "cafe": 3
+    },
+    {
+      "region": "강동",
+      "cafe": 3
+    },
+    {
+      "region": "고양",
+      "cafe": 3
+    },
+    {
+      "region": "용인",
+      "cafe": 3
+    },
+    {
+      "region": "안양",
+      "cafe": 6
+    },
+    {
+      "region": "평택",
+      "cafe": 1
+    },
+    {
+      "region": "시흥",
+      "cafe": 4
+    },
+    {
+      "region": "파주",
+      "cafe": 4
+    },
+    {
+      "region": "김포",
+      "cafe": 3
+    },
+    {
+      "region": "광명",
+      "cafe": 5
+    },
+    {
+      "region": "군포",
+      "cafe": 2
+    },
+    {
+      "region": "의왕",
+      "cafe": 3
+    },
+    {
+      "region": "오산",
+      "cafe": 1
+    },
+    {
+      "region": "하남",
+      "cafe": 1
+    },
+    {
+      "region": "구리",
+      "cafe": 4
+    },
+    {
+      "region": "서구",
+      "cafe": 4
+    },
+    {
+      "region": "대전",
+      "cafe": 3
+    },
+    {
+      "region": "천안",
+      "cafe": 1
+    },
+    {
+      "region": "청주",
+      "cafe": 1
+    },
+    {
+      "region": "전주",
+      "cafe": 5
+    }
+  ]
+}

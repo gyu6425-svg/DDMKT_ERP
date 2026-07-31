@@ -1,0 +1,65 @@
+[
+  {
+    "city": "서울",
+    "dong": "길동",
+    "form": "dong",
+    "keyword": "길동 입주청소",
+    "top": null
+  },
+  {
+    "city": "서울",
+    "dong": "번동",
+    "form": "dong",
+    "keyword": "번동 입주청소",
+    "top": null
+  },
+  {
+    "city": "서울",
+    "dong": "창동",
+    "form": "dong",
+    "keyword": "창동 입주청소",
+    "top": null
+  },
+  {
+    "city": "서울",
+    "dong": "목동",
+    "form": "dong",
+    "keyword": "목동 입주청소",
+    "top": null
+  },
+  {
+    "city": "서울",
+    "dong": "등촌동",
+    "form": "dong",
+    "keyword": "등촌동 입주청소",
+    "top": null
+  },
+  {
+    "city": "안산",
+    "dong": "사동",
+    "form": "dong",
+    "keyword": "사동 입주청소",
+    "top": 3
+  },
+  {
+    "city": "부천",
+    "dong": "중동",
+    "form": "dong",
+    "keyword": "중동 입주청소",
+    "top": 3
+  },
+  {
+    "city": "부천",
+    "dong": "상동",
+    "form": "dong",
+    "keyword": "상동 입주청소",
+    "top": 3
+  },
+  {
+    "city": "군포",
+    "dong": "당동",
+    "form": "dong",
+    "keyword": "당동 입주청소",
+    "top": 3
+  }
+]
