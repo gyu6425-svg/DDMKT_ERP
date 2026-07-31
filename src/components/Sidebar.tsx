@@ -36,7 +36,6 @@ function Sidebar() {
     const [openKeys, setOpenKeys] = useState<Set<string>>(
         () => new Set(SIDEBAR_CATEGORIES.filter((c) => c.dashHref === window.location.pathname).map((c) => c.key)),
     );
-    const [hoverKey, setHoverKey] = useState<string | null>(null);
     const toggleOpen = (key: string) =>
         setOpenKeys((prev) => {
             const next = new Set(prev);
@@ -242,15 +241,11 @@ function Sidebar() {
                                             </a>
                                         );
                                     }
-                                    const expanded = openKeys.has(c.key) || hoverKey === c.key;
+                                    const expanded = openKeys.has(c.key);
                                     const childActive =
                                         linkActive(c.dashHref) || c.subs.some((s) => linkActive(s.href));
                                     return (
-                                        <div
-                                            key={c.key}
-                                            onMouseEnter={() => setHoverKey(c.key)}
-                                            onMouseLeave={() => setHoverKey((k) => (k === c.key ? null : k))}
-                                        >
+                                        <div key={c.key}>
                                             {/* 최상위 — 클릭 시 펼침 토글 */}
                                             <button
                                                 aria-expanded={expanded}
@@ -329,7 +324,7 @@ function Sidebar() {
                         {canSeeAdminPage(profile?.email) ? (() => {
                             const adminActive = currentPath === '/admin';
                             const curTab = new URLSearchParams(loc.search).get('tab') || '';
-                            const expanded = openKeys.has('admin') || hoverKey === 'admin';
+                            const expanded = openKeys.has('admin');
                             const adminSubs = [
                                 ...(canManagePermissions(profile?.email) ? [{ key: 'users', label: '사원 관리' }] : []),
                                 ...(SIGNUP_ENABLED ? [{ key: 'signups', label: '가입 승인' }] : []),
@@ -338,10 +333,7 @@ function Sidebar() {
                                 { key: 'api', label: 'API 사용량' },
                             ];
                             return (
-                                <div
-                                    onMouseEnter={() => setHoverKey('admin')}
-                                    onMouseLeave={() => setHoverKey((k) => (k === 'admin' ? null : k))}
-                                >
+                                <div>
                                     <button
                                         aria-expanded={expanded}
                                         className={`flex w-full items-center justify-between text-[16px] no-underline ${
