@@ -253,15 +253,35 @@ def process(req):
             found.append({"keyword": kw, "volume": v, "theme": r.get("theme"),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
     found.sort(key=lambda f: -(f.get("volume") or 0))  # 고객 화면: 검색량 높은 순
-    # 인기글 진입만으론 target(계약건수) 미달 시 — 플레이스 메뉴 기반 보완 키워드로 채운다.
-    #   예: 메뉴 '키조개 해물삼합' + 지역(전북·군산·선유도) → '전북 키조개 맛집'. 검증X('보완' 표기).
+    # 인기글 진입만으론 target(계약건수) 미달 시 — 플레이스 메뉴 기반 후보도 '실제 인기탭 스캔'해서 통과분만 추가.
+    #   ⚠️ 무조건 채우기(padding) 아님: menu_keywords 후보를 classify로 검증 → 인기탭(has_section+카페분산)만 남긴다.
+    #     통과율이 낮으므로 부족분보다 넉넉히(최대 40개) 뽑아 스캔하고, target 채우면 멈춘다.
     #   음식점 아니면 메뉴가 없어 자동 no-op(지역형 청소·보안 등은 hier로 이미 충분).
     if len(found) < target and pid:
         road, jibun = p.place_address(pid)
         menus = p.place_menu(pid)
         exclude = {f["keyword"].replace(" ", "") for f in found} | seen
-        for kw in p.menu_keywords(info.get("name", ""), road, jibun, menus, target - len(found), exclude, info.get("cats") or []):
-            found.append({"keyword": kw, "volume": None, "theme": "보완(메뉴)", "cafes": [], "filled": True})
+        pool = min(40, max(target - len(found), 1) * 8)
+        for kw in p.menu_keywords(info.get("name", ""), road, jibun, menus, pool, exclude, info.get("cats") or []):
+            if len(found) >= target:
+                break
+            nk = kw.replace(" ", "")
+            if nk in seen:
+                continue
+            seen.add(nk)
+            cached = _cache_get(kw)
+            if cached is not None:
+                r = {"has_section": cached.get("has_section"), "theme": cached.get("theme"),
+                     "verdict": cached.get("verdict"), "rows": cached.get("cafes") or []}
+            else:
+                r = p.classify(kw)
+                _cache_put(kw, r, None)
+                scraped += 1
+                time.sleep(SCAN_GAP)
+            if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
+                found.append({"keyword": kw, "volume": _real_volume(kw), "theme": r.get("theme"),
+                              "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
+        found.sort(key=lambda f: -(f.get("volume") or 0))
     _finish(req["id"], "done", result=found,
             extra={"place_id": pid, "biz_name": info.get("name")},
             note=f"{len(found)}건 발견 / 후보 {len(cands)}")
