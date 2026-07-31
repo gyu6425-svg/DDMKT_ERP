@@ -20,12 +20,19 @@ export function publishTargetFor(companyKey: string | null): PublishTarget | nul
     return companyKey ? PUBLISH_TARGET[companyKey] ?? null : null;
 }
 
+// 더반 업종 = 이 5개만(SUB2 답신). CAFE_BUSINESS 로 제목·태그·CTA배너 분기.
+export const DURBAN_BUSINESS = ['입주청소', '이사청소', '상가청소', '청소업체', '사무실청소'];
+
 // finder 선택 키워드들 → 발행요청 적재. region = 키워드에서 제품키워드 떼기(개포동 입주청소→개포동).
 //   productKeyword: 지역형 제품키워드(입주청소/사설경호/소방업체/누수탐지). durban 은 이 값이 business.
 export async function enqueueGenRequests(companyKey: string, keywords: string[], productKeyword: string) {
     const t = PUBLISH_TARGET[companyKey];
     if (!t) return { error: { message: `발행 라우팅 매핑 없음: ${companyKey}` }, count: 0 };
     const pk = (productKeyword || '').trim();
+    // 더반은 업종이 CAFE_BUSINESS 로 발행 양식을 분기하므로 5개 중 하나여야 오발행이 없다.
+    if (t.businessFromProduct && !DURBAN_BUSINESS.includes(pk)) {
+        return { error: { message: `더반 업종은 [${DURBAN_BUSINESS.join(' · ')}] 중 하나여야 합니다. (제품키워드: ${pk || '없음'})` }, count: 0 };
+    }
     const esc = pk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const rows = keywords.filter(Boolean).map((kw) => {
         const region = pk ? (kw.replace(new RegExp(`\\s*${esc}\\s*$`), '').trim() || kw) : kw;
