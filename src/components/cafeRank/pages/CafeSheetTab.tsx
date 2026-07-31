@@ -115,12 +115,13 @@ export function CafeSheetTab({
     // 숨긴 마이클(ddmkt2) 카페의 실적을 같은 업체(client)의 자체 카페 행에 합산 — 회사 총 실적 표시.
     //   (마이클 카페의 24h 달성분이 관리시트에서 사라지지 않도록. 순위 트래커는 두 카페 각각 표시.)
     const hiddenStatByClient = useMemo(() => {
-        const m = new Map<string, { total: number; ranked: number; achieved: number }>();
+        const m = new Map<string, { total: number; ranked: number; achieved: number; doneBase: number }>();
         for (const a of accounts) {
             if (a.cafe_name === 'ddmkt2' && a.client_id && clientsWithOwnCafe.has(a.client_id)) {
                 const s = statByAccount.get(a.id) || { total: 0, ranked: 0, achieved: 0 };
-                const cur = m.get(a.client_id) || { total: 0, ranked: 0, achieved: 0 };
-                m.set(a.client_id, { total: cur.total + s.total, ranked: cur.ranked + s.ranked, achieved: cur.achieved + s.achieved });
+                const cur = m.get(a.client_id) || { total: 0, ranked: 0, achieved: 0, doneBase: 0 };
+                // 마이클(ddmkt2) 계정의 수동 베이스라인(done_count '이전건')도 자체 카페 행에 합산.
+                m.set(a.client_id, { total: cur.total + s.total, ranked: cur.ranked + s.ranked, achieved: cur.achieved + s.achieved, doneBase: cur.doneBase + (a.done_count || 0) });
             }
         }
         return m;
@@ -253,10 +254,10 @@ export function CafeSheetTab({
                         ) : rows.length ? rows.map((a) => {
                             const own = statByAccount.get(a.id) || { total: 0, ranked: 0, achieved: 0 };
                             const merged = (a.client_id && firstRowIdOfClient.get(a.client_id) === a.id)
-                                ? (hiddenStatByClient.get(a.client_id) || { total: 0, ranked: 0, achieved: 0 })
-                                : { total: 0, ranked: 0, achieved: 0 };
+                                ? (hiddenStatByClient.get(a.client_id) || { total: 0, ranked: 0, achieved: 0, doneBase: 0 })
+                                : { total: 0, ranked: 0, achieved: 0, doneBase: 0 };
                             const st = { total: own.total + merged.total, ranked: own.ranked + merged.ranked, achieved: own.achieved + merged.achieved };
-                            const base = a.done_count || 0;   // 수동 베이스라인
+                            const base = (a.done_count || 0) + merged.doneBase;   // 수동 베이스라인(자체+마이클 이전건)
                             const done = base + st.achieved;  // 실적 = 베이스라인 + 자동 달성(5위 24h)
                             const goal = a.goal_count || (a.client_id ? goalByClient.get(a.client_id) || 0 : 0);
                             const pct = goal ? Math.min(100, Math.round((done / goal) * 100)) : 0;
