@@ -94,12 +94,16 @@ def cache_put(kw, r):
 
 
 def main():
+    use_cf = "--cf" in sys.argv
+    if use_cf:
+        p._USE_CF = True   # CF SERP 프록시(분산IP) 경유 — naver 요청이 CF에서 나가 사무실 유선 IP 미노출.
+        print("[prescan] ☁ CF 경유(--cf) — 분산IP 스캔, 사무실 IP 보호. 모바일 가드 생략.", flush=True)
     ipinfo = public_ip()
     print(f"[prescan] 공인IP {ipinfo.get('query')} · mobile={ipinfo.get('mobile')} · {ipinfo.get('isp')}", flush=True)
-    # ⛔ 안전가드 — 분리(모바일) IP가 아니면 중단. 사무실 유선=메인 새벽크롤 IP라 대량스캔 금지.
-    if not ipinfo.get("mobile") and "--force" not in sys.argv:
-        print("[prescan] ⛔ 모바일(분리)IP 아님 — 사무실 유선/메인 크롤 IP일 수 있어 중단(새벽 크롤 보호).", flush=True)
-        print("[prescan]    폰테더링(분리IP)에서 돌리거나, 정말 유선으로 강행하려면 끝에 --force 붙이세요.", flush=True)
+    # ⛔ 안전가드 — CF도 폰테더링도 아니면 중단. 사무실 유선 직접스캔=메인 새벽크롤 IP 노출이라 금지.
+    if not use_cf and not ipinfo.get("mobile") and "--force" not in sys.argv:
+        print("[prescan] ⛔ CF도 모바일도 아님 — 사무실 유선 직접스캔 중단(새벽 크롤 보호).", flush=True)
+        print("[prescan]    분산IP는 --cf(권장), 폰테더링이면 그대로, 유선 강행은 --force.", flush=True)
         return
     print(f"[prescan] 범위 {SIDO_ORDER} · 업종어 {KEYWORDS} · 마감 {DEADLINE:%H:%M}", flush=True)
 
