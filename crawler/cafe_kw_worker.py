@@ -261,7 +261,9 @@ def process(req):
         road, jibun = p.place_address(pid)
         menus = p.place_menu(pid)
         exclude = {f["keyword"].replace(" ", "") for f in found} | seen
-        pool = min(40, max(target - len(found), 1) * 8)
+        # 통과율이 낮으므로(맛집 메뉴 조합도 인기탭 없는 게 다수) 부족분의 넉넉한 배수로 후보를 크게 뽑아 스캔.
+        #   target 채우면 즉시 멈추고(break), 끝까지 못 채우면 통과분만 반환. 상한 120(≈scan 4분, 600s 예산 내).
+        pool = min(120, max(target - len(found), 1) * 12)
         for kw in p.menu_keywords(info.get("name", ""), road, jibun, menus, pool, exclude, info.get("cats") or []):
             if len(found) >= target:
                 break
