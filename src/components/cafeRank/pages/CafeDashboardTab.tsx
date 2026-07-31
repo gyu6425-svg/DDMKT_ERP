@@ -3,14 +3,14 @@ import { getCafeRankPosts, type CafeRankPost } from '../../../api/cafeRank';
 
 // 카페 · 대시보드 — '오늘 발행해야 할 업체' 체크. 더맨·더티·더반·설고 각 하루 5건씩 발행 → 담당자가 매일 확인.
 //   기록은 cafe_rank_posts.published_date 기준으로 쌓인다(발행 시 자동 편입). 60초 자동 갱신.
-const DAILY_TARGETS = ['더맨시스템', '더티클리닉', '더반클린', '설고점']; // 하루 5건씩 발행하는 업체
+const DAILY_TARGETS = ['더맨시스템', '더티클리닉', '더반클린', '설고']; // 하루 5건씩 발행(board 값 기준: 설고점=board '설고')
 const DAILY_QUOTA = 5;
 const boardKey = (p: CafeRankPost) => p.board || p.cafe_accounts?.board_short || '미분류';
 const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
     더맨시스템: { bg: '#faf5ff', fg: '#7c3aed' },
     더티클리닉: { bg: '#f0fdfa', fg: '#0d9488' },
     더반클린: { bg: '#fdf2f8', fg: '#be185d' },
-    설고점: { bg: '#fff7ed', fg: '#c2410c' },
+    설고: { bg: '#fff7ed', fg: '#c2410c' },
 };
 
 function todayKST(): string {
@@ -49,6 +49,8 @@ export function CafeDashboardTab() {
 
     const todayTotal = DAILY_TARGETS.reduce((s, b) => s + countBy(today, b), 0);
     const goalTotal = DAILY_TARGETS.length * DAILY_QUOTA;
+    // 업체별 총 발행 건수(전체 누적) — 오늘/어제 목록 우측에 '/ 총 N건' 으로 표시(발행 현황 카드의 /5 와 다르게).
+    const totalOf = (b: string) => posts.filter((p) => boardKey(p) === b).length;
 
     // 발행 글 목록(업체 순 → 최신순).
     const listOf = (date: string) =>
@@ -124,11 +126,8 @@ export function CafeDashboardTab() {
                                         <span className={`text-[9px] text-[#94a3b8] transition-transform ${isOpen ? 'rotate-90' : ''}`}>▶</span>
                                         <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: st.bg, color: st.fg }}>{b}</span>
                                         <span className="text-[13px] font-bold text-[#334155]">{bp.length}건</span>
-                                        {sec.key === 'today' ? (
-                                            <span className={`text-[11px] font-bold ${complete ? 'text-[#15803d]' : bp.length > 0 ? 'text-[#b45309]' : 'text-[#cbd5e1]'}`}>
-                                                {complete ? '✓ 완료' : `/ ${DAILY_QUOTA}`}
-                                            </span>
-                                        ) : null}
+                                        <span className="text-[11px] font-semibold text-[#94a3b8]" title="이 업체 전체 누적 발행 건수">/ 총 {totalOf(b)}건</span>
+                                        {sec.key === 'today' && complete ? <span className="text-[11px] font-bold text-[#15803d]">✓ 완료</span> : null}
                                         {bp.length === 0 ? <span className="ml-auto text-[11px] text-[#cbd5e1]">발행 없음</span> : null}
                                     </button>
                                     {isOpen && bp.length ? (
