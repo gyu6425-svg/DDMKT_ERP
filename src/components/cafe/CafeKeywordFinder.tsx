@@ -38,6 +38,8 @@ export function CafeKeywordFinder({
     const [scanNote, setScanNote] = useState('');   // 지역 스캔 진행상태(배너·게이지바) — "진행 x/total · 인기탭 n"
     const [dongLoading, setDongLoading] = useState(false);  // '더 찾기(동까지)' 진행
     const [dongDone, setDongDone] = useState(false);        // 이번 결과에 동 스캔까지 마쳤는지
+    const [pasteText, setPasteText] = useState('');         // 플레이스에 메뉴/정보 없을 때 직접 붙여넣는 정보·메뉴
+    const [extracting, setExtracting] = useState('');       // 붙여넣기→키워드 추출 진행상태
     const [kwExpanded, setKwExpanded] = useState(false);
     const [kwErr, setKwErr] = useState('');
     const [kwHidden, setKwHidden] = useState<string[]>([]);
@@ -166,6 +168,52 @@ export function CafeKeywordFinder({
     };
     const genRegionKeywords = () => runRegion(false);
 
+    // 붙여넣은 정보/메뉴 텍스트 → 제품키워드 추출(검색량 자동 선별). 플레이스에 메뉴·정보가 없을 때 대신 사용.
+    //   ① 텍스트에서 한글 후보 조각 추출(이모지·가격·괄호·비한글 제거) → ② 각 후보 검색량 조회 →
+    //   ③ 검색량 있는 상위만 제품키워드 칸에 채움. 이후 지역 선택 → '지역 키워드 생성'으로 인기탭 스캔.
+    const STOP_TERMS = new Set(['메뉴', '가격', '정보', '추천', '예약', '문의', '전화', '영업', '시간', '주차', '위치', '안내', '상담', '방문', '전문', '서비스', '이벤트', '할인', '특가', '세트', '코스', '기본', '인분', '매장', '대표', '소개', '오늘', '신규', '최고', '최신', '명품', '프리미엄', '무료', '견적', '후기', '리뷰', '문의사항']);
+    const extractKeywords = async () => {
+        const raw = pasteText.trim();
+        if (!raw) { setKwErr('정보/메뉴 텍스트를 붙여넣으세요.'); return; }
+        setKwErr(''); setExtracting('후보 추출 중…'); setVol(null);
+        try {
+            // ① 후보 추출 — 줄/구분자로 조각, 이모지·괄호·비한글 제거. 조각 전체 + 개별 토큰 모두 후보.
+            const segs = raw.replace(/[\u{1F000}-\u{1FAFF}☀-➿]/gu, ' ').split(/[\n,·/|、:;()\[\]{}]+|\s{2,}/);
+            const cand = new Set<string>();
+            for (let s of segs) {
+                s = s.replace(/\([^)]*\)/g, ' ').replace(/[^가-힣\s]/g, ' ').trim();
+                for (const piece of [s, ...s.split(/\s+/)]) {
+                    const t = piece.trim();
+                    if (t.length >= 2 && t.length <= 12 && /[가-힣]/.test(t) && !STOP_TERMS.has(t)) cand.add(t);
+                }
+                if (cand.size >= 60) break;
+            }
+            const cands = [...cand].slice(0, 30);   // 검색량 조회 폭주 방지(상한)
+            if (!cands.length) { setKwErr('추출된 후보가 없습니다 — 메뉴/서비스명을 줄 단위로 붙여넣어 주세요.'); return; }
+            // ② 각 후보 검색량 조회(공식 검색광고 API) → ③ 검색량 있는 것만.
+            const scored: { keyword: string; total: number }[] = [];
+            for (let i = 0; i < cands.length; i++) {
+                setExtracting(`검색량 확인 ${i + 1}/${cands.length}`);
+                const c = cands[i];
+                try {
+                    const d = await (await fetch(`https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(c)}`)).json();
+                    const nk = c.replace(/\s/g, '');
+                    const hit = (d.keywords || []).find((k: { keyword: string; total?: number }) => (k.keyword || '').replace(/\s/g, '') === nk);
+                    const vol2 = hit?.total ?? 0;
+                    if (vol2 > 0) scored.push({ keyword: c, total: vol2 });
+                } catch { /* 이 후보만 건너뜀 */ }
+            }
+            scored.sort((a, b) => b.total - a.total);
+            let top = scored.filter((s) => s.total >= 30).slice(0, 15);
+            if (!top.length) top = scored.slice(0, 8);   // 다 낮으면 상위 8개라도
+            if (!top.length) { setKwErr('검색량 있는 키워드를 찾지 못했습니다 — 다른 텍스트로 시도하세요.'); return; }
+            setVol(top);                                  // 추출된 키워드+검색량 표시(기존 검색량 표 재사용)
+            setKeyword(top.map((t) => t.keyword).join(', '));   // 제품키워드 칸 자동 채움
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '추출 실패');
+        } finally { setExtracting(''); }
+    };
+
     const visible = (kwResult || []).filter((k) => !kwHidden.includes(k.keyword));
     const fresh = visible.filter((k) => !usedKw.has(normKw(k.keyword)));
     const used = visible.filter((k) => usedKw.has(normKw(k.keyword)));
@@ -182,6 +230,18 @@ export function CafeKeywordFinder({
                                 className={`rounded-full border px-3 py-1 text-sm font-semibold ${regionSel.includes(r) ? 'border-[#4338ca] bg-[#4338ca] text-white' : 'border-[#cbd5e1] bg-white text-[#475569]'}`}>{r}</button>
                         ))}
                     </div>
+                    <details className="rounded-md border border-dashed border-[#c4b5fd] bg-white/60 px-3 py-2">
+                        <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 정보/메뉴 붙여넣기 — 플레이스에 메뉴·정보가 없을 때 (여기서 제품키워드 자동 추출)</summary>
+                        <div className="mt-2 grid gap-2">
+                            <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
+                                value={pasteText} onChange={(e) => setPasteText(e.target.value)}
+                                placeholder="플레이스 '정보'·'메뉴'·홈 소개글을 그대로 붙여넣으세요. 줄 단위로 넣으면 더 정확합니다.&#10;예)&#10;입주청소&#10;이사청소&#10;준공청소&#10;상가/사무실 청소" />
+                            <div className="flex items-center gap-2">
+                                <button type="button" onClick={() => void extractKeywords()} disabled={!!extracting} className="h-9 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">{extracting ? '추출 중…' : '① 키워드 뽑기'}</button>
+                                <span className="text-[12px] text-[#6d28d9]">{extracting || '검색량 있는 키워드만 골라 아래 제품키워드 칸에 자동으로 채웁니다.'}</span>
+                            </div>
+                        </div>
+                    </details>
                     <div className="flex flex-wrap gap-2">
                         <input className={`${inputCls} flex-1 min-w-[160px]`} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="제품 키워드 (예: 입주청소, 출장뷔페 — 여러 개는 쉼표)" />
                         <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white disabled:opacity-50">{volLoading ? '조회 중…' : '검색량 조회'}</button>
