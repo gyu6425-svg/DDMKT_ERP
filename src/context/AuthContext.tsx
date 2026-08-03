@@ -29,6 +29,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isAdmin, setIsAdmin] = useState(false)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [pending, setPending] = useState(false) // 프로필 비활성(회원가입 승인 대기)
+  const [needsOnboarding, setNeedsOnboarding] = useState(false) // 카카오 가입 후 온보딩(역할·업체명) 미완료
   const [session, setSession] = useState<Session | null>(null)
   // 개발용 역할 시뮬레이터 — auth 켜기 전까지 각 역할로 UI 게이팅 테스트.
   const [simKey, setSimKeyState] = useState<string | null>(readRoleSim)
@@ -52,7 +53,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       .eq('user_id', userId)
       .maybeSingle<Profile>()
     const profileData = profileRow?.is_active ? profileRow : null
-    setPending(!!profileRow && !profileRow.is_active)
+    // 승인 대기 = 프로필이 비활성이고 온보딩까지 끝난 상태(관리자 승인만 남음).
+    setPending(!!profileRow && !profileRow.is_active && profileRow.onboarded !== false)
+    // 온보딩 필요 = 프로필이 아예 없거나(카카오 트리거 미생성 포함) 비활성+온보딩 미완료.
+    //   프로필 없는 로그인 세션이 빈 포털로 갇히지 않도록 여기서 온보딩으로 보낸다(RPC가 프로필 생성).
+    setNeedsOnboarding(!profileRow || (!profileRow.is_active && profileRow.onboarded === false))
 
     if (profileData?.role) {
       roles.push(profileData.role)
@@ -109,6 +114,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setProfile(null)
       setIsAdmin(false)
       setPending(false)
+      setNeedsOnboarding(false)
     }
 
     setLoading(false)
@@ -178,6 +184,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       loading,
       profile,
       pending,
+      needsOnboarding,
       session,
       signOut,
       user: session?.user ?? null,
@@ -189,7 +196,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       simKey,
       setSimKey,
     }),
-    [grant, loading, profile, pending, session, signOut, simKey, setSimKey],
+    [grant, loading, profile, pending, needsOnboarding, session, signOut, simKey, setSimKey],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

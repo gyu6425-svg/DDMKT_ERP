@@ -45,6 +45,31 @@ export async function signInWithPassword(email: string, password: string) {
     return supabase.auth.signInWithPassword({ email: em, password });
 }
 
+// 카카오 소셜 로그인 — OAuth 리다이렉트. 돌아올 주소는 현재 도메인(origin) 기준이라 pages.dev·.com 모두 자동.
+//   전제: Supabase Auth > Providers > Kakao 활성화 + Redirect URLs 에 이 origin 등록.
+export async function signInWithKakao() {
+    if (!hasSupabaseConfig) {
+        return { data: null, error: missingConfigError };
+    }
+    return supabase.auth.signInWithOAuth({
+        provider: 'kakao',
+        options: { redirectTo: `${window.location.origin}/dashboard` },
+    });
+}
+
+// 카카오 가입 후 온보딩 — 본인 비활성 프로필에 역할/이름·업체명/연락처 저장(kakao_onboard RPC).
+export async function submitKakaoOnboarding(role: 'viewer' | 'reporter', name: string, phone: string) {
+    if (!hasSupabaseConfig) {
+        return { error: missingConfigError };
+    }
+    const { error } = await supabase.rpc('kakao_onboard', {
+        p_role: role,
+        p_name: name.trim(),
+        p_phone: phone.trim(),
+    });
+    return { error };
+}
+
 // 비밀번호 변경 — 로그인 상태에서 새 비밀번호 저장(Supabase Auth에 영구 반영).
 export async function updatePassword(password: string) {
     if (!hasSupabaseConfig) {

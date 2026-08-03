@@ -15,7 +15,8 @@ import BannerGeneratorPage from './routes/BannerGeneratorPage';
 import LoginPage from './routes/LoginPage';
 import SignupPage from './routes/SignupPage';
 import PendingApprovalGate from './components/PendingApprovalGate';
-import { SIGNUP_ENABLED } from './lib/authConfig';
+import OnboardingGate from './components/OnboardingGate';
+import { SIGNUP_ENABLED, AUTH_DISABLED } from './lib/authConfig';
 import MemosPage from './routes/MemosPage';
 import MyPage from './routes/MyPage';
 import PowerLinkPage from './routes/PowerLinkPage';
@@ -66,7 +67,7 @@ const routes = [
 
 function App() {
     const [currentPath, setCurrentPath] = useState(window.location.pathname);
-    const { role, loading, pending } = useAuth();
+    const { role, loading, pending, needsOnboarding } = useAuth();
     // 고객(viewer) = 고객 포털(/portal)만. 기자단(reporter) = 기자단 포털(/reporter)만. 회사 ERP 경로 차단.
     const isCustomer = role === 'viewer';
     const isReporter = role === 'reporter';
@@ -121,6 +122,17 @@ function App() {
             <>
                 <UpdateBanner />
                 <SignupPage />
+            </>
+        );
+    }
+
+    // 카카오 가입 후 온보딩 미완료(또는 프로필 미생성) — 역할·업체명 입력 화면만(승인 대기보다 먼저).
+    //   AUTH_DISABLED(개발 익명세션)에선 프로필이 없어도 온보딩 게이트를 띄우지 않는다.
+    if (!loading && !AUTH_DISABLED && needsOnboarding) {
+        return (
+            <>
+                <UpdateBanner />
+                <OnboardingGate />
             </>
         );
     }

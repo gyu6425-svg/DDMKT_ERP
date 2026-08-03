@@ -24,6 +24,8 @@ export type Profile = {
     client_id: string | null; // 고객 계정 → 본인 업체(clients.id). 내부 직원은 null.
     signup_company?: string | null; // 회원가입 시 입력한 업체명(관리자 승인 매칭용)
     signup_biz_no?: string | null; // 회원가입 시 입력한 사업자등록번호
+    onboarded?: boolean | null; // 카카오 가입 후 온보딩(역할·업체명) 완료 여부. 이메일 가입=true
+
     department: string | null;
     position: string | null;
     phone: string | null;
