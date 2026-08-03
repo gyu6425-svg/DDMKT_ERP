@@ -21,6 +21,17 @@ FILES = {
     "세종": "hangjeongdong_세종특별자치시.geojson",
     "충북": "hangjeongdong_충청북도.geojson",
     "충남": "hangjeongdong_충청남도.geojson",
+    # 전국 나머지(2026-08 확장) — 강원·전라·경상·제주
+    "강원": "hangjeongdong_강원도.geojson",
+    "전북": "hangjeongdong_전라북도.geojson",
+    "전남": "hangjeongdong_전라남도.geojson",
+    "광주": "hangjeongdong_광주광역시.geojson",
+    "경북": "hangjeongdong_경상북도.geojson",
+    "경남": "hangjeongdong_경상남도.geojson",
+    "대구": "hangjeongdong_대구광역시.geojson",
+    "부산": "hangjeongdong_부산광역시.geojson",
+    "울산": "hangjeongdong_울산광역시.geojson",
+    "제주": "hangjeongdong_제주특별자치도.geojson",
 }
 HERE = pathlib.Path(__file__).resolve().parent
 OUT = HERE / "region_dong_master.json"

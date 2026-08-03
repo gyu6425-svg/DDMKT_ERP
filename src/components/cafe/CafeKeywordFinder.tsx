@@ -23,7 +23,7 @@ export function CafeKeywordFinder({
     extraUsed?: string[];            // 재조회 결과에서 추가로 제외할 키워드(접수 선택분 등)
     goalCount?: number;              // 계약 목표 건수 — "앞으로 N개 더" 안내
 }) {
-    const REGION_KEYS = ['서울', '경기', '인천', '대전', '세종', '충북', '충남'] as const;
+    const REGION_KEYS = ['서울', '경기', '인천', '대전', '세종', '충북', '충남', '강원', '전북', '전남', '광주', '대구', '경북', '경남', '부산', '울산', '제주'] as const;
     const [keyword, setKeyword] = useState('');   // 지역형=제품키워드 / 키워드형=참고
     const [url, setUrl] = useState('');            // 키워드형 플레이스 주소
     const [regionSel, setRegionSel] = useState<string[]>([]);
