@@ -403,11 +403,9 @@ def main():
     while True:
         row = _claim()
         if row:
-            # IP 공유 대비: main 블로그/당일 크롤이 도는 중이면 이 요청은 CF로(직접 IP 회피),
-            #   아니면 이 PC IP로 직접. sub4처럼 사무실 IP를 공유해도 크롤과 안 부딪힌다.
-            p._USE_CF = p.blog_crawl_active()
-            if p._USE_CF:
-                print(f"[{row['id']}] main 크롤 감지 → 이 요청은 CF 경유(IP 공유 회피)", flush=True)
+            # 항상 CF 경유(분산IP) — 차단 방지 + 사무실 IP 미노출(검증됨: 차단 0). CAFE_KW_DIRECT=1 이면 직접(구형).
+            p._USE_CF = (os.getenv("CAFE_KW_DIRECT") != "1") or p.blog_crawl_active()
+            print(f"[{row['id']}] 스캔 IP: {'CF 분산' if p._USE_CF else '직접'}", flush=True)
             try:
                 process(row)
             except Exception as e:
