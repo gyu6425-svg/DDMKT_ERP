@@ -46,3 +46,24 @@ export async function enqueueGenRequests(companyKey: string, keywords: string[],
     const { error } = await supabase.from('cafe_gen_requests').insert(rows);
     return { error, count: rows.length };
 }
+
+// 신규 업체(모델B: 고객 자기 카페·자기 계정) 발행요청 — PUBLISH_TARGET 에 없는 접수 고객용.
+//   고정업체(더반/누수 등)와 달리 client_id 로 고객 계정/카페를 잇는다. SUB2 가 client_id→credentials·카페로 대신발행.
+//   전제: docs/cafe-gen-requests-client.sql (client_id 컬럼).
+export async function enqueueGenRequestsSelf(
+    companyKey: string, clientId: string, board: string | null, keywords: string[], productKeyword: string,
+) {
+    const pk = (productKeyword || '').trim();
+    const esc = pk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rows = keywords.filter(Boolean).map((kw) => {
+        const region = pk ? (kw.replace(new RegExp(`\\s*${esc}\\s*$`), '').trim() || kw) : kw;
+        return {
+            company: companyKey, board: board || null, business: null,
+            region, keyword: kw, popular_verified: true, status: 'pending',
+            client_id: clientId,   // ← 신규 업체 식별: SUB2 가 이 값으로 고객 계정/카페 조회
+        };
+    });
+    if (!rows.length) return { error: { message: '보낼 키워드가 없습니다.' }, count: 0 };
+    const { error } = await supabase.from('cafe_gen_requests').insert(rows);
+    return { error, count: rows.length };
+}

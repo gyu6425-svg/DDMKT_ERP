@@ -87,5 +87,12 @@ PATCH /rest/v1/cafe_deploy_requests?id=eq.<id>   {"status":"완료"}
 
 ---
 
-## 6. 나중(별도): main 발행버튼 → SUB2 자동 트리거
+## 6. 스튜디오 발행요청 큐 (cafe_gen_requests, client_id) — 추가분 발행
+접수의 selected_keywords 외에, 담당자가 **자동화 발행 스튜디오**(CafeCustomerStudio)에서 finder로 키워드를 더 골라 "SUB2 발행 요청"을 누르면 **`cafe_gen_requests`** 에 쌓인다(고정업체와 같은 큐, 단 **client_id 채워짐**). 전제: docs/cafe-gen-requests-client.sql.
+- 신규 업체 요청 식별 = **`client_id is not null`** (고정업체 더반/누수는 client_id null·company=durban/leak3).
+- 각 행: company(고객 company_key)·board(고객 게시판)·region·keyword·client_id·status=pending.
+- SUB2 처리: `cafe_gen_requests?client_id=not.is.null&status=eq.pending` claim(CAS) → **client_id 로 `cafe_deploy_credentials`(계정)·`cafe_accounts`(카페/게시판/club_id) 조회** → 그 계정·카페로 keyword 발행(2절 절차 동일) → status done + queue_job_id.
+- 즉 **접수(초기 selected_keywords) + 이 큐(추가 키워드)** 둘 다 처리하면 됨.
+
+## 7. 나중(별도): main 발행버튼 → SUB2 자동 트리거
 지금은 SUB2 수동. 최종엔 main 발행 버튼이 이 접수를 '발행배정'으로 표시 → SUB2가 폴링해 위 절차 자동 실행. 그 큐/플래그는 그때 main측에 붙임.

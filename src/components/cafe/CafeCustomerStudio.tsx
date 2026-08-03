@@ -7,7 +7,7 @@ import { getCafeAccounts } from '../../api/cafeAccounts';
 import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls } from '../../api/cafeStudioSettings';
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, type CafeRankPost } from '../../api/cafeRank';
-import { enqueueGenRequests, publishTargetFor } from '../../api/cafeGenRequests';
+import { enqueueGenRequests, enqueueGenRequestsSelf, publishTargetFor } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { REGION_GROUPS, type RegionSet } from './regions';
@@ -524,23 +524,29 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             {/* 발행 요청 보내기 — 고른 키워드를 발행PC 대기열(cafe_gen_requests)로. 원고·이미지는 그 PC가 자기 양식으로 생성·게시. */}
             {(() => {
                 const target = publishTargetFor(company);
+                // 고정업체(더반/누수 등)=우리 카페. 그 외 = 신규 업체(모델B: 고객 자기 카페·자기 계정 → SUB2).
+                const isSelf = !target && !!company && !!clientId;
+                if (!target && !isSelf) return null;
+                const pc = target?.pc ?? 'SUB2';
+                const boardName = target?.board ?? (board ?? '자기 카페');
                 const n = selectedKw.size;
-                if (!target) return null;
                 const send = async () => {
                     if (!n) { setReqMsg('finder에서 발행할 키워드를 고르세요.'); return; }
                     setReqBusy(true); setReqMsg('');
-                    const { error, count } = await enqueueGenRequests(company!, [...selectedKw], productKw);
+                    const { error, count } = target
+                        ? await enqueueGenRequests(company!, [...selectedKw], productKw)
+                        : await enqueueGenRequestsSelf(company!, clientId!, board, [...selectedKw], productKw);
                     setReqBusy(false);
                     if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
-                    setReqMsg(`${count}건 발행 요청 전송 완료 — ${target.pc} 발행 대기열에 담겼습니다(그 PC가 순차 게시).`);
+                    setReqMsg(`${count}건 발행 요청 전송 완료 — ${pc} 발행 대기열에 담겼습니다(그 PC가 순차 게시).`);
                     setSelectedKw(new Set());
                 };
                 return (
                     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#c4b5fd] bg-[#f5f3ff] p-3">
-                        <div className="text-[13px] font-bold text-[#6d28d9]">발행 요청 → {target.pc} <span className="font-normal text-[#94a3b8]">(게시판: {target.board})</span></div>
+                        <div className="text-[13px] font-bold text-[#6d28d9]">발행 요청 → {pc} <span className="font-normal text-[#94a3b8]">(게시판: {boardName}{isSelf ? ' · 자기 계정' : ''})</span></div>
                         <button type="button" onClick={() => void send()} disabled={reqBusy || !n}
                             className="ml-auto h-10 rounded-lg bg-[#7c3aed] px-5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
-                            {reqBusy ? '전송 중…' : `${target.pc} 발행 요청 (${n}건)`}
+                            {reqBusy ? '전송 중…' : `${pc} 발행 요청 (${n}건)`}
                         </button>
                         {reqMsg ? <span className="w-full text-[12px] font-semibold text-[#166534]">{reqMsg}</span> : null}
                     </div>
