@@ -230,6 +230,29 @@ export async function getLatestDeployForStudio(clientId: string): Promise<Studio
     return { req, cred, photoUrls };
 }
 
+// 카페 등록(토큰 발행) 시 계약관리(client_contracts '카페 배포')에 자동 반영 — 건당 15,000원.
+//   이미 '카페 배포' 계약이 있는 업체(더맨 등 수동 관리)는 건드리지 않는다(중복 방지). 없을 때만 생성.
+export const CAFE_UNIT_PRICE_KRW = 15000;
+export async function ensureCafeDeployContract(clientId: string, count: number) {
+    if (!clientId || !count || count <= 0) return { error: null, created: false };
+    const { data: existing } = await supabase.from('client_contracts')
+        .select('id').eq('client_id', clientId).eq('subtype', '카페 배포').limit(1);
+    if (existing && existing.length) return { error: null, created: false };
+    const today = new Date().toISOString().slice(0, 10);
+    const { error } = await supabase.from('client_contracts').insert({
+        client_id: clientId,
+        category: '카페',
+        subtype: '카페 배포',
+        goal_count: count,
+        remain_count: count,
+        unit_price: CAFE_UNIT_PRICE_KRW,
+        amount: count * CAFE_UNIT_PRICE_KRW,
+        contract_date: today,
+        sheet_approved: true,
+    });
+    return { error, created: !error };
+}
+
 // 이 업체의 '카페 배포' 계약 목표 건수 합(있으면). 발행 스튜디오에서 "앞으로 N개 더 선택" 안내에 사용.
 export async function getCafeDeployGoal(clientId: string): Promise<number> {
     const { data } = await supabase.from('client_contracts')

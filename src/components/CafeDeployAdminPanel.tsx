@@ -6,6 +6,7 @@ import {
     setCafeDeployStatus,
     deleteCafeDeployRequest,
     updateDeployClubid,
+    ensureCafeDeployContract,
     type CafeDeployRequest,
     type DeployCredential,
 } from '../api/cafeDeployRequests';
@@ -71,12 +72,14 @@ export default function CafeDeployAdminPanel() {
         if (error) { setIssuing(null); return setMsg('토큰 발행 실패: ' + error.message); }
         await enablePublishByClient(r.client_id, r.company_name); // 자동화 발행 탭 활성화
         await setCafeDeployStatus(r.id, '세팅중');
+        // 계약관리 자동 반영 — '카페 배포' 계약 없으면 건수×15,000원으로 생성(기존 계약 있으면 유지).
+        const { created } = await ensureCafeDeployContract(r.client_id, count);
         // 이 고객의 대기 충전요청을 완료 처리(중복 방지)
         const { data: reqs } = await listChargeRequests(r.client_id);
         await Promise.all((reqs || []).filter((q) => q.status === 'pending').map((q) => setChargeRequestStatus(q.id, 'done')));
         setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, status: '세팅중' } : x)));
         setIssuing(null); setIssueOpen(null);
-        setMsg(`${r.company_name} +${count}건(토큰) 발행 완료 → 세팅중`);
+        setMsg(`${r.company_name} +${count}건(토큰) 발행 완료 → 세팅중${created ? ` · 계약관리 자동 등록(₩${(count * 15000).toLocaleString('ko-KR')})` : ''}`);
     };
 
     // 접수내역 삭제 — ①발행했던 토큰 회수(고객 충전내역에 '조정 -N' 기록) ②사진·자격증명 정리 후 행 삭제(2단계 확인).
