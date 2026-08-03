@@ -20,6 +20,7 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
         subs: ['슬롯', '가구매', '실구매', '스토어 리뷰'],
     },
     { key: 'powerlink', label: '파워링크', path: '/powerlink-rank', ready: false, subs: ['파워링크'] },
+    { key: 'traffic', label: '트래픽', path: '', ready: false, subs: ['트래픽'] },
     {
         key: 'video',
         label: '영상',
