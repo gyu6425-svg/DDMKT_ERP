@@ -36,6 +36,8 @@ export function CafeKeywordFinder({
     const [kwResult, setKwResult] = useState<KwResult[] | null>(null);
     const [kwLoading, setKwLoading] = useState(false);
     const [scanNote, setScanNote] = useState('');   // 지역 스캔 진행상태(배너·게이지바) — "진행 x/total · 인기탭 n"
+    const [dongLoading, setDongLoading] = useState(false);  // '더 찾기(동까지)' 진행
+    const [dongDone, setDongDone] = useState(false);        // 이번 결과에 동 스캔까지 마쳤는지
     const [kwExpanded, setKwExpanded] = useState(false);
     const [kwErr, setKwErr] = useState('');
     const [kwHidden, setKwHidden] = useState<string[]>([]);
@@ -108,51 +110,61 @@ export function CafeKeywordFinder({
         } finally { setKwLoading(false); }
     };
 
-    // 지역형 — 선택 시도의 행정구/시 × 제품키워드(들) 인기탭 조회. 쉼표/줄바꿈으로 여러 개 입력하면 전부 큐에 넣고 결과 합침.
-    const genRegionKeywords = async () => {
+    // 지역형 — 선택 시도의 행정구/시 × 제품키워드(들) 인기탭 조회.
+    //   기본(includeDong=false): 구/시만 빠르게 → 결과 즉시. '더 찾기(동까지)'(true): 동(洞)까지 추가 스캔해 기존 결과에 합침.
+    //   쉼표/줄바꿈으로 여러 개 입력하면 전부 먼저 큐에 넣고(누락 방지) 순차 폴링·누적.
+    const runRegion = async (includeDong: boolean) => {
         const kws = [...new Set(keyword.split(/[,\n]/).map((s) => s.trim()).filter(Boolean))];
         if (!kws.length) { setKwErr('제품 키워드를 입력하세요. 예: 입주청소 (여러 개는 쉼표로)'); return; }
         if (!regionSel.length) { setKwErr('지역을 선택하세요.'); return; }
-        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwExpanded(false); setKwHidden([]); if (!initialPicked?.length) setKwPicked([]);
+        const setLoading = includeDong ? setDongLoading : setKwLoading;
+        setKwErr(''); setLoading(true); setScanNote('');
+        if (!includeDong) { setKwResult(null); setKwExpanded(false); setKwHidden([]); setDongDone(false); if (!initialPicked?.length) setKwPicked([]); }
         const dedup = (arr: KwResult[]) => {
             const seen = new Set<string>(); const out: KwResult[] = [];
             for (const r of arr) { const nk = (r.keyword || '').replace(/\s/g, ''); if (seen.has(nk)) continue; seen.add(nk); out.push(r); }
             return out.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
         };
         try {
-            const gus = await getRegionGuTokens(regionSel);   // 구/시 토큰(지역셋 공통 — 한 번만)
-            const merged: KwResult[] = [];
+            const merged: KwResult[] = includeDong ? [...(kwResult || [])] : [];
             const toScan: string[] = [];
-            // ① 각 키워드 캐시 먼저(즉시). 캐시 없는 것만 라이브 스캔 대상으로.
-            for (const kw of kws) {
-                const combos = [...new Set(gus.map((g) => `${g.token} ${kw}`))];
-                const cached = await getPopularFromCache(combos);
-                if (cached.length) merged.push(...cached); else toScan.push(kw);
+            if (!includeDong) {
+                // 구/시 캐시 먼저(즉시). 캐시 없는 것만 라이브 스캔 대상으로.
+                const gus = await getRegionGuTokens(regionSel);
+                for (const kw of kws) {
+                    const combos = [...new Set(gus.map((g) => `${g.token} ${kw}`))];
+                    const cached = await getPopularFromCache(combos);
+                    if (cached.length) merged.push(...cached); else toScan.push(kw);
+                }
+                if (merged.length) setKwResult(dedup(merged));   // 캐시분 먼저 즉시
+            } else {
+                toScan.push(...kws);   // 동은 조합이 달라 워커에 맡김(내부 배치캐시로 재스캔 빠름)
             }
-            if (merged.length) setKwResult(dedup(merged));     // 캐시분 먼저 즉시 표시
-            // ② 캐시 없는 키워드는 '전부 먼저 큐 등록'(하나가 오래 걸려도 나머지 누락 방지) → 순차 폴링.
+            // 캐시 없는 키워드는 '전부 먼저 큐 등록' → 순차 폴링.
             const jobs: { kw: string; id: number }[] = [];
             for (const kw of toScan) {
-                const { id } = await enqueueRegionScan(kw, regionSel.join(','));
+                const { id } = await enqueueRegionScan(kw, regionSel.join(','), 300, includeDong);
                 if (id) jobs.push({ kw, id });
             }
             for (let i = 0; i < jobs.length; i++) {
                 const { kw, id } = jobs[i];
                 const tag = jobs.length > 1 ? ` (${i + 1}/${jobs.length})` : '';
-                setScanNote(`${kw} 스캔 시작…${tag}`);
+                setScanNote(`${kw}${includeDong ? ' 동' : ''} 스캔 시작…${tag}`);
                 try {
                     const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(`${kw} · ${note}${tag}`) });
                     merged.push(...result);
-                    setKwResult(dedup(merged));                 // 끝나는 대로 누적 표시
+                    setKwResult(dedup(merged));                 // 끝나는 대로 누적
                 } catch { /* 이 키워드만 실패 — 나머지 계속 */ }
             }
             const final = dedup(merged);
             if (!final.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${regionSel.join('·')} × "${kws.join(', ')}"`); return; }
             setKwResult(final);
+            if (includeDong) setDongDone(true);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '조회 실패');
-        } finally { setKwLoading(false); setScanNote(''); }
+        } finally { setLoading(false); setScanNote(''); }
     };
+    const genRegionKeywords = () => runRegion(false);
 
     const visible = (kwResult || []).filter((k) => !kwHidden.includes(k.keyword));
     const fresh = visible.filter((k) => !usedKw.has(normKw(k.keyword)));
@@ -173,7 +185,10 @@ export function CafeKeywordFinder({
                     <div className="flex flex-wrap gap-2">
                         <input className={`${inputCls} flex-1 min-w-[160px]`} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="제품 키워드 (예: 입주청소, 출장뷔페 — 여러 개는 쉼표)" />
                         <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white disabled:opacity-50">{volLoading ? '조회 중…' : '검색량 조회'}</button>
-                        <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '생성 중…' : '지역 키워드 생성'}</button>
+                        <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading || dongLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '생성 중…' : '지역 키워드 생성'}</button>
+                        {kwResult && kwResult.length > 0 && !dongDone && (
+                            <button type="button" onClick={() => void runRegion(true)} disabled={kwLoading || dongLoading} title="동(洞) 단위까지 추가로 스캔 — 검색량 있는 동만" className="h-10 shrink-0 rounded-md border border-[#7c3aed] bg-white px-4 text-sm font-bold text-[#7c3aed] disabled:opacity-50">{dongLoading ? '동 스캔 중…' : '＋ 더 찾기(동까지)'}</button>
+                        )}
                     </div>
                 </div>
             ) : (

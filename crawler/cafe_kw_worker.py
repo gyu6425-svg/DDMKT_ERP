@@ -238,9 +238,9 @@ def _region_tokens_admin(gu):
     return toks
 
 
-def _region_tokens_for(sidos):
-    """cafe_region_dong 에서 선택 시도들의 지역 토큰. 구/시(밀도 높음) 먼저 → 그 다음 동(洞).
-       동까지 훑어 인기탭 있는 건 다 채운다(검색량 게이트가 저검색 동은 자동 컷)."""
+def _region_tokens_for(sidos, include_dong=False):
+    """cafe_region_dong 에서 선택 시도들의 지역 토큰. 기본=구/시(밀도 높음)만 — 빠르게 인기탭 즉시.
+       include_dong=True('더 찾기') 일 때만 동(洞)까지 추가(검색량 게이트가 저검색 동은 자동 컷)."""
     if not sidos:
         return []
     inlist = ",".join(f'"{s}"' for s in sidos)
@@ -255,62 +255,96 @@ def _region_tokens_for(sidos):
         d = (r.get("dong") or "").strip()
         if d:
             dong_toks.add(d)
-    return sorted(gu_toks) + sorted(dong_toks - gu_toks)   # 구/시 먼저, 동은 그 뒤
+    if not include_dong:
+        return sorted(gu_toks)                              # 기본: 구/시만(수초)
+    return sorted(gu_toks) + sorted(dong_toks - gu_toks)   # 더 찾기: 구/시 먼저, 동은 그 뒤
+
+
+def _cache_get_many(kws):
+    """배치 캐시 조회 — keyword in.() 로 수백 개를 몇 번의 쿼리로. {정규화kw: row}.
+       재스캔 시 토큰마다 개별 GET(수백 회) 안 하도록 → 재스캔 대폭 단축."""
+    out = {}
+    for i in range(0, len(kws), 80):
+        chunk = kws[i:i + 80]
+        vals = ",".join('"' + k.replace('"', '') + '"' for k in chunk)
+        try:
+            r = requests.get(f"{SB}/rest/v1/cafe_kw_targets?keyword=in.({quote(vals)})"
+                             f"&select=keyword,has_section,theme,verdict,volume,cafes", headers=H, timeout=20)
+            for row in (r.json() if r.status_code == 200 else []):
+                out[(row.get("keyword") or "").replace(" ", "")] = row
+        except Exception:
+            pass
+    return out
 
 
 def process_region(req, product):
-    """지역 인기탭 조회 — 선택 시도의 구/시 × 제품키워드를 검색량 게이트 후 인기탭 스캔. 통과분만 반환·캐시."""
+    """지역 인기탭 조회 — 선택 시도의 구/시(기본) × 제품키워드를 검색량 게이트 후 인기탭 스캔. 통과분만 반환·캐시.
+       deploy_type 에 '동'/'dong' 오면 동(洞)까지('더 찾기'). 속도: 배치 캐시조회 + 검색량컷도 캐시 + vskip 무대기."""
     product = (product or "").strip()
     if not product:
         return _finish(req["id"], "failed", note="제품키워드 없음")
     sidos = [s for s in (req.get("regions") or "").replace(" ", "").split(",") if s]
-    target = int(req.get("target") or 300)     # 인기탭 있는 구/시·동 다 채우게 넉넉히
-    tokens = _region_tokens_for(sidos)
+    target = int(req.get("target") or 300)
+    dt = (req.get("deploy_type") or "")
+    include_dong = ("동" in dt) or ("dong" in dt.lower())
+    tokens = _region_tokens_for(sidos, include_dong)
     if not tokens:
         return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
     cf = bool(p._USE_CF)
     gap = 1.5 if cf else SCAN_GAP
-    # 검색량 게이트 — 라이브 조회는 낮게(니치 키워드도 잡게). 요청에 vmin 오면 그 값.
-    VMIN = int(req.get("vmin") or 20)
-    MAX_LIVE = 400 if cf else 120              # 구/동 전부 훑도록 상한 상향(CF·검색량게이트로 안전)
-    found, seen, scraped, vskip = [], set(), 0, 0
-    total = len(tokens)
-    for idx, tok in enumerate(tokens, 1):
-        if len(found) >= target:
-            break
-        if idx % 5 == 1:   # 진행상태 기록(프론트 게이지바) — note 에 "진행 x/total · 인기탭 n"
-            try:
-                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
-                               json={"note": f"진행 {idx}/{total} · 인기탭 {len(found)}"}, timeout=10)
-            except Exception:
-                pass
+    VMIN = int(req.get("vmin") or 20)          # 검색량 게이트(요청 vmin 우선)
+    MAX_LIVE = 400 if cf else 120
+    # 후보 키워드(중복 제거) → 배치 캐시 조회 한 번에.
+    kws, seen = [], set()
+    for tok in tokens:
         kw = f"{tok} {product}"
         nk = kw.replace(" ", "")
         if nk in seen:
             continue
         seen.add(nk)
-        cached = _cache_get(kw)
-        if cached is not None:
-            r = {"has_section": cached.get("has_section"), "theme": cached.get("theme"),
-                 "verdict": cached.get("verdict"), "rows": cached.get("cafes") or []}
-        elif scraped >= MAX_LIVE:
+        kws.append(kw)
+    total = len(kws)
+    cache = _cache_get_many(kws)               # ④ 배치 캐시(재스캔 즉시)
+
+    def _pop(r):
+        return r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or "")
+
+    found, scraped, vskip, capped = [], 0, 0, False
+    for idx, kw in enumerate(kws, 1):
+        if len(found) >= target:
             break
-        else:
-            if _real_volume(kw) < VMIN:
-                vskip += 1
-                time.sleep(0.3)
-                continue
-            r = p.classify(kw)
-            _cache_put(kw, r, None)
-            scraped += 1
-            time.sleep(gap)
-        if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
-            found.append({"keyword": kw, "volume": _real_volume(kw), "theme": r.get("theme"),
+        if idx % 8 == 1:   # 진행상태(프론트 게이지바)
+            try:
+                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                               json={"note": f"진행 {idx}/{total} · 인기탭 {len(found)}"}, timeout=10)
+            except Exception:
+                pass
+        c = cache.get(kw.replace(" ", ""))
+        if c is not None:                      # 캐시 히트(인기탭/저검색 판정 재사용) — 네이버 호출 0
+            if _pop(c):
+                found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": c.get("theme"),
+                              "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
+            continue
+        if scraped >= MAX_LIVE:
+            capped = True
+            continue
+        v = _real_volume(kw)
+        if v < VMIN:                           # 저검색 — ④ 캐시해서 다음엔 재조회 안 함. ② 대기 없음.
+            _cache_put(kw, {"has_section": False, "verdict": "저검색", "theme": None, "rows": []}, v)
+            vskip += 1
+            continue
+        r = p.classify(kw)
+        _cache_put(kw, r, v)
+        scraped += 1
+        time.sleep(gap)
+        if _pop(r):
+            found.append({"keyword": kw, "volume": v, "theme": r.get("theme"),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
     found.sort(key=lambda f: -(f.get("volume") or 0))
+    scope = "동포함" if include_dong else "구시"
     _finish(req["id"], "done", result=found, extra={"biz_name": product},
-            note=f"{len(found)}건 · 스캔 {scraped} · 검색량컷 {vskip}")
-    print(f"[{_ts()}][{req['id']}] 지역스캔 '{product}' {sidos} → 인기탭 {len(found)}건 · 스크랩 {scraped} · vcut {vskip}", flush=True)
+            note=f"{len(found)}건 · 스캔 {scraped} · 검색량컷 {vskip} · {scope}{' · 상한' if capped else ''}")
+    print(f"[{_ts()}][{req['id']}] 지역스캔 '{product}' {sidos} {scope} → 인기탭 {len(found)}건 · 스크랩 {scraped} · vcut {vskip}", flush=True)
 
 
 def process(req):
