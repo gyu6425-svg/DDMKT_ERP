@@ -292,8 +292,8 @@ def process_region(req, product):
         return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
     cf = bool(p._USE_CF)
     gap = 1.5 if cf else SCAN_GAP
-    VMIN = int(req.get("vmin") or 20)          # 검색량 게이트(요청 vmin 우선)
-    MAX_LIVE = 400 if cf else 120
+    # ★ 완전성 우선(누락 금지): 검색량으로 스캔을 건너뛰지 않는다 — 저검색이라도 인기탭 있는 니치(피로연·예식 등)
+    #   포착. 검색량은 판정 '후' 표시·정렬용으로만 조회. 판정결과(인기탭/섹션없음)는 캐시되어 재스캔은 즉시.
     # 후보 키워드(중복 제거) → 배치 캐시 조회 한 번에.
     kws, seen = [], set()
     for tok in tokens:
@@ -304,12 +304,13 @@ def process_region(req, product):
         seen.add(nk)
         kws.append(kw)
     total = len(kws)
-    cache = _cache_get_many(kws)               # ④ 배치 캐시(재스캔 즉시)
+    MAX_LIVE = max(total, 400) if cf else 120   # 전수 스캔 보장 — 상한이 토큰수보다 작아 뒷지역 누락되던 것 방지
+    cache = _cache_get_many(kws)                # 배치 캐시(재스캔 즉시)
 
     def _pop(r):
         return r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or "")
 
-    found, scraped, vskip, capped = [], 0, 0, False
+    found, scraped, errs, capped = [], 0, 0, False
     for idx, kw in enumerate(kws, 1):
         if len(found) >= target:
             break
@@ -320,7 +321,8 @@ def process_region(req, product):
             except Exception:
                 pass
         c = cache.get(kw.replace(" ", ""))
-        if c is not None:                      # 캐시 히트(인기탭/저검색 판정 재사용) — 네이버 호출 0
+        # 실제로 판정된 캐시만 신뢰. 옛 '저검색'(게이트로 스킵돼 판정된 적 없음)은 재판정.
+        if c is not None and str(c.get("verdict", "")) != "저검색":
             if _pop(c):
                 found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": c.get("theme"),
                               "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
@@ -328,23 +330,24 @@ def process_region(req, product):
         if scraped >= MAX_LIVE:
             capped = True
             continue
-        v = _real_volume(kw)
-        if v < VMIN:                           # 저검색 — ④ 캐시해서 다음엔 재조회 안 함. ② 대기 없음.
-            _cache_put(kw, {"has_section": False, "verdict": "저검색", "theme": None, "rows": []}, v)
-            vskip += 1
-            continue
         r = p.classify(kw)
-        _cache_put(kw, r, v)
+        if r.get("err"):                       # C1 — 차단/일시실패는 캐시하지 않음(영구 위음성 방지). 다음에 재시도.
+            errs += 1
+            continue
         scraped += 1
         time.sleep(gap)
         if _pop(r):
+            v = _real_volume(kw)               # 표시·정렬용 검색량 — 인기탭인 것만 1콜(스로틀 부담↓)
+            _cache_put(kw, r, v)
             found.append({"keyword": kw, "volume": v, "theme": r.get("theme"),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
+        else:
+            _cache_put(kw, r, None)            # 섹션없음도 캐시(재스캔 즉시) — 볼륨 불필요
     found.sort(key=lambda f: -(f.get("volume") or 0))
     scope = "동포함" if include_dong else "구시"
     _finish(req["id"], "done", result=found, extra={"biz_name": product},
-            note=f"{len(found)}건 · 스캔 {scraped} · 검색량컷 {vskip} · {scope}{' · 상한' if capped else ''}")
-    print(f"[{_ts()}][{req['id']}] 지역스캔 '{product}' {sidos} {scope} → 인기탭 {len(found)}건 · 스크랩 {scraped} · vcut {vskip}", flush=True)
+            note=f"{len(found)}건 · 스캔 {scraped}{' · 오류 ' + str(errs) if errs else ''} · {scope}{' · 상한초과' if capped else ''}")
+    print(f"[{_ts()}][{req['id']}] 지역스캔 '{product}' {sidos} {scope} → 인기탭 {len(found)}건 · 스크랩 {scraped} · err {errs}", flush=True)
 
 
 def process_list(req, payload):
@@ -377,7 +380,8 @@ def process_list(req, payload):
             except Exception:
                 pass
         c = cache.get(kw.replace(" ", ""))
-        if c is not None:                      # 캐시 히트 — 네이버 호출 0
+        # 키워드형은 게이트 없음 → 지역스캔이 '저검색'으로만 캐시해둔 건 판정된 적 없으니 재판정.
+        if c is not None and str(c.get("verdict", "")) != "저검색":  # 캐시 히트 — 네이버 호출 0
             if _pop(c):
                 found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": c.get("theme"),
                               "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
@@ -385,6 +389,8 @@ def process_list(req, payload):
         if scraped >= MAX_LIVE:
             break
         r = p.classify(kw)
+        if r.get("err"):                       # C1 — 차단/일시실패는 캐시하지 않음(영구 위음성 방지)
+            continue
         v = _real_volume(kw)
         _cache_put(kw, r, v)
         scraped += 1
@@ -434,7 +440,8 @@ def process(req):
             continue  # 라이브 상한 도달 — 미수집분은 스캔 안 함(timeout·차단 방지, prescan 이 채움)
         else:
             r = p.classify(kw)  # 자기 IP 스캔(게이트 시 CF 자동전환)
-            _cache_put(kw, r, vol)
+            if not r.get("err"):          # C1 — 차단/일시실패는 캐시 안 함(영구 위음성 방지)
+                _cache_put(kw, r, vol)
             scraped += 1
             time.sleep(SCAN_GAP)
         if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
@@ -469,7 +476,8 @@ def process(req):
                 break  # 라이브 상한 도달 — 보완 스크랩 중단(timeout·차단 방지, prescan 이 채움)
             else:
                 r = p.classify(kw)
-                _cache_put(kw, r, None)
+                if not r.get("err"):          # C1 — 차단/일시실패는 캐시 안 함(영구 위음성 방지)
+                    _cache_put(kw, r, None)
                 scraped += 1
                 time.sleep(SCAN_GAP)
             if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
