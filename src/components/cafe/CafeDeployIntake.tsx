@@ -325,6 +325,18 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         {isKw ? '정확 인기탭 결과 — 진입한 키워드 중 발행할 것을 고르세요(복수 선택). 필요없는 건 × 로 제외.'
                               : `지역 키워드 ${kwResult.length}개 — 발행할 동을 고르세요(복수 선택). 필요없는 건 × 로 제외.`}
                     </div>
+                    {fresh.length ? (() => {
+                        const allOn = fresh.every((k) => kwPicked.some((p) => p.keyword === k.keyword));
+                        const toggleAll = () => setKwPicked((prev) => allOn
+                            ? prev.filter((p) => !fresh.some((k) => k.keyword === p.keyword))            // 전체 해제(현재 목록분만)
+                            : [...prev, ...fresh.filter((k) => !prev.some((p) => p.keyword === k.keyword))]); // 전체 선택(중복 제외 추가)
+                        return (
+                            <label className="mb-1.5 flex w-fit cursor-pointer items-center gap-1.5 rounded-md bg-white px-2 py-1 text-[11px] font-bold text-[#4338ca] ring-1 ring-[#c7d2fe]">
+                                <input type="checkbox" checked={allOn} onChange={toggleAll} className="h-3.5 w-3.5 accent-[#4338ca]" />
+                                전체 선택 <span className="font-normal text-[#94a3b8]">({fresh.filter((k) => kwPicked.some((p) => p.keyword === k.keyword)).length}/{fresh.length})</span>
+                            </label>
+                        );
+                    })() : null}
                     {fresh.length === 0 ? (
                         <div className="py-2 text-center text-[12px] text-[#94a3b8]">{used.length ? '새로운 키워드가 없습니다(모두 이미 사용·발행함).' : '키워드가 없습니다.'}</div>
                     ) : (
