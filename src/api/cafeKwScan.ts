@@ -87,6 +87,18 @@ export async function enqueuePlaceScan(placeUrl: string, target = 10, regions = 
     return { id: (data as { id: number }).id, error: null };
 }
 
+// 지역 인기탭 조회 — 제품키워드(출장부페 등) × 선택 시도의 구/시를 워커가 검색량 게이트 후 인기탭 스캔.
+//   place_url='region:<제품키워드>' 로 워커 process_region 라우팅. 결과·캐시는 place scan 과 동일(pollPlaceScan).
+export async function enqueueRegionScan(productKw: string, regions: string, target = 50) {
+    const { data: u } = await supabase.auth.getUser();
+    const uid = u.user?.id ?? null;
+    const { data, error } = await supabase.from('cafe_kw_requests')
+        .insert({ place_url: `region:${productKw.trim()}`, target, regions, status: 'queued', requested_by: uid })
+        .select('id').single();
+    if (error || !data) return { id: null as number | null, error };
+    return { id: (data as { id: number }).id, error: null };
+}
+
 // 폴링 — done 까지. result 반환.
 export async function pollPlaceScan(
     id: number, opts?: { signal?: AbortSignal; timeoutSec?: number },

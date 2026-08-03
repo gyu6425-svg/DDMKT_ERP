@@ -220,8 +220,92 @@ def _real_volume(kw):
     return 0
 
 
+def _region_tokens_admin(gu):
+    """행정구 문자열 → 구/시 토큰. '수원시 장안구'/'고양시덕양구' 분리 + 접미형·기본형. (프론트 guTokens 와 동일 규칙)"""
+    toks = set()
+    parts = []
+    for part in (gu or "").split():
+        mm = re.match(r"^(.+?시)(.+구)$", part)
+        parts += [mm.group(1), mm.group(2)] if mm else [part]
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        toks.add(part)
+        base = re.sub(r"(특별자치시|특별자치도|특별시|광역시|자치시|자치구|시|군|구)$", "", part)
+        if len(base) >= 2:
+            toks.add(base)
+    return toks
+
+
+def _region_tokens_for(sidos):
+    """cafe_region_dong 에서 선택 시도들의 구/시 토큰 목록(중복 제거)."""
+    if not sidos:
+        return []
+    inlist = ",".join(f'"{s}"' for s in sidos)
+    try:
+        rows = requests.get(f"{SB}/rest/v1/cafe_region_dong?sido=in.({inlist})&select=gu&limit=5000",
+                            headers=H, timeout=30).json()
+    except Exception:
+        return []
+    toks = set()
+    for r in (rows if isinstance(rows, list) else []):
+        toks |= _region_tokens_admin(r.get("gu") or "")
+    return sorted(toks)
+
+
+def process_region(req, product):
+    """지역 인기탭 조회 — 선택 시도의 구/시 × 제품키워드를 검색량 게이트 후 인기탭 스캔. 통과분만 반환·캐시."""
+    product = (product or "").strip()
+    if not product:
+        return _finish(req["id"], "failed", note="제품키워드 없음")
+    sidos = [s for s in (req.get("regions") or "").replace(" ", "").split(",") if s]
+    target = int(req.get("target") or 50)
+    tokens = _region_tokens_for(sidos)
+    if not tokens:
+        return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
+    cf = bool(p._USE_CF)
+    gap = 1.5 if cf else SCAN_GAP
+    VMIN = 100            # 검색량 게이트(월검색량 미만은 스캔 생략)
+    MAX_LIVE = 220 if cf else 90
+    found, seen, scraped, vskip = [], set(), 0, 0
+    for tok in tokens:
+        if len(found) >= target:
+            break
+        kw = f"{tok} {product}"
+        nk = kw.replace(" ", "")
+        if nk in seen:
+            continue
+        seen.add(nk)
+        cached = _cache_get(kw)
+        if cached is not None:
+            r = {"has_section": cached.get("has_section"), "theme": cached.get("theme"),
+                 "verdict": cached.get("verdict"), "rows": cached.get("cafes") or []}
+        elif scraped >= MAX_LIVE:
+            break
+        else:
+            if _real_volume(kw) < VMIN:
+                vskip += 1
+                time.sleep(0.3)
+                continue
+            r = p.classify(kw)
+            _cache_put(kw, r, None)
+            scraped += 1
+            time.sleep(gap)
+        if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
+            found.append({"keyword": kw, "volume": _real_volume(kw), "theme": r.get("theme"),
+                          "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
+    found.sort(key=lambda f: -(f.get("volume") or 0))
+    _finish(req["id"], "done", result=found, extra={"biz_name": product},
+            note=f"{len(found)}건 · 스캔 {scraped} · 검색량컷 {vskip}")
+    print(f"[{_ts()}][{req['id']}] 지역스캔 '{product}' {sidos} → 인기탭 {len(found)}건 · 스크랩 {scraped} · vcut {vskip}", flush=True)
+
+
 def process(req):
-    pid = p.parse_place_id(req.get("place_url", ""))
+    pu = req.get("place_url", "") or ""
+    if pu.startswith("region:"):        # 지역 인기탭 조회(구/시 × 제품키워드)
+        return process_region(req, pu[len("region:"):])
+    pid = p.parse_place_id(pu)
     info = p.place_info(pid) if pid else None
     if not info:
         return _finish(req["id"], "failed", note="플레이스 해석 실패")

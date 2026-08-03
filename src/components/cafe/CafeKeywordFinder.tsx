@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, getRegionGuTokens, getPopularFromCache, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, getRegionGuTokens, getPopularFromCache, type KwResult } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -114,16 +114,19 @@ export function CafeKeywordFinder({
         if (!regionSel.length) { setKwErr('지역을 선택하세요.'); return; }
         setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); if (!initialPicked?.length) setKwPicked([]);
         try {
+            // ① 캐시 먼저(즉시) — 이미 조회된 지역+키워드면 바로 인기탭 통과분.
             const gus = await getRegionGuTokens(regionSel);        // 구/시 토큰(동 아님 — 인기탭은 구/시 단위)
             const combos = [...new Set(gus.map((g) => `${g.token} ${kw}`))];
-            const list = await getPopularFromCache(combos);        // 인기탭 판정 캐시(prescan) 통과분만
-            if (!list.length) {
-                setKwErr(`인기탭 확인된 키워드가 없습니다 — 이 지역(${regionSel.join('·')})은 아직 프리스캔(인기탭 조사)이 안 됐거나 인기탭이 없습니다.`);
-                return;
-            }
-            setKwResult(list);
+            const cached = await getPopularFromCache(combos);
+            if (cached.length) { setKwResult(cached); return; }
+            // ② 없으면 라이브 지역 스캔(워커: 검색량 게이트 후 인기탭 조회). 결과 캐시됨 → 다음엔 즉시.
+            const { id, error } = await enqueueRegionScan(kw, regionSel.join(','), 50);
+            if (error || !id) throw new Error(error?.message || '지역 스캔 등록 실패');
+            const { result } = await pollPlaceScan(id, { timeoutSec: 600 });
+            if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${regionSel.join('·')} × "${kw}"`); return; }
+            setKwResult(result);
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '생성 실패');
+            setKwErr(e instanceof Error ? e.message : '조회 실패');
         } finally { setKwLoading(false); }
     };
 
