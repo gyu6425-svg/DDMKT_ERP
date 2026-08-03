@@ -6,7 +6,8 @@ import { listTokens, balanceOf, consumeToken } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls } from '../../api/cafeStudioSettings';
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
-import { getCafeRankPostsForClient, latestCafeMeasure, type CafeRankPost } from '../../api/cafeRank';
+import { getCafeRankPostsForClient, latestCafeMeasure, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
+import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, publishTargetFor } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
@@ -208,6 +209,18 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         try { setRankPosts(await getCafeRankPostsForClient(clientId)); }
         finally { setRankLoading(false); }
     }
+    // 발행 히스토리 → 엑셀(CSV) 내보내기.
+    const exportRankHistory = () => {
+        const headers = ['발행일', '키워드', '게시판', '현재 순위', '실적', '링크'];
+        const rows = rankPosts.map((p) => {
+            const m = latestCafeMeasure(p.measurements);
+            const rankText = !m ? '-' : m.ti_status === 'ok' ? `${m.ti}위` : m.ti_status === 'out' ? '권외' : m.ti_status === 'no_section' ? '측정불가' : '실패';
+            const perf = p.top5_achieved_at && !p.top5_seeded ? '실적' : p.top5_seeded ? '기준' : p.top5_since ? '5위 진입' : '-';
+            const url = p.post_url || (p.cafe_name && p.article_id ? `https://cafe.naver.com/${p.cafe_name}/${p.article_id}` : '');
+            return [p.published_date ?? '', p.keyword_manual || p.keyword || '', p.board ?? p.cafe_accounts?.board_short ?? '', rankText, perf, url];
+        });
+        downloadCsv(`발행히스토리_${brand || brandDefault || '업체'}_${todayTag()}`, headers, rows);
+    };
 
     // 발행 토큰 잔액 — 발행 1건 = 1토큰. 0이면 발행 차단.
     const [tokenBal, setTokenBal] = useState(0);
@@ -737,10 +750,22 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
 
             {/* 발행 히스토리 — 순위 트래커 기준(실제 발행·측정된 글). 더맨/설고/더반 등 SUB PC 발행분 포함. */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-                <div className="mb-2 flex items-center justify-between">
-                    <div className="text-[13px] font-bold text-[#334155]">발행 히스토리 <span className="font-normal text-[#94a3b8]">— 순위 트래커 기준 · 총 {rankPosts.length}건</span></div>
-                    <button className="text-xs font-semibold text-[#4338ca] hover:underline" onClick={() => void loadRankPosts()} type="button">새로고침</button>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-[13px] font-bold text-[#334155]">발행 히스토리 <span className="font-normal text-[#94a3b8]">— 순위 트래커 기준</span></div>
+                    <div className="flex items-center gap-2 text-[11px]">
+                        <span className="text-[#64748b]">
+                            오늘 <b className="text-[#4338ca]">{rankPosts.filter((p) => p.published_date === cafeTodayKST()).length}</b>건 · 누적 <b className="text-[#334155]">{rankPosts.length}</b>/{goalCount || '—'}건{goalCount ? ` (${Math.round((rankPosts.length / goalCount) * 100)}%)` : ''}
+                        </span>
+                        <button className="rounded-md border border-[#16a34a] px-2 py-0.5 text-[11px] font-bold text-[#15803d] hover:bg-[#f0fdf4] disabled:opacity-40" onClick={exportRankHistory} disabled={!rankPosts.length} type="button">엑셀</button>
+                        <button className="font-semibold text-[#4338ca] hover:underline" onClick={() => void loadRankPosts()} type="button">새로고침</button>
+                    </div>
                 </div>
+                {/* 진행률 바 — 누적/목표 */}
+                {goalCount ? (
+                    <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-[#f1f5f9]">
+                        <div className="h-full rounded-full bg-[#4338ca]" style={{ width: `${Math.min(100, Math.round((rankPosts.length / goalCount) * 100))}%` }} />
+                    </div>
+                ) : null}
                 {rankLoading ? (
                     <div className="py-4 text-center text-[12px] text-[#94a3b8]">불러오는 중…</div>
                 ) : rankPosts.length ? (

@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getCafeRankPosts, latestCafeMeasure, type CafeRankPost } from '../../../api/cafeRank';
 import { getCafeAccounts, type CafeAccount } from '../../../api/cafeAccounts';
+import { downloadCsv, todayTag } from '../../../lib/exportCsv';
+
+// 누적 발행 글 목록 → 엑셀(CSV).
+function exportCumList(board: string, bp: CafeRankPost[], kwOf: (p: CafeRankPost) => string) {
+    const headers = ['발행일', '키워드', '제목', '카페/게시판', '현재 순위', '실적'];
+    const rows = bp.map((p) => {
+        const m = latestCafeMeasure(p.measurements);
+        const rankText = !m ? '-' : m.ti_status === 'ok' ? `${m.ti}위` : m.ti_status === 'out' ? '권외' : m.ti_status === 'no_section' ? '측정불가' : '실패';
+        const perf = p.top5_achieved_at && !p.top5_seeded ? '실적' : p.top5_seeded ? '기준' : p.top5_since ? '5위 진입' : '-';
+        return [p.published_date ?? '', kwOf(p), p.title ?? '', p.cafe_accounts?.display_name || p.cafe_name || '', rankText, perf];
+    });
+    downloadCsv(`누적발행_${board}_${todayTag()}`, headers, rows);
+}
 
 // 카페 · 대시보드 — '오늘 발행 현황'(하루 5건 KPI) + '오늘까지 발행 건'(누적/계약 목표).
 //   대상 업체·계약건수는 고정(계약 기준). 글은 cafe_rank_posts.board 로 매칭.
@@ -136,6 +149,12 @@ export function CafeDashboardTab() {
                                 </button>
                                 {isOpen && bp.length ? (
                                     <div className="overflow-x-auto border-t border-[#eef0f2] px-3 py-2">
+                                        <div className="mb-2 flex justify-end">
+                                            <button type="button" onClick={() => exportCumList(t.board, bp, kw)}
+                                                className="rounded-md border border-[#16a34a] px-2.5 py-1 text-[11px] font-bold text-[#15803d] hover:bg-[#f0fdf4]">
+                                                엑셀 다운로드
+                                            </button>
+                                        </div>
                                         <table className="w-full min-w-[720px] border-collapse text-[13px]">
                                             <thead>
                                                 <tr className="border-b border-[#f1f5f9] text-left text-[#94a3b8]">
