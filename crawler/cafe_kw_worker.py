@@ -347,10 +347,62 @@ def process_region(req, product):
     print(f"[{_ts()}][{req['id']}] 지역스캔 '{product}' {sidos} {scope} → 인기탭 {len(found)}건 · 스크랩 {scraped} · vcut {vskip}", flush=True)
 
 
+def process_list(req, payload):
+    """키워드형 — 붙여넣기(정보/메뉴)에서 추출된 키워드 리스트를 '지역 없이(전국)' 인기탭 판정.
+       플레이스에 메뉴·정보가 없어 후보를 못 뽑는 경우 대체 경로. 프론트에서 검색량 선별된 리스트가 '|' 로 옴."""
+    kws, seen = [], set()
+    for k in (payload or "").split("|"):
+        k = k.strip()
+        nk = k.replace(" ", "")
+        if k and nk not in seen:
+            seen.add(nk)
+            kws.append(k)
+    if not kws:
+        return _finish(req["id"], "failed", note="키워드 없음")
+    cf = bool(p._USE_CF)
+    gap = 1.5 if cf else SCAN_GAP
+    MAX_LIVE = 60 if cf else 40
+    total = len(kws)
+    cache = _cache_get_many(kws)               # 재판정 즉시(배치 캐시)
+
+    def _pop(r):
+        return r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or "")
+
+    found, scraped = [], 0
+    for idx, kw in enumerate(kws, 1):
+        if idx % 5 == 1:
+            try:
+                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                               json={"note": f"진행 {idx}/{total} · 인기탭 {len(found)}"}, timeout=10)
+            except Exception:
+                pass
+        c = cache.get(kw.replace(" ", ""))
+        if c is not None:                      # 캐시 히트 — 네이버 호출 0
+            if _pop(c):
+                found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": c.get("theme"),
+                              "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
+            continue
+        if scraped >= MAX_LIVE:
+            break
+        r = p.classify(kw)
+        v = _real_volume(kw)
+        _cache_put(kw, r, v)
+        scraped += 1
+        time.sleep(gap)
+        if _pop(r):
+            found.append({"keyword": kw, "volume": v, "theme": r.get("theme"),
+                          "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
+    found.sort(key=lambda f: -(f.get("volume") or 0))
+    _finish(req["id"], "done", result=found, note=f"{len(found)}건 · 스캔 {scraped}")
+    print(f"[{_ts()}][{req['id']}] 리스트스캔 {total}개 → 인기탭 {len(found)}건 · 스크랩 {scraped}", flush=True)
+
+
 def process(req):
     pu = req.get("place_url", "") or ""
     if pu.startswith("region:"):        # 지역 인기탭 조회(구/시 × 제품키워드)
         return process_region(req, pu[len("region:"):])
+    if pu.startswith("list:"):          # 키워드형 — 붙여넣기 추출 키워드 리스트(지역 없이) 인기탭 판정
+        return process_list(req, pu[len("list:"):])
     pid = p.parse_place_id(pu)
     info = p.place_info(pid) if pid else None
     if not info:

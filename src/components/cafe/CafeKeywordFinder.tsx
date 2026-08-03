@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, getRegionGuTokens, getPopularFromCache, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, getRegionGuTokens, getPopularFromCache, type KwResult } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -172,46 +172,64 @@ export function CafeKeywordFinder({
     //   ① 텍스트에서 한글 후보 조각 추출(이모지·가격·괄호·비한글 제거) → ② 각 후보 검색량 조회 →
     //   ③ 검색량 있는 상위만 제품키워드 칸에 채움. 이후 지역 선택 → '지역 키워드 생성'으로 인기탭 스캔.
     const STOP_TERMS = new Set(['메뉴', '가격', '정보', '추천', '예약', '문의', '전화', '영업', '시간', '주차', '위치', '안내', '상담', '방문', '전문', '서비스', '이벤트', '할인', '특가', '세트', '코스', '기본', '인분', '매장', '대표', '소개', '오늘', '신규', '최고', '최신', '명품', '프리미엄', '무료', '견적', '후기', '리뷰', '문의사항']);
-    const extractKeywords = async () => {
+    // 붙여넣은 텍스트 → 검색량 있는 상위 키워드(공통 코어). null=실패(에러 세팅됨).
+    const extractScored = async (): Promise<{ keyword: string; total: number }[] | null> => {
         const raw = pasteText.trim();
-        if (!raw) { setKwErr('정보/메뉴 텍스트를 붙여넣으세요.'); return; }
+        if (!raw) { setKwErr('정보/메뉴 텍스트를 붙여넣으세요.'); return null; }
         setKwErr(''); setExtracting('후보 추출 중…'); setVol(null);
+        // ① 후보 추출 — 줄/구분자로 조각, 이모지·괄호·비한글 제거. 조각 전체 + 개별 토큰 모두 후보.
+        const segs = raw.replace(/[\u{1F000}-\u{1FAFF}☀-➿]/gu, ' ').split(/[\n,·/|、:;()\[\]{}]+|\s{2,}/);
+        const cand = new Set<string>();
+        for (let s of segs) {
+            s = s.replace(/\([^)]*\)/g, ' ').replace(/[^가-힣\s]/g, ' ').trim();
+            for (const piece of [s, ...s.split(/\s+/)]) {
+                const t = piece.trim();
+                if (t.length >= 2 && t.length <= 12 && /[가-힣]/.test(t) && !STOP_TERMS.has(t)) cand.add(t);
+            }
+            if (cand.size >= 60) break;
+        }
+        const cands = [...cand].slice(0, 30);   // 검색량 조회 폭주 방지(상한)
+        if (!cands.length) { setKwErr('추출된 후보가 없습니다 — 메뉴/서비스명을 줄 단위로 붙여넣어 주세요.'); setExtracting(''); return null; }
+        // ② 각 후보 검색량 조회(공식 검색광고 API) → ③ 검색량 있는 것만.
+        const scored: { keyword: string; total: number }[] = [];
+        for (let i = 0; i < cands.length; i++) {
+            setExtracting(`검색량 확인 ${i + 1}/${cands.length}`);
+            const c = cands[i];
+            try {
+                const d = await (await fetch(`https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(c)}`)).json();
+                const nk = c.replace(/\s/g, '');
+                const hit = (d.keywords || []).find((k: { keyword: string; total?: number }) => (k.keyword || '').replace(/\s/g, '') === nk);
+                const vol2 = hit?.total ?? 0;
+                if (vol2 > 0) scored.push({ keyword: c, total: vol2 });
+            } catch { /* 이 후보만 건너뜀 */ }
+        }
+        setExtracting('');
+        scored.sort((a, b) => b.total - a.total);
+        let top = scored.filter((s) => s.total >= 30).slice(0, 15);
+        if (!top.length) top = scored.slice(0, 8);   // 다 낮으면 상위 8개라도
+        if (!top.length) { setKwErr('검색량 있는 키워드를 찾지 못했습니다 — 다른 텍스트로 시도하세요.'); return null; }
+        setVol(top);                                  // 추출된 키워드+검색량 표시(기존 검색량 표 재사용)
+        return top;
+    };
+    // 지역형 — 추출한 키워드를 제품키워드 칸에 채움(이후 지역 선택 → '지역 키워드 생성').
+    const extractKeywords = async () => {
+        const top = await extractScored();
+        if (top) setKeyword(top.map((t) => t.keyword).join(', '));
+    };
+    // 키워드형 — 추출한 키워드를 지역 없이(전국) 바로 인기탭 판정(워커 process_list).
+    const extractAndScan = async () => {
+        const top = await extractScored();
+        if (!top) return;
+        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwExpanded(false); setKwHidden([]); if (!initialPicked?.length) setKwPicked([]);
         try {
-            // ① 후보 추출 — 줄/구분자로 조각, 이모지·괄호·비한글 제거. 조각 전체 + 개별 토큰 모두 후보.
-            const segs = raw.replace(/[\u{1F000}-\u{1FAFF}☀-➿]/gu, ' ').split(/[\n,·/|、:;()\[\]{}]+|\s{2,}/);
-            const cand = new Set<string>();
-            for (let s of segs) {
-                s = s.replace(/\([^)]*\)/g, ' ').replace(/[^가-힣\s]/g, ' ').trim();
-                for (const piece of [s, ...s.split(/\s+/)]) {
-                    const t = piece.trim();
-                    if (t.length >= 2 && t.length <= 12 && /[가-힣]/.test(t) && !STOP_TERMS.has(t)) cand.add(t);
-                }
-                if (cand.size >= 60) break;
-            }
-            const cands = [...cand].slice(0, 30);   // 검색량 조회 폭주 방지(상한)
-            if (!cands.length) { setKwErr('추출된 후보가 없습니다 — 메뉴/서비스명을 줄 단위로 붙여넣어 주세요.'); return; }
-            // ② 각 후보 검색량 조회(공식 검색광고 API) → ③ 검색량 있는 것만.
-            const scored: { keyword: string; total: number }[] = [];
-            for (let i = 0; i < cands.length; i++) {
-                setExtracting(`검색량 확인 ${i + 1}/${cands.length}`);
-                const c = cands[i];
-                try {
-                    const d = await (await fetch(`https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(c)}`)).json();
-                    const nk = c.replace(/\s/g, '');
-                    const hit = (d.keywords || []).find((k: { keyword: string; total?: number }) => (k.keyword || '').replace(/\s/g, '') === nk);
-                    const vol2 = hit?.total ?? 0;
-                    if (vol2 > 0) scored.push({ keyword: c, total: vol2 });
-                } catch { /* 이 후보만 건너뜀 */ }
-            }
-            scored.sort((a, b) => b.total - a.total);
-            let top = scored.filter((s) => s.total >= 30).slice(0, 15);
-            if (!top.length) top = scored.slice(0, 8);   // 다 낮으면 상위 8개라도
-            if (!top.length) { setKwErr('검색량 있는 키워드를 찾지 못했습니다 — 다른 텍스트로 시도하세요.'); return; }
-            setVol(top);                                  // 추출된 키워드+검색량 표시(기존 검색량 표 재사용)
-            setKeyword(top.map((t) => t.keyword).join(', '));   // 제품키워드 칸 자동 채움
+            const { id, error } = await enqueueListScan(top.map((t) => t.keyword));
+            if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+            const { result } = await pollPlaceScan(id, { timeoutSec: 300, onProgress: (note) => setScanNote(note) });
+            if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — 붙여넣은 정보 기준 ${top.length}개 판정`); return; }
+            setKwResult(result);
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '추출 실패');
-        } finally { setExtracting(''); }
+            setKwErr(e instanceof Error ? e.message : '분석 실패');
+        } finally { setKwLoading(false); setScanNote(''); }
     };
 
     const visible = (kwResult || []).filter((k) => !kwHidden.includes(k.keyword));
@@ -252,10 +270,24 @@ export function CafeKeywordFinder({
                     </div>
                 </div>
             ) : (
-                <div className="flex flex-wrap gap-2">
-                    <input className={`${inputCls} flex-1 min-w-[200px]`} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="플레이스 주소 (https://naver.me/… )" />
-                    <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white disabled:opacity-50">{volLoading ? '조회 중…' : '인기글 조회'}</button>
-                    <button type="button" onClick={() => void runPlaceScan()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '분석 중…' : '정확 인기탭 분석'}</button>
+                <div className="grid gap-2">
+                    <div className="flex flex-wrap gap-2">
+                        <input className={`${inputCls} flex-1 min-w-[200px]`} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="플레이스 주소 (https://naver.me/… )" />
+                        <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white disabled:opacity-50">{volLoading ? '조회 중…' : '인기글 조회'}</button>
+                        <button type="button" onClick={() => void runPlaceScan()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '분석 중…' : '정확 인기탭 분석'}</button>
+                    </div>
+                    <details className="rounded-md border border-dashed border-[#c4b5fd] bg-white/60 px-3 py-2">
+                        <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 정보/메뉴 붙여넣기 — 플레이스에 메뉴·정보가 없어 분석이 안 될 때</summary>
+                        <div className="mt-2 grid gap-2">
+                            <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
+                                value={pasteText} onChange={(e) => setPasteText(e.target.value)}
+                                placeholder="플레이스 '정보'·'메뉴'·홈 소개글을 그대로 붙여넣으세요. 줄 단위로 넣으면 더 정확합니다.&#10;예)&#10;고체향수&#10;니치향수&#10;시향 클래스" />
+                            <div className="flex items-center gap-2">
+                                <button type="button" onClick={() => void extractAndScan()} disabled={!!extracting || kwLoading} className="h-9 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">{extracting ? '추출 중…' : kwLoading ? '분석 중…' : '정보로 인기탭 분석'}</button>
+                                <span className="text-[12px] text-[#6d28d9]">{extracting || scanNote || '검색량 있는 키워드만 골라 지역 없이(전국) 인기탭을 바로 판정합니다.'}</span>
+                            </div>
+                        </div>
+                    </details>
                 </div>
             )}
             {kwErr ? <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{kwErr}</p> : null}

@@ -100,6 +100,19 @@ export async function enqueueRegionScan(productKw: string, regions: string, targ
     return { id: (data as { id: number }).id, error: null };
 }
 
+// 키워드형 — 붙여넣기(정보/메뉴)에서 추출된 키워드 리스트를 지역 없이(전국) 인기탭 판정. place_url='list:kw1|kw2…'.
+export async function enqueueListScan(keywords: string[], target = 50) {
+    const { data: u } = await supabase.auth.getUser();
+    const uid = u.user?.id ?? null;
+    const payload = keywords.map((k) => k.trim()).filter(Boolean).join('|');
+    if (!payload) return { id: null as number | null, error: { message: '키워드 없음' } };
+    const { data, error } = await supabase.from('cafe_kw_requests')
+        .insert({ place_url: `list:${payload}`, target, regions: '', status: 'queued', requested_by: uid, deploy_type: '키워드' })
+        .select('id').single();
+    if (error || !data) return { id: null as number | null, error };
+    return { id: (data as { id: number }).id, error: null };
+}
+
 // 폴링 — done 까지. result 반환. onProgress(note) 로 워커 진행상태(note "진행 x/total · 인기탭 n") 전달.
 export async function pollPlaceScan(
     id: number, opts?: { signal?: AbortSignal; timeoutSec?: number; onProgress?: (note: string, status: string) => void },
