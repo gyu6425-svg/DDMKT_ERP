@@ -9,6 +9,7 @@ const DAILY_TARGETS: { board: string; goal: number; daily: number }[] = [
     { board: '더티클리닉', goal: 10, daily: 0 }, // 현재 일일 발행 안 함
     { board: '더반클린', goal: 50, daily: 5 },
     { board: '설고점', goal: 40, daily: 1 }, // 설고점만 하루 1건
+    { board: '누수상담소', goal: 40, daily: 0 }, // 누수(leak3/ddnusu). 옛 마이클 board="누수"(정보세상)는 별건이라 미집계
 ];
 const boardKey = (p: CafeRankPost) => p.board || p.cafe_accounts?.board_short || '미분류';
 const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
@@ -16,6 +17,7 @@ const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
     더티클리닉: { bg: '#f0fdfa', fg: '#0d9488' },
     더반클린: { bg: '#fdf2f8', fg: '#be185d' },
     설고점: { bg: '#fff7ed', fg: '#c2410c' },
+    누수상담소: { bg: '#eff6ff', fg: '#2563eb' },
 };
 
 function todayKST(): string {
