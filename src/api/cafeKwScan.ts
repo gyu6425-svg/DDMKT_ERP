@@ -99,20 +99,23 @@ export async function enqueueRegionScan(productKw: string, regions: string, targ
     return { id: (data as { id: number }).id, error: null };
 }
 
-// 폴링 — done 까지. result 반환.
+// 폴링 — done 까지. result 반환. onProgress(note) 로 워커 진행상태(note "진행 x/total · 인기탭 n") 전달.
 export async function pollPlaceScan(
-    id: number, opts?: { signal?: AbortSignal; timeoutSec?: number },
+    id: number, opts?: { signal?: AbortSignal; timeoutSec?: number; onProgress?: (note: string, status: string) => void },
 ): Promise<{ result: KwResult[]; bizName: string | null }> {
     const timeoutMs = (opts?.timeoutSec ?? 180) * 1000;
     const t0 = Date.now();
     while (Date.now() - t0 < timeoutMs) {
         if (opts?.signal?.aborted) throw new Error('취소됨');
         await new Promise((r) => setTimeout(r, 3000));
-        const { data } = await supabase.from('cafe_kw_requests').select('status,result,biz_name').eq('id', id).single();
-        const row = data as { status: string; result: KwResult[] | null; biz_name: string | null } | null;
-        if (row && ['done', 'fail', 'error'].includes(row.status)) {
-            if (row.status !== 'done') throw new Error('인기탭 분석 실패');
-            return { result: row.result || [], bizName: row.biz_name };
+        const { data } = await supabase.from('cafe_kw_requests').select('status,result,biz_name,note').eq('id', id).single();
+        const row = data as { status: string; result: KwResult[] | null; biz_name: string | null; note: string | null } | null;
+        if (row) {
+            if (opts?.onProgress && row.note) opts.onProgress(row.note, row.status);
+            if (['done', 'fail', 'error'].includes(row.status)) {
+                if (row.status !== 'done') throw new Error('인기탭 분석 실패');
+                return { result: row.result || [], bizName: row.biz_name };
+            }
         }
     }
     throw new Error('분석 시간초과 — 워커 대기가 많을 수 있어요. 잠시 후 다시 시도하세요.');

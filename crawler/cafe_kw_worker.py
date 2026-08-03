@@ -266,12 +266,20 @@ def process_region(req, product):
         return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
     cf = bool(p._USE_CF)
     gap = 1.5 if cf else SCAN_GAP
-    VMIN = 100            # 검색량 게이트(월검색량 미만은 스캔 생략)
+    # 검색량 게이트 — 라이브 조회는 낮게(니치 키워드도 잡게). 요청에 vmin 오면 그 값.
+    VMIN = int(req.get("vmin") or 20)
     MAX_LIVE = 220 if cf else 90
     found, seen, scraped, vskip = [], set(), 0, 0
-    for tok in tokens:
+    total = len(tokens)
+    for idx, tok in enumerate(tokens, 1):
         if len(found) >= target:
             break
+        if idx % 5 == 1:   # 진행상태 기록(프론트 게이지바) — note 에 "진행 x/total · 인기탭 n"
+            try:
+                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                               json={"note": f"진행 {idx}/{total} · 인기탭 {len(found)}"}, timeout=10)
+            except Exception:
+                pass
         kw = f"{tok} {product}"
         nk = kw.replace(" ", "")
         if nk in seen:

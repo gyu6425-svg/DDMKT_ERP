@@ -35,6 +35,7 @@ export function CafeKeywordFinder({
     // 정확 인기탭 / 지역 키워드 결과
     const [kwResult, setKwResult] = useState<KwResult[] | null>(null);
     const [kwLoading, setKwLoading] = useState(false);
+    const [scanNote, setScanNote] = useState('');   // 지역 스캔 진행상태(배너·게이지바) — "진행 x/total · 인기탭 n"
     const [kwExpanded, setKwExpanded] = useState(false);
     const [kwErr, setKwErr] = useState('');
     const [kwHidden, setKwHidden] = useState<string[]>([]);
@@ -112,7 +113,7 @@ export function CafeKeywordFinder({
         const kw = keyword.trim();
         if (!kw) { setKwErr('제품 키워드를 입력하세요. 예: 입주청소'); return; }
         if (!regionSel.length) { setKwErr('지역을 선택하세요.'); return; }
-        setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); if (!initialPicked?.length) setKwPicked([]);
+        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwExpanded(false); setKwHidden([]); if (!initialPicked?.length) setKwPicked([]);
         try {
             // ① 캐시 먼저(즉시) — 이미 조회된 지역+키워드면 바로 인기탭 통과분.
             const gus = await getRegionGuTokens(regionSel);        // 구/시 토큰(동 아님 — 인기탭은 구/시 단위)
@@ -120,14 +121,15 @@ export function CafeKeywordFinder({
             const cached = await getPopularFromCache(combos);
             if (cached.length) { setKwResult(cached); return; }
             // ② 없으면 라이브 지역 스캔(워커: 검색량 게이트 후 인기탭 조회). 결과 캐시됨 → 다음엔 즉시.
+            setScanNote('지역 스캔 시작…');
             const { id, error } = await enqueueRegionScan(kw, regionSel.join(','), 50);
             if (error || !id) throw new Error(error?.message || '지역 스캔 등록 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: 600 });
+            const { result } = await pollPlaceScan(id, { timeoutSec: 600, onProgress: (note) => setScanNote(note) });
             if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${regionSel.join('·')} × "${kw}"`); return; }
             setKwResult(result);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '조회 실패');
-        } finally { setKwLoading(false); }
+        } finally { setKwLoading(false); setScanNote(''); }
     };
 
     const visible = (kwResult || []).filter((k) => !kwHidden.includes(k.keyword));
@@ -160,6 +162,21 @@ export function CafeKeywordFinder({
                 </div>
             )}
             {kwErr ? <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{kwErr}</p> : null}
+            {scanNote ? (() => {
+                const m = scanNote.match(/(\d+)\/(\d+)/);
+                const pct = m ? Math.min(100, Math.round((Number(m[1]) / Math.max(1, Number(m[2]))) * 100)) : null;
+                return (
+                    <div className="mt-2 rounded-lg border border-[#c4b5fd] bg-[#f5f3ff] p-3">
+                        <div className="mb-1.5 flex items-center justify-between text-[12px] font-bold text-[#6d28d9]">
+                            <span>🔍 지역 인기탭 조회 중… <span className="font-normal text-[#64748b]">{scanNote}</span></span>
+                            {pct !== null ? <span>{pct}%</span> : null}
+                        </div>
+                        <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#e9d5ff]">
+                            <div className={`h-full rounded-full bg-[#7c3aed] ${pct === null ? 'animate-pulse' : 'transition-all duration-500'}`} style={{ width: `${pct ?? 25}%` }} />
+                        </div>
+                    </div>
+                );
+            })() : null}
 
             {/* 검색량(연관어) 리스트 — 참고용, 클릭 시 제품키워드로 채움 */}
             {vol ? (

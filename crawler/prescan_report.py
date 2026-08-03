@@ -18,14 +18,11 @@ for envp in (HERE / ".env",):
             if m and m.group(1) not in os.environ:
                 os.environ[m.group(1)] = m.group(2).strip()
 SB = os.environ["SUPABASE_URL"].rstrip("/")
-KEY = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ["SUPABASE_KEY"]
+KEY = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY") or ""
 H = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
 
-COMPANIES = {
-    "더맨": ["회사보안", "사설경호"], "설고": ["소방업체"], "더티": ["입주청소"],
-    "더반": ["입주청소", "이사청소", "청소업체", "사무실청소"], "누수": ["누수탐지"],
-}
-KEYWORDS = sorted({kw for lst in COMPANIES.values() for kw in lst})
+# prescan_region 과 동일 업종어·지역토큰 규칙 재사용(동기화).
+from prescan_region import COMPANIES, KEYWORDS, region_tokens  # noqa: E402
 BY_KW = {kw: [c for c, ks in COMPANIES.items() if kw in ks] for kw in KEYWORDS}
 
 
@@ -47,18 +44,21 @@ def fetch_all():
 
 def main():
     master = json.loads((HERE / "region_dong_master.json").read_text(encoding="utf-8"))
-    dongs = {m["dong"] for m in master if m["dong"].endswith("동")}
+    # 구/시 토큰 집합(prescan 이 실제 쓰는 지역 축). 동 아님 — 그래서 구/시 결과가 0으로 나오던 버그 수정.
+    region_toks = set()
+    for m in master:
+        region_toks |= region_tokens(m["gu"])
     rows = fetch_all()
-    # 업종어별 버킷: '동 업종어' 형태 & 동이 마스터에 있는 것만
+    # 업종어별 버킷: '구/시 업종어' 형태 & 지역토큰이 마스터에 있는 것만
     buckets = {kw: [] for kw in KEYWORDS}
     for x in rows:
         k = (x.get("keyword") or "").strip()
         parts = k.split()
         if len(parts) < 2:
             continue
-        tail = " ".join(parts[1:])         # '동' 뒤 전체(업종어가 공백 없는 단일어라 parts[1])
+        tail = " ".join(parts[1:])
         head = parts[0]
-        if tail in buckets and head in dongs:
+        if tail in buckets and head in region_toks:
             buckets[tail].append(x)
 
     detail = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in KEYWORDS else None
