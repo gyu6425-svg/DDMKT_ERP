@@ -55,6 +55,20 @@ export type CafeDeployRequest = {
     cafe_clubid: string | null;       // 신규 고객 카페 clubid(SUB2 write URL 조립용). docs/cafe-deploy-clubid.sql
 };
 
+// 카페 대시보드용 — 미션시작일 있는 활성 접수(신규 고객)를 KPI/누적 대상으로. board=게시판명(크롤 board 와 매칭).
+export type DeployDashTarget = { name: string; board: string; goal: number; daily: number; mission_start: string };
+export async function listActiveDeployTargets(): Promise<DeployDashTarget[]> {
+    const { data } = await supabase.from('cafe_deploy_requests')
+        .select('company_name,board_name,cafe_name,total_count,daily_count,mission_start,status')
+        .in('status', ['세팅중', '완료']);
+    return (data ?? [])
+        .filter((r) => (r as { mission_start: string | null }).mission_start && ((r as { board_name: string | null }).board_name || (r as { cafe_name: string | null }).cafe_name))
+        .map((r) => {
+            const x = r as { company_name: string; board_name: string | null; cafe_name: string | null; total_count: number | null; daily_count: number | null; mission_start: string };
+            return { name: x.company_name, board: (x.board_name || x.cafe_name)!, goal: x.total_count || 0, daily: x.daily_count || 0, mission_start: x.mission_start.slice(0, 10) };
+        });
+}
+
 // 담당자: 신규 고객 카페 clubid 저장(SUB2 가 이 값으로 그 카페에 발행). 숫자만.
 export async function updateDeployClubid(id: string, clubid: string) {
     const v = (clubid || '').replace(/[^0-9]/g, '') || null;   // 숫자만

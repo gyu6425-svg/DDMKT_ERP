@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getCafeRankPosts, latestCafeMeasure, type CafeRankPost } from '../../../api/cafeRank';
 import { getCafeAccounts, type CafeAccount } from '../../../api/cafeAccounts';
+import { listActiveDeployTargets, type DeployDashTarget } from '../../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../../lib/exportCsv';
 
 // 누적 발행 글 목록 → 엑셀(CSV).
@@ -43,13 +44,15 @@ const mmdd = (iso: string) => { const [, mo, d] = iso.split('-'); return `${Numb
 export function CafeDashboardTab() {
     const [posts, setPosts] = useState<CafeRankPost[]>([]);
     const [accounts, setAccounts] = useState<CafeAccount[]>([]);
+    const [deployTargets, setDeployTargets] = useState<DeployDashTarget[]>([]);
     const [loading, setLoading] = useState(true);
     const [open, setOpen] = useState<Record<string, boolean>>({}); // 업체별 드롭다운 펼침
 
     const reload = async () => {
-        const [{ data }, accs] = await Promise.all([getCafeRankPosts(), getCafeAccounts()]);
+        const [{ data }, accs, dep] = await Promise.all([getCafeRankPosts(), getCafeAccounts(), listActiveDeployTargets()]);
         setPosts(data);
         setAccounts(accs.data ?? []);
+        setDeployTargets(dep);
         setLoading(false);
     };
     useEffect(() => {
@@ -59,6 +62,16 @@ export function CafeDashboardTab() {
     }, []);
 
     const today = todayKST();
+    // 발행 대상 = 고정업체 + 신규 접수(미션시작일 지난 것만 자동 편입). board 로 중복 제거(고정 우선).
+    const targets = useMemo(() => {
+        const fixedBoards = new Set(DAILY_TARGETS.map((t) => t.board));
+        const seen = new Set<string>();
+        const dyn = deployTargets
+            .filter((d) => d.board && !fixedBoards.has(d.board) && d.mission_start <= today)
+            .filter((d) => (seen.has(d.board) ? false : (seen.add(d.board), true)))
+            .map((d) => ({ board: d.board, goal: d.goal, daily: d.daily, kpi: undefined as boolean | undefined }));
+        return [...DAILY_TARGETS, ...dyn];
+    }, [deployTargets, today]);
     const kw = (p: CafeRankPost) => p.keyword_manual || p.keyword || '—';
     // 오늘 발행(published_date=오늘) · 누적(전체) — board 로 업체 매칭.
     const todayCount = (b: string) => posts.filter((p) => boardKey(p) === b && (p.published_date || '').slice(0, 10) === today).length;
@@ -77,10 +90,10 @@ export function CafeDashboardTab() {
     const achievedCount = (b: string) => posts.filter((p) => boardKey(p) === b && p.top5_achieved_at && !p.top5_seeded).length;
     const siljeok = (b: string) => (baseByBoard.get(b) || 0) + achievedCount(b);
 
-    const KPI_TARGETS = DAILY_TARGETS.filter((t) => t.kpi !== false); // 오늘 발행 KPI 카드 대상(누수상담소=자사 운영 제외)
+    const KPI_TARGETS = targets.filter((t) => t.kpi !== false); // 오늘 발행 KPI 카드 대상(누수상담소=자사 운영 제외)
     const todayTotal = KPI_TARGETS.reduce((s, t) => s + todayCount(t.board), 0);
     const goalTodayTotal = KPI_TARGETS.reduce((s, t) => s + t.daily, 0);
-    const cumGrand = DAILY_TARGETS.reduce((s, t) => s + siljeok(t.board), 0);
+    const cumGrand = targets.reduce((s, t) => s + siljeok(t.board), 0);
 
     if (loading) {
         return <div className="rounded-xl border border-[#e2e8f0] bg-white px-6 py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
@@ -126,7 +139,7 @@ export function CafeDashboardTab() {
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                 <div className="mb-2 text-[14px] font-bold text-[#0f172a]">누적 발행 건 <span className="text-[12px] font-normal text-[#94a3b8]">{cumGrand}건</span></div>
                 <div className="grid gap-2">
-                    {DAILY_TARGETS.map((t) => {
+                    {targets.map((t) => {
                         const bp = cumList(t.board);
                         const done = siljeok(t.board);        // 진행(실적) = base + 24h달성
                         const ach = achievedCount(t.board);   // 이번 추적분 달성(+N)
