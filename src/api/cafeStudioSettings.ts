@@ -12,6 +12,8 @@ export type StudioSettings = {
     main_banner: string[] | null; // 상단 배너 storage 경로(맨 위 1장)
     photos: string[] | null;    // 실사 storage 경로
     banners: string[] | null;   // 마지막 배너 storage 경로
+    keyword_pool?: string[] | null; // 계약 키워드 풀(모델B 일별 발행 — 미사용분 골라 insert)
+    product_kw?: string | null;     // 제품키워드(region 분리용)
     naver_id?: string | null;   // 발행 네이버 아이디
     naver_pw?: string | null;   // 발행 네이버 비밀번호
     board_name?: string | null; // 발행 게시판 이름

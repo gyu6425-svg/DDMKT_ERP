@@ -51,6 +51,21 @@ export async function enqueueGenRequests(companyKey: string, keywords: string[],
 //   SUB2 라우팅(SUB2 백엔드 확정): company = "dep_{style}_{client_id}" 접두사로 스타일 자동적용.
 //     style='info'(정보성) / 'review'(후기성). 배너·실사·계정·clubid·daily 는 SUB2 가 cafe_studio_settings/접수에서 읽음.
 //   전제: docs/cafe-gen-requests-client.sql (client_id 컬럼).
+// 이 고객의 발행요청 상태(키워드별) — 칩 색상·중복방지용. 무공백 정규화 키.
+//   done=발행됨 · pending/claimed/processing=진행중 · 그 외=미사용. 가장 진행된 상태 유지.
+export async function getGenRequestStatus(clientId: string): Promise<Record<string, string>> {
+    const { data } = await supabase.from('cafe_gen_requests')
+        .select('keyword,status').eq('client_id', clientId);
+    const RANK: Record<string, number> = { done: 3, processing: 2, claimed: 2, pending: 1, fail: 0 };
+    const m: Record<string, string> = {};
+    for (const r of (data ?? []) as { keyword: string | null; status: string }[]) {
+        const k = (r.keyword || '').replace(/\s/g, '');
+        if (!k) continue;
+        if (!m[k] || (RANK[r.status] ?? 0) > (RANK[m[k]] ?? 0)) m[k] = r.status;
+    }
+    return m;
+}
+
 export type SelfStyle = 'info' | 'review';
 export async function enqueueGenRequestsSelf(
     clientId: string, keywords: string[], productKeyword: string, style: SelfStyle,

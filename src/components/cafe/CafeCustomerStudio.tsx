@@ -7,7 +7,7 @@ import { getCafeAccounts } from '../../api/cafeAccounts';
 import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls } from '../../api/cafeStudioSettings';
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, type CafeRankPost } from '../../api/cafeRank';
-import { enqueueGenRequests, enqueueGenRequestsSelf, publishTargetFor } from '../../api/cafeGenRequests';
+import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, publishTargetFor } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { REGION_GROUPS, type RegionSet } from './regions';
@@ -110,6 +110,11 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
 
     // 발행 요청(cafe_gen_requests) — finder 선택 키워드 → 발행PC(SUB1/SUB2) 대기열로.
     const [productKw, setProductKw] = useState(''); // finder 제품키워드(입주청소/사설경호/누수탐지…)
+    // 모델B 일별 발행 — 계약 키워드 풀 + 발행상태(칩 색상·미사용 판별) + 매일 건수.
+    const [poolKw, setPoolKw] = useState<string[]>([]);
+    const [genStatus, setGenStatus] = useState<Record<string, string>>({});
+    const [dailyCount, setDailyCount] = useState(1);
+    async function loadGenStatus() { if (clientId) setGenStatus(await getGenRequestStatus(clientId)); }
     const [reqBusy, setReqBusy] = useState(false);
     const [reqMsg, setReqMsg] = useState('');
 
@@ -150,6 +155,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 deploy_type: mode === 'region' ? '지역형' : '키워드형', main_banner: mainPaths, photos: photoPaths, banners: bannerPaths,
                 naver_id: naverId || null, naver_pw: naverPw || null, board_name: boardName || null, board_url: boardUrl || null,
                 kakao_url: kakaoUrl || null,
+                keyword_pool: poolKw.length ? poolKw : null, product_kw: productKw || null,
             });
             if (error) throw new Error(error.message);
             setSettingsSaved(true); setSettingsMsg('저장됨 · 다음부터 이 값으로 열립니다');
@@ -269,6 +275,10 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             const bname = s?.board_name ?? req?.board_name; if (bname) setBoardName(bname);
             if (s?.board_url) setBoardUrl(s.board_url);
             if (s?.kakao_url) setKakaoUrl(s.kakao_url);
+            // 모델B 일별 발행 — 저장된 키워드 풀 + 제품키워드 + 현재 발행상태.
+            if (s?.keyword_pool?.length) setPoolKw(s.keyword_pool);
+            if (s?.product_kw) setProductKw(s.product_kw);
+            void loadGenStatus();
             // 유형/지역 — 저장설정 유형 우선, 지역셋은 접수에서.
             const dtype = s?.deploy_type ?? req?.deploy_type;
             if (dtype === '지역형') setMode('region'); else if (dtype === '키워드형') setMode('keyword');
@@ -534,6 +544,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     setSelectedKw(new Set(kws));
                     setProductKw(pk);
                     if (kws[0] && mode === 'region') setRegionKw(kws[0]);
+                    // 모델B: 고른 키워드를 계약 키워드 풀에 누적(중복 제외).
+                    setPoolKw((prev) => Array.from(new Set([...prev, ...kws.filter(Boolean)])));
                 }}
             />
             {/* 발행 요청 보내기 — 고른 키워드를 발행PC 대기열(cafe_gen_requests)로. 원고·이미지는 그 PC가 자기 양식으로 생성·게시. */}
@@ -542,52 +554,85 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 // 고정업체(더반/누수 등)=우리 카페. 그 외(신규 업체, 모델B: 고객 자기 카페·자기 계정 → SUB2).
                 const isSelf = !target && !!clientId;   // client_id 만 있으면 신규 발행 가능(cafe_account 없어도)
                 if (!target && !isSelf) return null;
-                const n = selectedKw.size;
-                const sendFixed = async () => {
-                    if (!n) { setReqMsg('finder에서 발행할 키워드를 고르세요.'); return; }
-                    setReqBusy(true); setReqMsg('');
-                    const { error, count } = await enqueueGenRequests(company!, [...selectedKw], productKw);
-                    setReqBusy(false);
-                    if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
-                    setReqMsg(`${count}건 발행 요청 전송 완료 — ${target!.pc} 발행 대기열에 담겼습니다(그 PC가 순차 게시).`);
-                    setSelectedKw(new Set());
-                };
-                // 신규 업체 — 정보성/후기성 스타일 선택(SUB2 가 접두사 dep_{style}_ 로 자동적용).
+                // ── 고정업체: 기존 단일 발행요청 ──
+                if (target) {
+                    const n = selectedKw.size;
+                    const sendFixed = async () => {
+                        if (!n) { setReqMsg('finder에서 발행할 키워드를 고르세요.'); return; }
+                        setReqBusy(true); setReqMsg('');
+                        const { error, count } = await enqueueGenRequests(company!, [...selectedKw], productKw);
+                        setReqBusy(false);
+                        if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
+                        setReqMsg(`${count}건 발행 요청 전송 완료 — ${target.pc} 발행 대기열에 담겼습니다(그 PC가 순차 게시).`);
+                        setSelectedKw(new Set());
+                    };
+                    return (
+                        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#c4b5fd] bg-[#f5f3ff] p-3">
+                            <div className="text-[13px] font-bold text-[#6d28d9]">발행 요청 → {target.pc} <span className="font-normal text-[#94a3b8]">(게시판: {target.board})</span></div>
+                            <button type="button" onClick={() => void sendFixed()} disabled={reqBusy || !n}
+                                className="ml-auto h-10 rounded-lg bg-[#7c3aed] px-5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
+                                {reqBusy ? '전송 중…' : `${target.pc} 발행 요청 (${n}건)`}
+                            </button>
+                            {reqMsg ? <span className="w-full text-[12px] font-semibold text-[#166534]">{reqMsg}</span> : null}
+                        </div>
+                    );
+                }
+                // ── 신규 업체(모델B): 일별 발행 — 키워드 풀에서 미사용 N개 골라 dep_{style}_ 로 요청 ──
+                const norm = (s: string) => s.replace(/\s/g, '');
+                const USED = new Set(['done', 'pending', 'processing', 'claimed']);
+                const st = (kw: string) => genStatus[norm(kw)];
+                const unused = poolKw.filter((kw) => !USED.has(st(kw)));
+                const doneN = poolKw.filter((k) => st(k) === 'done').length;
+                const pendN = poolKw.filter((k) => ['pending', 'processing', 'claimed'].includes(st(k))).length;
+                const pick = Math.min(dailyCount, unused.length);
                 const sendSelf = async (style: 'info' | 'review') => {
-                    if (!n) { setReqMsg('finder에서 발행할 키워드를 고르세요.'); return; }
+                    const picks = unused.slice(0, dailyCount);
+                    if (!picks.length) { setReqMsg('미사용 키워드가 없습니다 — finder로 키워드를 더 추가하세요.'); return; }
                     setReqBusy(true); setReqMsg('');
-                    const { error, count } = await enqueueGenRequestsSelf(clientId!, [...selectedKw], productKw, style);
+                    const { error, count } = await enqueueGenRequestsSelf(clientId!, picks, productKw, style);
                     setReqBusy(false);
                     if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
-                    setReqMsg(`${count}건 발행 요청 전송 완료 — SUB2 ${style === 'info' ? '정보성' : '후기성'} 대기열에 담겼습니다.`);
-                    setSelectedKw(new Set());
+                    setReqMsg(`${count}건 발행 요청 완료(${style === 'info' ? '정보성' : '후기성'}) — SUB2가 순차 게시. 미사용 ${Math.max(0, unused.length - count)}개 남음.`);
+                    await loadGenStatus();
                 };
                 return (
-                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#c4b5fd] bg-[#f5f3ff] p-3">
-                        {target ? (
-                            <>
-                                <div className="text-[13px] font-bold text-[#6d28d9]">발행 요청 → {target.pc} <span className="font-normal text-[#94a3b8]">(게시판: {target.board})</span></div>
-                                <button type="button" onClick={() => void sendFixed()} disabled={reqBusy || !n}
-                                    className="ml-auto h-10 rounded-lg bg-[#7c3aed] px-5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
-                                    {reqBusy ? '전송 중…' : `${target.pc} 발행 요청 (${n}건)`}
-                                </button>
-                            </>
+                    <div className="grid gap-2 rounded-xl border border-[#c4b5fd] bg-[#f5f3ff] p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-[13px] font-bold text-[#6d28d9]">SUB2 일별 발행 <span className="font-normal text-[#94a3b8]">— 자기 카페 · 스타일+건수</span></div>
+                            <span className="text-[11px] text-[#64748b]">풀 {poolKw.length} · <span className="text-[#16a34a]">발행됨 {doneN}</span> · <span className="text-[#b45309]">진행중 {pendN}</span> · <b>미사용 {unused.length}</b></span>
+                            <button type="button" onClick={() => void loadGenStatus()} className="ml-auto text-[11px] font-semibold text-[#4338ca] hover:underline">상태 새로고침</button>
+                        </div>
+                        {poolKw.length ? (
+                            <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                                {poolKw.map((kw) => {
+                                    const s = st(kw);
+                                    const cls = s === 'done' ? 'bg-[#dcfce7] text-[#166534] line-through'
+                                        : USED.has(s) ? 'bg-[#fef9c3] text-[#854d0e]'
+                                            : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]';
+                                    return <span key={kw} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{kw}{s === 'done' ? ' ✓' : USED.has(s) ? ' …' : ''}</span>;
+                                })}
+                            </div>
                         ) : (
-                            <>
-                                <div className="text-[13px] font-bold text-[#6d28d9]">SUB2 발행 요청 <span className="font-normal text-[#94a3b8]">— 스타일 선택 · 자기 카페</span></div>
-                                <div className="ml-auto flex gap-2">
-                                    <button type="button" onClick={() => void sendSelf('info')} disabled={reqBusy || !n}
-                                        className="h-10 rounded-lg bg-[#2563eb] px-5 text-sm font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50">
-                                        {reqBusy ? '전송 중…' : `정보성 (${n}건)`}
-                                    </button>
-                                    <button type="button" onClick={() => void sendSelf('review')} disabled={reqBusy || !n}
-                                        className="h-10 rounded-lg bg-[#7c3aed] px-5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
-                                        {reqBusy ? '전송 중…' : `후기성 (${n}건)`}
-                                    </button>
-                                </div>
-                            </>
+                            <div className="text-[12px] text-[#94a3b8]">아래 finder로 키워드를 찾아 고르면 여기 풀에 쌓입니다. <b>'값 저장하기'로 풀을 저장</b>하세요(1회 세팅).</div>
                         )}
-                        {reqMsg ? <span className="w-full text-[12px] font-semibold text-[#166534]">{reqMsg}</span> : null}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[12px] font-semibold text-[#475569]">건수</span>
+                            {[1, 2, 3, 4, 5].map((c) => (
+                                <button key={c} type="button" onClick={() => setDailyCount(c)}
+                                    className={`h-8 w-8 rounded-md text-[13px] font-bold ${dailyCount === c ? 'bg-[#4338ca] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]'}`}>{c}</button>
+                            ))}
+                            <div className="ml-auto flex gap-2">
+                                <button type="button" onClick={() => void sendSelf('info')} disabled={reqBusy || !unused.length}
+                                    className="h-10 rounded-lg bg-[#2563eb] px-5 text-sm font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50">
+                                    {reqBusy ? '전송 중…' : `정보성 ${pick}건`}
+                                </button>
+                                <button type="button" onClick={() => void sendSelf('review')} disabled={reqBusy || !unused.length}
+                                    className="h-10 rounded-lg bg-[#7c3aed] px-5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
+                                    {reqBusy ? '전송 중…' : `후기성 ${pick}건`}
+                                </button>
+                            </div>
+                        </div>
+                        {reqMsg ? <span className="text-[12px] font-semibold text-[#166534]">{reqMsg}</span> : null}
                     </div>
                 );
             })()}
