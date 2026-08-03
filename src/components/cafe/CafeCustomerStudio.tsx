@@ -9,6 +9,7 @@ import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, publishTargetFor } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
+import { customerLogin } from '../../api/nusu2Bridge';
 
 type MyJob = { id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string };
 const STATUS_KO: Record<string, string> = { pending: '대기', processing: '작성 중', posted: '게시됨(확인중)', done: '완료', fail: '실패' };
@@ -61,6 +62,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [boardName, setBoardName] = useState('');
     const [boardUrl, setBoardUrl] = useState('');
     const [loginMsg, setLoginMsg] = useState('');   // '네이버 로그인' 버튼 결과 안내 — SUB2 브릿지 호출 성공/실패.
+    const [loginBusy, setLoginBusy] = useState(false);
     const [kakaoUrl, setKakaoUrl] = useState('');   // 카카오톡 상담 링크 — 본문 끝 CTA. 저장 설정에 포함.
     // 접수 때 고른 SEO 키워드(10~50) — 파인더에 시딩 + 재조회 제외. 계약 목표 건수.
     const [intakePicked, setIntakePicked] = useState<{ keyword: string; volume?: number | null; theme?: string | null }[]>([]);
@@ -329,18 +331,21 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 </div>
                 {/* 네이버 로그인 — SUB2가 이 고객 전용 크롬을 띄우고 담당자가 직접 로그인(자동입력 안 함=봇 방지) */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <button type="button" disabled={!clientId}
+                    <button type="button" disabled={!clientId || loginBusy}
                         className="h-10 rounded-lg bg-[#03c75a] px-5 text-sm font-bold text-white hover:bg-[#02b350] disabled:opacity-50"
-                        onClick={() => {
-                            setLoginMsg('');
-                            fetch('http://localhost:8788/api/customer/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId }) })
-                                .then((r) => { if (!r.ok) throw new Error('bad'); setLoginMsg('전용 크롬을 띄웠습니다 — 뜬 창에서 직접 로그인하세요.'); })
-                                .catch(() => setLoginMsg('브릿지 연결 실패 — 발행 프로그램(SUB2)이 켜져 있는지 확인하세요.(로컬에서 접속해야 함)'));
+                        onClick={async () => {
+                            if (!clientId) return;
+                            setLoginBusy(true); setLoginMsg('전용 크롬 실행 중…');
+                            const r = await customerLogin(clientId);
+                            setLoginBusy(false);
+                            setLoginMsg(r.ok
+                                ? '전용 크롬을 띄웠습니다 — 뜬 창에서 직접 로그인하세요.'
+                                : `브릿지 연결 실패 — 발행 프로그램(SUB2)이 켜져 있는지 확인하세요. 로컬에서 접속해야 합니다. (${r.error || '연결 불가'})`);
                         }}>
-                        네이버 로그인 (담당자 수동)
+                        {loginBusy ? '실행 중…' : '네이버 로그인 (담당자 수동)'}
                     </button>
                     <span className="text-[11px] text-[#94a3b8]">누르면 이 고객 전용 크롬 창이 뜹니다. 자동입력 없이 담당자가 그 창에서 직접 로그인하세요(봇 차단 방지).</span>
-                    {loginMsg ? <span className="w-full text-[12px] font-semibold text-[#166534]">{loginMsg}</span> : null}
+                    {loginMsg ? <span className={`w-full text-[12px] font-semibold ${loginMsg.includes('실패') ? 'text-[#dc2626]' : 'text-[#166534]'}`}>{loginMsg}</span> : null}
                 </div>
             </div>
 
