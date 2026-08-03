@@ -65,6 +65,8 @@ function Sidebar() {
             if (!m.has(cat)) m.set(cat, new Set());
             m.get(cat)!.add(raw);
         }
+        // 카페는 계약이 없어도 모든 고객에게 항상 노출 — 미계약 고객도 '카페 배포' 접수를 넣을 수 있게.
+        if (!m.has('카페')) m.set('카페', new Set());
         return m;
     }, [custContracts]);
     const navigate = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
