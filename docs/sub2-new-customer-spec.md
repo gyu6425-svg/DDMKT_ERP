@@ -29,13 +29,23 @@ GET /rest/v1/cafe_deploy_credentials?client_id=eq.<client_id>&select=naver_id,na
 ```
 - `naver_id`, `naver_pw` — **고객 계정 로그인**(평문, 서비스키로만 접근). 이 계정으로 CDP 로그인.
 
-### C. 사진 — 스토리지 버킷 `deploy-intake`
-`photos.main/real/banner` 의 각 경로를 서명URL 또는 서비스키로 다운로드.
+### C. 사진 — ⚠️ **스튜디오 설정 우선**, 없으면 접수
+이미지는 **두 소스**가 있고 담당자가 스튜디오에서 넣은 게 최종이다. **아래 우선순위로 읽을 것**:
+
+**① (우선) 스튜디오 설정 `cafe_studio_settings`** — 담당자가 '값 저장하기'로 넣은 발행 이미지. **버킷 `cafe-images`**.
 ```
-POST /storage/v1/object/sign/deploy-intake/<경로>   (서명URL 발급)
-또는 GET /storage/v1/object/deploy-intake/<경로>  (서비스키 직접)
+GET /rest/v1/cafe_studio_settings?client_id=eq.<client_id>&select=main_banner,photos,banners
 ```
-경로 예: `9f58a414-.../1785474233042/main_0.jpg`
+- `main_banner`(상단 배너 1장)·`photos`(실사)·`banners`(끝 배너) = 경로 배열(jsonb).
+- 경로 예: `studio-settings/<client_id>/main_banner_0.jpg` · `..._photos_N` · `..._banners_N`
+- 다운로드: `POST /storage/v1/object/sign/cafe-images/<경로>` 또는 `GET /storage/v1/object/cafe-images/<경로>` (서비스키).
+- 배치: **상단배너(main_banner) → 실사(photos, 문단 사이) → 끝배너(banners)** — 더반/누수 스타일.
+
+**② (없을 때만) 접수 `cafe_deploy_requests.photos`** — 고객 접수 원본. **버킷 `deploy-intake`**.
+```
+GET /storage/v1/object/sign/deploy-intake/<경로>   경로 예: <client_id>/<batch>/main_0.jpg
+```
+→ **cafe_studio_settings 에 값이 있으면 그걸 쓰고(우리가 세팅한 최종본), 없을 때만 접수 photos 로 폴백.** (지금 배너가 '빈 데이터'로 나온 원인 = SUB2가 접수만 읽어서. 배너는 스튜디오 설정에 저장돼 있음.)
 
 ---
 
