@@ -1,7 +1,33 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getReports, setReportPaid, setReportSettled, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
+import { getReports, setReportPaid, setReportSettled, reportOutUnit, type BlogPostReport, type ReportType } from '../../../api/blogPostReports';
 import { getProfiles } from '../../../api/profiles';
 import { getReporters } from '../../../api/blogRank';
+
+const won = (n: number) => n.toLocaleString('ko-KR');
+
+// 입금일(paid_at) → 그 주(월~일)의 월요일 YYYY-MM-DD. 정산 '주차' 그룹 키.
+function weekMonday(iso: string | null): string {
+    if (!iso) return '';
+    const d = new Date(iso.slice(0, 10) + 'T00:00:00');
+    const dow = (d.getDay() + 6) % 7; // 월=0 … 일=6
+    d.setDate(d.getDate() - dow);
+    return d.toISOString().slice(0, 10);
+}
+// 주 시작(월요일) → "8/4~8/10" 라벨.
+function weekLabel(monday: string): string {
+    if (!monday) return '—';
+    const s = new Date(monday + 'T00:00:00');
+    const e = new Date(s); e.setDate(e.getDate() + 6);
+    const f = (x: Date) => `${x.getMonth() + 1}/${x.getDate()}`;
+    return `${f(s)}~${f(e)}`;
+}
+// 사업소득 원천징수 3.3% — 소득세 3%(원단위 절사) + 지방소득세 0.3%(원단위 절사). 실지급 = 공급가 - 세액.
+function withhold(gross: number): { incomeTax: number; localTax: number; tax: number; net: number } {
+    const incomeTax = Math.floor((gross * 0.03) / 10) * 10;
+    const localTax = Math.floor((incomeTax * 0.1) / 10) * 10;
+    const tax = incomeTax + localTax;
+    return { incomeTax, localTax, tax, net: gross - tax };
+}
 
 // 블로그 종류 칩 색상 — 브랜드=파랑 · 최적화=초록 · 준최적화=주황 · 저인망=보라.
 function kindChipCls(kind: string | null | undefined): string {
@@ -29,9 +55,11 @@ export function ApprovedReportsModal({
     const [reporterMap, setReporterMap] = useState<Record<string, string>>({}); // 기자단(reporter_id) 이름
     const [loading, setLoading] = useState(true);
     // 탭 — 전체/저장/발행은 '미입금'만 보여주고, 입금 처리된 건은 '입금 완료' 탭으로 이동한다.
-    const [typeTab, setTypeTab] = useState<'all' | ReportType | 'paid'>('all');
+    const [typeTab, setTypeTab] = useState<'all' | ReportType | 'paid' | 'settle'>('all');
     const [blogFilter, setBlogFilter] = useState('all');
     const [reporterFilter, setReporterFilter] = useState('all');
+    const [uploadSort, setUploadSort] = useState<'asc' | 'desc'>('asc'); // 업로드일 정렬(순번 기준)
+    const [weekFilter, setWeekFilter] = useState('all'); // 정산 탭 — 주차(입금일 주) 필터
     const [paying, setPaying] = useState<string | null>(null);
     const [settling, setSettling] = useState<string | null>(null);
 
@@ -98,11 +126,43 @@ export function ApprovedReportsModal({
         [reports, typeTab, blogFilter, reporterFilter],
     );
 
-    // 순번 표시용 — 업로드일(created_at) 오름차순 정렬. 맨 앞 '순번' 컬럼 = 1..N.
-    const ordered = useMemo(
-        () => [...filtered].sort((a, b) => (a.created_at || '').localeCompare(b.created_at || '')),
-        [filtered],
+    // 순번/정렬 — 업로드일(created_at) 기준. 헤더 클릭으로 오름/내림 토글. 맨 앞 '순번' = 표시 순서 1..N.
+    const ordered = useMemo(() => {
+        const arr = [...filtered].sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+        return uploadSort === 'desc' ? arr.reverse() : arr;
+    }, [filtered, uploadSort]);
+
+    // ── 정산 내역(입금완료 건) — 기자단 × 주차별 공급가/원천징수(3.3%)/실지급 ──
+    const paidScoped = useMemo(
+        () => reports.filter((r) => r.paid && (reporterFilter === 'all' || r.reporter_id === reporterFilter)),
+        [reports, reporterFilter],
     );
+    // 주차 옵션 — 선택 기자단의 입금 주(월요일) 오름차순. 1주차 = 가장 이른 입금 주.
+    const settleWeeks = useMemo(
+        () => [...new Set(paidScoped.map((r) => weekMonday(r.paid_at)).filter(Boolean))].sort(),
+        [paidScoped],
+    );
+    // 기자단별 집계(선택 주차 반영).
+    const settleRows = useMemo(() => {
+        const scoped = paidScoped.filter((r) => weekFilter === 'all' || weekMonday(r.paid_at) === weekFilter);
+        const byRep = new Map<string, BlogPostReport[]>();
+        for (const r of scoped) {
+            const k = r.reporter_id || 'none';
+            const arr = byRep.get(k) ?? [];
+            arr.push(r); byRep.set(k, arr);
+        }
+        return [...byRep.entries()]
+            .map(([rid, list]) => {
+                const gross = list.reduce((s, r) => s + reportOutUnit(r, blogNameOf(r.blog_account_id)), 0);
+                const w = withhold(gross);
+                return { rid, name: rid === 'none' ? '기자단' : reporterMap[rid] || '기자단', count: list.length, gross, tax: w.tax, net: w.net, list };
+            })
+            .sort((a, b) => b.gross - a.gross);
+    }, [paidScoped, weekFilter, reporterMap, blogNameOf]);
+    const settleTotal = useMemo(() => {
+        const gross = settleRows.reduce((s, r) => s + r.gross, 0);
+        return { count: settleRows.reduce((s, r) => s + r.count, 0), gross, ...withhold(gross) };
+    }, [settleRows]);
 
     const dateOf = (iso: string | null) => (iso ? iso.slice(0, 10) : '—');
 
@@ -162,14 +222,17 @@ export function ApprovedReportsModal({
                             ['save', `저장 (${nSave})`],
                             ['publish', `발행 (${nPub})`],
                             ['paid', `입금 완료 (${nPaid})`],
-                        ] as ['all' | ReportType | 'paid', string][]
+                            ['settle', '정산 내역'],
+                        ] as ['all' | ReportType | 'paid' | 'settle', string][]
                     ).map(([k, label]) => (
                         <button
                             className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
                                 typeTab === k
-                                    ? k === 'paid'
-                                        ? 'border-[#2563eb] text-[#2563eb]' // 입금 완료 = 파랑(미입금과 구분)
-                                        : 'border-[#16a34a] text-[#16a34a]'
+                                    ? k === 'settle'
+                                        ? 'border-[#7c3aed] text-[#7c3aed]' // 정산 = 보라
+                                        : k === 'paid'
+                                            ? 'border-[#2563eb] text-[#2563eb]' // 입금 완료 = 파랑(미입금과 구분)
+                                            : 'border-[#16a34a] text-[#16a34a]'
                                     : 'border-transparent text-[#94a3b8]'
                             }`}
                             key={k}
@@ -198,7 +261,24 @@ export function ApprovedReportsModal({
                             ))}
                         </select>
                     </div>
-                    {accounts.length > 1 ? (
+                    {typeTab === 'settle' ? (
+                        <div className="flex items-center gap-2">
+                            <span className="text-[12px] font-semibold text-[#64748b]">주차</span>
+                            <select
+                                className="h-9 min-w-[160px] rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
+                                onChange={(e) => setWeekFilter(e.target.value)}
+                                value={weekFilter}
+                            >
+                                <option value="all">전체 주차</option>
+                                {settleWeeks.map((k, i) => (
+                                    <option key={k} value={k}>
+                                        {i + 1}주차 ({weekLabel(k)})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    ) : null}
+                    {typeTab !== 'settle' && accounts.length > 1 ? (
                         <div className="flex items-center gap-2">
                             <span className="text-[12px] font-semibold text-[#64748b]">업체</span>
                             <select
@@ -217,7 +297,97 @@ export function ApprovedReportsModal({
                     ) : null}
                 </div>
 
-                {loading ? (
+                {typeTab === 'settle' ? (
+                    loading ? (
+                        <div className="py-12 text-center text-sm text-[#94a3b8]">불러오는 중...</div>
+                    ) : settleRows.length === 0 ? (
+                        <div className="py-12 text-center text-sm text-[#94a3b8]">입금완료된 정산 내역이 없습니다.</div>
+                    ) : (
+                        <div className="grid gap-4">
+                            {/* 합계 요약 카드 */}
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                <div className="rounded-xl border border-[#e2e8f0] bg-white p-3">
+                                    <div className="text-[11px] text-[#64748b]">건수</div>
+                                    <div className="text-xl font-bold text-[#334155]">{settleTotal.count}건</div>
+                                </div>
+                                <div className="rounded-xl border border-[#e2e8f0] bg-white p-3">
+                                    <div className="text-[11px] text-[#64748b]">공급가 (원천징수 전)</div>
+                                    <div className="text-xl font-bold text-[#0f172a]">₩{won(settleTotal.gross)}</div>
+                                </div>
+                                <div className="rounded-xl border border-[#fed7aa] bg-[#fff7ed] p-3">
+                                    <div className="text-[11px] text-[#9a3412]">원천징수 3.3%</div>
+                                    <div className="text-xl font-bold text-[#c2410c]">-₩{won(settleTotal.tax)}</div>
+                                </div>
+                                <div className="rounded-xl border border-[#bbf7d0] bg-[#f0fdf4] p-3">
+                                    <div className="text-[11px] text-[#166534]">실지급 (세후)</div>
+                                    <div className="text-xl font-bold text-[#15803d]">₩{won(settleTotal.net)}</div>
+                                </div>
+                            </div>
+                            {/* 기자단별 정산 표 */}
+                            <div className="overflow-x-auto rounded-xl border border-[#e2e8f0]">
+                                <table className="w-full border-collapse text-sm">
+                                    <thead>
+                                        <tr className="border-b border-[#e2e8f0] bg-[#f8fafc] text-left text-[12px] text-[#64748b]">
+                                            <th className="px-3 py-2 font-semibold">기자단</th>
+                                            <th className="px-3 py-2 text-center font-semibold">건수</th>
+                                            <th className="px-3 py-2 text-right font-semibold">공급가 (세전)</th>
+                                            <th className="px-3 py-2 text-right font-semibold">원천징수 3.3%</th>
+                                            <th className="px-3 py-2 text-right font-semibold">실지급 (세후)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {settleRows.map((row) => (
+                                            <tr className="border-b border-[#f1f5f9]" key={row.rid}>
+                                                <td className="px-3 py-2 font-semibold text-[#334155]">{row.name}</td>
+                                                <td className="px-3 py-2 text-center text-[#475569]">{row.count}건</td>
+                                                <td className="px-3 py-2 text-right font-semibold text-[#0f172a]">₩{won(row.gross)}</td>
+                                                <td className="px-3 py-2 text-right text-[#c2410c]">-₩{won(row.tax)}</td>
+                                                <td className="px-3 py-2 text-right font-bold text-[#15803d]">₩{won(row.net)}</td>
+                                            </tr>
+                                        ))}
+                                        <tr className="border-t-2 border-[#e2e8f0] bg-[#f8fafc] font-bold">
+                                            <td className="px-3 py-2 text-[#334155]">합계</td>
+                                            <td className="px-3 py-2 text-center text-[#334155]">{settleTotal.count}건</td>
+                                            <td className="px-3 py-2 text-right text-[#0f172a]">₩{won(settleTotal.gross)}</td>
+                                            <td className="px-3 py-2 text-right text-[#c2410c]">-₩{won(settleTotal.tax)}</td>
+                                            <td className="px-3 py-2 text-right text-[#15803d]">₩{won(settleTotal.net)}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            {/* 특정 기자단 선택 시 — 그 주차/기자단의 입금 건 상세 */}
+                            {reporterFilter !== 'all' ? (
+                                <div className="overflow-x-auto rounded-xl border border-[#e2e8f0]">
+                                    <table className="w-full border-collapse text-[13px]">
+                                        <thead>
+                                            <tr className="border-b border-[#e2e8f0] bg-[#f8fafc] text-left text-[11px] text-[#64748b]">
+                                                {['입금일', '업로드일', '업체', '제목', '회차', '금액'].map((h) => (
+                                                    <th key={h} className="whitespace-nowrap px-3 py-2 font-semibold">{h}</th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {settleRows.flatMap((row) => row.list)
+                                                .sort((a, b) => (b.paid_at || '').localeCompare(a.paid_at || ''))
+                                                .map((r) => (
+                                                    <tr className="border-b border-[#f1f5f9] text-[#334155]" key={r.id}>
+                                                        <td className="whitespace-nowrap px-3 py-2">{dateOf(r.paid_at)}</td>
+                                                        <td className="whitespace-nowrap px-3 py-2 text-[#64748b]">{dateOf(r.created_at)}</td>
+                                                        <td className="whitespace-nowrap px-3 py-2">{blogNameOf(r.blog_account_id)}</td>
+                                                        <td className="px-3 py-2">{r.title || '—'}</td>
+                                                        <td className="whitespace-nowrap px-3 py-2 text-[#64748b]">{r.round != null ? `${r.round}회차` : '—'}</td>
+                                                        <td className="whitespace-nowrap px-3 py-2 text-right font-semibold">₩{won(reportOutUnit(r, blogNameOf(r.blog_account_id)))}</td>
+                                                    </tr>
+                                                ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : (
+                                <p className="m-0 text-center text-[12px] text-[#94a3b8]">기자단을 선택하면 해당 기자단의 입금 건 상세가 표시됩니다.</p>
+                            )}
+                        </div>
+                    )
+                ) : loading ? (
                     <div className="py-12 text-center text-sm text-[#94a3b8]">불러오는 중...</div>
                 ) : filtered.length === 0 ? (
                     <div className="py-12 text-center text-sm text-[#94a3b8]">승인 처리된 글이 없습니다.</div>
@@ -227,7 +397,11 @@ export function ApprovedReportsModal({
                             <thead>
                                 <tr className="border-b border-[#e2e8f0] text-left text-[12px] text-[#64748b]">
                                     <th className="whitespace-nowrap px-2 py-2 text-center font-semibold">순번</th>
-                                    <th className="whitespace-nowrap px-2 py-2 font-semibold">업로드일</th>
+                                    <th className="whitespace-nowrap px-2 py-2 font-semibold">
+                                        <button type="button" onClick={() => setUploadSort((d) => (d === 'asc' ? 'desc' : 'asc'))} className="inline-flex items-center gap-1 font-semibold hover:text-[#334155]" title="업로드일 정렬 전환">
+                                            업로드일 <span className="text-[10px] text-[#94a3b8]">{uploadSort === 'asc' ? '▲' : '▼'}</span>
+                                        </button>
+                                    </th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">승인일</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">승인 직원</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">업체</th>
