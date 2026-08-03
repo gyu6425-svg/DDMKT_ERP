@@ -98,6 +98,12 @@ export function ApprovedReportsModal({
         [reports, typeTab, blogFilter, reporterFilter],
     );
 
+    // 순번 표시용 — 업로드일(created_at) 오름차순 정렬. 맨 앞 '순번' 컬럼 = 1..N.
+    const ordered = useMemo(
+        () => [...filtered].sort((a, b) => (a.created_at || '').localeCompare(b.created_at || '')),
+        [filtered],
+    );
+
     const dateOf = (iso: string | null) => (iso ? iso.slice(0, 10) : '—');
 
     // 입금 처리 토글 — 정산(report.paid) + 계약 진행이력(week=rpt-id) 동기화.
@@ -220,6 +226,7 @@ export function ApprovedReportsModal({
                         <table className="w-full border-collapse text-sm">
                             <thead>
                                 <tr className="border-b border-[#e2e8f0] text-left text-[12px] text-[#64748b]">
+                                    <th className="whitespace-nowrap px-2 py-2 text-center font-semibold">순번</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">업로드일</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">승인일</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">승인 직원</th>
@@ -234,8 +241,9 @@ export function ApprovedReportsModal({
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map((r) => (
+                                {ordered.map((r, i) => (
                                     <tr className="border-b border-[#f1f5f9] align-top" key={r.id}>
+                                        <td className="whitespace-nowrap px-2 py-2 text-center font-semibold text-[#94a3b8]">{i + 1}</td>
                                         <td className="whitespace-nowrap px-2 py-2 text-[#475569]">{dateOf(r.created_at)}</td>
                                         <td className="whitespace-nowrap px-2 py-2 text-[#475569]">{dateOf(r.reviewed_at)}</td>
                                         <td className="whitespace-nowrap px-2 py-2 font-semibold text-[#334155]">
