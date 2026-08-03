@@ -450,15 +450,26 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     <button className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${mode === k ? 'border-[#1e40af] text-[#1e40af]' : 'border-transparent text-[#94a3b8]'}`} key={k} onClick={() => setMode(k)} type="button">{name}</button>
                 ))}
                 {settingsMsg ? <span className="ml-auto mr-2 text-[11px] font-semibold text-[#059669]">{settingsMsg}</span> : null}
-                <button
-                    type="button"
-                    onClick={() => void (settingsSaved ? resetSettings() : saveSettings())}
-                    disabled={savingSettings}
-                    className={`${settingsMsg ? '' : 'ml-auto'} mb-1 shrink-0 rounded-md px-3 py-1.5 text-xs font-bold disabled:opacity-50 ${settingsSaved ? 'border border-[#cbd5e1] bg-white text-[#64748b] hover:bg-[#f1f5f9]' : 'bg-[#4338ca] text-white hover:bg-[#3730a3]'}`}
-                    title="업체명·업종·홈페이지·유형·실사·마지막배너를 저장 — 다음 선택 시 자동 복원"
-                >
-                    {savingSettings ? '저장 중…' : settingsSaved ? '초기화' : '값 저장하기'}
-                </button>
+                {settingsSaved ? (
+                    <span className={`${settingsMsg ? '' : 'ml-auto'} mb-1 flex shrink-0 items-center gap-1.5`}>
+                        <button type="button" onClick={() => void saveSettings()} disabled={savingSettings}
+                            className="rounded-md bg-[#4338ca] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
+                            title="내용을 수정한 뒤 눌러 다시 저장(덮어쓰기)">
+                            {savingSettings ? '저장 중…' : '재설정'}
+                        </button>
+                        <button type="button" onClick={() => void resetSettings()} disabled={savingSettings}
+                            className="rounded-md border border-[#cbd5e1] bg-white px-3 py-1.5 text-xs font-bold text-[#64748b] hover:bg-[#f1f5f9] disabled:opacity-50"
+                            title="저장된 값을 지우고 처음 상태로">
+                            초기화
+                        </button>
+                    </span>
+                ) : (
+                    <button type="button" onClick={() => void saveSettings()} disabled={savingSettings}
+                        className={`${settingsMsg ? '' : 'ml-auto'} mb-1 shrink-0 rounded-md bg-[#4338ca] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#3730a3] disabled:opacity-50`}
+                        title="업체명·업종·홈페이지·유형·메인배너·실사·끝배너를 저장 — 다음 선택 시 자동 복원">
+                        {savingSettings ? '저장 중…' : '값 저장하기'}
+                    </button>
+                )}
             </div>
 
             {/* 공통 업체정보 */}
