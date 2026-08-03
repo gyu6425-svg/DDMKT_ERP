@@ -502,7 +502,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 <div className="mb-3 text-[13px] font-bold text-[#334155]">발행 이미지 (업체 배너·실사) <span className="font-normal text-[#94a3b8]">— 모든 발행에 함께 들어갑니다</span></div>
                 <div className="grid gap-4 sm:grid-cols-3">
                     {imageZone('상단 배너', '(맨 위 · 1장)', mainBanner, setMainBanner, 1)}
-                    {imageZone('실사 사진', '(문단 사이 · 8~20장 · 2장 좌우/낱개 랜덤)', photos, setPhotos, 20)}
+                    {imageZone('실사 사진', '(문단 사이 · 개수 제한 없음 · 2장 좌우/낱개 랜덤)', photos, setPhotos, 9999)}
                     {imageZone('끝 배너', '(맨 끝 · 1장 · 예: 예약 전 주의사항)', banners, setBanners, 2)}
                 </div>
                 <p className="m-0 mt-2 text-[11px] text-[#94a3b8]">배치: <b>상단 배너 1장</b> → <b>실사(문단 사이 · 발행마다 2장 좌우/낱개 랜덤)</b> → <b>끝 배너 1장</b> (더반·누수 스타일). 배너 남발 금지, 실사 위주. 넣지 않으면 텍스트만 발행됩니다.</p>
