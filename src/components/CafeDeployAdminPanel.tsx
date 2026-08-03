@@ -205,7 +205,8 @@ export default function CafeDeployAdminPanel() {
                                                 ) : null}
                                                 {r.status === '세팅중' ? (
                                                     <button type="button" onClick={() => {
-                                                        const path = '/cafe-rank?sub=' + encodeURIComponent('카페 배포') + '&tab=automation';
+                                                        const path = '/cafe-rank?sub=' + encodeURIComponent('카페 배포') + '&tab=automation'
+                                                            + (r.client_id ? '&client=' + encodeURIComponent(r.client_id) : '');
                                                         window.history.pushState(null, '', path);
                                                         window.dispatchEvent(new Event('app:navigate'));
                                                     }}

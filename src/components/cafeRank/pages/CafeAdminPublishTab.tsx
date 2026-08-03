@@ -34,6 +34,12 @@ export function CafeAdminPublishTab() {
         });
     };
     useEffect(reload, []);
+    // '발행하러 가기'로 넘어온 경우 URL의 client 를 선택(마지막 선택 localStorage 보다 우선).
+    useEffect(() => {
+        const q = new URLSearchParams(window.location.search).get('client');
+        if (q) setSel(q);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     if (loading) {
         return <div className="rounded-xl border border-[#e2e8f0] bg-white px-6 py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
