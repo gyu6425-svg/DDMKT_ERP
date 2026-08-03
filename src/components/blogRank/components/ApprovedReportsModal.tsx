@@ -287,15 +287,22 @@ export function ApprovedReportsModal({
                                             </button>
                                         </td>
                                         <td className="whitespace-nowrap px-2 py-2 text-center">
+                                            {/* 미정산(settled=false)이면 입금 처리 불가 — 정산 먼저. 단 이미 입금된 건은 되돌릴 수 있게 허용. */}
                                             <button
-                                                className={`rounded-md px-2.5 py-1 text-[11px] font-bold disabled:opacity-50 ${
+                                                className={`rounded-md px-2.5 py-1 text-[11px] font-bold disabled:cursor-not-allowed disabled:opacity-50 ${
                                                     r.paid
                                                         ? 'bg-[#dcfce7] text-[#15803d] hover:bg-[#bbf7d0]'
                                                         : 'bg-[#1e40af] text-white hover:bg-[#1e3a8a]'
                                                 }`}
-                                                disabled={paying === r.id}
+                                                disabled={paying === r.id || (!r.settled && !r.paid)}
                                                 onClick={() => void togglePay(r)}
-                                                title={r.paid ? '클릭 시 미입금으로 되돌림' : '입금 처리 — 기자단 정산·계약 진행이력에 함께 반영'}
+                                                title={
+                                                    !r.settled && !r.paid
+                                                        ? '정산 먼저 처리하세요 (미정산 건은 입금 처리 불가)'
+                                                        : r.paid
+                                                            ? '클릭 시 미입금으로 되돌림'
+                                                            : '입금 처리 — 기자단 정산·계약 진행이력에 함께 반영'
+                                                }
                                                 type="button"
                                             >
                                                 {paying === r.id ? '처리 중…' : r.paid ? '입금완료' : '입금'}
