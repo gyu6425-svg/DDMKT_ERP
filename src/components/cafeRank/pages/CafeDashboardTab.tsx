@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getCafeRankPosts, type CafeRankPost } from '../../../api/cafeRank';
+import { getCafeRankPosts, latestCafeMeasure, type CafeRankPost } from '../../../api/cafeRank';
 import { getCafeAccounts, type CafeAccount } from '../../../api/cafeAccounts';
 
 // 카페 · 대시보드 — '오늘 발행 현황'(하루 5건 KPI) + '오늘까지 발행 건'(누적/계약 목표).
@@ -49,7 +49,10 @@ export function CafeDashboardTab() {
     const kw = (p: CafeRankPost) => p.keyword_manual || p.keyword || '—';
     // 오늘 발행(published_date=오늘) · 누적(전체) — board 로 업체 매칭.
     const todayCount = (b: string) => posts.filter((p) => boardKey(p) === b && (p.published_date || '').slice(0, 10) === today).length;
-    const cumList = (b: string) => posts.filter((p) => boardKey(p) === b).sort((x, y) => (y.created_at || '').localeCompare(x.created_at || ''));
+    // 발행 최신순(위=최근). 발행일 desc, 없으면 등록시각 desc.
+    const cumList = (b: string) => posts.filter((p) => boardKey(p) === b).sort((x, y) =>
+        (y.published_date || '').localeCompare(x.published_date || '')
+        || (y.created_at || '').localeCompare(x.created_at || ''));
 
     // 진행(실적) = 수동 베이스라인(done_count) + 5위 24h 달성(top5_achieved). 관리시트·계약과 동일 기준.
     //   '누적 발행 글 수'(cumList)와 다름 — 계약 진행은 24h 유지 달성분만 +1.
@@ -132,20 +135,34 @@ export function CafeDashboardTab() {
                                 </button>
                                 {isOpen && bp.length ? (
                                     <div className="overflow-x-auto border-t border-[#eef0f2] px-3 py-2">
-                                        <table className="w-full min-w-[520px] border-collapse text-[13px]">
+                                        <table className="w-full min-w-[720px] border-collapse text-[13px]">
                                             <thead>
                                                 <tr className="border-b border-[#f1f5f9] text-left text-[#94a3b8]">
-                                                    {['키워드', '제목', '카페/게시판'].map((h) => <th key={h} className="px-2 py-1 font-semibold">{h}</th>)}
+                                                    {['발행일', '키워드', '제목', '카페/게시판', '현재 순위', '실적'].map((h) => <th key={h} className="px-2 py-1 font-semibold">{h}</th>)}
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {bp.map((p) => (
-                                                    <tr key={p.id} className="border-b border-[#f8fafc] text-[#334155]">
-                                                        <td className="whitespace-nowrap px-2 py-1.5 font-semibold">{kw(p)}</td>
-                                                        <td className="max-w-[300px] truncate px-2 py-1.5" title={p.title ?? ''}>{p.title ?? '—'}</td>
-                                                        <td className="whitespace-nowrap px-2 py-1.5 text-[12px] text-[#64748b]">{p.cafe_accounts?.display_name || p.cafe_name || '—'}</td>
-                                                    </tr>
-                                                ))}
+                                                {bp.map((p) => {
+                                                    const m = latestCafeMeasure(p.measurements);
+                                                    const rankText = !m ? '-' : m.ti_status === 'ok' ? `${m.ti}위` : m.ti_status === 'out' ? '권외' : m.ti_status === 'no_section' ? '측정불가' : '실패';
+                                                    const rankCls = m?.ti_status === 'ok' ? (m.ti <= 5 ? 'font-bold text-[#166534]' : 'text-[#334155]') : 'text-[#94a3b8]';
+                                                    const achieved = p.top5_achieved_at && !p.top5_seeded;
+                                                    return (
+                                                        <tr key={p.id} className="border-b border-[#f8fafc] align-top text-[#334155]">
+                                                            <td className="whitespace-nowrap px-2 py-1.5 text-[12px] text-[#64748b]">{p.published_date ?? '—'}</td>
+                                                            <td className="whitespace-nowrap px-2 py-1.5 font-semibold">{kw(p)}</td>
+                                                            <td className="max-w-[280px] truncate px-2 py-1.5" title={p.title ?? ''}>{p.title ?? '—'}</td>
+                                                            <td className="whitespace-nowrap px-2 py-1.5 text-[12px] text-[#64748b]">{p.cafe_accounts?.display_name || p.cafe_name || '—'}</td>
+                                                            <td className={`whitespace-nowrap px-2 py-1.5 ${rankCls}`}>{rankText}</td>
+                                                            <td className="whitespace-nowrap px-2 py-1.5">
+                                                                {achieved ? <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#166534]">✓ 실적</span>
+                                                                    : p.top5_seeded ? <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#94a3b8]">기준</span>
+                                                                    : p.top5_since ? <span className="text-[11px] text-[#b45309]">5위 진입</span>
+                                                                    : <span className="text-[11px] text-[#cbd5e1]">-</span>}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>
