@@ -18,6 +18,7 @@ import blog_rank_crawler as c
 import cafe_rank_sync
 import cafe_board_crawl
 import cafe_top5_tracker
+import cafe_token_sync
 
 INTERVAL = int(sys.argv[1]) if len(sys.argv) > 1 else 1800   # 기본 30분
 # 블로그 크롤에 막혔을 때는 30분을 통째로 기다리지 않고 짧게 재시도한다.
@@ -143,6 +144,11 @@ def main():
                 cafe_top5_tracker.run()
             except Exception as exc:
                 print(f"  top5 집계 오류: {exc}", flush=True)
+            # 5) 발행 토큰 → 실제 발행건수 동기화(잔여 토큰 최신화)
+            try:
+                cafe_token_sync.sync()
+            except Exception as exc:
+                print(f"  토큰 sync 오류: {exc}", flush=True)
         _sleep_to_next_slot()   # 다음 고정 슬롯(:20/:50)까지 — 블로그 당일크롤(:05/:35)과 15분 어긋남
 
 

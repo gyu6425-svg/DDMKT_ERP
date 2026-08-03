@@ -5,6 +5,7 @@ import {
     signedDeployUrls,
     setCafeDeployStatus,
     deleteCafeDeployRequest,
+    updateDeployClubid,
     type CafeDeployRequest,
     type DeployCredential,
 } from '../api/cafeDeployRequests';
@@ -31,6 +32,13 @@ export default function CafeDeployAdminPanel() {
     const [credOpen, setCredOpen] = useState<Record<string, boolean>>({}); // 네이버 계정 자세히보기 펼침
     const [issueOpen, setIssueOpen] = useState<string | null>(null); // 토큰 발행 수 입력 중인 행
     const [issueCount, setIssueCount] = useState(''); // 발행할 토큰 수(편집)
+    const [clubidEdit, setClubidEdit] = useState<Record<string, string>>({}); // 행별 clubid 입력값
+    const saveClubid = async (id: string) => {
+        const v = clubidEdit[id] ?? '';
+        await updateDeployClubid(id, v);
+        setRows((prev) => prev.map((x) => (x.id === id ? { ...x, cafe_clubid: v.replace(/[^0-9]/g, '') || null } : x)));
+        setMsg('카페 clubid 저장됨');
+    };
 
     const load = () => {
         void listCafeDeployRequests(undefined, 200).then(async ({ data, error }) => {
@@ -202,6 +210,14 @@ export default function CafeDeployAdminPanel() {
                                                             토큰 발행{tokenCountOf(r) ? ` (${tokenCountOf(r)})` : ''}
                                                         </button>
                                                     )
+                                                ) : null}
+                                                {r.status === '세팅중' ? (
+                                                    <span className="inline-flex items-center gap-1" title="SUB2가 이 clubid로 고객 카페에 발행. 고객 카페주소의 숫자(cafes/숫자/)">
+                                                        <input value={clubidEdit[r.id] ?? r.cafe_clubid ?? ''} onChange={(e) => setClubidEdit((p) => ({ ...p, [r.id]: e.target.value }))}
+                                                            placeholder="카페 clubid" inputMode="numeric"
+                                                            className={`h-6 w-24 rounded border px-1.5 text-[11px] ${r.cafe_clubid ? 'border-[#86efac] bg-[#f0fdf4]' : 'border-[#fecaca] bg-[#fef2f2]'}`} />
+                                                        <button type="button" onClick={() => void saveClubid(r.id)} className="rounded-md border border-[#cbd5e1] px-1.5 py-1 text-[11px] font-semibold text-[#475569] hover:bg-[#f1f5f9]">저장</button>
+                                                    </span>
                                                 ) : null}
                                                 {r.status === '세팅중' ? (
                                                     <button type="button" onClick={() => {

@@ -52,7 +52,15 @@ export type CafeDeployRequest = {
     region_sets: string[] | null;     // 지역형 선택 지역셋
     product_keywords: string[] | null; // 지역형: 고객 제품키워드 칩(입주청소·상가청소 …)
     selected_keywords: PickedKeyword[] | null; // 고객이 고른 인기탭 키워드(발행 대상)
+    cafe_clubid: string | null;       // 신규 고객 카페 clubid(SUB2 write URL 조립용). docs/cafe-deploy-clubid.sql
 };
+
+// 담당자: 신규 고객 카페 clubid 저장(SUB2 가 이 값으로 그 카페에 발행). 숫자만.
+export async function updateDeployClubid(id: string, clubid: string) {
+    const v = (clubid || '').replace(/[^0-9]/g, '') || null;   // 숫자만
+    const { error } = await supabase.from('cafe_deploy_requests').update({ cafe_clubid: v }).eq('id', id);
+    return { error };
+}
 
 // 네이버 계정(민감) — 별도 테이블. UI 는 비번 마스킹.
 export type DeployCredential = {
