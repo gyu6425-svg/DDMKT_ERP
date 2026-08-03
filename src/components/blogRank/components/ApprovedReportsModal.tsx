@@ -5,22 +5,6 @@ import { getReporters } from '../../../api/blogRank';
 
 const won = (n: number) => n.toLocaleString('ko-KR');
 
-// 입금일(paid_at) → 그 주(월~일)의 월요일 YYYY-MM-DD. 정산 '주차' 그룹 키.
-function weekMonday(iso: string | null): string {
-    if (!iso) return '';
-    const d = new Date(iso.slice(0, 10) + 'T00:00:00');
-    const dow = (d.getDay() + 6) % 7; // 월=0 … 일=6
-    d.setDate(d.getDate() - dow);
-    return d.toISOString().slice(0, 10);
-}
-// 주 시작(월요일) → "8/4~8/10" 라벨.
-function weekLabel(monday: string): string {
-    if (!monday) return '—';
-    const s = new Date(monday + 'T00:00:00');
-    const e = new Date(s); e.setDate(e.getDate() + 6);
-    const f = (x: Date) => `${x.getMonth() + 1}/${x.getDate()}`;
-    return `${f(s)}~${f(e)}`;
-}
 // 사업소득 원천징수 3.3% — 소득세 3%(원단위 절사) + 지방소득세 0.3%(원단위 절사). 실지급 = 공급가 - 세액.
 function withhold(gross: number): { incomeTax: number; localTax: number; tax: number; net: number } {
     const incomeTax = Math.floor((gross * 0.03) / 10) * 10;
@@ -59,7 +43,8 @@ export function ApprovedReportsModal({
     const [blogFilter, setBlogFilter] = useState('all');
     const [reporterFilter, setReporterFilter] = useState('all');
     const [uploadSort, setUploadSort] = useState<'asc' | 'desc'>('asc'); // 업로드일 정렬(순번 기준)
-    const [weekFilter, setWeekFilter] = useState('all'); // 정산 탭 — 주차(입금일 주) 필터
+    const [dateFrom, setDateFrom] = useState(''); // 정산 탭 — 입금일 범위 시작(YYYY-MM-DD)
+    const [dateTo, setDateTo] = useState('');     // 정산 탭 — 입금일 범위 종료
     const [paying, setPaying] = useState<string | null>(null);
     const [settling, setSettling] = useState<string | null>(null);
 
@@ -132,19 +117,19 @@ export function ApprovedReportsModal({
         return uploadSort === 'desc' ? arr.reverse() : arr;
     }, [filtered, uploadSort]);
 
-    // ── 정산 내역(입금완료 건) — 기자단 × 주차별 공급가/원천징수(3.3%)/실지급 ──
+    // ── 정산 내역(입금완료 건) — 기자단별 · 입금일(날짜) 범위로 공급가/원천징수(3.3%)/실지급 ──
     const paidScoped = useMemo(
         () => reports.filter((r) => r.paid && (reporterFilter === 'all' || r.reporter_id === reporterFilter)),
         [reports, reporterFilter],
     );
-    // 주차 옵션 — 선택 기자단의 입금 주(월요일) 오름차순. 1주차 = 가장 이른 입금 주.
-    const settleWeeks = useMemo(
-        () => [...new Set(paidScoped.map((r) => weekMonday(r.paid_at)).filter(Boolean))].sort(),
-        [paidScoped],
-    );
-    // 기자단별 집계(선택 주차 반영).
+    // 기자단별 집계(입금일 날짜 범위 반영). from/to 비면 전체.
     const settleRows = useMemo(() => {
-        const scoped = paidScoped.filter((r) => weekFilter === 'all' || weekMonday(r.paid_at) === weekFilter);
+        const scoped = paidScoped.filter((r) => {
+            const d = (r.paid_at || '').slice(0, 10);
+            if (dateFrom && (!d || d < dateFrom)) return false;
+            if (dateTo && (!d || d > dateTo)) return false;
+            return true;
+        });
         const byRep = new Map<string, BlogPostReport[]>();
         for (const r of scoped) {
             const k = r.reporter_id || 'none';
@@ -158,7 +143,7 @@ export function ApprovedReportsModal({
                 return { rid, name: rid === 'none' ? '기자단' : reporterMap[rid] || '기자단', count: list.length, gross, tax: w.tax, net: w.net, list };
             })
             .sort((a, b) => b.gross - a.gross);
-    }, [paidScoped, weekFilter, reporterMap, blogNameOf]);
+    }, [paidScoped, dateFrom, dateTo, reporterMap, blogNameOf]);
     const settleTotal = useMemo(() => {
         const gross = settleRows.reduce((s, r) => s + r.gross, 0);
         return { count: settleRows.reduce((s, r) => s + r.count, 0), gross, ...withhold(gross) };
@@ -263,19 +248,16 @@ export function ApprovedReportsModal({
                     </div>
                     {typeTab === 'settle' ? (
                         <div className="flex items-center gap-2">
-                            <span className="text-[12px] font-semibold text-[#64748b]">주차</span>
-                            <select
-                                className="h-9 min-w-[160px] rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm"
-                                onChange={(e) => setWeekFilter(e.target.value)}
-                                value={weekFilter}
-                            >
-                                <option value="all">전체 주차</option>
-                                {settleWeeks.map((k, i) => (
-                                    <option key={k} value={k}>
-                                        {i + 1}주차 ({weekLabel(k)})
-                                    </option>
-                                ))}
-                            </select>
+                            <span className="text-[12px] font-semibold text-[#64748b]">입금일</span>
+                            <input type="date" className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+                            <span className="text-[12px] text-[#94a3b8]">~</span>
+                            <input type="date" className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
+                                value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+                            {dateFrom || dateTo ? (
+                                <button type="button" onClick={() => { setDateFrom(''); setDateTo(''); }}
+                                    className="text-[12px] font-semibold text-[#64748b] hover:text-[#334155]">전체</button>
+                            ) : null}
                         </div>
                     ) : null}
                     {typeTab !== 'settle' && accounts.length > 1 ? (
@@ -355,7 +337,7 @@ export function ApprovedReportsModal({
                                     </tbody>
                                 </table>
                             </div>
-                            {/* 특정 기자단 선택 시 — 그 주차/기자단의 입금 건 상세 */}
+                            {/* 특정 기자단 선택 시 — 선택 날짜범위의 그 기자단 입금 건 상세 */}
                             {reporterFilter !== 'all' ? (
                                 <div className="overflow-x-auto rounded-xl border border-[#e2e8f0]">
                                     <table className="w-full border-collapse text-[13px]">
