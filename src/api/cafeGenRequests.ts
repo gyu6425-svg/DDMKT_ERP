@@ -66,6 +66,13 @@ export async function getGenRequestStatus(clientId: string): Promise<Record<stri
     return m;
 }
 
+// 아직 발행 안 된(예약) 요청 — 잔여 토큰 즉시 차감용. pending/claimed/processing = 토큰 예약.
+export async function getPendingGenRequests(): Promise<{ client_id: string | null; company: string }[]> {
+    const { data } = await supabase.from('cafe_gen_requests')
+        .select('client_id,company').in('status', ['pending', 'claimed', 'processing']);
+    return (data ?? []) as { client_id: string | null; company: string }[];
+}
+
 export type SelfStyle = 'info' | 'review';
 export async function enqueueGenRequestsSelf(
     clientId: string, keywords: string[], productKeyword: string, style: SelfStyle,

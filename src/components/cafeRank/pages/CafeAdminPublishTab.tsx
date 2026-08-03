@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { getCafeAccounts, type CafeAccount } from '../../../api/cafeAccounts';
 import { listTokens, balanceOf } from '../../../api/cafeTokens';
+import { getPendingGenRequests } from '../../../api/cafeGenRequests';
 import { CafeCustomerStudio } from '../../cafe/CafeCustomerStudio';
 
 // 카페 자동화 발행(관리자) — 접수 승인 후 토큰이 발행된 고객사를 골라 '우리가' 대신 발행한다.
 //   고객사 목록 = publish_enabled 된 카페 계정. 각 업체의 잔여 토큰 표시. 선택 시 그 업체 발행 스튜디오 노출.
 export function CafeAdminPublishTab() {
     const [accts, setAccts] = useState<CafeAccount[]>([]);
-    const [balById, setBalById] = useState<Record<string, number>>({}); // client_id → 잔여 토큰
+    const [balById, setBalById] = useState<Record<string, number>>({}); // client_id → 잔여 토큰(원장)
+    const [reservedById, setReservedById] = useState<Record<string, number>>({}); // client_id → 예약(발행요청 미완료) 건수 = 즉시 차감분
     // 선택 고객 client_id — 세팅해두면 유지(새로고침·재방문에도). localStorage 지속.
     const [sel, setSelState] = useState<string | null>(() => localStorage.getItem('cafeAdminPubSel'));
     const setSel = (id: string | null) => {
@@ -17,23 +19,41 @@ export function CafeAdminPublishTab() {
     const [loading, setLoading] = useState(true);
 
     const reload = () => {
-        setLoading(true);
         void getCafeAccounts().then(async ({ data }) => {
             // 발행 승인(토큰 발행)된 업체만. client_id 기준 중복 제거.
             const enabled = data.filter((a) => a.client_id && a.publish_enabled);
             const seen = new Set<string>();
             const uniq = enabled.filter((a) => (seen.has(a.client_id!) ? false : (seen.add(a.client_id!), true)));
+            // client_id → 그 client 의 모든 company_key(고정업체 발행요청은 company 로 매칭).
+            const keysByClient = new Map<string, Set<string>>();
+            for (const a of data) if (a.client_id && a.company_key) {
+                (keysByClient.get(a.client_id) ?? keysByClient.set(a.client_id, new Set()).get(a.client_id)!).add(a.company_key);
+            }
             const bals: Record<string, number> = {};
             for (const a of uniq) {
                 const { data: t } = await listTokens(a.client_id!);
                 bals[a.client_id!] = balanceOf(t);
             }
+            // 예약(발행요청 미완료) 건수 = 즉시 차감 — client_id 매칭(신규) 또는 company 매칭(고정).
+            const pending = await getPendingGenRequests();
+            const reserved: Record<string, number> = {};
+            for (const a of uniq) {
+                const cid = a.client_id!;
+                const keys = keysByClient.get(cid) ?? new Set<string>();
+                reserved[cid] = pending.filter((p) => p.client_id === cid || keys.has(p.company)).length;
+            }
             setAccts(uniq);
             setBalById(bals);
+            setReservedById(reserved);
             setLoading(false);
         });
     };
-    useEffect(reload, []);
+    useEffect(() => {
+        reload();
+        const iv = setInterval(reload, 8000); // 발행요청하면 8초 내 잔여 토큰 즉시 반영
+        return () => clearInterval(iv);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     // '발행하러 가기'로 넘어온 경우 URL의 client 를 선택(마지막 선택 localStorage 보다 우선).
     useEffect(() => {
         const q = new URLSearchParams(window.location.search).get('client');
@@ -65,13 +85,14 @@ export function CafeAdminPublishTab() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {accts.map((a) => {
-                        const bal = balById[a.client_id!] ?? 0;
+                        const reserved = reservedById[a.client_id!] ?? 0;   // 발행요청 미완료 = 즉시 차감
+                        const bal = Math.max(0, (balById[a.client_id!] ?? 0) - reserved);
                         const active = sel === a.client_id;
                         return (
                             <button key={a.id} type="button" onClick={() => setSel(a.client_id!)}
                                 className={`rounded-lg border px-3 py-2 text-left text-sm ${active ? 'border-[#7c3aed] bg-[#f5f3ff]' : 'border-[#e2e8f0] bg-white hover:bg-[#f8fafc]'}`}>
                                 <div className={`font-bold ${active ? 'text-[#6d28d9]' : 'text-[#334155]'}`}>{a.display_name || a.company_key}</div>
-                                <div className={`text-[12px] ${bal > 0 ? 'text-[#059669]' : 'text-[#dc2626]'}`}>잔여 토큰 {bal}건</div>
+                                <div className={`text-[12px] ${bal > 0 ? 'text-[#059669]' : 'text-[#dc2626]'}`}>잔여 토큰 {bal}건{reserved ? <span className="text-[#b45309]"> · 발행중 {reserved}</span> : null}</div>
                             </button>
                         );
                     })}
