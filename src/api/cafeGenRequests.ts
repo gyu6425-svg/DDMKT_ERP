@@ -48,19 +48,21 @@ export async function enqueueGenRequests(companyKey: string, keywords: string[],
 }
 
 // 신규 업체(모델B: 고객 자기 카페·자기 계정) 발행요청 — PUBLISH_TARGET 에 없는 접수 고객용.
-//   고정업체(더반/누수 등)와 달리 client_id 로 고객 계정/카페를 잇는다. SUB2 가 client_id→credentials·카페로 대신발행.
+//   SUB2 라우팅(SUB2 백엔드 확정): company = "dep_{style}_{client_id}" 접두사로 스타일 자동적용.
+//     style='info'(정보성) / 'review'(후기성). 배너·실사·계정·clubid·daily 는 SUB2 가 cafe_studio_settings/접수에서 읽음.
 //   전제: docs/cafe-gen-requests-client.sql (client_id 컬럼).
+export type SelfStyle = 'info' | 'review';
 export async function enqueueGenRequestsSelf(
-    companyKey: string, clientId: string, board: string | null, keywords: string[], productKeyword: string,
+    clientId: string, keywords: string[], productKeyword: string, style: SelfStyle,
 ) {
     const pk = (productKeyword || '').trim();
     const esc = pk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const company = `dep_${style}_${clientId}`;
     const rows = keywords.filter(Boolean).map((kw) => {
         const region = pk ? (kw.replace(new RegExp(`\\s*${esc}\\s*$`), '').trim() || kw) : kw;
         return {
-            company: companyKey, board: board || null, business: null,
+            company, client_id: clientId,
             region, keyword: kw, popular_verified: true, status: 'pending',
-            client_id: clientId,   // ← 신규 업체 식별: SUB2 가 이 값으로 고객 계정/카페 조회
         };
     });
     if (!rows.length) return { error: { message: '보낼 키워드가 없습니다.' }, count: 0 };
