@@ -122,9 +122,9 @@ export function CafeKeywordFinder({
             if (cached.length) { setKwResult(cached); return; }
             // ② 없으면 라이브 지역 스캔(워커: 검색량 게이트 후 인기탭 조회). 결과 캐시됨 → 다음엔 즉시.
             setScanNote('지역 스캔 시작…');
-            const { id, error } = await enqueueRegionScan(kw, regionSel.join(','), 50);
+            const { id, error } = await enqueueRegionScan(kw, regionSel.join(','));
             if (error || !id) throw new Error(error?.message || '지역 스캔 등록 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: 600, onProgress: (note) => setScanNote(note) });
+            const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(note) });
             if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${regionSel.join('·')} × "${kw}"`); return; }
             setKwResult(result);
         } catch (e) {

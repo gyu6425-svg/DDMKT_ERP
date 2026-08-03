@@ -205,9 +205,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             const seen = new Set<string>();
             const merged: KwResult[] = [];
             for (const pk of kws) {
-                const { id, error } = await enqueueRegionScan(pk, sidos.join(','), 50);
+                const { id, error } = await enqueueRegionScan(pk, sidos.join(','));
                 if (error || !id) continue;
-                const { result } = await pollPlaceScan(id, { timeoutSec: 600 });
+                const { result } = await pollPlaceScan(id, { timeoutSec: 900 });
                 for (const r of result) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
             }
             if (!merged.length) {

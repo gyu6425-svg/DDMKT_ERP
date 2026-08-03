@@ -239,19 +239,23 @@ def _region_tokens_admin(gu):
 
 
 def _region_tokens_for(sidos):
-    """cafe_region_dong 에서 선택 시도들의 구/시 토큰 목록(중복 제거)."""
+    """cafe_region_dong 에서 선택 시도들의 지역 토큰. 구/시(밀도 높음) 먼저 → 그 다음 동(洞).
+       동까지 훑어 인기탭 있는 건 다 채운다(검색량 게이트가 저검색 동은 자동 컷)."""
     if not sidos:
         return []
     inlist = ",".join(f'"{s}"' for s in sidos)
     try:
-        rows = requests.get(f"{SB}/rest/v1/cafe_region_dong?sido=in.({inlist})&select=gu&limit=5000",
+        rows = requests.get(f"{SB}/rest/v1/cafe_region_dong?sido=in.({inlist})&select=gu,dong&limit=20000",
                             headers=H, timeout=30).json()
     except Exception:
         return []
-    toks = set()
+    gu_toks, dong_toks = set(), set()
     for r in (rows if isinstance(rows, list) else []):
-        toks |= _region_tokens_admin(r.get("gu") or "")
-    return sorted(toks)
+        gu_toks |= _region_tokens_admin(r.get("gu") or "")
+        d = (r.get("dong") or "").strip()
+        if d:
+            dong_toks.add(d)
+    return sorted(gu_toks) + sorted(dong_toks - gu_toks)   # 구/시 먼저, 동은 그 뒤
 
 
 def process_region(req, product):
@@ -260,7 +264,7 @@ def process_region(req, product):
     if not product:
         return _finish(req["id"], "failed", note="제품키워드 없음")
     sidos = [s for s in (req.get("regions") or "").replace(" ", "").split(",") if s]
-    target = int(req.get("target") or 50)
+    target = int(req.get("target") or 300)     # 인기탭 있는 구/시·동 다 채우게 넉넉히
     tokens = _region_tokens_for(sidos)
     if not tokens:
         return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
@@ -268,7 +272,7 @@ def process_region(req, product):
     gap = 1.5 if cf else SCAN_GAP
     # 검색량 게이트 — 라이브 조회는 낮게(니치 키워드도 잡게). 요청에 vmin 오면 그 값.
     VMIN = int(req.get("vmin") or 20)
-    MAX_LIVE = 220 if cf else 90
+    MAX_LIVE = 400 if cf else 120              # 구/동 전부 훑도록 상한 상향(CF·검색량게이트로 안전)
     found, seen, scraped, vskip = [], set(), 0, 0
     total = len(tokens)
     for idx, tok in enumerate(tokens, 1):
