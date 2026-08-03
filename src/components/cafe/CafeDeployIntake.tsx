@@ -13,7 +13,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, getRegionGuTokens, getPopularFromCache, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, getRegionGuTokens, getPopularFromCache, type KwResult } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -195,17 +195,28 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (!sidos.length) { setKwErr('지역(서울/경기/인천)을 선택하세요.'); return; }
         setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
         try {
+            // ① 캐시 먼저(즉시).
             const gus = await getRegionGuTokens(sidos);
             const combos = new Set<string>();
             for (const g of gus) for (const kw of kws) combos.add(`${g.token} ${kw}`);
-            const list = await getPopularFromCache([...combos]);   // 인기탭 판정 캐시(prescan) 통과분만
-            if (!list.length) {
-                setKwErr(`인기탭 확인된 키워드가 없습니다 — 이 지역(${sidos.join('·')})은 아직 프리스캔이 안 됐거나 인기탭이 없습니다.`);
+            const cached = await getPopularFromCache([...combos]);
+            if (cached.length) { setKwResult(cached); return; }
+            // ② 없으면 라이브 지역 스캔(워커: 검색량 게이트 후 인기탭 조회). 칩별로 스캔 후 합침. 결과 캐시됨.
+            const seen = new Set<string>();
+            const merged: KwResult[] = [];
+            for (const pk of kws) {
+                const { id, error } = await enqueueRegionScan(pk, sidos.join(','), 50);
+                if (error || !id) continue;
+                const { result } = await pollPlaceScan(id, { timeoutSec: 600 });
+                for (const r of result) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
+            }
+            if (!merged.length) {
+                setKwErr(`인기탭 확인된 키워드가 없습니다 — ${sidos.join('·')} × [${kws.join(', ')}] (인기탭 없음)`);
                 return;
             }
-            setKwResult(list);
+            setKwResult(merged.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '생성 실패');
+            setKwErr(e instanceof Error ? e.message : '조회 실패');
         } finally {
             setKwLoading(false);
         }
