@@ -5,12 +5,12 @@ import { getCafeAccounts, type CafeAccount } from '../../../api/cafeAccounts';
 // 카페 · 대시보드 — '오늘 발행 현황'(하루 5건 KPI) + '오늘까지 발행 건'(누적/계약 목표).
 //   대상 업체·계약건수는 고정(계약 기준). 글은 cafe_rank_posts.board 로 매칭.
 // board=크롤러 저장값 · goal=계약 총건수 · daily=하루 발행 목표(업체별 상이)
-const DAILY_TARGETS: { board: string; goal: number; daily: number }[] = [
+const DAILY_TARGETS: { board: string; goal: number; daily: number; kpi?: boolean }[] = [
     { board: '더맨시스템', goal: 50, daily: 5 },
     { board: '더티클리닉', goal: 10, daily: 0 }, // 현재 일일 발행 안 함
     { board: '더반클린', goal: 50, daily: 5 },
     { board: '설고점', goal: 40, daily: 1 }, // 설고점만 하루 1건
-    { board: '누수상담소', goal: 40, daily: 0 }, // 누수(leak3/ddnusu). 옛 마이클 board="누수"(정보세상)는 별건이라 미집계
+    { board: '누수상담소', goal: 40, daily: 0, kpi: false }, // 자사 운영 — 오늘 발행 KPI 카드에서 제외(누적 발행엔 유지)
 ];
 const boardKey = (p: CafeRankPost) => p.board || p.cafe_accounts?.board_short || '미분류';
 const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
@@ -64,8 +64,9 @@ export function CafeDashboardTab() {
     const achievedCount = (b: string) => posts.filter((p) => boardKey(p) === b && p.top5_achieved_at && !p.top5_seeded).length;
     const siljeok = (b: string) => (baseByBoard.get(b) || 0) + achievedCount(b);
 
-    const todayTotal = DAILY_TARGETS.reduce((s, t) => s + todayCount(t.board), 0);
-    const goalTodayTotal = DAILY_TARGETS.reduce((s, t) => s + t.daily, 0);
+    const KPI_TARGETS = DAILY_TARGETS.filter((t) => t.kpi !== false); // 오늘 발행 KPI 카드 대상(누수상담소=자사 운영 제외)
+    const todayTotal = KPI_TARGETS.reduce((s, t) => s + todayCount(t.board), 0);
+    const goalTodayTotal = KPI_TARGETS.reduce((s, t) => s + t.daily, 0);
     const cumGrand = DAILY_TARGETS.reduce((s, t) => s + siljeok(t.board), 0);
 
     if (loading) {
@@ -79,9 +80,9 @@ export function CafeDashboardTab() {
                 <p className="m-0 mt-0.5 text-xs text-[#64748b]">{mmdd(today)} · 업체별 하루 목표 발행 체크(설고점=1건, 그 외 5건) · 발행 시 자동 집계 · 60초 자동 갱신</p>
             </div>
 
-            {/* 업체별 오늘 발행 KPI */}
+            {/* 업체별 오늘 발행 KPI (누수상담소=자사 운영 제외) */}
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-                {DAILY_TARGETS.map((t) => {
+                {KPI_TARGETS.map((t) => {
                     const done = todayCount(t.board);
                     const st = BOARD_STYLE[t.board] || { bg: '#f8fafc', fg: '#475569' };
                     const off = t.daily === 0; // 일일 발행 안 하는 업체
