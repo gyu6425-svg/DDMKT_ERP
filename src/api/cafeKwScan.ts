@@ -36,6 +36,27 @@ function guTokens(gu: string): string[] {
     return [...out];
 }
 
+// 인기탭 캐시(cafe_kw_targets)에서 '인기탭 확인된' 키워드만. prescan/워커가 채운 판정 재사용 — 라이브 스캔 없이 즉시.
+//   지역형 '지역 키워드 생성'은 이걸로 걸러 인기탭 통과분만 보여준다(무조건 인기탭만). 없으면 그 지역 프리스캔 필요.
+export async function getPopularFromCache(keywords: string[]): Promise<KwResult[]> {
+    const out: KwResult[] = [];
+    const seen = new Set<string>();
+    for (let i = 0; i < keywords.length; i += 200) {
+        const chunk = keywords.slice(i, i + 200);
+        const { data } = await supabase.from('cafe_kw_targets')
+            .select('keyword,has_section,verdict,theme,volume,cafes').in('keyword', chunk);
+        for (const r of (data ?? []) as { keyword: string; has_section: boolean; verdict: string | null; theme: string | null; volume: number | null; cafes: KwCafe[] | null }[]) {
+            const ok = r.has_section && (r.verdict || '').startsWith('카페분산') && !(r.theme || '').includes('레시피');
+            if (!ok) continue;
+            const nk = (r.keyword || '').replace(/\s/g, '');
+            if (seen.has(nk)) continue;
+            seen.add(nk);
+            out.push({ keyword: r.keyword, volume: r.volume ?? undefined, theme: r.theme ?? undefined, cafes: (r.cafes ?? []) as KwCafe[] });
+        }
+    }
+    return out.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+}
+
 // 선택 시도(서울/경기/인천)의 행정구/시 토큰 목록. 지역형 '지역 키워드 생성'의 지역 축.
 export async function getRegionGuTokens(sidos: string[]): Promise<{ sido: string; token: string }[]> {
     if (!sidos.length) return [];

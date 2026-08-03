@@ -13,7 +13,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, getRegionGuTokens, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, getRegionGuTokens, getPopularFromCache, type KwResult } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -196,17 +196,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
         try {
             const gus = await getRegionGuTokens(sidos);
-            const seen = new Set<string>();
-            const list: KwResult[] = [];
-            for (const g of gus) {
-                for (const kw of kws) {
-                    const keyword = `${g.token} ${kw}`;
-                    if (seen.has(keyword)) continue;
-                    seen.add(keyword);
-                    list.push({ keyword, theme: g.sido, cafes: [] });
-                }
+            const combos = new Set<string>();
+            for (const g of gus) for (const kw of kws) combos.add(`${g.token} ${kw}`);
+            const list = await getPopularFromCache([...combos]);   // 인기탭 판정 캐시(prescan) 통과분만
+            if (!list.length) {
+                setKwErr(`인기탭 확인된 키워드가 없습니다 — 이 지역(${sidos.join('·')})은 아직 프리스캔이 안 됐거나 인기탭이 없습니다.`);
+                return;
             }
-            if (!list.length) throw new Error('해당 지역 행정구 데이터가 없습니다. cafe_region_dong 적재를 확인하세요.');
             setKwResult(list);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '생성 실패');

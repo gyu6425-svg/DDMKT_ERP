@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, getRegionDongs, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, getRegionGuTokens, getPopularFromCache, type KwResult } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -107,23 +107,20 @@ export function CafeKeywordFinder({
         } finally { setKwLoading(false); }
     };
 
-    // 지역형 — 고정 동마스터에서 선택 시도의 동 × 제품키워드 생성.
+    // 지역형 — 선택 시도의 행정구/시 × 제품키워드 조합 중 '인기탭 확인된 것만'(캐시 조회). 라이브 스캔 아님.
     const genRegionKeywords = async () => {
         const kw = keyword.trim();
         if (!kw) { setKwErr('제품 키워드를 입력하세요. 예: 입주청소'); return; }
-        if (!regionSel.length) { setKwErr('지역(서울/경기/인천)을 선택하세요.'); return; }
+        if (!regionSel.length) { setKwErr('지역을 선택하세요.'); return; }
         setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); if (!initialPicked?.length) setKwPicked([]);
         try {
-            const dongs = await getRegionDongs(regionSel);
-            const seen = new Set<string>();
-            const list: KwResult[] = [];
-            for (const d of dongs) {
-                const k = `${d.dong} ${kw}`;
-                if (seen.has(k)) continue;
-                seen.add(k);
-                list.push({ keyword: k, theme: `${d.sido} ${d.gu}`, cafes: [] });
+            const gus = await getRegionGuTokens(regionSel);        // 구/시 토큰(동 아님 — 인기탭은 구/시 단위)
+            const combos = [...new Set(gus.map((g) => `${g.token} ${kw}`))];
+            const list = await getPopularFromCache(combos);        // 인기탭 판정 캐시(prescan) 통과분만
+            if (!list.length) {
+                setKwErr(`인기탭 확인된 키워드가 없습니다 — 이 지역(${regionSel.join('·')})은 아직 프리스캔(인기탭 조사)이 안 됐거나 인기탭이 없습니다.`);
+                return;
             }
-            if (!list.length) throw new Error('해당 지역 동 데이터가 없습니다.');
             setKwResult(list);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '생성 실패');
