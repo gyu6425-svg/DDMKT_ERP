@@ -277,9 +277,24 @@ def _cache_get_many(kws):
     return out
 
 
+# 인기탭 채택 판정(공통) — '카페분산(기회)' + '블로그섹션(카페없음)=카페무경쟁'을 채택. '카페독점'·'섹션없음'·'레시피' 제외.
+#   ※ 블로그섹션 = 인기글 섹션은 있는데 카페가 아직 0 → 우리가 무혈입성할 최고 기회라 포함(사장님 결정 2026-08).
+def _is_pop(r):
+    v = str(r.get("verdict", ""))
+    return bool(r.get("has_section")) and (v.startswith("카페분산") or v.startswith("블로그섹션")) and "레시피" not in (r.get("theme") or "")
+
+
+def _disp_theme(r):
+    """결과 표시용 테마 — 카페무경쟁이면 태그를 앞에 붙여 구분."""
+    t = r.get("theme") or ""
+    if str(r.get("verdict", "")).startswith("블로그섹션"):
+        return ("[카페무경쟁] " + t).strip()
+    return t
+
+
 def process_region(req, product):
-    """지역 인기탭 조회 — 선택 시도의 구/시(기본) × 제품키워드를 검색량 게이트 후 인기탭 스캔. 통과분만 반환·캐시.
-       deploy_type 에 '동'/'dong' 오면 동(洞)까지('더 찾기'). 속도: 배치 캐시조회 + 검색량컷도 캐시 + vskip 무대기."""
+    """지역 인기탭 조회 — 선택 시도의 구/시(기본) × 제품키워드 전수 인기탭 판정(누락 금지). 통과분만 반환·캐시.
+       deploy_type 에 '동'/'dong' 오면 동(洞)까지('더 찾기'). 완전성: 검색량 게이트 없음 + err 캐시 금지 + 전수 스캔."""
     product = (product or "").strip()
     if not product:
         return _finish(req["id"], "failed", note="제품키워드 없음")
@@ -307,9 +322,6 @@ def process_region(req, product):
     MAX_LIVE = max(total, 400) if cf else 120   # 전수 스캔 보장 — 상한이 토큰수보다 작아 뒷지역 누락되던 것 방지
     cache = _cache_get_many(kws)                # 배치 캐시(재스캔 즉시)
 
-    def _pop(r):
-        return r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or "")
-
     found, scraped, errs, capped = [], 0, 0, False
     for idx, kw in enumerate(kws, 1):
         if len(found) >= target:
@@ -323,8 +335,8 @@ def process_region(req, product):
         c = cache.get(kw.replace(" ", ""))
         # 실제로 판정된 캐시만 신뢰. 옛 '저검색'(게이트로 스킵돼 판정된 적 없음)은 재판정.
         if c is not None and str(c.get("verdict", "")) != "저검색":
-            if _pop(c):
-                found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": c.get("theme"),
+            if _is_pop(c):
+                found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": _disp_theme(c),
                               "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
             continue
         if scraped >= MAX_LIVE:
@@ -336,10 +348,10 @@ def process_region(req, product):
             continue
         scraped += 1
         time.sleep(gap)
-        if _pop(r):
+        if _is_pop(r):
             v = _real_volume(kw)               # 표시·정렬용 검색량 — 인기탭인 것만 1콜(스로틀 부담↓)
             _cache_put(kw, r, v)
-            found.append({"keyword": kw, "volume": v, "theme": r.get("theme"),
+            found.append({"keyword": kw, "volume": v, "theme": _disp_theme(r),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
         else:
             _cache_put(kw, r, None)            # 섹션없음도 캐시(재스캔 즉시) — 볼륨 불필요
@@ -368,9 +380,6 @@ def process_list(req, payload):
     total = len(kws)
     cache = _cache_get_many(kws)               # 재판정 즉시(배치 캐시)
 
-    def _pop(r):
-        return r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or "")
-
     found, scraped = [], 0
     for idx, kw in enumerate(kws, 1):
         if idx % 5 == 1:
@@ -382,8 +391,8 @@ def process_list(req, payload):
         c = cache.get(kw.replace(" ", ""))
         # 키워드형은 게이트 없음 → 지역스캔이 '저검색'으로만 캐시해둔 건 판정된 적 없으니 재판정.
         if c is not None and str(c.get("verdict", "")) != "저검색":  # 캐시 히트 — 네이버 호출 0
-            if _pop(c):
-                found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": c.get("theme"),
+            if _is_pop(c):
+                found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": _disp_theme(c),
                               "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
             continue
         if scraped >= MAX_LIVE:
@@ -395,8 +404,8 @@ def process_list(req, payload):
         _cache_put(kw, r, v)
         scraped += 1
         time.sleep(gap)
-        if _pop(r):
-            found.append({"keyword": kw, "volume": v, "theme": r.get("theme"),
+        if _is_pop(r):
+            found.append({"keyword": kw, "volume": v, "theme": _disp_theme(r),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
     found.sort(key=lambda f: -(f.get("volume") or 0))
     _finish(req["id"], "done", result=found, note=f"{len(found)}건 · 스캔 {scraped}")
@@ -444,9 +453,9 @@ def process(req):
                 _cache_put(kw, r, vol)
             scraped += 1
             time.sleep(SCAN_GAP)
-        if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
+        if _is_pop(r):
             v = vol or _real_volume(kw)  # hier 생성어(volume 0)는 실제 검색량 백필
-            found.append({"keyword": kw, "volume": v, "theme": r.get("theme"),
+            found.append({"keyword": kw, "volume": v, "theme": _disp_theme(r),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
     found.sort(key=lambda f: -(f.get("volume") or 0))  # 고객 화면: 검색량 높은 순
     # 인기글 진입만으론 target(계약건수) 미달 시 — 플레이스 메뉴 기반 후보도 '실제 인기탭 스캔'해서 통과분만 추가.
@@ -480,8 +489,8 @@ def process(req):
                     _cache_put(kw, r, None)
                 scraped += 1
                 time.sleep(SCAN_GAP)
-            if r.get("has_section") and str(r.get("verdict", "")).startswith("카페분산") and "레시피" not in (r.get("theme") or ""):
-                found.append({"keyword": kw, "volume": _real_volume(kw), "theme": r.get("theme"),
+            if _is_pop(r):
+                found.append({"keyword": kw, "volume": _real_volume(kw), "theme": _disp_theme(r),
                               "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
         found.sort(key=lambda f: -(f.get("volume") or 0))
     cap_note = f" · ⚠라이브상한({MAX_LIVE}) 도달-부분결과(prescan 권장)" if capped else ""
