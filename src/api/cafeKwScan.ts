@@ -30,7 +30,7 @@ function guTokens(gu: string): string[] {
         const t = part.trim();
         if (!t) continue;
         out.add(t);
-        const base = t.replace(/(특별시|광역시|자치시|자치구|시|군|구)$/, '');
+        const base = t.replace(/(특별자치시|특별자치도|특별시|광역시|자치시|자치구|시|군|구)$/, '');
         if (base.length >= 2) out.add(base);
     }
     return [...out];

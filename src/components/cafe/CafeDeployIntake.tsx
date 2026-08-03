@@ -17,7 +17,7 @@ import { enqueuePlaceScan, pollPlaceScan, getRegionGuTokens, type KwResult } fro
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
-const REGION_KEYS = ['서울', '경기', '인천'] as const; // 지역형 지역셋
+const REGION_KEYS = ['서울', '경기', '인천', '대전', '세종', '충북', '충남'] as const; // 지역형 지역셋(수도권+충청)
 
 // 카페 배포 '접수' — 고객이 로그인 후 접수 폼 작성 + 사진(메인배너/실사사진/배너) 업로드 → 제출.
 //   사진은 업로드 시 1600px 로 압축(용량·대역폭↓), deploy-intake 버킷의 본인 client_id 폴더에 저장.

@@ -53,6 +53,28 @@ if "--cap" in sys.argv:
             CAP = int(sys.argv[_ci + 1])
         except ValueError:
             CAP = 0
+# --vmin N : 검색량 게이트. '구/시 제품키워드' 월검색량 N 미만은 인기탭 스캔 자체를 건너뜀(헛스캔·차단↓).
+#   지방(전국) 확장 시 필수 — 검색량 없는 조합을 searchad(무차단)로 먼저 걸러 classify 를 아낀다. 0=끄기.
+VMIN = 0
+if "--vmin" in sys.argv:
+    _vi = sys.argv.index("--vmin")
+    if _vi + 1 < len(sys.argv):
+        try:
+            VMIN = int(sys.argv[_vi + 1])
+        except ValueError:
+            VMIN = 0
+
+
+def _volume(kw):
+    """그 키워드 자체의 월 검색량(PC+모바일). searchad(검색광고 API·무차단)로 조회."""
+    norm = kw.replace(" ", "")
+    try:
+        for r in p.searchad_keywords(kw):
+            if (r.get("keyword") or "").replace(" ", "") == norm:
+                return r.get("total", 0)
+    except Exception:
+        pass
+    return 0
 # 차단 안 당하게 넉넉하게 — 사람처럼 느리게 + 랜덤 지터 + 주기 휴식.
 GAP_MIN, GAP_MAX = 3.0, 5.0     # 스캔 간 스로틀(초, 랜덤)
 REST_EVERY = 60                 # 이만큼 스캔하면
@@ -82,7 +104,7 @@ def region_tokens(gu):
         if not part:
             continue
         toks.add(part)
-        base = re.sub(r"(특별시|광역시|자치시|자치구|시|군|구)$", "", part)
+        base = re.sub(r"(특별자치시|특별자치도|특별시|광역시|자치시|자치구|시|군|구)$", "", part)
         if len(base) >= 2:
             toks.add(base)
     return toks
@@ -141,7 +163,7 @@ def main():
                     tasks.append((t, kw))   # (스캔어, 업종어) — --cap 업종별 집계용
     print(f"[prescan] 총 태스크 {len(tasks)}건 (구/시 토큰 기반){' · cap ' + str(CAP) + '/업종' if CAP else ''}", flush=True)
 
-    done = hits = skipped = blocks = 0
+    done = hits = skipped = blocks = vskip = 0
     hits_by_biz = {}
     t0 = time.time()
     for i, (task, biz) in enumerate(tasks, 1):
@@ -152,6 +174,10 @@ def main():
             continue  # 이 업종어 목표수(--cap) 달성 — 남은 지역 스캔 생략
         if task in existing:
             skipped += 1
+            continue
+        if VMIN and _volume(task) < VMIN:
+            vskip += 1
+            time.sleep(0.3)   # searchad 무리없게
             continue
         r = p.classify(task)
         if "차단" in str(r.get("err", "")):
@@ -180,7 +206,7 @@ def main():
         else:
             time.sleep(random.uniform(GAP_MIN, GAP_MAX))
     biz_summary = " · ".join(f"{b}:{hits_by_biz.get(b, 0)}" for b in KEYWORDS)
-    print(f"[prescan] ✅ 종료: 스캔 {done} · 인기글히트 {hits} · skip(캐시) {skipped}", flush=True)
+    print(f"[prescan] ✅ 종료: 스캔 {done} · 인기글히트 {hits} · skip(캐시) {skipped} · 검색량컷 {vskip}", flush=True)
     print(f"[prescan]    업종별 인기글: {biz_summary}", flush=True)
 
 

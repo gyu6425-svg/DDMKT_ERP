@@ -16,6 +16,11 @@ FILES = {
     "서울": "hangjeongdong_서울특별시.geojson",
     "경기": "hangjeongdong_경기도.geojson",
     "인천": "hangjeongdong_인천광역시.geojson",
+    # 충청권(2026-08 확장)
+    "대전": "hangjeongdong_대전광역시.geojson",
+    "세종": "hangjeongdong_세종특별자치시.geojson",
+    "충북": "hangjeongdong_충청북도.geojson",
+    "충남": "hangjeongdong_충청남도.geojson",
 }
 HERE = pathlib.Path(__file__).resolve().parent
 OUT = HERE / "region_dong_master.json"
@@ -36,9 +41,12 @@ def build():
         cnt = 0
         for nm in names:
             parts = nm.split()
-            if len(parts) < 3:
+            if len(parts) < 2:
                 continue
-            gu, dong = parts[1], clean_dong(parts[-1])
+            if len(parts) == 2:
+                gu, dong = parts[0], clean_dong(parts[1])   # 구 없는 시(세종 등) — gu=시명
+            else:
+                gu, dong = parts[1], clean_dong(parts[-1])
             key = (sido, gu, dong)
             if key in seen:
                 continue
