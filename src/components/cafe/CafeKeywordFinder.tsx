@@ -108,25 +108,47 @@ export function CafeKeywordFinder({
         } finally { setKwLoading(false); }
     };
 
-    // 지역형 — 선택 시도의 행정구/시 × 제품키워드 조합 중 '인기탭 확인된 것만'(캐시 조회). 라이브 스캔 아님.
+    // 지역형 — 선택 시도의 행정구/시 × 제품키워드(들) 인기탭 조회. 쉼표/줄바꿈으로 여러 개 입력하면 전부 큐에 넣고 결과 합침.
     const genRegionKeywords = async () => {
-        const kw = keyword.trim();
-        if (!kw) { setKwErr('제품 키워드를 입력하세요. 예: 입주청소'); return; }
+        const kws = [...new Set(keyword.split(/[,\n]/).map((s) => s.trim()).filter(Boolean))];
+        if (!kws.length) { setKwErr('제품 키워드를 입력하세요. 예: 입주청소 (여러 개는 쉼표로)'); return; }
         if (!regionSel.length) { setKwErr('지역을 선택하세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwExpanded(false); setKwHidden([]); if (!initialPicked?.length) setKwPicked([]);
+        const dedup = (arr: KwResult[]) => {
+            const seen = new Set<string>(); const out: KwResult[] = [];
+            for (const r of arr) { const nk = (r.keyword || '').replace(/\s/g, ''); if (seen.has(nk)) continue; seen.add(nk); out.push(r); }
+            return out.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+        };
         try {
-            // ① 캐시 먼저(즉시) — 이미 조회된 지역+키워드면 바로 인기탭 통과분.
-            const gus = await getRegionGuTokens(regionSel);        // 구/시 토큰(동 아님 — 인기탭은 구/시 단위)
-            const combos = [...new Set(gus.map((g) => `${g.token} ${kw}`))];
-            const cached = await getPopularFromCache(combos);
-            if (cached.length) { setKwResult(cached); return; }
-            // ② 없으면 라이브 지역 스캔(워커: 검색량 게이트 후 인기탭 조회). 결과 캐시됨 → 다음엔 즉시.
-            setScanNote('지역 스캔 시작…');
-            const { id, error } = await enqueueRegionScan(kw, regionSel.join(','));
-            if (error || !id) throw new Error(error?.message || '지역 스캔 등록 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(note) });
-            if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${regionSel.join('·')} × "${kw}"`); return; }
-            setKwResult(result);
+            const gus = await getRegionGuTokens(regionSel);   // 구/시 토큰(지역셋 공통 — 한 번만)
+            const merged: KwResult[] = [];
+            const toScan: string[] = [];
+            // ① 각 키워드 캐시 먼저(즉시). 캐시 없는 것만 라이브 스캔 대상으로.
+            for (const kw of kws) {
+                const combos = [...new Set(gus.map((g) => `${g.token} ${kw}`))];
+                const cached = await getPopularFromCache(combos);
+                if (cached.length) merged.push(...cached); else toScan.push(kw);
+            }
+            if (merged.length) setKwResult(dedup(merged));     // 캐시분 먼저 즉시 표시
+            // ② 캐시 없는 키워드는 '전부 먼저 큐 등록'(하나가 오래 걸려도 나머지 누락 방지) → 순차 폴링.
+            const jobs: { kw: string; id: number }[] = [];
+            for (const kw of toScan) {
+                const { id } = await enqueueRegionScan(kw, regionSel.join(','));
+                if (id) jobs.push({ kw, id });
+            }
+            for (let i = 0; i < jobs.length; i++) {
+                const { kw, id } = jobs[i];
+                const tag = jobs.length > 1 ? ` (${i + 1}/${jobs.length})` : '';
+                setScanNote(`${kw} 스캔 시작…${tag}`);
+                try {
+                    const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(`${kw} · ${note}${tag}`) });
+                    merged.push(...result);
+                    setKwResult(dedup(merged));                 // 끝나는 대로 누적 표시
+                } catch { /* 이 키워드만 실패 — 나머지 계속 */ }
+            }
+            const final = dedup(merged);
+            if (!final.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${regionSel.join('·')} × "${kws.join(', ')}"`); return; }
+            setKwResult(final);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '조회 실패');
         } finally { setKwLoading(false); setScanNote(''); }
@@ -149,7 +171,7 @@ export function CafeKeywordFinder({
                         ))}
                     </div>
                     <div className="flex flex-wrap gap-2">
-                        <input className={`${inputCls} flex-1 min-w-[160px]`} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="제품 키워드 (예: 입주청소)" />
+                        <input className={`${inputCls} flex-1 min-w-[160px]`} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="제품 키워드 (예: 입주청소, 출장뷔페 — 여러 개는 쉼표)" />
                         <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white disabled:opacity-50">{volLoading ? '조회 중…' : '검색량 조회'}</button>
                         <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '생성 중…' : '지역 키워드 생성'}</button>
                     </div>
