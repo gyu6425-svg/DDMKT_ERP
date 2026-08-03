@@ -8,7 +8,7 @@ import {
     type CafeDeployRequest,
     type DeployCredential,
 } from '../api/cafeDeployRequests';
-import { grantTokens, listChargeRequests, setChargeRequestStatus } from '../api/cafeTokens';
+import { grantTokens, listChargeRequests, setChargeRequestStatus, reverseDeployTokens } from '../api/cafeTokens';
 import { enablePublishByClient } from '../api/cafeAccounts';
 
 // 관리자 — 카페 배포 접수 관리(전 고객). 접수 내용·사진·네이버계정·상태(접수→결제대기→세팅중→완료)를 한 화면에서.
@@ -59,7 +59,7 @@ export default function CafeDeployAdminPanel() {
     const issueTokens = async (r: CafeDeployRequest, count: number) => {
         if (!count || count <= 0) { setMsg(`${r.company_name}: 발행할 토큰 수(건수)를 1 이상 입력하세요.`); return; }
         setIssuing(r.id); setMsg('');
-        const { error } = await grantTokens(r.client_id, count, `카페 배포 결제확인 · ${r.company_name}`);
+        const { error } = await grantTokens(r.client_id, count, `카페 배포 결제확인 · ${r.company_name} [req:${r.id}]`);
         if (error) { setIssuing(null); return setMsg('토큰 발행 실패: ' + error.message); }
         await enablePublishByClient(r.client_id, r.company_name); // 자동화 발행 탭 활성화
         await setCafeDeployStatus(r.id, '세팅중');
@@ -71,13 +71,16 @@ export default function CafeDeployAdminPanel() {
         setMsg(`${r.company_name} +${count}건(토큰) 발행 완료 → 세팅중`);
     };
 
-    // 접수내역 삭제 — 사진·자격증명 정리 후 행 삭제(2단계 확인).
+    // 접수내역 삭제 — ①발행했던 토큰 회수(고객 충전내역에 '조정 -N' 기록) ②사진·자격증명 정리 후 행 삭제(2단계 확인).
+    //   토큰 발행 여부는 상태로 판단(세팅중/완료 = 발행됨). 미발행(접수/결제대기)이면 회수 0.
     const remove = async (r: CafeDeployRequest) => {
+        const wasIssued = r.status === '세팅중' || r.status === '완료';
+        const { reversed } = await reverseDeployTokens(r.client_id, r.id, wasIssued ? tokenCountOf(r) : 0, r.company_name);
         const { error } = await deleteCafeDeployRequest(r);
         if (error) { setDelId(null); return setMsg('삭제 실패: ' + error.message); }
         setRows((prev) => prev.filter((x) => x.id !== r.id));
         setDelId(null);
-        setMsg(`${r.company_name} 접수내역이 삭제되었습니다.`);
+        setMsg(`${r.company_name} 접수내역 삭제됨${reversed ? ` · 발행 토큰 ${reversed}건 회수(고객 충전내역에 반영)` : ''}`);
     };
 
     const shown = filter === '전체' ? rows : rows.filter((r) => r.status === filter);

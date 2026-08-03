@@ -37,6 +37,25 @@ export async function grantTokens(clientId: string, count: number, note?: string
     return { error };
 }
 
+// 관리자: 접수 삭제 시 그 접수로 발행했던 토큰 회수(-). 발행 grant 는 note 에 `[req:접수id]` 태그가 있어
+//   해당 태그 grant 합계를 정확히 되돌린다. 태그가 없으면(구버전 발행) fallbackCount 를 사용.
+//   미발행(태그 없음 + fallback 0) 이면 0 반환(회수 안 함). 회수분은 고객 충전내역에 '조정 -N' 으로 남는다.
+export async function reverseDeployTokens(clientId: string, requestId: string, fallbackCount = 0, company = '') {
+    const { data } = await supabase.from('cafe_tokens')
+        .select('delta,note,kind').eq('client_id', clientId).eq('kind', '충전');
+    const tag = `[req:${requestId}]`;
+    const granted = (data ?? [])
+        .filter((r) => ((r as { note: string | null }).note ?? '').includes(tag))
+        .reduce((s, r) => s + ((r as { delta: number }).delta || 0), 0);
+    const amount = granted > 0 ? granted : Math.max(0, Math.floor(fallbackCount));
+    if (amount <= 0) return { error: null, reversed: 0 };
+    const { error } = await supabase.from('cafe_tokens').insert({
+        client_id: clientId, delta: -amount, kind: '조정',
+        note: `접수 삭제 회수${company ? ' · ' + company : ''} · -${amount}건 ${tag}`,
+    });
+    return { error, reversed: error ? 0 : amount };
+}
+
 // 고객: 발행 1건 소비(-1). 발행 흐름에서 호출.
 export async function consumeToken(clientId: string, note?: string) {
     const { error } = await supabase.from('cafe_tokens').insert({
