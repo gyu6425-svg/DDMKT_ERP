@@ -9,6 +9,7 @@ export type StudioSettings = {
     business: string | null;
     homepage: string | null;
     deploy_type: string | null;
+    main_banner: string[] | null; // 상단 배너 storage 경로(맨 위 1장)
     photos: string[] | null;    // 실사 storage 경로
     banners: string[] | null;   // 마지막 배너 storage 경로
     naver_id?: string | null;   // 발행 네이버 아이디
@@ -36,7 +37,7 @@ export async function clearStudioSettings(clientId: string) {
 }
 
 // dataURL/URL(이미지 소스) → cafe-images 버킷에 업로드 → 저장 경로 반환.
-export async function uploadStudioImage(clientId: string, kind: 'photos' | 'banners', idx: number, src: string): Promise<string | null> {
+export async function uploadStudioImage(clientId: string, kind: 'photos' | 'banners' | 'main_banner', idx: number, src: string): Promise<string | null> {
     const blob = await (await fetch(src)).blob();
     const path = `studio-settings/${clientId}/${kind}_${idx}.jpg`;
     const { error } = await supabase.storage.from(CAFE_BUCKET)

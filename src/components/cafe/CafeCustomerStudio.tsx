@@ -139,13 +139,15 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         if (!clientId) return;
         setSavingSettings(true); setSettingsMsg('');
         try {
+            const mainPaths: string[] = [];
+            for (let i = 0; i < mainBanner.length; i += 1) { const p = await uploadStudioImage(clientId, 'main_banner', i, mainBanner[i]); if (p) mainPaths.push(p); }
             const photoPaths: string[] = [];
             for (let i = 0; i < photos.length; i += 1) { const p = await uploadStudioImage(clientId, 'photos', i, photos[i]); if (p) photoPaths.push(p); }
             const bannerPaths: string[] = [];
             for (let i = 0; i < banners.length; i += 1) { const p = await uploadStudioImage(clientId, 'banners', i, banners[i]); if (p) bannerPaths.push(p); }
             const { error } = await saveStudioSettings({
                 client_id: clientId, brand: brand || null, business: business || null, homepage: linkUrl || null,
-                deploy_type: mode === 'region' ? '지역형' : '키워드형', photos: photoPaths, banners: bannerPaths,
+                deploy_type: mode === 'region' ? '지역형' : '키워드형', main_banner: mainPaths, photos: photoPaths, banners: bannerPaths,
                 naver_id: naverId || null, naver_pw: naverPw || null, board_name: boardName || null, board_url: boardUrl || null,
                 kakao_url: kakaoUrl || null,
             });
@@ -274,10 +276,12 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             // 접수 선택 키워드 — 파인더 시딩 + 재조회 제외.
             const picks = (req?.selected_keywords ?? []).map((p) => ({ keyword: p.keyword, volume: p.volume ?? null, theme: p.theme ?? null }));
             if (picks.length) setIntakePicked(picks);
-            // 이미지 — 저장설정(실사/끝배너) 우선, 없으면 접수. 메인배너는 저장설정에 없어 접수에서만.
-            if (prefill.photoUrls.main.length) setMainBanner(prefill.photoUrls.main);
-            const [ph, bn] = await Promise.all([signedStudioUrls(s?.photos || []), signedStudioUrls(s?.banners || [])]);
+            // 이미지 — 저장설정(메인배너/실사/끝배너) 우선, 없으면 접수.
+            const [mb, ph, bn] = await Promise.all([
+                signedStudioUrls(s?.main_banner || []), signedStudioUrls(s?.photos || []), signedStudioUrls(s?.banners || []),
+            ]);
             if (!alive) return;
+            if (mb.length) setMainBanner(mb); else if (prefill.photoUrls.main.length) setMainBanner(prefill.photoUrls.main);
             if (ph.length) setPhotos(ph); else if (prefill.photoUrls.real.length) setPhotos(prefill.photoUrls.real);
             if (bn.length) setBanners(bn); else if (prefill.photoUrls.banner.length) setBanners(prefill.photoUrls.banner);
             setSettingsSaved(!!s);
