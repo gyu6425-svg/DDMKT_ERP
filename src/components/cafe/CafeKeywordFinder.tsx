@@ -29,9 +29,8 @@ export function CafeKeywordFinder({
     const [regionSel, setRegionSel] = useState<string[]>([]);
     const inputCls = 'h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm outline-none focus:border-[#4338ca]';
 
-    // 검색량(연관어) 조회
+    // 검색량(연관어) 리스트 — 붙여넣기 추출 결과 표시용
     const [vol, setVol] = useState<{ keyword: string; total: number }[] | null>(null);
-    const [volLoading, setVolLoading] = useState(false);
     // 정확 인기탭 / 지역 키워드 결과
     const [kwResult, setKwResult] = useState<KwResult[] | null>(null);
     const [kwLoading, setKwLoading] = useState(false);
@@ -73,26 +72,6 @@ export function CafeKeywordFinder({
         setKwPicked((prev) => prev.filter((p) => p.keyword !== kw));
     };
     const toggleRegion = (r: string) => setRegionSel((cur) => (cur.includes(r) ? cur.filter((x) => x !== r) : [...cur, r]));
-
-    const lookupVolume = async () => {
-        let api: string;
-        if (mode === 'keyword') {
-            const u = url.trim();
-            if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
-            api = `https://ddmkt-erp.pages.dev/api/place-keywords?url=${encodeURIComponent(u)}`;
-        } else {
-            const q = keyword.trim();
-            if (!q) { setKwErr('제품 키워드를 입력하세요. 예: 입주청소'); return; }
-            api = `https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(q)}`;
-        }
-        setKwErr(''); setVolLoading(true); setVol(null);
-        try {
-            const d = await (await fetch(api)).json();
-            setVol((d.keywords || []).slice(0, 20).map((k: { keyword: string; total?: number }) => ({ keyword: k.keyword, total: k.total ?? 0 })));
-        } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '조회 실패');
-        } finally { setVolLoading(false); }
-    };
 
     // 키워드형 — SUB4 워커 정확 인기탭 분석(최대 target). '더 보기' 로 50까지.
     const runPlaceScan = async (target = 10) => {
@@ -266,7 +245,6 @@ export function CafeKeywordFinder({
                     </details>
                     <div className="flex flex-wrap gap-2">
                         <input className={`${inputCls} flex-1 min-w-[160px]`} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="제품 키워드 (예: 입주청소, 출장뷔페 — 여러 개는 쉼표)" />
-                        <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white disabled:opacity-50">{volLoading ? '조회 중…' : '검색량 조회'}</button>
                         <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading || dongLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '생성 중…' : '지역 키워드 생성'}</button>
                         {kwResult && kwResult.length > 0 && !dongDone && (
                             <button type="button" onClick={() => void runRegion(true)} disabled={kwLoading || dongLoading} title="동(洞) 단위까지 추가로 스캔 — 검색량 있는 동만" className="h-10 shrink-0 rounded-md border border-[#7c3aed] bg-white px-4 text-sm font-bold text-[#7c3aed] disabled:opacity-50">{dongLoading ? '동 스캔 중…' : '＋ 더 찾기(동까지)'}</button>
@@ -277,7 +255,6 @@ export function CafeKeywordFinder({
                 <div className="grid gap-2">
                     <div className="flex flex-wrap gap-2">
                         <input className={`${inputCls} flex-1 min-w-[200px]`} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="플레이스 주소 (https://naver.me/… )" />
-                        <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white disabled:opacity-50">{volLoading ? '조회 중…' : '인기글 조회'}</button>
                         <button type="button" onClick={() => void runPlaceScan()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '분석 중…' : '정확 인기탭 분석'}</button>
                     </div>
                     <details open className="rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">

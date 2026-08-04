@@ -46,7 +46,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
 
     // 발행 요청(cafe_gen_requests) — finder 선택 키워드 → 발행PC(SUB1/SUB2) 대기열로.
     const [productKw, setProductKw] = useState(''); // finder 제품키워드(입주청소/사설경호/누수탐지…)
-    const [finderMode, setFinderMode] = useState<'keyword' | 'region'>('keyword'); // 키워드 찾기 유형 선택
+    const [finderMode, setFinderMode] = useState<'keyword' | 'region' | 'manual'>('keyword'); // 키워드 찾기 유형(직접 키워드 포함)
     // 모델B 일별 발행 — 계약 키워드 풀 + 발행상태(칩 색상·미사용 판별) + 매일 건수.
     const [poolKw, setPoolKw] = useState<string[]>([]);
     // 풀에서 키워드 삭제(칩 ×) — 상태 갱신 + 즉시 저장.
@@ -426,28 +426,68 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 <p className="m-0 mt-2 text-[11px] text-[#94a3b8]">배치: <b>상단 배너 1장</b> → <b>실사(문단 사이 · 발행마다 2장 좌우/낱개 랜덤)</b> → <b>끝 배너 1장</b> (더반·누수 스타일). 배너 남발 금지, 실사 위주. 넣지 않으면 텍스트만 발행됩니다.</p>
             </div>
 
-            {/* 키워드 찾기 유형 선택 — 키워드형(플레이스 주소) / 지역형(지역×키워드). 한 번에 하나만 보여 단순화. */}
-            <div className="flex items-center gap-2">
+            {/* 키워드 찾기 유형 — 키워드형(플레이스) / 지역형(지역×키워드) / 직접 키워드. 한 번에 하나만. */}
+            <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[12px] font-semibold text-[#64748b]">키워드 찾기 유형</span>
-                {([['keyword', '키워드형 (플레이스 주소)'], ['region', '지역형 (지역 × 키워드)']] as const).map(([m, label]) => (
+                {([['keyword', '키워드형 (플레이스 주소)'], ['region', '지역형 (지역 × 키워드)'], ['manual', '✍️ 직접 키워드']] as const).map(([m, label]) => (
                     <button key={m} type="button" onClick={() => setFinderMode(m)}
                         className={`rounded-full px-4 py-1.5 text-[13px] font-bold ${finderMode === m ? 'bg-[#0369a1] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]'}`}>{label}</button>
                 ))}
             </div>
-            {/* SEO 키워드 찾기 — 접수(고객ERP)와 동일: 검색량 + SUB4 정확 인기탭 분석(최대 50) + 선택. */}
-            <CafeKeywordFinder
-                clientId={clientId}
-                mode={finderMode}
-                initialPicked={intakePicked}
-                extraUsed={intakePicked.map((p) => p.keyword)}
-                goalCount={goalCount}
-                onPick={(kws, pk) => {
-                    setSelectedKw(new Set(kws));
-                    setProductKw(pk);
-                    // 모델B: 고른 키워드를 계약 키워드 풀에 누적(중복 제외).
-                    setPoolKw((prev) => Array.from(new Set([...prev, ...kws.filter(Boolean)])));
-                }}
-            />
+            {finderMode === 'manual' ? (
+                /* 직접 키워드 발행 — 인기탭 없어도 업체가 직접 넣어 발행(검증분과 분리된 도어). */
+                <div className="rounded-xl border-2 border-[#f59e0b] bg-[#fffbeb] p-4">
+                    <div className="mb-2 text-[13px] font-bold text-[#b45309]">✍️ 직접 키워드 발행 <span className="font-normal text-[#a16207]">(인기탭 없어도 발행 · 최대 50개)</span></div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <input className={`${inputCls} flex-1 min-w-[200px]`} value={manualInput} onChange={(e) => setManualInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addManualChips(); } }}
+                            placeholder="키워드 입력 후 추가 (예: 수원 출장뷔페)" />
+                        <button type="button" onClick={addManualChips} className="h-10 shrink-0 rounded-md bg-[#b45309] px-4 text-sm font-bold text-white hover:bg-[#92400e]">추가</button>
+                        <div className="flex gap-1">
+                            {(['review', 'info'] as const).map((s) => (
+                                <button key={s} type="button" onClick={() => setManualStyle(s)}
+                                    className={`h-10 rounded-md px-3 text-sm font-bold ${manualStyle === s ? 'bg-[#d97706] text-white' : 'bg-white text-[#b45309] ring-1 ring-[#f59e0b]'}`}>{s === 'review' ? '후기성' : '정보성'}</button>
+                            ))}
+                        </div>
+                        <button type="button" disabled={reqBusy || !manualChips.length} className="h-10 rounded-md bg-[#d97706] px-5 text-sm font-bold text-white hover:bg-[#b45309] disabled:opacity-50"
+                            onClick={async () => {
+                                if (!manualChips.length) { setReqMsg('추가된 키워드가 없습니다.'); return; }
+                                setReqBusy(true); setReqMsg('');
+                                const { error, count } = await enqueueGenRequestsSelf(clientId!, manualChips, productKw, manualStyle, true);
+                                setReqBusy(false);
+                                if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
+                                setReqMsg(`직접 키워드 ${count}건 발행 요청(${manualStyle === 'review' ? '후기성' : '정보성'}) — SUB2 순차 게시.`);
+                                setManualChips([]); setManualInput('');
+                                await loadGenStatus();
+                            }}>발행 요청 ({manualChips.length})</button>
+                    </div>
+                    {manualChips.length ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                            {manualChips.map((kw) => (
+                                <span key={kw} className="inline-flex items-center gap-1 rounded-full bg-[#fde68a] px-2 py-0.5 text-[12px] font-semibold text-[#92400e]">
+                                    {kw}<button type="button" className="text-[#b45309] hover:text-[#dc2626]" onClick={() => removeManualChip(kw)}>×</button>
+                                </span>
+                            ))}
+                            <span className="self-center text-[11px] text-[#a16207]">{manualChips.length}/50</span>
+                        </div>
+                    ) : null}
+                    {reqMsg ? <p className="mb-0 mt-2 text-[12px] font-semibold text-[#166534]">{reqMsg}</p> : null}
+                </div>
+            ) : (
+                <CafeKeywordFinder
+                    clientId={clientId}
+                    mode={finderMode}
+                    initialPicked={intakePicked}
+                    extraUsed={intakePicked.map((p) => p.keyword)}
+                    goalCount={goalCount}
+                    onPick={(kws, pk) => {
+                        setSelectedKw(new Set(kws));
+                        setProductKw(pk);
+                        // 모델B: 고른 키워드를 계약 키워드 풀에 누적(중복 제외).
+                        setPoolKw((prev) => Array.from(new Set([...prev, ...kws.filter(Boolean)])));
+                    }}
+                />
+            )}
             {/* 발행 요청 보내기 — 고른 키워드를 발행PC 대기열(cafe_gen_requests)로. 원고·이미지는 그 PC가 자기 양식으로 생성·게시. */}
             {(() => {
                 const target = publishTargetFor(company);
@@ -538,43 +578,6 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                             </div>
                         </div>
                         {reqMsg ? <span className="text-[12px] font-semibold text-[#166534]">{reqMsg}</span> : null}
-                        {/* 직접 키워드 발행(인기탭 미검증) — 업체가 원하는 키워드를 직접 넣어 발행. 검증분과 분리된 도어. */}
-                        <div className="rounded-lg border border-dashed border-[#f59e0b] bg-[#fffbeb] p-2.5">
-                            <div className="mb-1.5 text-[11px] font-bold text-[#b45309]">✍️ 직접 키워드 발행 <span className="font-normal text-[#a16207]">(인기탭 없어도 발행 · 최대 50개)</span></div>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <input className={`${inputCls} flex-1 min-w-[180px]`} value={manualInput} onChange={(e) => setManualInput(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addManualChips(); } }}
-                                    placeholder="키워드 입력 후 추가 (예: 수원 출장뷔페)" />
-                                <button type="button" onClick={addManualChips} className="h-9 shrink-0 rounded-md bg-[#b45309] px-3 text-xs font-bold text-white hover:bg-[#92400e]">추가</button>
-                                <div className="flex gap-1">
-                                    {(['review', 'info'] as const).map((s) => (
-                                        <button key={s} type="button" onClick={() => setManualStyle(s)}
-                                            className={`h-9 rounded-md px-3 text-xs font-bold ${manualStyle === s ? 'bg-[#d97706] text-white' : 'bg-white text-[#b45309] ring-1 ring-[#f59e0b]'}`}>{s === 'review' ? '후기성' : '정보성'}</button>
-                                    ))}
-                                </div>
-                                <button type="button" disabled={reqBusy || !manualChips.length} className="h-9 rounded-md bg-[#d97706] px-4 text-xs font-bold text-white hover:bg-[#b45309] disabled:opacity-50"
-                                    onClick={async () => {
-                                        if (!manualChips.length) { setReqMsg('추가된 키워드가 없습니다.'); return; }
-                                        setReqBusy(true); setReqMsg('');
-                                        const { error, count } = await enqueueGenRequestsSelf(clientId!, manualChips, productKw, manualStyle, true);
-                                        setReqBusy(false);
-                                        if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
-                                        setReqMsg(`직접 키워드 ${count}건 발행 요청(${manualStyle === 'review' ? '후기성' : '정보성'}) — SUB2 순차 게시.`);
-                                        setManualChips([]); setManualInput('');
-                                        await loadGenStatus();
-                                    }}>발행 요청 ({manualChips.length})</button>
-                            </div>
-                            {manualChips.length ? (
-                                <div className="mt-2 flex flex-wrap gap-1.5">
-                                    {manualChips.map((kw) => (
-                                        <span key={kw} className="inline-flex items-center gap-1 rounded-full bg-[#fde68a] px-2 py-0.5 text-[11px] font-semibold text-[#92400e]">
-                                            {kw}<button type="button" className="text-[#b45309] hover:text-[#dc2626]" onClick={() => removeManualChip(kw)}>×</button>
-                                        </span>
-                                    ))}
-                                    <span className="self-center text-[10px] text-[#a16207]">{manualChips.length}/50</span>
-                                </div>
-                            ) : null}
-                        </div>
                         {/* 발행 예정 큐 미리보기 — 다음 발행 시 이 순서로 올라갈 키워드 */}
                         <div className="mt-1 rounded-lg border border-[#c7d2fe] bg-white p-2.5">
                             <div className="mb-1.5 text-[11px] font-bold text-[#4338ca]">🕒 발행 예정 큐 — 다음 {pick}건 <span className="font-normal text-[#94a3b8]">(정보성/후기성 누르면 이 순서로 발행됩니다)</span></div>
