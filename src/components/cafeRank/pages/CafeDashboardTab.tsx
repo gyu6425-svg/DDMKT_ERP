@@ -141,7 +141,7 @@ export function CafeDashboardTab() {
                 <div className="grid gap-2">
                     {targets.map((t) => {
                         const bp = cumList(t.board);
-                        const pubN = bp.length;               // 실제 발행 글 수(참고)
+                        const pubN = bp.length + (baseByBoard.get(t.board) || 0);   // 실제 발행 = 트래커글 + 이전건(마이클카페 등)
                         const done = siljeok(t.board);        // 실적 = 이전건 + 24h 달성 (진행률 기준)
                         const okey = `cum:${t.board}`;
                         const isOpen = !!open[okey];
