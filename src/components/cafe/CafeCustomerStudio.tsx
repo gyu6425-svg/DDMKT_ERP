@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { listMyCafeJobs, listCafeJobsByCompanies } from '../../api/cafePublishQueue';
 import { listTokens, balanceOf } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
-import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls, studioSavedPath } from '../../api/cafeStudioSettings';
+import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls, studioSavedPath, updateKeywordPool } from '../../api/cafeStudioSettings';
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
@@ -46,6 +46,12 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [productKw, setProductKw] = useState(''); // finder 제품키워드(입주청소/사설경호/누수탐지…)
     // 모델B 일별 발행 — 계약 키워드 풀 + 발행상태(칩 색상·미사용 판별) + 매일 건수.
     const [poolKw, setPoolKw] = useState<string[]>([]);
+    // 풀에서 키워드 삭제(칩 ×) — 상태 갱신 + 즉시 저장.
+    const removePoolKw = async (kw: string) => {
+        const next = poolKw.filter((k) => k !== kw);
+        setPoolKw(next);
+        if (clientId) await updateKeywordPool(clientId, next);
+    };
     const [genStatus, setGenStatus] = useState<Record<string, string>>({});
     const [dailyCount, setDailyCount] = useState(1);
     async function loadGenStatus() { if (clientId) setGenStatus(await getGenRequestStatus(clientId)); }
@@ -447,7 +453,12 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                     const cls = s === 'done' ? 'bg-[#dcfce7] text-[#166534] line-through'
                                         : USED.has(s) ? 'bg-[#fef9c3] text-[#854d0e]'
                                             : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]';
-                                    return <span key={kw} className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{kw}{s === 'done' ? ' ✓' : USED.has(s) ? ' …' : ''}</span>;
+                                    return (
+                                        <span key={kw} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
+                                            {kw}{s === 'done' ? ' ✓' : USED.has(s) ? ' …' : ''}
+                                            <button type="button" onClick={() => void removePoolKw(kw)} title="풀에서 삭제" className="text-[#94a3b8] hover:text-[#dc2626]">×</button>
+                                        </span>
+                                    );
                                 })}
                             </div>
                         ) : (

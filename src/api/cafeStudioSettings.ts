@@ -38,6 +38,14 @@ export async function clearStudioSettings(clientId: string) {
     return { error };
 }
 
+// 키워드 풀만 부분 업데이트(칩 삭제 등) — 즉시 반영.
+export async function updateKeywordPool(clientId: string, pool: string[]) {
+    const { error } = await supabase.from('cafe_studio_settings')
+        .update({ keyword_pool: pool.length ? pool : null, updated_at: new Date().toISOString() })
+        .eq('client_id', clientId);
+    return { error };
+}
+
 // dataURL/URL(이미지 소스) → R2(cafe-images) 업로드 → 저장 경로 반환. (Egress 회피)
 export async function uploadStudioImage(clientId: string, kind: 'photos' | 'banners' | 'main_banner', idx: number, src: string): Promise<string | null> {
     const path = `studio-settings/${clientId}/${kind}_${idx}.jpg`;
