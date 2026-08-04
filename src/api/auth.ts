@@ -47,13 +47,14 @@ export async function signInWithPassword(email: string, password: string) {
 
 // 카카오 소셜 로그인 — OAuth 리다이렉트. 돌아올 주소는 현재 도메인(origin) 기준이라 pages.dev·.com 모두 자동.
 //   전제: Supabase Auth > Providers > Kakao 활성화 + Redirect URLs 에 이 origin 등록.
+//   scopes=profile_nickname 만 요청 — 이메일(account_email)은 비즈앱 검수 필요라 요청 시 KOE205. 닉네임만 받는다.
 export async function signInWithKakao() {
     if (!hasSupabaseConfig) {
         return { data: null, error: missingConfigError };
     }
     return supabase.auth.signInWithOAuth({
         provider: 'kakao',
-        options: { redirectTo: `${window.location.origin}/dashboard` },
+        options: { redirectTo: `${window.location.origin}/dashboard`, scopes: 'profile_nickname' },
     });
 }
 
