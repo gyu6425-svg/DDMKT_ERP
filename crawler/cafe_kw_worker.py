@@ -269,7 +269,7 @@ def _cache_get_many(kws):
         vals = ",".join('"' + k.replace('"', '') + '"' for k in chunk)
         try:
             r = requests.get(f"{SB}/rest/v1/cafe_kw_targets?keyword=in.({quote(vals)})"
-                             f"&select=keyword,has_section,theme,verdict,volume,cafes", headers=H, timeout=20)
+                             f"&select=keyword,has_section,theme,verdict,volume,cafes,scanned_by", headers=H, timeout=20)
             for row in (r.json() if r.status_code == 200 else []):
                 out[(row.get("keyword") or "").replace(" ", "")] = row
         except Exception:
@@ -282,6 +282,20 @@ def _cache_get_many(kws):
 def _is_pop(r):
     v = str(r.get("verdict", ""))
     return bool(r.get("has_section")) and (v.startswith("카페분산") or v.startswith("블로그섹션")) and "레시피" not in (r.get("theme") or "")
+
+
+def _cache_trust(c):
+    """재스캔 시 이 캐시를 그대로 신뢰할지 — 신뢰=건너뜀, 불신=라이브 재검증.
+       ① '저검색'은 판정 아님 → 불신.
+       ② 양성(_is_pop=인기탭)은 항상 신뢰(진짜 인기탭은 안정적).
+       ③ 음성(섹션없음·비관련)이 'prescan'(대량 사전스캔) 산출물이면 불신 → 재검증.
+          근거: prescan 음성 2048 vs 양성 20 — 위음성 다수 확인(예: 소방업체 표본 8중 6이 실제 섹션 有).
+          온디맨드 스캔은 사무실IP/모바일가드로 정확하니, prescan 음성은 지금 다시 확인한다(지연 재검증=블록부담 없음)."""
+    if str(c.get("verdict", "")) == "저검색":
+        return False
+    if _is_pop(c):
+        return True
+    return str(c.get("scanned_by") or "") != "prescan"
 
 
 def _disp_theme(r):
@@ -368,8 +382,8 @@ def process_region(req, product):
             except Exception:
                 pass
         c = cache.get(kw.replace(" ", ""))
-        # 실제로 판정된 캐시만 신뢰. verdict 에 topicality 가 이미 반영돼 있으므로 _is_pop 만 보면 됨('비관련'은 탈락).
-        if c is not None and str(c.get("verdict", "")) != "저검색":
+        # 신뢰 캐시만 채택·건너뜀. prescan 위음성(섹션없음)은 불신 → 아래 라이브 재검증. verdict 에 topicality 반영됨.
+        if c is not None and _cache_trust(c):
             if _is_pop(c):
                 found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": _disp_theme(c),
                               "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
@@ -427,8 +441,8 @@ def process_list(req, payload):
             except Exception:
                 pass
         c = cache.get(kw.replace(" ", ""))
-        # 키워드형은 게이트 없음 → 지역스캔이 '저검색'으로만 캐시해둔 건 판정된 적 없으니 재판정.
-        if c is not None and str(c.get("verdict", "")) != "저검색":  # 캐시 히트 — 네이버 호출 0
+        # 신뢰 캐시만 히트로 인정(네이버 호출 0). '저검색'·prescan 위음성은 불신 → 재판정.
+        if c is not None and _cache_trust(c):
             if _is_pop(c):
                 found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": _disp_theme(c),
                               "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
