@@ -1,0 +1,80 @@
+// 이미지 스토어(R2) — 카페 배너·실사사진을 Cloudflare R2 로 서빙/업로드해 Supabase Egress 를 없앤다.
+//   R2 = 다운로드(egress) 무료 + CF CDN 캐시. GET 은 공개(긴 캐시), PUT 은 로그인 사용자만.
+//   URL: /api/img/<bucket>/<path...>   (bucket = cafe-images | deploy-intake, R2 키 = "<bucket>/<path>")
+//   바인딩(대시보드 설정 필요): IMG_BUCKET(R2). 폴백용 env: SUPABASE_URL, SUPABASE_SERVICE_KEY.
+//   폴백: R2 에 아직 없는 옛 이미지는 Supabase 서명URL 로 302 (마이그레이션 완료 후 제거 가능).
+type R2Obj = { body: ReadableStream; httpEtag: string; writeHttpMetadata: (h: Headers) => void };
+type R2Bucket = {
+    get: (k: string) => Promise<R2Obj | null>;
+    put: (k: string, v: ArrayBuffer | ReadableStream, o?: { httpMetadata?: { contentType?: string } }) => Promise<unknown>;
+};
+type Env = {
+    IMG_BUCKET: R2Bucket;
+    SUPABASE_URL?: string;
+    SUPABASE_SERVICE_KEY?: string;
+    SUPABASE_ANON_KEY?: string;
+};
+type Ctx = { request: Request; env: Env; params: { path?: string | string[] } };
+
+const ALLOW = new Set(['cafe-images', 'deploy-intake']);
+const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,PUT,OPTIONS', 'Access-Control-Allow-Headers': 'authorization, content-type, x-content-type' };
+
+function keyOf(params: { path?: string | string[] }): string {
+    const p = params.path;
+    return Array.isArray(p) ? p.join('/') : String(p || '');
+}
+
+export function onRequestOptions() {
+    return new Response(null, { status: 204, headers: cors });
+}
+
+// 서빙 — R2 우선, 없으면 Supabase 서명URL 로 폴백(옛 이미지).
+export async function onRequestGet({ params, env }: Ctx) {
+    const key = keyOf(params);
+    if (!key) return new Response('missing key', { status: 400, headers: cors });
+    const obj = await env.IMG_BUCKET.get(key);
+    if (obj) {
+        const headers = new Headers(cors);
+        obj.writeHttpMetadata(headers);
+        headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+        headers.set('ETag', obj.httpEtag);
+        return new Response(obj.body, { headers });
+    }
+    // 폴백: "<bucket>/<path>" → Supabase 서명URL 302 (마이그레이션 중 옛 이미지)
+    const slash = key.indexOf('/');
+    const bucket = slash > 0 ? key.slice(0, slash) : '';
+    const path = slash > 0 ? key.slice(slash + 1) : '';
+    if (ALLOW.has(bucket) && env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY) {
+        try {
+            const r = await fetch(`${env.SUPABASE_URL}/storage/v1/object/sign/${bucket}/${path}`, {
+                method: 'POST',
+                headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ expiresIn: 3600 }),
+            });
+            if (r.ok) {
+                const d = (await r.json()) as { signedURL?: string };
+                if (d.signedURL) return Response.redirect(`${env.SUPABASE_URL}/storage/v1${d.signedURL}`, 302);
+            }
+        } catch { /* 폴백 실패 → 404 */ }
+    }
+    return new Response('not found', { status: 404, headers: cors });
+}
+
+// 업로드 — 로그인 사용자만(Supabase 토큰 검증). body = 이미지 바이트.
+export async function onRequestPut({ request, params, env }: Ctx) {
+    const key = keyOf(params);
+    const slash = key.indexOf('/');
+    const bucket = slash > 0 ? key.slice(0, slash) : '';
+    if (!ALLOW.has(bucket)) return new Response('bad bucket', { status: 400, headers: cors });
+    // 인증 — Authorization: Bearer <supabase access token> 검증
+    const auth = request.headers.get('authorization') || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return new Response('unauthorized', { status: 401, headers: cors });
+    const who = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, { headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` } });
+    if (!who.ok) return new Response('unauthorized', { status: 401, headers: cors });
+    const contentType = request.headers.get('x-content-type') || request.headers.get('content-type') || 'image/jpeg';
+    const buf = await request.arrayBuffer();
+    if (!buf.byteLength) return new Response('empty', { status: 400, headers: cors });
+    await env.IMG_BUCKET.put(key, buf, { httpMetadata: { contentType } });
+    return new Response(JSON.stringify({ ok: true, key }), { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } });
+}
