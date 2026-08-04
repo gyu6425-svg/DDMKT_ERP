@@ -180,13 +180,19 @@ def main():
             time.sleep(0.3)   # searchad 무리없게
             continue
         r = p.classify(task)
-        if "차단" in str(r.get("err", "")):
-            blocks += 1
-            print(f"[prescan] ⚠ 차단감지 {blocks}/{BLOCK_STOP}: {task} ({r.get('err')}) — {BLOCK_COOLDOWN}s 쿨다운", flush=True)
-            if blocks >= BLOCK_STOP:
-                print("[prescan] ⏹ 연속 차단 — 자동중단(IP 보호)", flush=True)
-                break
-            time.sleep(BLOCK_COOLDOWN)
+        err = str(r.get("err", ""))
+        if err:   # 어떤 err도 캐시 금지(위음성 방지) — 차단은 쿨다운, 빈응답 등은 스킵 후 다음에 재시도
+            if "차단" in err:
+                blocks += 1
+                print(f"[prescan] ⚠ 차단감지 {blocks}/{BLOCK_STOP}: {task} ({err}) — {BLOCK_COOLDOWN}s 쿨다운", flush=True)
+                if blocks >= BLOCK_STOP:
+                    print("[prescan] ⏹ 연속 차단 — 자동중단(IP 보호)", flush=True)
+                    break
+                time.sleep(BLOCK_COOLDOWN)
+            else:
+                # 빈 200 등 비정상 응답 — '섹션없음'으로 굳히지 않고 스킵(캐시 안 함). 7/31 위음성 2009건 재발 방지.
+                print(f"[prescan] ⚠ 빈응답/오류 스킵(캐시안함): {task} ({err})", flush=True)
+                time.sleep(random.uniform(GAP_MIN, GAP_MAX))
             continue
         blocks = 0
         cache_put(task, r)

@@ -786,7 +786,9 @@ def _classify_live(kw):
     code, html = _fetch_serp(kw)
     if code != 200:
         return {"kw": kw, "err": f"code {code}(차단?)", "has_section": False}
+    n_blocks = 0
     for b in c.extract_bootstrap_json(html):
+        n_blocks += 1
         try:
             j = json.loads(b)
         except Exception:
@@ -827,6 +829,11 @@ def _classify_live(kw):
             "kw": kw, "has_section": True, "theme": theme,
             "n_ad": len(ads), "n_organic": len(organic), "rows": rows, "verdict": verdict,
         }
+    # 방어(SUB4 지적) — 정상 네이버 SERP는 항상 부트스트랩 블록이 있고 130KB+(실측). 블록 0 또는 비정상적으로
+    #   짧으면 '빈 200'(CF/네트워크가 내용 없이 200 반환) → '섹션없음'으로 굳히지 말고 err 처리(캐시 금지, C1).
+    #   이게 7/31 prescan 위음성 2009건의 유력 원인. 워커·prescan 공통 방어(둘 다 err면 캐시 안 함).
+    if n_blocks == 0 or len(html) < 20000:
+        return {"kw": kw, "err": f"빈 응답(blocks={n_blocks}, len={len(html)})", "has_section": False}
     return {"kw": kw, "has_section": False, "verdict": "섹션없음(광고·브랜드콘텐츠)"}
 
 
