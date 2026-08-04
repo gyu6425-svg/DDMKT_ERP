@@ -17,6 +17,7 @@ import time
 import json
 import socket
 import datetime
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -420,41 +421,64 @@ def process_region(req, product):
     cache = _cache_get_many([kw for _, kw in kws])  # 배치 캐시(재스캔 즉시)
 
     found, scraped, errs, capped = [], 0, 0, False
-    for idx, (tok, kw) in enumerate(kws, 1):
-        if len(found) >= target:
-            break
-        if idx % 8 == 1:   # 진행상태(프론트 게이지바)
-            try:
-                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
-                               json={"note": f"진행 {idx}/{total} · 인기탭 {len(found)}"}, timeout=10)
-            except Exception:
-                pass
+    # ① 캐시 패스(네트워크 0) — 신뢰 캐시로 이미 결론난 건 즉시 채택/스킵하고, 남은 것만 라이브 대상으로.
+    to_scan = []
+    for tok, kw in kws:
         c = cache.get(kw.replace(" ", ""))
-        # 신뢰 캐시만 채택·건너뜀. prescan 위음성(섹션없음)은 불신 → 아래 라이브 재검증. verdict 에 topicality 반영됨.
+        # 신뢰 캐시만 채택·건너뜀. prescan 위음성(섹션없음)은 불신 → 라이브 재검증. verdict 에 topicality 반영됨.
         if c is not None and _cache_trust(c):
             if _is_pop(c):
                 found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": _disp_theme(c),
                               "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
             continue
-        if scraped >= MAX_LIVE:
-            capped = True
-            continue
+        to_scan.append((tok, kw))
+    if len(to_scan) > MAX_LIVE:
+        to_scan = to_scan[:MAX_LIVE]
+        capped = True
+
+    # 조합 1건 처리(스레드에서 실행) — classify → 오탐필터 → 캐시. 반환 ('pop'|'neg'|'err', 결과).
+    def _scan_one(item):
+        tok, kw = item
         r = p.classify(kw)
         if r.get("err"):                       # C1 — 차단/일시실패는 캐시하지 않음(영구 위음성 방지). 다음에 재시도.
-            errs += 1
-            continue
+            return ("err", None)
         # 오탐 필터: 인기글 섹션이 이 지역×제품과 무관(generic 채움)이면 '비관련'으로 강등 → 채택·캐시에서 탈락.
         if _is_pop(r) and not _topical(r.get("rows"), product, _region_core(tok)):
             r = {"has_section": r.get("has_section"), "verdict": "비관련(오탐)", "theme": r.get("theme"), "rows": r.get("rows")}
-        scraped += 1
-        time.sleep(gap)
         if _is_pop(r):
             v = _real_volume(kw)               # 표시·정렬용 검색량 — 인기탭인 것만 1콜(스로틀 부담↓)
             _cache_put(kw, r, v)
-            found.append({"keyword": kw, "volume": v, "theme": _disp_theme(r),
-                          "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
-        else:
-            _cache_put(kw, r, None)            # 섹션없음·비관련도 캐시(재스캔 즉시) — 볼륨 불필요
+            return ("pop", {"keyword": kw, "volume": v, "theme": _disp_theme(r),
+                            "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
+        _cache_put(kw, r, None)                # 섹션없음·비관련도 캐시(재스캔 즉시) — 볼륨 불필요
+        return ("neg", None)
+
+    # ② 라이브 패스 — CF는 분산IP(요청이 CF 엣지에서 나감)라 병렬이 안전하다.
+    #    실측(2026-08-04): 병렬x6 20건 2.1s·에러0 (직렬 무gap 13s 대비 6배). 사무실 직접 IP는 차단 보호로 직렬 유지.
+    PAR = 6 if cf else 1
+    ex = ThreadPoolExecutor(max_workers=PAR) if PAR > 1 else None
+    try:
+        for i in range(0, len(to_scan), PAR):
+            if len(found) >= target:
+                break
+            chunk = to_scan[i:i + PAR]
+            try:                               # 진행상태(프론트 게이지바)
+                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                               json={"note": f"진행 {i + len(chunk)}/{len(to_scan)} · 인기탭 {len(found)}"}, timeout=10)
+            except Exception:
+                pass
+            results = list(ex.map(_scan_one, chunk)) if ex else [_scan_one(x) for x in chunk]
+            for kind, item in results:
+                if kind == "err":
+                    errs += 1
+                    continue
+                scraped += 1
+                if kind == "pop":
+                    found.append(item)
+            time.sleep(gap)                    # 청크 사이만 쉼(병렬이면 건당 실효 gap = gap/PAR)
+    finally:
+        if ex:
+            ex.shutdown(wait=False)
     found.sort(key=lambda f: -(f.get("volume") or 0))
     scope = "동포함" if include_dong else "구시"
     _finish(req["id"], "done", result=found, extra={"biz_name": product},
