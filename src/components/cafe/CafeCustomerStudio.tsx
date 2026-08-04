@@ -10,6 +10,8 @@ import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, publis
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { customerLogin } from '../../api/nusu2Bridge';
+import { grantTokens } from '../../api/cafeTokens';
+import { useAuth } from '../../hooks/useAuth';
 
 type MyJob = { id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string };
 const STATUS_KO: Record<string, string> = { pending: '대기', processing: '작성 중', posted: '게시됨(확인중)', done: '완료', fail: '실패' };
@@ -159,6 +161,20 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     // 발행 토큰 잔액 — 발행 1건 = 1토큰. 0이면 발행 차단.
     const [tokenBal, setTokenBal] = useState(0);
     async function loadTokens() { if (clientId) { const { data } = await listTokens(clientId); setTokenBal(balanceOf(data)); } }
+    // 관리자 전용 — 서비스 토큰(무상) 발급. 고객에겐 안 보임.
+    const { isAdmin } = useAuth();
+    const [grantN, setGrantN] = useState(5);
+    const [grantBusy, setGrantBusy] = useState(false);
+    const [grantMsg, setGrantMsg] = useState('');
+    const grantService = async () => {
+        if (!clientId || grantN <= 0) return;
+        setGrantBusy(true); setGrantMsg('');
+        const { error } = await grantTokens(clientId, grantN, `서비스 토큰 · +${grantN}건`);
+        setGrantBusy(false);
+        if (error) { setGrantMsg('발급 실패: ' + error.message); return; }
+        setGrantMsg(`서비스 토큰 ${grantN}건 발급 완료`);
+        await loadTokens();
+    };
 
     useEffect(() => {
         let alive = true;
@@ -256,8 +272,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
 
     if (approved === false) return <CafeCustomerRequest clientId={clientId} />;
 
-    // 토큰 소진(잔여 0) — 발행 사용 불가 + 연장(충전) 안내. (approved 상태는 유지되어 탭은 그대로 노출)
-    if (approved && tokenBal <= 0) {
+    // 토큰 소진(잔여 0) — 발행 사용 불가 + 연장(충전) 안내. 관리자는 우회(서비스 토큰 발급 등 관리 가능).
+    if (approved && tokenBal <= 0 && !isAdmin) {
         return (
             <div className="rounded-2xl border-2 border-[#fb923c] bg-[#fff7ed] p-10 text-center">
                 <div className="text-2xl">🎫</div>
@@ -281,6 +297,24 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 발행 대상 게시판: <b>{board ?? '(확인 중)'}</b>
                 <span className="ml-2 text-[#64748b]">— 발행하면 본인 카페의 이 게시판에 자동 게시됩니다.</span>
             </div>
+
+            {/* 관리자 전용 — 서비스 토큰(무상) 발급 */}
+            {isAdmin ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#fbbf24] bg-[#fffbeb] px-4 py-2.5 text-sm">
+                    <span className="font-bold text-[#92400e]">🎫 서비스 토큰 발급 <span className="font-normal text-[#b45309]">(관리자 전용)</span></span>
+                    <span className="text-[#78716c]">잔여 <b className="text-[#92400e]">{tokenBal}</b>건</span>
+                    <div className="ml-auto flex items-center gap-1.5">
+                        {[3, 5, 10, 30].map((c) => (
+                            <button key={c} type="button" onClick={() => setGrantN(c)}
+                                className={`h-8 rounded-md px-2.5 text-xs font-bold ${grantN === c ? 'bg-[#d97706] text-white' : 'bg-white text-[#92400e] ring-1 ring-[#fbbf24]'}`}>{c}</button>
+                        ))}
+                        <input type="number" min={1} value={grantN} onChange={(e) => setGrantN(Math.max(1, Number(e.target.value) || 1))} className="h-8 w-16 rounded-md border border-[#fbbf24] px-2 text-sm" />
+                        <button type="button" onClick={() => void grantService()} disabled={grantBusy}
+                            className="h-8 rounded-md bg-[#d97706] px-4 text-xs font-bold text-white hover:bg-[#b45309] disabled:opacity-50">{grantBusy ? '발급 중…' : `＋${grantN}건 발급`}</button>
+                    </div>
+                    {grantMsg ? <span className="w-full text-[12px] font-semibold text-[#166534]">{grantMsg}</span> : null}
+                </div>
+            ) : null}
 
             {/* 우측: 값 저장/초기화 */}
             <div className="flex items-center gap-1 border-b border-[#e2e8f0]">
