@@ -525,7 +525,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                         {reqMsg ? <span className="text-[12px] font-semibold text-[#166534]">{reqMsg}</span> : null}
                         {/* 직접 키워드 발행(인기탭 미검증) — 업체가 원하는 키워드를 직접 넣어 발행. 검증분과 분리된 도어. */}
                         <div className="rounded-lg border border-dashed border-[#f59e0b] bg-[#fffbeb] p-2.5">
-                            <div className="mb-1.5 text-[11px] font-bold text-[#b45309]">✍️ 직접 키워드 발행 <span className="font-normal text-[#a16207]">(인기탭 없어도 발행 — 순위는 안 오를 수 있음)</span></div>
+                            <div className="mb-1.5 text-[11px] font-bold text-[#b45309]">✍️ 직접 키워드 발행 <span className="font-normal text-[#a16207]">(인기탭 없어도 발행)</span></div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <input className={`${inputCls} flex-1 min-w-[180px]`} value={manualInput} onChange={(e) => setManualInput(e.target.value)} placeholder="키워드 직접 입력 (여러 개는 쉼표) 예: 수원 출장뷔페, 분당 케이터링" />
                                 <div className="flex gap-1">
@@ -542,7 +542,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                         const { error, count } = await enqueueGenRequestsSelf(clientId!, kws, productKw, manualStyle, true);
                                         setReqBusy(false);
                                         if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
-                                        setReqMsg(`직접 키워드 ${count}건 발행 요청(미검증·${manualStyle === 'review' ? '후기성' : '정보성'}) — SUB2 순차 게시. 인기탭 없으면 순위는 안 오를 수 있습니다.`);
+                                        setReqMsg(`직접 키워드 ${count}건 발행 요청(${manualStyle === 'review' ? '후기성' : '정보성'}) — SUB2 순차 게시.`);
                                         setManualInput('');
                                         await loadGenStatus();
                                     }}>발행 요청</button>
