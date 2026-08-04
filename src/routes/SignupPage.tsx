@@ -148,7 +148,7 @@ function SignupPage() {
                                 />
                                 <label className="flex w-[400px] max-w-full cursor-pointer items-center gap-2.5 px-1 text-[17px] font-medium text-[#555555]">
                                     <input type="checkbox" checked={agency} onChange={(e) => setAgency(e.target.checked)} className="h-5 w-5 accent-[#ff5a00]" />
-                                    대행사입니다 <span className="text-[14px] text-[#999999]">(카페 배포 단가 35,000원 적용)</span>
+                                    대행사입니다
                                 </label>
                             </>
                         ) : null}

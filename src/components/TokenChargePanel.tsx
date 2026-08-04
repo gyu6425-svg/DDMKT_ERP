@@ -107,7 +107,7 @@ export default function TokenChargePanel() {
                     </div>
                     <div className="grid content-start gap-2">
                         <div>
-                            <div className="mb-1 text-[12px] font-semibold text-[#64748b]">충전 건수 <span className="font-normal text-[#94a3b8]">(1건 = 15,000원)</span></div>
+                            <div className="mb-1 text-[12px] font-semibold text-[#64748b]">충전 건수</div>
                             <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" type="number" min={1} placeholder="예: 30" value={count} onChange={(e) => setCount(e.target.value)} />
                             {count && Number(count) > 0 ? <div className="mt-1 text-[12px] font-bold text-[#059669]">입금 확인 금액: ₩{tokenWon(Number(count))}</div> : null}
                         </div>

@@ -228,25 +228,24 @@ export async function getLatestDeployForStudio(clientId: string): Promise<Studio
     return { req, cred, photoUrls };
 }
 
-// 카페 배포 단가 — 일반 고객 15,000원 / 대행사 35,000원.
+// 카페 배포 단가 — 기본 15,000원(대행사 포함). 일반(기존) 업체는 더 비싸고 매번 달라 계약관리에서 수동 조정.
 export const CAFE_UNIT_PRICE_KRW = 15000;
-export const CAFE_UNIT_PRICE_AGENCY = 35000;
+export const CAFE_UNIT_PRICE_AGENCY = 15000;
 
-// 이 거래처(client)가 대행사면 35,000, 아니면 15,000. clients.is_agency 기준.
+// 자동 생성 시 기본 단가(15,000). 대행사/일반 구분 없이 동일 — 일반 업체 금액은 계약관리에서 수동으로 올린다.
 export async function cafeUnitPriceForClient(clientId: string): Promise<number> {
     if (!clientId) return CAFE_UNIT_PRICE_KRW;
-    const { data } = await supabase.from('clients').select('is_agency').eq('id', clientId).maybeSingle();
-    return (data as { is_agency?: boolean } | null)?.is_agency ? CAFE_UNIT_PRICE_AGENCY : CAFE_UNIT_PRICE_KRW;
+    return CAFE_UNIT_PRICE_KRW;
 }
 
-// 카페 등록(토큰 발행) 시 계약관리(client_contracts '카페 배포')에 자동 반영 — 대행사 35,000 / 일반 15,000.
+// 카페 등록(토큰 발행) 시 계약관리(client_contracts '카페 배포')에 자동 반영 — 기본 15,000(수동 조정 전 초기값).
 //   이미 '카페 배포' 계약이 있는 업체(더맨 등 수동 관리)는 건드리지 않는다(중복 방지). 없을 때만 생성.
 export async function ensureCafeDeployContract(clientId: string, count: number) {
     if (!clientId || !count || count <= 0) return { error: null, created: false };
     const { data: existing } = await supabase.from('client_contracts')
         .select('id').eq('client_id', clientId).eq('subtype', '카페 배포').limit(1);
     if (existing && existing.length) return { error: null, created: false };
-    const unit = await cafeUnitPriceForClient(clientId);   // 대행사=35,000 / 일반=15,000
+    const unit = await cafeUnitPriceForClient(clientId);   // 기본 15,000(이후 계약관리에서 수동 조정)
     const today = new Date().toISOString().slice(0, 10);
     const { error } = await supabase.from('client_contracts').insert({
         client_id: clientId,

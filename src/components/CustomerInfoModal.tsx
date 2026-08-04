@@ -119,7 +119,7 @@ export default function CustomerInfoModal({
                                 lines.map((l, i) => (
                                     <div className="flex justify-between py-0.5 text-[13px] text-[#334155]" key={i}>
                                         <span>
-                                            {l.label} {l.qty}건 × {won(l.unit)}
+                                            {l.label} {l.qty}건
                                         </span>
                                         <span className="font-semibold">{won(l.amt)}</span>
                                     </div>

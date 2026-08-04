@@ -426,7 +426,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <span className="text-lg">🔔</span>
                         <span className="text-[15px] font-bold text-[#9a3412]">결제 안내 — 접수가 승인되었습니다</span>
                     </div>
-                    <p className="mb-3 mt-0 text-[13px] text-[#7c2d12]">아래 계좌로 입금해 주시면 확인 후 발행이 시작됩니다. <b>발행 1건 = {unitPrice.toLocaleString('ko-KR')}원{unitPrice !== PAYMENT_INFO.unitPrice ? ' (대행사 단가)' : ''}</b></p>
+                    <p className="mb-3 mt-0 text-[13px] text-[#7c2d12]">아래 계좌로 입금해 주시면 확인 후 발행이 시작됩니다.</p>
                     <div className="grid gap-2">
                         {pendingPay.map((r) => {
                             const amt = deployAmountKRW(r, unitPrice);
