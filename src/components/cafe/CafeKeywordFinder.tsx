@@ -233,8 +233,11 @@ export function CafeKeywordFinder({
     };
 
     const visible = (kwResult || []).filter((k) => !kwHidden.includes(k.keyword));
-    const fresh = visible.filter((k) => !usedKw.has(normKw(k.keyword)));
-    const used = visible.filter((k) => usedKw.has(normKw(k.keyword)));
+    // 기존에 했던 것 = 이미 발행/선택(usedKw) + 이번 세션에 고른 것(kwPicked). 둘 다 '이미 함'으로 제외.
+    const pickedSet = new Set(kwPicked.map((p) => normKw(p.keyword)));
+    const isUsed = (k: KwResult) => usedKw.has(normKw(k.keyword)) || pickedSet.has(normKw(k.keyword));
+    const fresh = visible.filter((k) => !isUsed(k));
+    const used = visible.filter((k) => isUsed(k));
 
     return (
         <div className="rounded-xl border-2 border-[#0369a1] bg-[#f0f9ff] p-4">
@@ -275,6 +278,23 @@ export function CafeKeywordFinder({
                         <input className={`${inputCls} flex-1 min-w-[200px]`} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="플레이스 주소 (https://naver.me/… )" />
                         <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white disabled:opacity-50">{volLoading ? '조회 중…' : '인기글 조회'}</button>
                         <button type="button" onClick={() => void runPlaceScan()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '분석 중…' : '정확 인기탭 분석'}</button>
+                    </div>
+                    {/* 키워드 추가 조회 — 지역 × 키워드 인기탭. 이미 발행·선택한 건 자동 제외(위 결과의 fresh 로직). */}
+                    <div className="rounded-md border border-[#c7d2fe] bg-[#f8faff] p-2">
+                        <div className="mb-1.5 text-[11px] font-bold text-[#4338ca]">＋ 키워드 추가 조회 — 지역 × 키워드 인기탭 <span className="font-normal text-[#94a3b8]">(이미 발행·선택한 건 제외)</span></div>
+                        <div className="mb-2 flex flex-wrap gap-1.5">
+                            {REGION_KEYS.map((r) => (
+                                <button key={r} type="button" onClick={() => toggleRegion(r)}
+                                    className={`rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${regionSel.includes(r) ? 'border-[#4338ca] bg-[#4338ca] text-white' : 'border-[#cbd5e1] bg-white text-[#475569]'}`}>{r}</button>
+                            ))}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <input className={`${inputCls} flex-1 min-w-[160px]`} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="키워드 (예: 출장뷔페 — 여러 개는 쉼표)" />
+                            <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading || dongLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '조회 중…' : '지역 인기탭 조회'}</button>
+                            {kwResult && kwResult.length > 0 && !dongDone ? (
+                                <button type="button" onClick={() => void runRegion(true)} disabled={kwLoading || dongLoading} title="동(洞) 단위까지 추가" className="h-10 shrink-0 rounded-md border border-[#7c3aed] bg-white px-4 text-sm font-bold text-[#7c3aed] disabled:opacity-50">{dongLoading ? '동 스캔 중…' : '＋ 더 찾기(동)'}</button>
+                            ) : null}
+                        </div>
                     </div>
                     <details open className="rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
                         <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 정보/메뉴 붙여넣기 — 플레이스에 메뉴·정보가 없어 분석이 안 될 때 (여기 붙여넣고 아래 버튼)</summary>
