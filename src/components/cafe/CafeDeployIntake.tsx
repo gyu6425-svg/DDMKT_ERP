@@ -154,6 +154,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [pickedOpen, setPickedOpen] = useState(false); // 선택 키워드 드롭다운 펼침(기본 접힘 · 우측 N개)
     const [payBusy, setPayBusy] = useState(false); // 결제완료 알림 전송 중
     const [payMsg, setPayMsg] = useState(''); // 결제완료 알림 결과
+    const [placeDetail, setPlaceDetail] = useState(''); // 키워드형 '상세 정보 입력' — 플레이스에 메뉴/정보 없을 때 붙여넣기(비고 [상세정보]로 저장)
     const togglePick = (k: KwResult) =>
         setKwPicked((prev) => (prev.some((p) => p.keyword === k.keyword) ? prev.filter((p) => p.keyword !== k.keyword) : [...prev, k]));
     const hideKw = (kw: string) => {
@@ -283,12 +284,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         // 나머지 키워드를 담당자에게 맡긴 경우 — 비고에 위임 표시(담당자가 스튜디오에서 목표까지 채움).
         const shortfall = (form.total_count ?? 0) - kwPicked.length;
         const delegateNote = delegate && shortfall > 0 ? `[키워드 ${shortfall}건 선정 위임 — 담당자가 나머지 키워드 선정]` : '';
-        const note = [form.note?.trim(), delegateNote].filter(Boolean).join(' ');
+        const detailNote = placeDetail.trim() ? `[상세정보]\n${placeDetail.trim()}` : '';   // 키워드형 상세 정보 입력 → 비고에 저장
+        const note = [form.note?.trim(), delegateNote, detailNote].filter(Boolean).join('\n');
         const { error } = await submitCafeDeployRequest(clientId, { ...form, note, photos, photo_provided: summary, selected_keywords: picks });
         setBusy(false);
         if (error) return setMsg(`접수 실패: ${error.message}`);
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
-        setForm({ ...empty, company_name: bizName }); setFiles({ main: [], real: [], banner: [] });
+        setForm({ ...empty, company_name: bizName }); setFiles({ main: [], real: [], banner: [] }); setPlaceDetail('');
         setKwResult(null); setKwPicked([]); setKwHidden([]); setKwExpanded(false); setPickedOpen(false);
         reload();
     };
@@ -509,6 +511,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             ) : null}
                         </div>
                         {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">인기글 조회=업체명 기반 검색량(즉시). 정확 인기탭 분석=실제 인기글 섹션 확인(큐 처리, 수초~수십초).</p> : null}
+                        {isKw ? (
+                            <details open className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
+                                <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 상세 정보 입력 — 플레이스에 메뉴·정보가 없을 때 (여기에 붙여넣으면 접수에 저장)</summary>
+                                <textarea className="mt-2 w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
+                                    value={placeDetail} onChange={(e) => setPlaceDetail(e.target.value)}
+                                    placeholder={'플레이스 정보·메뉴·홈 소개글, 취급 서비스/상품을 그대로 붙여넣으세요. 담당자가 키워드 선정에 활용합니다.\n예)\n입주청소\n이사청소\n준공청소'} />
+                                <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">접수 시 비고에 [상세정보]로 함께 저장됩니다.</p>
+                            </details>
+                        ) : null}
                         {isKw ? kwPanel : null}
                     </div>
                     {!isKw ? (
