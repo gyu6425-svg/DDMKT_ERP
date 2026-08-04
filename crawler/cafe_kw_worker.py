@@ -292,6 +292,41 @@ def _disp_theme(r):
     return t
 
 
+# 오탐 필터 — 저검색 지역은 인기글 섹션이 떠도 글이 그 키워드와 무관(웨딩홀·캠핑·골프 등 generic 채움)이다.
+#   진짜 인기탭 = 카페+블로그 통틀어 '제품어(+지역형이면 지역코어)가 한 제목에 같이 있는 글'이 최소 1개.
+#   ※ 카페슬롯 off-topic 1개가 verdict를 카페분산으로 뒤집어도 블로그의 진짜 글을 보게 → 재현율 보전(독립검증).
+def _norm(s):
+    return (s or "").replace(" ", "")
+
+
+def _region_core(tok):
+    """지역 토큰 → 매칭용 코어(접미 제거). '영동군'→'영동', '청주시'→'청주', '흥덕구'→'흥덕'."""
+    t = _norm(tok)
+    base = re.sub(r"(특별자치시|특별자치도|특별시|광역시|자치시|자치구|시|군|구|동|읍|면)$", "", t)
+    return base if len(base) >= 2 else t
+
+
+def _topical(rows, product, region_core=None):
+    """인기글 섹션이 이 키워드에 실제 관한지(독립검증 실측 규칙, 정밀도·재현율 100%):
+       카페글 제목에 제품어 ≥1  OR  블로그글 제목에 (지역코어+)제품어 ≥2.
+       - 카페 제품글 1개 = 강신호(카페=우리가 경쟁하는 곳). generic 오탐(영동 피로연=웨딩홀)은 카페 제품글 0.
+       - 블로그는 우연 1건(영동 지전뷔페 식전피로연) 배제 위해 2건 이상 + 지역 동시 요구."""
+    pn = _norm(product)
+    if len(pn) < 2:
+        return True
+    cap = brp = 0
+    for x in (rows or []):
+        title = _norm(x.get("title"))
+        if pn not in title:
+            continue
+        k = x.get("kind")
+        if k == "카페":
+            cap += 1
+        elif k == "블로그" and (region_core is None or region_core in title):
+            brp += 1
+    return cap >= 1 or brp >= 2
+
+
 def process_region(req, product):
     """지역 인기탭 조회 — 선택 시도의 구/시(기본) × 제품키워드 전수 인기탭 판정(누락 금지). 통과분만 반환·캐시.
        deploy_type 에 '동'/'dong' 오면 동(洞)까지('더 찾기'). 완전성: 검색량 게이트 없음 + err 캐시 금지 + 전수 스캔."""
@@ -309,7 +344,7 @@ def process_region(req, product):
     gap = 1.5 if cf else SCAN_GAP
     # ★ 완전성 우선(누락 금지): 검색량으로 스캔을 건너뛰지 않는다 — 저검색이라도 인기탭 있는 니치(피로연·예식 등)
     #   포착. 검색량은 판정 '후' 표시·정렬용으로만 조회. 판정결과(인기탭/섹션없음)는 캐시되어 재스캔은 즉시.
-    # 후보 키워드(중복 제거) → 배치 캐시 조회 한 번에.
+    # 후보 (tok, kw) — tok 은 오탐필터의 지역코어용. 중복 제거.
     kws, seen = [], set()
     for tok in tokens:
         kw = f"{tok} {product}"
@@ -317,13 +352,13 @@ def process_region(req, product):
         if nk in seen:
             continue
         seen.add(nk)
-        kws.append(kw)
+        kws.append((tok, kw))
     total = len(kws)
     MAX_LIVE = max(total, 400) if cf else 120   # 전수 스캔 보장 — 상한이 토큰수보다 작아 뒷지역 누락되던 것 방지
-    cache = _cache_get_many(kws)                # 배치 캐시(재스캔 즉시)
+    cache = _cache_get_many([kw for _, kw in kws])  # 배치 캐시(재스캔 즉시)
 
     found, scraped, errs, capped = [], 0, 0, False
-    for idx, kw in enumerate(kws, 1):
+    for idx, (tok, kw) in enumerate(kws, 1):
         if len(found) >= target:
             break
         if idx % 8 == 1:   # 진행상태(프론트 게이지바)
@@ -333,7 +368,7 @@ def process_region(req, product):
             except Exception:
                 pass
         c = cache.get(kw.replace(" ", ""))
-        # 실제로 판정된 캐시만 신뢰. 옛 '저검색'(게이트로 스킵돼 판정된 적 없음)은 재판정.
+        # 실제로 판정된 캐시만 신뢰. verdict 에 topicality 가 이미 반영돼 있으므로 _is_pop 만 보면 됨('비관련'은 탈락).
         if c is not None and str(c.get("verdict", "")) != "저검색":
             if _is_pop(c):
                 found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": _disp_theme(c),
@@ -346,6 +381,9 @@ def process_region(req, product):
         if r.get("err"):                       # C1 — 차단/일시실패는 캐시하지 않음(영구 위음성 방지). 다음에 재시도.
             errs += 1
             continue
+        # 오탐 필터: 인기글 섹션이 이 지역×제품과 무관(generic 채움)이면 '비관련'으로 강등 → 채택·캐시에서 탈락.
+        if _is_pop(r) and not _topical(r.get("rows"), product, _region_core(tok)):
+            r = {"has_section": r.get("has_section"), "verdict": "비관련(오탐)", "theme": r.get("theme"), "rows": r.get("rows")}
         scraped += 1
         time.sleep(gap)
         if _is_pop(r):
@@ -354,7 +392,7 @@ def process_region(req, product):
             found.append({"keyword": kw, "volume": v, "theme": _disp_theme(r),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
         else:
-            _cache_put(kw, r, None)            # 섹션없음도 캐시(재스캔 즉시) — 볼륨 불필요
+            _cache_put(kw, r, None)            # 섹션없음·비관련도 캐시(재스캔 즉시) — 볼륨 불필요
     found.sort(key=lambda f: -(f.get("volume") or 0))
     scope = "동포함" if include_dong else "구시"
     _finish(req["id"], "done", result=found, extra={"biz_name": product},
@@ -400,6 +438,9 @@ def process_list(req, payload):
         r = p.classify(kw)
         if r.get("err"):                       # C1 — 차단/일시실패는 캐시하지 않음(영구 위음성 방지)
             continue
+        # 오탐 필터(키워드형=지역 없음) — 제목에 제품어(=키워드) 관련 글 없으면 비관련 강등.
+        if _is_pop(r) and not _topical(r.get("rows"), kw, None):
+            r = {"has_section": r.get("has_section"), "verdict": "비관련(오탐)", "theme": r.get("theme"), "rows": r.get("rows")}
         v = _real_volume(kw)
         _cache_put(kw, r, v)
         scraped += 1
