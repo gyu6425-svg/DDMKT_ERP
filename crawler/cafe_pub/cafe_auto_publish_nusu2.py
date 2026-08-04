@@ -614,13 +614,14 @@ def _interleave_markers(body, n_mid):
     return "\n".join(out).strip()
 
 
-def make_and_queue(region, popular_verified=False):
+def make_and_queue(region, popular_verified=False, manual_ok=False):
     # 절대 안전장치: 네이버 통합검색에서 "지역+누수탐지" 인기글 영역이 확인된
     # 지역만 큐에 넣는다. 검색 응답 오류·파서 실패·직접 함수 호출은 모두 발행 거부.
-    if not popular_verified:
+    #   manual_ok=True 는 '업체가 명시적으로 직접 넣은 미검증 키워드' 전용 도어(자율발행은 절대 안 넘김).
+    if not (popular_verified or manual_ok):
         raise RuntimeError(
             f"인기글 미검증 키워드 발행 차단: {region} {BUSINESS} "
-            "(main 선별 절차를 통해서만 등록 가능)"
+            "(main 선별 절차 또는 수동 도어를 통해서만 등록 가능)"
         )
     grp, cta_path = cta_group(region)
     dong = _pick_dong(region)                          # 서울 자치구면 실재 동 하나(위치스택 "서울 {구} 누수탐지 {동}")

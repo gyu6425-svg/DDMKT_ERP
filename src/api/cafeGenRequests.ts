@@ -75,8 +75,9 @@ export async function getPendingGenRequests(): Promise<{ client_id: string | nul
 
 export type SelfStyle = 'info' | 'review';
 export async function enqueueGenRequestsSelf(
-    clientId: string, keywords: string[], productKeyword: string, style: SelfStyle,
+    clientId: string, keywords: string[], productKeyword: string, style: SelfStyle, manual = false,
 ) {
+    // manual=true: 업체가 인기탭 없이 직접 넣은 키워드(popular_verified=false → SUB2가 manual 도어로 발행).
     const pk = (productKeyword || '').trim();
     const esc = pk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const company = `dep_${style}_${clientId}`;
@@ -84,7 +85,7 @@ export async function enqueueGenRequestsSelf(
         const region = pk ? (kw.replace(new RegExp(`\\s*${esc}\\s*$`), '').trim() || kw) : kw;
         return {
             company, client_id: clientId,
-            region, keyword: kw, popular_verified: true, status: 'pending',
+            region, keyword: kw, popular_verified: !manual, status: 'pending',
         };
     });
     if (!rows.length) return { error: { message: '보낼 키워드가 없습니다.' }, count: 0 };

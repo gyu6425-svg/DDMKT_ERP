@@ -563,13 +563,13 @@ def queue_job(job_id, title, blocks, company=None, region=None, keyword=None, bo
     return r.ok, (r.text[:200] if not r.ok else "")
 
 
-def make_and_queue(region, pool, popular_verified=False):
+def make_and_queue(region, pool, popular_verified=False, manual_ok=False):
     # 절대 안전장치: 네이버 통합검색에서 "지역+입주청소" 인기글 영역이 확인된
     # 지역만 큐에 넣는다. 검색 응답 오류·파서 실패·직접 함수 호출은 모두 발행 거부.
-    if not popular_verified:
+    if not (popular_verified or manual_ok):   # manual_ok=수동 도어(자율발행은 안 넘김)
         raise RuntimeError(
             f"인기글 미검증 키워드 발행 차단: {region} {BUSINESS} "
-            "(main 선별 절차를 통해서만 등록 가능)"
+            "(main 선별 절차 또는 수동 도어를 통해서만 등록 가능)"
         )
     # 풀에서 글마다 랜덤 조합 + 순서 셔플 — 글끼리 이미지가 겹치지 않게(이미지 중복 회피).
     n = int(os.environ.get("CAFE_PHOTOS_PER_POST", "6"))

@@ -85,7 +85,7 @@ PORT = int(os.environ.get("NUSU2_API_PORT", "8788"))
 _lock = threading.Lock()
 
 
-def _queue(kind, region, company, board, add_link):
+def _queue(kind, region, company, board, add_link, manual=False):
     mod = DURBAN if kind == "durban" else NUSU
     if mod is None:
         raise RuntimeError("durban(ddclean) 모듈이 로드되지 않았습니다.")
@@ -96,7 +96,8 @@ def _queue(kind, region, company, board, add_link):
             mod.BOARD_NAME = board
         if add_link is not None:
             mod.ADD_LINK = bool(add_link)
-        jid = mod.make_and_queue(region, popular_verified=True)
+        # manual=True: 업체가 직접 넣은 미검증 키워드(인기탭 없어도 발행). 검증분은 popular_verified 유지.
+        jid = mod.make_and_queue(region, popular_verified=(not manual), manual_ok=bool(manual))
         row = pc.sb_get("cafe_publish_queue", {"id": f"eq.{jid}", "select": "title"})
     return jid, (row[0]["title"] if row else "")
 
@@ -194,6 +195,7 @@ class Handler(BaseHTTPRequestHandler):
             jid, title = _queue(
                 data.get("kind", "nusu"), region,
                 data.get("company"), data.get("board"), data.get("add_link"),
+                manual=bool(data.get("manual")),
             )
             print(f"[nusu2_api] queued {region} -> {title[:40]}", flush=True)
             self._json(200, {"ok": True, "job_id": jid, "title": title, "region": region})

@@ -59,6 +59,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     async function loadGenStatus() { if (clientId) setGenStatus(await getGenRequestStatus(clientId)); }
     const [reqBusy, setReqBusy] = useState(false);
     const [reqMsg, setReqMsg] = useState('');
+    const [manualInput, setManualInput] = useState('');   // 직접 키워드 입력(인기탭 미검증) — 쉼표 구분
+    const [manualStyle, setManualStyle] = useState<'info' | 'review'>('review');
 
     // SEO 키워드 찾기
 
@@ -516,6 +518,31 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                             </div>
                         </div>
                         {reqMsg ? <span className="text-[12px] font-semibold text-[#166534]">{reqMsg}</span> : null}
+                        {/* 직접 키워드 발행(인기탭 미검증) — 업체가 원하는 키워드를 직접 넣어 발행. 검증분과 분리된 도어. */}
+                        <div className="rounded-lg border border-dashed border-[#f59e0b] bg-[#fffbeb] p-2.5">
+                            <div className="mb-1.5 text-[11px] font-bold text-[#b45309]">✍️ 직접 키워드 발행 <span className="font-normal text-[#a16207]">(인기탭 없어도 발행 — 순위는 안 오를 수 있음)</span></div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <input className={`${inputCls} flex-1 min-w-[180px]`} value={manualInput} onChange={(e) => setManualInput(e.target.value)} placeholder="키워드 직접 입력 (여러 개는 쉼표) 예: 수원 출장뷔페, 분당 케이터링" />
+                                <div className="flex gap-1">
+                                    {(['review', 'info'] as const).map((s) => (
+                                        <button key={s} type="button" onClick={() => setManualStyle(s)}
+                                            className={`h-9 rounded-md px-3 text-xs font-bold ${manualStyle === s ? 'bg-[#d97706] text-white' : 'bg-white text-[#b45309] ring-1 ring-[#f59e0b]'}`}>{s === 'review' ? '후기성' : '정보성'}</button>
+                                    ))}
+                                </div>
+                                <button type="button" disabled={reqBusy} className="h-9 rounded-md bg-[#d97706] px-4 text-xs font-bold text-white hover:bg-[#b45309] disabled:opacity-50"
+                                    onClick={async () => {
+                                        const kws = [...new Set(manualInput.split(/[,\n]/).map((x) => x.trim()).filter(Boolean))];
+                                        if (!kws.length) { setReqMsg('직접 입력할 키워드를 넣으세요.'); return; }
+                                        setReqBusy(true); setReqMsg('');
+                                        const { error, count } = await enqueueGenRequestsSelf(clientId!, kws, productKw, manualStyle, true);
+                                        setReqBusy(false);
+                                        if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
+                                        setReqMsg(`직접 키워드 ${count}건 발행 요청(미검증·${manualStyle === 'review' ? '후기성' : '정보성'}) — SUB2 순차 게시. 인기탭 없으면 순위는 안 오를 수 있습니다.`);
+                                        setManualInput('');
+                                        await loadGenStatus();
+                                    }}>발행 요청</button>
+                            </div>
+                        </div>
                         {/* 발행 예정 큐 미리보기 — 다음 발행 시 이 순서로 올라갈 키워드 */}
                         <div className="mt-1 rounded-lg border border-[#c7d2fe] bg-white p-2.5">
                             <div className="mb-1.5 text-[11px] font-bold text-[#4338ca]">🕒 발행 예정 큐 — 다음 {pick}건 <span className="font-normal text-[#94a3b8]">(정보성/후기성 누르면 이 순서로 발행됩니다)</span></div>
