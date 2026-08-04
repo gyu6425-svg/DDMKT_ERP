@@ -44,6 +44,12 @@ TARGETS = [
 PER_PAGE = 50
 PAGES = int(sys.argv[1]) if len(sys.argv) > 1 else 2
 
+# 업체별 추적 시작일(YYYY-MM-DD) — 이 날짜 이전 발행 글은 (재)등록하지 않는다.
+#   옛 발행분을 정리(삭제)한 뒤 게시판에 남은 옛 글이 크롤로 다시 유입되는 것을 막는 용도.
+TRACK_SINCE = {
+    "dirty": "2026-08-04",   # 더티클리닉 — 옛 히스토리 정리, 이 날짜부터 새로 집계
+}
+
 WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"}
 
 
@@ -90,10 +96,29 @@ def to_date(w):
     return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}" if m else None
 
 
+def model_b_targets():
+    """모델B(고객 자기 카페·SUB2 발행) 크롤 대상 — cafe_studio_settings.board_url 에서 clubid·menuid 파싱.
+       반환: [(club, menuid, client_id, board_name)]. 더맨·설고처럼 이들 게시판도 크롤해 순위트래커에 등록."""
+    try:
+        rows = requests.get(f"{URL}/rest/v1/cafe_studio_settings",
+                            params={"select": "client_id,board_url,board_name"}, headers=DB, timeout=20, verify=False).json()
+    except Exception:
+        return []
+    out = []
+    for x in (rows if isinstance(rows, list) else []):
+        url = x.get("board_url") or ""
+        m = re.search(r"cafes/(\d+)/menus/(\d+)", url)
+        if m and x.get("client_id"):
+            out.append((m.group(1), m.group(2), x["client_id"], x.get("board_name") or "고객카페"))
+    return out
+
+
 def main():
     accounts = requests.get(f"{URL}/rest/v1/cafe_accounts", headers=DB,
-                            params={"select": "id,company_key", "active": "eq.true"}, timeout=20, verify=False).json()
+                            params={"select": "id,company_key,client_id", "active": "eq.true"}, timeout=20, verify=False).json()
     acc_by_company = {a["company_key"]: a["id"] for a in accounts} if isinstance(accounts, list) else {}
+    # 모델B: dep_<client_id> cafe_account 를 client_id 로 매핑(포스트 링크용).
+    acc_by_client = {a["client_id"]: a["id"] for a in (accounts if isinstance(accounts, list) else []) if a.get("client_id")}
 
     existing = requests.get(f"{URL}/rest/v1/cafe_rank_posts", headers=DB,
                             params={"select": "cafe_name,article_id"}, timeout=30, verify=False).json()
@@ -103,6 +128,10 @@ def main():
     for club, vanity, mid, board, company in TARGETS:
         arts = fetch_articles(club, mid)
         new = [a for a in arts if (vanity, a["aid"]) not in have]
+        # 추적 시작일 이전(옛 글) 제외 — 정리한 옛 히스토리가 크롤로 재유입되지 않게.
+        since = TRACK_SINCE.get(company)
+        if since:
+            new = [a for a in new if not (to_date(a["wdate"]) and to_date(a["wdate"]) < since)]
         print(f"■ {board}({vanity}/menu {mid}): 목록 {len(arts)}글 · 신규 {len(new)}", flush=True)
         for a in new:
             body = {
@@ -122,6 +151,33 @@ def main():
                 print(f"    + #{a['aid']} '{body['keyword']}' | {a['subject'][:34]}", flush=True)
             else:
                 print(f"    ! 등록실패 #{a['aid']}: {r.status_code} {r.text[:100]}", flush=True)
+
+    # ── 모델B(고객 자기 카페) — board_url 파싱해 크롤·등록. client_id 로 스코프(고객 순위트래커에 노출). ──
+    for club, mid, cid, board in model_b_targets():
+        arts = fetch_articles(club, mid)
+        # 모델B는 vanity 대신 clubid 로 dedup(고유). 클럽ID 기반 URL.
+        new = [a for a in arts if (club, a["aid"]) not in have]
+        print(f"■ [모델B] {board}(club {club}/menu {mid}): 목록 {len(arts)}글 · 신규 {len(new)}", flush=True)
+        for a in new:
+            body = {
+                "club_id": club, "cafe_name": club, "article_id": a["aid"],
+                "post_url": f"https://cafe.naver.com/ca-fe/cafes/{club}/articles/{a['aid']}",
+                "title": a["subject"], "keyword": derive_kw(a["subject"]),
+                "board": board, "published_date": to_date(a["wdate"]), "excluded": False,
+                "client_id": cid,
+            }
+            acid = acc_by_client.get(cid)
+            if acid:
+                body["cafe_account_id"] = acid
+            r = requests.post(f"{URL}/rest/v1/cafe_rank_posts",
+                              headers={**DB, "Prefer": "resolution=merge-duplicates"}, json=body, timeout=20, verify=False)
+            if r.status_code < 300:
+                total_new += 1
+                have.add((club, a["aid"]))
+                print(f"    + #{a['aid']} '{body['keyword']}' | {a['subject'][:34]}", flush=True)
+            else:
+                print(f"    ! 등록실패 #{a['aid']}: {r.status_code} {r.text[:100]}", flush=True)
+
     print(f"\n=== 게시판 수집 완료: 신규 {total_new}글 등록 ===", flush=True)
 
 
