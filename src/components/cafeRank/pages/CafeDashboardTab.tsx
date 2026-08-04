@@ -149,7 +149,7 @@ export function CafeDashboardTab() {
                                     <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: st.bg, color: st.fg }}>{t.board}</span>
                                     <span className="text-[13px] font-bold text-[#334155]">{pubN}건</span>
                                     <span className="text-[11px] font-semibold text-[#94a3b8]" title="계약 총 발행건수(목표)">/ 총 {t.goal}건</span>
-                                    {ach > 0 ? <span className="text-[11px] font-bold text-[#16a34a]" title="5위 24시간 유지 달성분(참고)">달성 {ach}</span> : null}
+                                    {ach > 0 ? <span className="text-[11px] font-bold text-[#2563eb]" title="5위 24시간 유지 실적(24h +1)">실적 {ach}</span> : null}
                                     {complete ? <span className="text-[11px] font-bold text-[#15803d]">✓ 완료</span> : null}
                                     {pubN === 0 ? <span className="ml-auto text-[11px] text-[#cbd5e1]">발행 없음</span> : null}
                                 </button>
