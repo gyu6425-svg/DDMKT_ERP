@@ -154,6 +154,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
 
     // 정확 인기탭 분석(키워드형) — cafe_kw_requests 큐 → 워커(우리 IP: 사무실 유선/main, 크롤 겹치면 CF) → 진짜 인기탭 결과.
     const [kwLoading, setKwLoading] = useState(false);
+    const [scanNote, setScanNote] = useState('');   // 인기탭 스캔 진행상태(게이지바) — "진행 x/total" 형태면 % 표시
     const [kwResult, setKwResult] = useState<KwResult[] | null>(null);
     const [kwErr, setKwErr] = useState('');
     const [kwExpanded, setKwExpanded] = useState(false); // '더 보기'로 전체(target 상향) 스캔 완료 여부
@@ -178,19 +179,19 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const runPlaceScan = async (target = 10) => {
         const u = (form.url || '').trim();
         if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
-        setKwErr(''); setKwLoading(true);
+        setKwErr(''); setKwLoading(true); setScanNote('인기탭 분석 준비 중…');
         if (target <= 10) { setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]); }
         try {
             const { id, error } = await enqueuePlaceScan(u, target, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
             if (error || !id) throw new Error(error?.message || '요청 실패');
             // 대량(50개) 스캔은 수 분 걸릴 수 있어 폴링 타임아웃을 넉넉히(10분).
-            const { result } = await pollPlaceScan(id, { timeoutSec: target > 10 ? 600 : 180 });
+            const { result } = await pollPlaceScan(id, { timeoutSec: target > 10 ? 600 : 180, onProgress: (note) => setScanNote(note) });
             setKwResult(result);
             if (target > 10) setKwExpanded(true);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '분석 실패');
         } finally {
-            setKwLoading(false);
+            setKwLoading(false); setScanNote('');
         }
     };
     // 지역형 — 고정 동 마스터(cafe_region_dong)에서 선택 시도의 동 전부 × 제품키워드로 후보 생성.
@@ -202,7 +203,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (!kws.length) { setKwErr('제품 키워드를 추가하세요(입력 후 엔터/추가). 예: 누수탐지'); return; }
         const sidos = form.region_sets || [];
         if (!sidos.length) { setKwErr('지역(서울/경기/인천)을 선택하세요.'); return; }
-        setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
+        setKwErr(''); setKwLoading(true); setScanNote('지역 인기탭 조회 준비 중…'); setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
         try {
             // ① 캐시 양성 즉시 표시(UX) — 하지만 여기서 멈추지 않고 ②에서 전수 재검증한다.
             const gus = await getRegionGuTokens(sidos);
@@ -214,10 +215,12 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             for (const r of cached) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
             if (merged.length) setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));   // 캐시분 먼저
             // ② 항상 라이브 지역 스캔 — 캐시 양성만 믿고 멈추면 prescan 음성·미스캔분 누락(워커 내부 배치캐시로 판정된 건 즉시).
-            for (const pk of kws) {
+            for (let i = 0; i < kws.length; i++) {
+                const pk = kws[i];
                 const { id, error } = await enqueueRegionScan(pk, sidos.join(','));
                 if (error || !id) continue;
-                const { result } = await pollPlaceScan(id, { timeoutSec: 900 });
+                const tag = kws.length > 1 ? ` (${i + 1}/${kws.length})` : '';
+                const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
                 for (const r of result) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
             }
             if (!merged.length) {
@@ -228,7 +231,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '조회 실패');
         } finally {
-            setKwLoading(false);
+            setKwLoading(false); setScanNote('');
         }
     };
 
@@ -286,6 +289,22 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     // 선택 UI(선택칩 + 결과 리스트) — 키워드형(인기탭 결과)·지역형(동 키워드) 공용. kwResult 에 따라 렌더.
     const kwPanel = (
         <>
+            {/* 인기탭 스캔 진행 게이지 — 스캔 중 표시(우리ERP finder와 동일). "x/total" 형태면 %, 아니면 pulse. */}
+            {kwLoading || scanNote ? (() => {
+                const m = scanNote.match(/(\d+)\/(\d+)/);
+                const pct = m ? Math.min(100, Math.round((Number(m[1]) / Math.max(1, Number(m[2]))) * 100)) : null;
+                return (
+                    <div className="mt-2 rounded-lg border border-[#c4b5fd] bg-[#f5f3ff] p-3">
+                        <div className="mb-1.5 flex items-center justify-between text-[12px] font-bold text-[#6d28d9]">
+                            <span>🔍 인기탭 스캔 중… <span className="font-normal text-[#64748b]">{scanNote || '준비 중…'}</span></span>
+                            {pct !== null ? <span>{pct}%</span> : null}
+                        </div>
+                        <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#e9d5ff]">
+                            <div className={`h-full rounded-full bg-[#7c3aed] ${pct === null ? 'animate-pulse' : 'transition-all duration-500'}`} style={{ width: `${pct ?? 25}%` }} />
+                        </div>
+                    </div>
+                );
+            })() : null}
             {kwErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{kwErr}</p>}
             {kwPicked.length ? (
                 <div className="mt-2 rounded-lg border border-[#c7d2fe] bg-[#eef2ff]">
