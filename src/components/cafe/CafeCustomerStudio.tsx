@@ -391,8 +391,9 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     <label className="grid gap-1 text-xs font-semibold text-[#475569]">발행 게시판 이름
                         <input className={inputCls} onChange={(e) => setBoardName(e.target.value)} placeholder="예) 시설경호업체" value={boardName} />
                     </label>
-                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">발행 게시판 주소
-                        <input className={inputCls} onChange={(e) => setBoardUrl(e.target.value)} placeholder="예) https://cafe.naver.com/…/menuid" value={boardUrl} />
+                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">글쓰기 주소
+                        <input className={inputCls} onChange={(e) => setBoardUrl(e.target.value)} placeholder="카페에서 '글쓰기' 열었을 때 주소창 URL" value={boardUrl} />
+                        <span className="text-[11px] font-normal text-[#94a3b8]">발행할 게시판에서 '글쓰기'를 눌러 열린 주소창 URL을 그대로 붙여넣으세요(게시판 목록 주소 아님).</span>
                     </label>
                 </div>
                 {/* 네이버 로그인 — SUB2가 이 고객 전용 크롬을 띄우고 담당자가 직접 로그인(자동입력 안 함=봇 방지) */}

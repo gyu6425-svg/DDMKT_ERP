@@ -107,10 +107,27 @@ def model_b_targets():
     out = []
     for x in (rows if isinstance(rows, list) else []):
         url = x.get("board_url") or ""
-        m = re.search(r"cafes/(\d+)/menus/(\d+)", url)
-        if m and x.get("client_id"):
-            out.append((m.group(1), m.group(2), x["client_id"], x.get("board_name") or "고객카페"))
+        club, menuid = _parse_club_menu(url)
+        if club and menuid and x.get("client_id"):
+            out.append((club, menuid, x["client_id"], x.get("board_name") or "고객카페"))
     return out
+
+
+def _parse_club_menu(url):
+    """글쓰기/게시판 주소에서 (club, menuid) 추출 — 여러 형식 지원.
+       신형:  .../cafes/<club>/menus/<menuid>[/articles/write]
+       구형:  ArticleWrite.nhn?clubid=<club>&menuid=<menuid>  (PC 글쓰기)
+       모바일/일반: ?clubid=<club>&menuid=<menuid>  또는  search.clubid/search.menuid."""
+    if not url:
+        return None, None
+    m = re.search(r"cafes/(\d+)/menus/(\d+)", url)
+    if m:
+        return m.group(1), m.group(2)
+    club = re.search(r"(?:search\.)?clubid=(\d+)", url)
+    menu = re.search(r"(?:search\.)?menuid=(\d+)", url)
+    if club and menu:
+        return club.group(1), menu.group(1)
+    return None, None
 
 
 def main():
