@@ -66,11 +66,12 @@ export async function onRequestPut({ request, params, env }: Ctx) {
     const slash = key.indexOf('/');
     const bucket = slash > 0 ? key.slice(0, slash) : '';
     if (!ALLOW.has(bucket)) return new Response('bad bucket', { status: 400, headers: cors });
-    // 인증 — Authorization: Bearer <supabase access token> 검증
+    // 인증 — Authorization: Bearer <supabase access token> 검증. apikey 는 anon 없으면 service_key 로 대체.
     const auth = request.headers.get('authorization') || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-    if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return new Response('unauthorized', { status: 401, headers: cors });
-    const who = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, { headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` } });
+    const apikey = env.SUPABASE_ANON_KEY || env.SUPABASE_SERVICE_KEY;
+    if (!token || !env.SUPABASE_URL || !apikey) return new Response('unauthorized', { status: 401, headers: cors });
+    const who = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, { headers: { apikey, Authorization: `Bearer ${token}` } });
     if (!who.ok) return new Response('unauthorized', { status: 401, headers: cors });
     const contentType = request.headers.get('x-content-type') || request.headers.get('content-type') || 'image/jpeg';
     const buf = await request.arrayBuffer();
