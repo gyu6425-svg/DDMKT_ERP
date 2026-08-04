@@ -58,6 +58,14 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [genStatus, setGenStatus] = useState<Record<string, string>>({});
     const [dailyCount, setDailyCount] = useState(1);
     async function loadGenStatus() { if (clientId) setGenStatus(await getGenRequestStatus(clientId)); }
+    // 진행중(발행 중)인 요청이 있으면 20초마다 상태 자동 갱신 → 현재 발행건 게이지 실시간 반영.
+    useEffect(() => {
+        const active = Object.values(genStatus).some((s) => ['pending', 'claimed', 'processing', 'posted'].includes(s));
+        if (!active || !clientId) return;
+        const t = setInterval(() => { void loadGenStatus(); }, 20000);
+        return () => clearInterval(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [genStatus, clientId]);
     const [reqBusy, setReqBusy] = useState(false);
     const [reqMsg, setReqMsg] = useState('');
     const [manualInput, setManualInput] = useState('');   // 직접 키워드 입력(인기탭 미검증)
@@ -599,29 +607,42 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                 </ol>
                             ) : <div className="py-1 text-center text-[11px] text-[#94a3b8]">미사용 키워드 없음 — finder로 추가하세요.</div>}
                             {pendN ? <div className="mt-1.5 text-[10px] font-semibold text-[#b45309]">진행중 {pendN}건은 SUB2가 순차 게시 중…</div> : null}
-                            {/* 발행 진행 게이지 — 풀 대비 발행됨(초록)/진행중(주황, 게시 중 pulse)/미사용(회색) */}
-                            {poolKw.length ? (() => {
-                                const total = poolKw.length;
-                                const donePct = Math.min(100, Math.round((doneN / total) * 100));
-                                const pendPct = Math.min(100 - donePct, Math.round((pendN / total) * 100));
+                            {/* 현재 발행건 게이지 — 진행중 1건의 단계(접수→작성·게시→완료)를 실시간 표시 */}
+                            {(() => {
+                                const STAGE: Record<string, { pct: number; label: string }> = {
+                                    pending: { pct: 12, label: '발행 대기' },
+                                    claimed: { pct: 45, label: '접수됨 · SUB2 준비' },
+                                    processing: { pct: 78, label: '원고 작성·게시 중' },
+                                    posted: { pct: 94, label: '게시 확인 중' },
+                                    done: { pct: 100, label: '완료' },
+                                };
+                                // 현재 진행중 1건 = 가장 진행된 in-progress 키워드(작성>확인>접수>대기)
+                                const curKw = poolKw.find((k) => st(k) === 'processing')
+                                    || poolKw.find((k) => st(k) === 'posted')
+                                    || poolKw.find((k) => st(k) === 'claimed')
+                                    || poolKw.find((k) => st(k) === 'pending');
+                                if (!curKw) return null;
+                                const cs = st(curKw)!;
+                                const stg = STAGE[cs] || { pct: 50, label: cs };
+                                const active = cs !== 'done';
                                 return (
                                     <div className="mt-2 border-t border-[#eef2ff] pt-2">
-                                        <div className="mb-1 flex items-center justify-between text-[10px] font-semibold">
-                                            <span className="text-[#4338ca]">발행 진행 {doneN}/{total}건 <span className="text-[#64748b]">({donePct}%)</span></span>
-                                            {pendN ? <span className="flex items-center gap-1 text-[#b45309]"><span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#f59e0b]" />지금 {pendN}건 발행 중…</span> : <span className="text-[#94a3b8]">대기 중</span>}
+                                        <div className="mb-1 flex items-center justify-between gap-2 text-[10px] font-semibold">
+                                            <span className="flex min-w-0 items-center gap-1 truncate text-[#4338ca]">
+                                                {active ? <span className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[#f59e0b]" /> : null}
+                                                현재 발행:&nbsp;<b className="truncate">{curKw}</b>
+                                            </span>
+                                            <span className="shrink-0 text-[#b45309]">{stg.label} ({stg.pct}%)</span>
                                         </div>
-                                        <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-[#eef2ff]">
-                                            <div className="h-full bg-[#16a34a] transition-all duration-500" style={{ width: `${donePct}%` }} />
-                                            <div className="h-full animate-pulse bg-[#f59e0b] transition-all duration-500" style={{ width: `${pendPct}%` }} />
+                                        <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#eef2ff]">
+                                            <div className={`h-full rounded-full bg-gradient-to-r from-[#7c3aed] to-[#f59e0b] transition-all duration-700 ${active ? 'animate-pulse' : ''}`} style={{ width: `${stg.pct}%` }} />
                                         </div>
-                                        <div className="mt-1 flex flex-wrap gap-3 text-[9px] text-[#94a3b8]">
-                                            <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#16a34a]" />발행됨 {doneN}</span>
-                                            <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#f59e0b]" />진행중 {pendN}</span>
-                                            <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#e2e8f0]" />미사용 {unused.length}</span>
+                                        <div className="mt-1 flex justify-between text-[9px] text-[#94a3b8]">
+                                            <span>접수</span><span>작성·게시</span><span>완료</span>
                                         </div>
                                     </div>
                                 );
-                            })() : null}
+                            })()}
                         </div>
                     </div>
                 );
