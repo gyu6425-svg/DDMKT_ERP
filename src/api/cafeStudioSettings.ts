@@ -44,6 +44,13 @@ export async function uploadStudioImage(clientId: string, kind: 'photos' | 'bann
     return r2Upload('cafe-images', path, src);
 }
 
+// 이미 저장된 스튜디오 이미지 URL(/api/img/cafe-images/<path>)이면 그 저장 path 반환(재업로드 불필요), 아니면 null(새 이미지).
+export function studioSavedPath(src: string): string | null {
+    const prefix = '/api/img/cafe-images/';
+    if (!src || !src.startsWith(prefix)) return null;
+    return src.slice(prefix.length).split('/').map((s) => { try { return decodeURIComponent(s); } catch { return s; } }).join('/');
+}
+
 // 저장 경로 → 표시·발행용 URL(/api/img, CDN 캐시). 서명URL 불필요 → Supabase 트래픽 0.
 export async function signedStudioUrls(paths: string[]): Promise<string[]> {
     return r2Urls('cafe-images', paths);

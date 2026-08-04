@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { listMyCafeJobs, listCafeJobsByCompanies } from '../../api/cafePublishQueue';
 import { listTokens, balanceOf } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
-import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls } from '../../api/cafeStudioSettings';
+import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls, studioSavedPath } from '../../api/cafeStudioSettings';
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
@@ -80,12 +80,22 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         if (!clientId) return;
         setSavingSettings(true); setSettingsMsg('');
         try {
-            const mainPaths: string[] = [];
-            for (let i = 0; i < mainBanner.length; i += 1) { const p = await uploadStudioImage(clientId, 'main_banner', i, mainBanner[i]); if (p) mainPaths.push(p); }
-            const photoPaths: string[] = [];
-            for (let i = 0; i < photos.length; i += 1) { const p = await uploadStudioImage(clientId, 'photos', i, photos[i]); if (p) photoPaths.push(p); }
-            const bannerPaths: string[] = [];
-            for (let i = 0; i < banners.length; i += 1) { const p = await uploadStudioImage(clientId, 'banners', i, banners[i]); if (p) bannerPaths.push(p); }
+            // 이미지 저장 — 이미 저장된 건(R2 URL) 재사용, 새 이미지(dataURL)만 R2 업로드. 그룹별 병렬로 빠르게.
+            const persist = (list: string[], kind: 'main_banner' | 'photos' | 'banners') =>
+                Promise.all(list.map(async (src, i) => studioSavedPath(src) ?? await uploadStudioImage(clientId, kind, i, src)))
+                    .then((arr) => arr.filter((p): p is string => !!p));
+            const totalImgs = mainBanner.length + photos.length + banners.length;
+            if (totalImgs) setSettingsMsg(`사진 ${totalImgs}장 업로드 중…`);
+            const [mainPaths, photoPaths, bannerPaths] = await Promise.all([
+                persist(mainBanner, 'main_banner'),
+                persist(photos, 'photos'),
+                persist(banners, 'banners'),
+            ]);
+            // 업로드 실패로 일부 사진이 누락됐으면 알린다(무음 손실 방지).
+            if (mainPaths.length + photoPaths.length + bannerPaths.length < totalImgs) {
+                setSettingsMsg('일부 사진 업로드 실패 — 다시 시도해 주세요.');
+                return;
+            }
             const { error } = await saveStudioSettings({
                 client_id: clientId, brand: brand || null, business: business || null, homepage: linkUrl || null,
                 deploy_type: '키워드형', main_banner: mainPaths, photos: photoPaths, banners: bannerPaths,
@@ -94,7 +104,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 keyword_pool: poolKw.length ? poolKw : null, product_kw: productKw || null,
             });
             if (error) throw new Error(error.message);
-            setSettingsSaved(true); setSettingsMsg('저장됨 · 다음부터 이 값으로 열립니다');
+            setSettingsSaved(true); setSettingsMsg(`저장됨 · 사진 ${mainPaths.length + photoPaths.length + bannerPaths.length}장 포함 · 다음부터 이 값으로 열립니다`);
         } catch (e) { setSettingsMsg('저장 실패: ' + (e instanceof Error ? e.message : '')); }
         finally { setSavingSettings(false); }
     };
