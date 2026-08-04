@@ -6,6 +6,8 @@
 #   가드: 23:59 하드 시간컷(새벽 크롤 회피) · 연속 차단감지 시 자동중단 · 이미 캐시된 건 skip · 스로틀.
 #   실행: py prescan_region.py               (서울만 — 기본)
 #         py prescan_region.py 서울 경기 인천   (범위 지정, 순서대로)
+#         py prescan_region.py 대전 세종 충북 충남 --cf   (충청권 — 17개 시도 전부 인자 가능)
+#     ⚠️ 시도 오타(마스터에 없는 이름)면 조용히 서울로 안 가고 즉시 중단.
 import os
 import re
 import sys
@@ -43,7 +45,30 @@ COMPANIES = {
 }
 KEYWORDS = sorted({kw for lst in COMPANIES.values() for kw in lst})
 
-SIDO_ORDER = [a for a in sys.argv[1:] if a in ("서울", "경기", "인천")] or ["서울"]
+# 시도 화이트리스트를 마스터(region_dong_master.json)에서 읽음 — 17개 시도 전부 인자로 사용 가능.
+#   (옛 버그: 서울/경기/인천 하드코딩 → 대전·충북 등이 조용히 서울로 폴백돼 엉뚱한 지역 4시간 스캔)
+try:
+    _SIDOS = {m["sido"] for m in json.loads((HERE / "region_dong_master.json").read_text(encoding="utf-8"))}
+except Exception:
+    _SIDOS = {"서울", "경기", "인천"}
+
+
+def _parse_sido_order():
+    """CLI 인자에서 스캔할 시도 순서. 위치인자(--flag·--cap/--vmin 값 제외)만 후보.
+       시도 아닌 위치인자(오타)가 있으면 조용히 서울로 폴백하지 않고 중단(엉뚱한 4시간 스캔 방지).
+       ※ 모듈 import 시 부작용(다른 스크립트 argv로 sys.exit) 방지 위해 함수로 분리 — main()에서만 호출."""
+    flag_vals = set()
+    for f in ("--cap", "--vmin"):
+        if f in sys.argv and sys.argv.index(f) + 1 < len(sys.argv):
+            flag_vals.add(sys.argv[sys.argv.index(f) + 1])
+    cand = [a for a in sys.argv[1:] if not a.startswith("--") and a not in flag_vals]
+    order = [a for a in cand if a in _SIDOS]
+    bad = [a for a in cand if a not in _SIDOS]
+    if bad:
+        print(f"[prescan] ⛔ 알 수 없는 지역 인자 {bad} — 유효 시도: {sorted(_SIDOS)}", flush=True)
+        print("[prescan]    오타로 엉뚱한 지역을 스캔하지 않도록 중단합니다.", flush=True)
+        sys.exit(1)
+    return order or ["서울"]   # 인자 없으면 서울(기존 기본값)
 # --cap N : 업종어별로 인기글 N건 확보하면 그 업종은 남은 지역 스캔 생략(부하·차단 방지, 테스트용). 0=무제한.
 CAP = 0
 if "--cap" in sys.argv:
@@ -110,6 +135,24 @@ def region_tokens(gu):
     return toks
 
 
+def _load_all_keywords():
+    """cafe_kw_targets 의 keyword 전량 로드(offset 페이지네이션). PostgREST 기본 1000 상한 우회 — limit=100000 도 1000에서 잘림."""
+    out, off = set(), 0
+    while True:
+        try:
+            r = requests.get(f"{SB}/rest/v1/cafe_kw_targets", headers=H, timeout=30,
+                             params={"select": "keyword", "order": "keyword.asc", "limit": "1000", "offset": str(off)}).json()
+        except Exception:
+            break
+        if not isinstance(r, list) or not r:
+            break
+        out |= {x["keyword"] for x in r}
+        if len(r) < 1000:
+            break
+        off += 1000
+    return out
+
+
 def cache_put(kw, r):
     row = {
         "keyword": kw, "has_section": bool(r.get("has_section")), "theme": r.get("theme"),
@@ -125,6 +168,7 @@ def cache_put(kw, r):
 
 
 def main():
+    SIDO_ORDER = _parse_sido_order()   # 인자 검증(오타면 여기서 중단) — import 부작용 방지 위해 main 안에서 파싱
     use_cf = "--cf" in sys.argv
     if use_cf:
         p._USE_CF = True   # CF SERP 프록시(분산IP) 경유 — naver 요청이 CF에서 나가 사무실 유선 IP 미노출.
@@ -139,13 +183,8 @@ def main():
     print(f"[prescan] 범위 {SIDO_ORDER} · 업종어 {KEYWORDS} · 마감 {DEADLINE:%H:%M}", flush=True)
 
     master = json.loads((HERE / "region_dong_master.json").read_text(encoding="utf-8"))
-    # 이미 캐시된 키워드 1회 로드(멤버십 체크 — 재스캔 skip)
-    existing = set()
-    try:
-        r = requests.get(f"{SB}/rest/v1/cafe_kw_targets?select=keyword&limit=100000", headers=H, timeout=30)
-        existing = {x["keyword"] for x in r.json()}
-    except Exception:
-        pass
+    # 이미 캐시된 키워드 전량 로드(멤버십 체크 — 재스캔 skip). PostgREST 기본 1000 상한이라 offset 페이지네이션 필수.
+    existing = _load_all_keywords()
     print(f"[prescan] 기존 캐시 {len(existing)}건 로드", flush=True)
 
     # 태스크: 시도 순서대로 행정구/시 토큰 × 업종어 → '강남 입주청소'. (동 폐기 — 실측상 인기탭 0)

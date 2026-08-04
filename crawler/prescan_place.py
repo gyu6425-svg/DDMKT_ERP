@@ -135,13 +135,20 @@ def main():
         print("[prescan_place] 처리할 플레이스 없음(접수에 네이버 플레이스 주소 없음).", flush=True)
         return
 
-    # 이미 캐시된 키워드 로드(재스캔 skip)
-    existing = set()
-    try:
-        r = requests.get(f"{SB}/rest/v1/cafe_kw_targets?select=keyword&limit=100000", headers=H, timeout=30)
-        existing = {x["keyword"] for x in r.json()}
-    except Exception:
-        pass
+    # 이미 캐시된 키워드 전량 로드(재스캔 skip). PostgREST 기본 1000 상한 → offset 페이지네이션 필수(limit=100000도 1000에서 잘림).
+    existing, off = set(), 0
+    while True:
+        try:
+            r = requests.get(f"{SB}/rest/v1/cafe_kw_targets", headers=H, timeout=30,
+                             params={"select": "keyword", "order": "keyword.asc", "limit": "1000", "offset": str(off)}).json()
+        except Exception:
+            break
+        if not isinstance(r, list) or not r:
+            break
+        existing |= {x["keyword"] for x in r}
+        if len(r) < 1000:
+            break
+        off += 1000
     print(f"[prescan_place] 기존 캐시 {len(existing)}건 로드", flush=True)
 
     done = hits = skipped = blocks = 0
