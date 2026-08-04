@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { r2Upload, r2Url } from './imageStore';
 
 // 카페 배포 '접수' — 고객이 로그인 후 접수 폼 제출(사진 포함) → 내부 검토·세팅.
 //   전제: docs/cafe-deploy-requests.sql + cafe-deploy-photos.sql. 금액/정산은 계약관리 별도.
@@ -116,17 +117,14 @@ export async function uploadDeployPhoto(
     clientId: string, batch: string, type: 'main' | 'real' | 'banner', idx: number, blob: Blob,
 ): Promise<{ path: string | null; error: string | null }> {
     const path = `${clientId}/${batch}/${type}_${idx}.jpg`;
-    const { error } = await supabase.storage.from(CAFE_DEPLOY_BUCKET)
-        .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
-    return { path: error ? null : path, error: error?.message ?? null };
+    const ok = await r2Upload('deploy-intake', path, blob, 'image/jpeg');   // R2(egress 회피)
+    return { path: ok, error: ok ? null : '이미지 업로드 실패' };
 }
 
-// 저장 경로 → 서명 URL(조회/다운로드). 내부·본인 모두 RLS 통과 시 발급됨.
-export async function signedDeployUrls(paths: string[], expiresSec = 3600): Promise<Record<string, string>> {
+// 저장 경로 → 조회 URL(/api/img, CDN 캐시). 서명URL 불필요 → Supabase 트래픽 0.
+export async function signedDeployUrls(paths: string[]): Promise<Record<string, string>> {
     const out: Record<string, string> = {};
-    if (!paths.length) return out;
-    const { data } = await supabase.storage.from(CAFE_DEPLOY_BUCKET).createSignedUrls(paths, expiresSec);
-    (data ?? []).forEach((d) => { if (d.signedUrl && d.path) out[d.path] = d.signedUrl; });
+    for (const p of paths) if (p) out[p] = r2Url('deploy-intake', p);
     return out;
 }
 
