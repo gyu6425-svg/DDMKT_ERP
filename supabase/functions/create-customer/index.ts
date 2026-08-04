@@ -51,6 +51,7 @@ Deno.serve(async (req: Request) => {
     if (password.length < 6) return json({ error: '비밀번호는 6자 이상이어야 합니다.' }, 400)
     if (!name) return json({ error: '이름을 입력하세요.' }, 400)
     if (role === 'viewer' && !company) return json({ error: '업체명을 입력하세요.' }, 400)
+    const isAgency = role === 'viewer' && (body.isAgency === true || body.isAgency === 'true')
     const email = emailOf(loginRaw)
     if (await findUser(email)) return json({ error: '이미 사용 중인 아이디입니다.' }, 409)
 
@@ -74,6 +75,7 @@ Deno.serve(async (req: Request) => {
       phone: phone || null,
       signup_company: role === 'viewer' ? company : null,
       signup_biz_no: role === 'viewer' ? bizNo || null : null,
+      is_agency: isAgency,
     }
     const pRes = await fetch(`${URL}/rest/v1/profiles`, {
       method: 'POST',
@@ -117,7 +119,7 @@ Deno.serve(async (req: Request) => {
     const clientId = String(body.clientId || '').trim()
     if (!profileId) return json({ error: 'profileId가 필요합니다.' }, 400)
     const prow = await (
-      await fetch(`${URL}/rest/v1/profiles?select=id,role,is_active&id=eq.${profileId}`, { headers: svc })
+      await fetch(`${URL}/rest/v1/profiles?select=id,role,is_active,is_agency&id=eq.${profileId}`, { headers: svc })
     ).json()
     const p = prow?.[0]
     if (!p) return json({ error: '계정을 찾을 수 없습니다.' }, 404)
@@ -129,6 +131,12 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify(patch),
     })
     if (!up.ok) return json({ error: '승인 실패: ' + (await up.text()).slice(0, 200) }, 500)
+    // 대행사 여부를 연결된 거래처(client)에 전파 — 카페 배포 단가(대행사 35,000) 판단 기준.
+    if (p.role === 'viewer' && clientId && p.is_agency) {
+      await fetch(`${URL}/rest/v1/clients?id=eq.${clientId}`, {
+        method: 'PATCH', headers: svcJson, body: JSON.stringify({ is_agency: true }),
+      })
+    }
     return json({ ok: true, approved: profileId, role: p.role })
   }
 

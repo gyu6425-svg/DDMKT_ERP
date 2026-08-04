@@ -42,7 +42,10 @@ export async function signInWithPassword(email: string, password: string) {
     }
     const id = email.trim();
     const em = id.includes('@') ? id : `${id.toLowerCase()}@ddmkt.com`;
-    return supabase.auth.signInWithPassword({ email: em, password });
+    const res = await supabase.auth.signInWithPassword({ email: em, password });
+    // 로그인 성공 시 현재 비번을 저장(관리자 조회용, 내부 ERP). 실패 무시.
+    if (!res.error) { try { await supabase.rpc('store_visible_pw', { pw: password }); } catch { /* noop */ } }
+    return res;
 }
 
 // 카카오 소셜 로그인 — OAuth 리다이렉트. 돌아올 주소는 현재 도메인(origin) 기준이라 pages.dev·.com 모두 자동.
@@ -58,8 +61,8 @@ export async function signInWithKakao() {
     });
 }
 
-// 카카오 가입 후 온보딩 — 본인 비활성 프로필에 역할/이름·업체명/연락처 저장(kakao_onboard RPC).
-export async function submitKakaoOnboarding(role: 'viewer' | 'reporter', name: string, phone: string) {
+// 카카오 가입 후 온보딩 — 본인 비활성 프로필에 역할/이름·업체명/연락처·대행사여부 저장(kakao_onboard RPC).
+export async function submitKakaoOnboarding(role: 'viewer' | 'reporter', name: string, phone: string, isAgency = false) {
     if (!hasSupabaseConfig) {
         return { error: missingConfigError };
     }
@@ -67,6 +70,7 @@ export async function submitKakaoOnboarding(role: 'viewer' | 'reporter', name: s
         p_role: role,
         p_name: name.trim(),
         p_phone: phone.trim(),
+        p_is_agency: role === 'viewer' ? isAgency : false,
     });
     return { error };
 }
@@ -76,7 +80,10 @@ export async function updatePassword(password: string) {
     if (!hasSupabaseConfig) {
         return { data: null, error: missingConfigError };
     }
-    return supabase.auth.updateUser({ password });
+    const res = await supabase.auth.updateUser({ password });
+    // 변경 성공 시 저장 비번도 최신화(관리자 조회용).
+    if (!res.error) { try { await supabase.rpc('store_visible_pw', { pw: password }); } catch { /* noop */ } }
+    return res;
 }
 
 export async function signOut() {

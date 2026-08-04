@@ -39,6 +39,7 @@ export async function requestSignup(input: {
     company?: string;
     bizNo?: string;
     phone?: string;
+    isAgency?: boolean; // 대행사 여부(고객만) — 카페 배포 단가 35,000 판단
 }): Promise<{ ok: boolean; error: string | null }> {
     const { data, error } = await supabase.functions.invoke('clever-processor', {
         body: { action: 'signup', ...input },

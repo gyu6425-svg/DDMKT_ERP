@@ -22,6 +22,7 @@ function SignupPage() {
     const [company, setCompany] = useState('');
     const [bizNo, setBizNo] = useState('');
     const [phone, setPhone] = useState('');
+    const [agency, setAgency] = useState(false); // 대행사 여부(고객만)
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [done, setDone] = useState(false);
@@ -44,6 +45,7 @@ function SignupPage() {
             company: company.trim() || undefined,
             bizNo: bizNo.trim() || undefined,
             phone: phone.trim() || undefined,
+            isAgency: role === 'viewer' ? agency : false,
         });
         setLoading(false);
         if (!ok) return setError(err || '가입에 실패했습니다.');
@@ -144,6 +146,10 @@ function SignupPage() {
                                     placeholder="사업자등록번호(선택)"
                                     value={bizNo}
                                 />
+                                <label className="flex w-[400px] max-w-full cursor-pointer items-center gap-2.5 px-1 text-[17px] font-medium text-[#555555]">
+                                    <input type="checkbox" checked={agency} onChange={(e) => setAgency(e.target.checked)} className="h-5 w-5 accent-[#ff5a00]" />
+                                    대행사입니다 <span className="text-[14px] text-[#999999]">(카페 배포 단가 35,000원 적용)</span>
+                                </label>
                             </>
                         ) : null}
                         <input

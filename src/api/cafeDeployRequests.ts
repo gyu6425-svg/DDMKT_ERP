@@ -20,9 +20,9 @@ export const PAYMENT_INFO = {
 };
 
 // 이 접수의 결제 금액(원) = 발행 건수 × 15,000. total_count 없으면 선택 키워드 수로 대체.
-export function deployAmountKRW(r: { total_count?: number | null; selected_keywords?: { keyword: string }[] | null }): number {
+export function deployAmountKRW(r: { total_count?: number | null; selected_keywords?: { keyword: string }[] | null }, unitPrice: number = PAYMENT_INFO.unitPrice): number {
     const n = r.total_count ?? r.selected_keywords?.length ?? 0;
-    return Math.max(0, n) * PAYMENT_INFO.unitPrice;
+    return Math.max(0, n) * unitPrice;
 }
 
 // 접수 사진 경로 묶음: 최상위 폴더 = client_id.
@@ -228,14 +228,25 @@ export async function getLatestDeployForStudio(clientId: string): Promise<Studio
     return { req, cred, photoUrls };
 }
 
-// 카페 등록(토큰 발행) 시 계약관리(client_contracts '카페 배포')에 자동 반영 — 건당 15,000원.
-//   이미 '카페 배포' 계약이 있는 업체(더맨 등 수동 관리)는 건드리지 않는다(중복 방지). 없을 때만 생성.
+// 카페 배포 단가 — 일반 고객 15,000원 / 대행사 35,000원.
 export const CAFE_UNIT_PRICE_KRW = 15000;
+export const CAFE_UNIT_PRICE_AGENCY = 35000;
+
+// 이 거래처(client)가 대행사면 35,000, 아니면 15,000. clients.is_agency 기준.
+export async function cafeUnitPriceForClient(clientId: string): Promise<number> {
+    if (!clientId) return CAFE_UNIT_PRICE_KRW;
+    const { data } = await supabase.from('clients').select('is_agency').eq('id', clientId).maybeSingle();
+    return (data as { is_agency?: boolean } | null)?.is_agency ? CAFE_UNIT_PRICE_AGENCY : CAFE_UNIT_PRICE_KRW;
+}
+
+// 카페 등록(토큰 발행) 시 계약관리(client_contracts '카페 배포')에 자동 반영 — 대행사 35,000 / 일반 15,000.
+//   이미 '카페 배포' 계약이 있는 업체(더맨 등 수동 관리)는 건드리지 않는다(중복 방지). 없을 때만 생성.
 export async function ensureCafeDeployContract(clientId: string, count: number) {
     if (!clientId || !count || count <= 0) return { error: null, created: false };
     const { data: existing } = await supabase.from('client_contracts')
         .select('id').eq('client_id', clientId).eq('subtype', '카페 배포').limit(1);
     if (existing && existing.length) return { error: null, created: false };
+    const unit = await cafeUnitPriceForClient(clientId);   // 대행사=35,000 / 일반=15,000
     const today = new Date().toISOString().slice(0, 10);
     const { error } = await supabase.from('client_contracts').insert({
         client_id: clientId,
@@ -243,8 +254,8 @@ export async function ensureCafeDeployContract(clientId: string, count: number) 
         subtype: '카페 배포',
         goal_count: count,
         remain_count: count,
-        unit_price: CAFE_UNIT_PRICE_KRW,
-        amount: count * CAFE_UNIT_PRICE_KRW,
+        unit_price: unit,
+        amount: count * unit,
         contract_date: today,
         sheet_approved: true,
     });

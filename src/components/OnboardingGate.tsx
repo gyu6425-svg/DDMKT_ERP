@@ -10,6 +10,7 @@ export default function OnboardingGate() {
     const [role, setRole] = useState<'viewer' | 'reporter'>('viewer');
     const [name, setName] = useState('');
     const [phone, setPhone] = useState('');
+    const [agency, setAgency] = useState(false); // 대행사 여부(고객만)
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -19,7 +20,7 @@ export default function OnboardingGate() {
         setError('');
         if (!name.trim()) return setError(role === 'viewer' ? '업체명을 입력하세요.' : '이름을 입력하세요.');
         setLoading(true);
-        const { error: err } = await submitKakaoOnboarding(role, name, phone);
+        const { error: err } = await submitKakaoOnboarding(role, name, phone, role === 'viewer' ? agency : false);
         setLoading(false);
         if (err) return setError('저장 실패: ' + err.message);
         // 프로필이 갱신되도록 새로고침 → 승인 대기 화면으로 이동.
@@ -68,6 +69,12 @@ export default function OnboardingGate() {
                         placeholder="연락처(선택)"
                         autoComplete="tel"
                     />
+                    {role === 'viewer' ? (
+                        <label className="flex cursor-pointer items-center gap-2.5 px-1 text-[15px] font-medium text-[#555555]">
+                            <input type="checkbox" checked={agency} onChange={(e) => setAgency(e.target.checked)} className="h-5 w-5 accent-[#ff5a00]" />
+                            대행사입니다 <span className="text-[13px] text-[#999999]">(카페 배포 단가 35,000원)</span>
+                        </label>
+                    ) : null}
                     {error ? <p className="m-0 text-[14px] text-[#b91c1c]">{error}</p> : null}
                     <button
                         type="button"

@@ -8,6 +8,7 @@ import {
     signedDeployUrls,
     PAYMENT_INFO,
     deployAmountKRW,
+    cafeUnitPriceForClient,
     type CafeDeployRequest,
     type CafeDeployInput,
     type DeployPhotos,
@@ -84,6 +85,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [creds, setCreds] = useState<Record<string, DeployCredential>>({}); // deploy_request_id → 계정
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
+    const [unitPrice, setUnitPrice] = useState(PAYMENT_INFO.unitPrice); // 대행사=35,000 / 일반=15,000
+    useEffect(() => { if (clientId) void cafeUnitPriceForClient(clientId).then(setUnitPrice); }, [clientId]);
 
     const reload = () => {
         void listCafeDeployRequests(clientId ?? undefined).then(async ({ data }) => {
@@ -404,7 +407,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const notifyPaid = async (method: string) => {
         if (!clientId || !pendingPay.length) return;
         const totalCount = pendingPay.reduce((s, r) => s + (r.total_count ?? r.selected_keywords?.length ?? 0), 0);
-        const totalAmt = pendingPay.reduce((s, r) => s + deployAmountKRW(r), 0);
+        const totalAmt = pendingPay.reduce((s, r) => s + deployAmountKRW(r, unitPrice), 0);
         const names = pendingPay.map((r) => r.company_name).join(', ');
         setPayBusy(true); setPayMsg('');
         const note = `[${method}] 카페 배포 결제완료 · ${names}${totalAmt ? ` · ₩${totalAmt.toLocaleString('ko-KR')}` : ''} — 입금/결제 내역 확인 요청`;
@@ -422,10 +425,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <span className="text-lg">🔔</span>
                         <span className="text-[15px] font-bold text-[#9a3412]">결제 안내 — 접수가 승인되었습니다</span>
                     </div>
-                    <p className="mb-3 mt-0 text-[13px] text-[#7c2d12]">아래 계좌로 입금해 주시면 확인 후 발행이 시작됩니다. <b>발행 1건 = {PAYMENT_INFO.unitPrice.toLocaleString('ko-KR')}원</b></p>
+                    <p className="mb-3 mt-0 text-[13px] text-[#7c2d12]">아래 계좌로 입금해 주시면 확인 후 발행이 시작됩니다. <b>발행 1건 = {unitPrice.toLocaleString('ko-KR')}원{unitPrice !== PAYMENT_INFO.unitPrice ? ' (대행사 단가)' : ''}</b></p>
                     <div className="grid gap-2">
                         {pendingPay.map((r) => {
-                            const amt = deployAmountKRW(r);
+                            const amt = deployAmountKRW(r, unitPrice);
                             return (
                                 <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[#fed7aa] bg-white px-3 py-2 text-[13px]">
                                     <span className="font-bold text-[#334155]">{r.company_name}</span>
