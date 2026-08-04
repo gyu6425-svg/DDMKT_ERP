@@ -16,6 +16,7 @@ import re
 import time
 import json
 import socket
+import datetime
 from urllib.parse import quote
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -90,6 +91,7 @@ def _cache_put(kw, r, vol):
         "verdict": r.get("verdict"), "volume": vol,
         "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"],
         "scanned_by": WID,
+        "scanned_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),  # 재스캔 시각 갱신(음성 TTL 판정용)
     }
     try:
         requests.post(f"{SB}/rest/v1/cafe_kw_targets", headers={**H, "Prefer": "resolution=merge-duplicates"},
@@ -269,7 +271,7 @@ def _cache_get_many(kws):
         vals = ",".join('"' + k.replace('"', '') + '"' for k in chunk)
         try:
             r = requests.get(f"{SB}/rest/v1/cafe_kw_targets?keyword=in.({quote(vals)})"
-                             f"&select=keyword,has_section,theme,verdict,volume,cafes,scanned_by", headers=H, timeout=20)
+                             f"&select=keyword,has_section,theme,verdict,volume,cafes,scanned_by,scanned_at", headers=H, timeout=20)
             for row in (r.json() if r.status_code == 200 else []):
                 out[(row.get("keyword") or "").replace(" ", "")] = row
         except Exception:
@@ -284,18 +286,30 @@ def _is_pop(r):
     return bool(r.get("has_section")) and (v.startswith("카페분산") or v.startswith("블로그섹션")) and "레시피" not in (r.get("theme") or "")
 
 
+# 음성(섹션없음·비관련) 캐시 유효기간 — 네이버가 나중에 인기글 섹션을 붙일 수 있어 오래된 음성은 위음성이 됨.
+#   양성은 무기한 신뢰(진짜 인기탭은 안정적), 음성만 이 기간 지나면 재검증. CF=직접 실측 일치로 원인이 시간차임을 확인(2026-08-04).
+NEG_TTL_DAYS = 21
+
+
 def _cache_trust(c):
     """재스캔 시 이 캐시를 그대로 신뢰할지 — 신뢰=건너뜀, 불신=라이브 재검증.
        ① '저검색'은 판정 아님 → 불신.
        ② 양성(_is_pop=인기탭)은 항상 신뢰(진짜 인기탭은 안정적).
-       ③ 음성(섹션없음·비관련)이 'prescan'(대량 사전스캔) 산출물이면 불신 → 재검증.
-          근거: prescan 음성 2048 vs 양성 20 — 위음성 다수 확인(예: 소방업체 표본 8중 6이 실제 섹션 有).
-          온디맨드 스캔은 사무실IP/모바일가드로 정확하니, prescan 음성은 지금 다시 확인한다(지연 재검증=블록부담 없음)."""
+       ③ 음성(섹션없음·비관련):
+          - 'prescan'(대량 사전스캔) 산출물은 위음성 다수 확인(소방업체 표본 8중 6 실제 섹션 有) → 항상 불신.
+          - 그 외 음성도 NEG_TTL_DAYS(21일) 지나면 불신 → 재검증(네이버가 섹션 추가하는 시간차 대응).
+          지연 재검증이라 블록 부담 없음. 재스캔되면 _cache_put이 scanned_by=WID·scanned_at 갱신 → 자가치유."""
     if str(c.get("verdict", "")) == "저검색":
         return False
     if _is_pop(c):
         return True
-    return str(c.get("scanned_by") or "") != "prescan"
+    if str(c.get("scanned_by") or "") == "prescan":
+        return False
+    sa = str(c.get("scanned_at") or "")
+    if not sa:
+        return False   # 시각 불명 음성 → 재검증
+    cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=NEG_TTL_DAYS)).isoformat()
+    return sa >= cutoff   # 최근 음성만 신뢰(오래된 건 재검증)
 
 
 def _disp_theme(r):
