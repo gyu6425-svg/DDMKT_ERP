@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { listMyCafeJobs, listCafeJobsByCompanies } from '../../api/cafePublishQueue';
 import { listTokens, balanceOf } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
-import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls, studioSavedPath, updateKeywordPool } from '../../api/cafeStudioSettings';
+import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls, studioSavedPath, updateKeywordPool, markNaverLogin } from '../../api/cafeStudioSettings';
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
@@ -73,6 +73,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [boardUrl, setBoardUrl] = useState('');
     const [loginMsg, setLoginMsg] = useState('');   // '네이버 로그인' 버튼 결과 안내 — SUB2 브릿지 호출 성공/실패.
     const [loginBusy, setLoginBusy] = useState(false);
+    const [naverLoggedIn, setNaverLoggedIn] = useState(false);   // 네이버 로그인 이력 있으면 버튼 색 변경
     const [kakaoUrl, setKakaoUrl] = useState('');   // 카카오톡 상담 링크 — 본문 끝 CTA. 저장 설정에 포함.
     // 접수 때 고른 SEO 키워드(10~50) — 파인더에 시딩 + 재조회 제외. 계약 목표 건수.
     const [intakePicked, setIntakePicked] = useState<{ keyword: string; volume?: number | null; theme?: string | null }[]>([]);
@@ -220,6 +221,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             const homeV = s?.homepage ?? req?.url; if (homeV) setLinkUrl(homeV);
             const nid = s?.naver_id ?? cred?.naver_id; if (nid) setNaverId(nid);
             const npw = s?.naver_pw ?? cred?.naver_pw; if (npw) setNaverPw(npw);
+            setNaverLoggedIn(!!(s as { naver_login_at?: string } | null)?.naver_login_at);
             const bname = s?.board_name ?? req?.board_name; if (bname) setBoardName(bname);
             if (s?.board_url) setBoardUrl(s.board_url);
             if (s?.kakao_url) setKakaoUrl(s.kakao_url);
@@ -384,19 +386,22 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 {/* 네이버 로그인 — SUB2가 이 고객 전용 크롬을 띄우고 담당자가 직접 로그인(자동입력 안 함=봇 방지) */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button type="button" disabled={!clientId || loginBusy}
-                        className="h-10 rounded-lg bg-[#03c75a] px-5 text-sm font-bold text-white hover:bg-[#02b350] disabled:opacity-50"
+                        className={`h-10 rounded-lg px-5 text-sm font-bold disabled:opacity-50 ${naverLoggedIn
+                            ? 'border-2 border-[#15803d] bg-white text-[#15803d] hover:bg-[#f0fdf4]'
+                            : 'bg-[#03c75a] text-white hover:bg-[#02b350]'}`}
                         onClick={async () => {
                             if (!clientId) return;
                             setLoginBusy(true); setLoginMsg('전용 크롬 실행 중…');
                             const r = await customerLogin(clientId);
                             setLoginBusy(false);
+                            if (r.ok) { setNaverLoggedIn(true); void markNaverLogin(clientId); }
                             setLoginMsg(r.ok
                                 ? '전용 크롬을 띄웠습니다 — 뜬 창에서 직접 로그인하세요.'
                                 : r.reached
                                     ? `크롬 실행 실패 — ${r.error || '알 수 없음'} (이미 열린 그 고객 크롬이 있으면 닫고 다시 시도하세요)`
                                     : `브릿지 연결 실패 — 발행 프로그램(SUB2)이 켜져 있는지·로컬에서 접속했는지 확인하세요. (${r.error || '연결 불가'})`);
                         }}>
-                        {loginBusy ? '실행 중…' : '네이버 로그인 (담당자 수동)'}
+                        {loginBusy ? '실행 중…' : naverLoggedIn ? '✓ 네이버 로그인됨 (재로그인)' : '네이버 로그인 (담당자 수동)'}
                     </button>
                     <span className="text-[11px] text-[#94a3b8]">누르면 이 고객 전용 크롬 창이 뜹니다. 자동입력 없이 담당자가 그 창에서 직접 로그인하세요(봇 차단 방지).</span>
                     {loginMsg ? <span className={`w-full text-[12px] font-semibold ${loginMsg.includes('실패') ? 'text-[#dc2626]' : 'text-[#166534]'}`}>{loginMsg}</span> : null}

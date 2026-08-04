@@ -38,6 +38,13 @@ export async function clearStudioSettings(clientId: string) {
     return { error };
 }
 
+// 네이버 로그인 이력 기록 — '네이버 로그인' 버튼 성공 시 시각 저장(버튼 색 표시용).
+export async function markNaverLogin(clientId: string) {
+    const { error } = await supabase.from('cafe_studio_settings')
+        .upsert({ client_id: clientId, naver_login_at: new Date().toISOString() }, { onConflict: 'client_id' });
+    return { error };
+}
+
 // 키워드 풀만 부분 업데이트(칩 삭제 등) — 즉시 반영.
 export async function updateKeywordPool(clientId: string, pool: string[]) {
     const { error } = await supabase.from('cafe_studio_settings')
