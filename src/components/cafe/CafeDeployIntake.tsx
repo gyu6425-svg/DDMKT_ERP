@@ -204,15 +204,16 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (!sidos.length) { setKwErr('지역(서울/경기/인천)을 선택하세요.'); return; }
         setKwErr(''); setKwLoading(true); setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
         try {
-            // ① 캐시 먼저(즉시).
+            // ① 캐시 양성 즉시 표시(UX) — 하지만 여기서 멈추지 않고 ②에서 전수 재검증한다.
             const gus = await getRegionGuTokens(sidos);
             const combos = new Set<string>();
             for (const g of gus) for (const kw of kws) combos.add(`${g.token} ${kw}`);
             const cached = await getPopularFromCache([...combos]);
-            if (cached.length) { setKwResult(cached); return; }
-            // ② 없으면 라이브 지역 스캔(워커: 검색량 게이트 후 인기탭 조회). 칩별로 스캔 후 합침. 결과 캐시됨.
             const seen = new Set<string>();
             const merged: KwResult[] = [];
+            for (const r of cached) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
+            if (merged.length) setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));   // 캐시분 먼저
+            // ② 항상 라이브 지역 스캔 — 캐시 양성만 믿고 멈추면 prescan 음성·미스캔분 누락(워커 내부 배치캐시로 판정된 건 즉시).
             for (const pk of kws) {
                 const { id, error } = await enqueueRegionScan(pk, sidos.join(','));
                 if (error || !id) continue;

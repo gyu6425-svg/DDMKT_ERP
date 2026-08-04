@@ -116,9 +116,10 @@ export function CafeKeywordFinder({
                 for (const kw of kws) {
                     const combos = [...new Set(gus.map((g) => `${g.token} ${kw}`))];
                     const cached = await getPopularFromCache(combos);
-                    if (cached.length) merged.push(...cached); else toScan.push(kw);
+                    if (cached.length) merged.push(...cached);   // 캐시 양성은 즉시 표시(UX)
+                    toScan.push(kw);   // ★ 항상 워커로 전수 재검증 — 캐시 양성 몇 개만 믿고 멈추면 prescan 음성·미스캔분 누락(워커 내부 배치캐시로 이미 판정된 건 즉시)
                 }
-                if (merged.length) setKwResult(dedup(merged));   // 캐시분 먼저 즉시
+                if (merged.length) setKwResult(dedup(merged));   // 캐시분 먼저 즉시(워커 완료 시 전체로 교체)
             } else {
                 toScan.push(...kws);   // 동은 조합이 달라 워커에 맡김(내부 배치캐시로 재스캔 빠름)
             }
