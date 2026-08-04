@@ -157,7 +157,7 @@ export function CafeDashboardTab() {
                                     <span className="text-[13px] font-bold text-[#2563eb]" title="실적 = 이전건 + 5위 24h 달성(24h+1)">{done}건</span>
                                     <span className="text-[11px] font-semibold text-[#94a3b8]" title="계약 총 발행건수(목표)">/ 총 {t.goal}건</span>
                                     {complete ? <span className="text-[11px] font-bold text-[#15803d]">✓ 완료</span> : null}
-                                    {pubN === 0 ? <span className="ml-auto text-[11px] text-[#cbd5e1]">발행 없음</span> : null}
+                                    <span className="ml-auto text-[11px] text-[#94a3b8]" title="실제 발행한 글 수">발행 {pubN}건</span>
                                 </button>
                                 {isOpen && bp.length ? (
                                     <div className="overflow-x-auto border-t border-[#eef0f2] px-3 py-2">
