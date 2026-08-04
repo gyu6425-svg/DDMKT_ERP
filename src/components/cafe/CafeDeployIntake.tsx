@@ -116,8 +116,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
 
     const set = <K extends keyof CafeDeployInput>(k: K, v: CafeDeployInput[K]) =>
         setForm((f) => ({ ...f, [k]: v }));
-    // 접수 유형 — 지역형(지역+제품키워드) / 키워드형(플레이스 주소 기반)
+    // 접수 유형 — 지역형(지역+제품키워드) / 키워드형(플레이스 주소 기반) / 직접형(키워드 직접 입력)
     const isKw = form.deploy_type === '키워드형';
+    const isManual = form.deploy_type === '직접형';
+    const isRegion = !isKw && !isManual;
     const regionSel = form.region_sets || [];
     const toggleRegion = (r: string) => {
         const cur = new Set(regionSel);
@@ -133,6 +135,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         set('keyword', '');
     };
     const removeProductKw = (kw: string) => set('product_keywords', productKws.filter((k) => k !== kw));
+    // 직접형 — 입력한 키워드를 인기탭 확인 없이 바로 선택 키워드(kwPicked)로. 최대 50개·중복 제거.
+    const addManualKw = () => {
+        const v = (form.keyword || '').trim().replace(/\s+/g, ' ');
+        if (!v) return;
+        if (kwPicked.length >= 50) { setKwErr('직접 입력은 최대 50개입니다.'); return; }
+        setKwErr('');
+        setKwPicked((prev) => (prev.some((p) => p.keyword === v) ? prev : [...prev, { keyword: v } as KwResult]));
+        set('keyword', '');
+    };
     const addFiles = (g: Grp, list: FileList | null) => {
         if (!list?.length) return;
         const arr = Array.from(list); // 동기적으로 캡처(input.value='' 초기화 전에) — 안 하면 목록이 비어 등록 안 됨
@@ -140,12 +151,6 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     };
     const removeFile = (g: Grp, i: number) => setFiles((f) => ({ ...f, [g]: f[g].filter((_, j) => j !== i) }));
     const totalFiles = files.main.length + files.real.length + files.banner.length;
-
-    // 인기글 조회 — 지역형=키워드→검색량 / 키워드형=플레이스주소→업체명 추출→검색량. 차단 0·즉시(순수 웹).
-    const [volLoading, setVolLoading] = useState(false);
-    const [vol, setVol] = useState<{ keyword: string; pc: number; mobile: number; total: number }[] | null>(null);
-    const [volErr, setVolErr] = useState('');
-    const [volName, setVolName] = useState(''); // 키워드형: 추출된 업체명
 
     // 정확 인기탭 분석(키워드형) — cafe_kw_requests 큐 → 워커(우리 IP: 사무실 유선/main, 크롤 겹치면 CF) → 진짜 인기탭 결과.
     const [kwLoading, setKwLoading] = useState(false);
@@ -223,30 +228,6 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setKwErr(e instanceof Error ? e.message : '조회 실패');
         } finally {
             setKwLoading(false);
-        }
-    };
-    const lookupVolume = async () => {
-        let apiUrl: string;
-        if (form.deploy_type === '키워드형') {
-            const u = (form.url || '').trim();
-            if (!u) { setVolErr('플레이스 주소를 입력하세요.'); setVol(null); return; }
-            apiUrl = `https://ddmkt-erp.pages.dev/api/place-keywords?url=${encodeURIComponent(u)}`;
-        } else {
-            const q = (form.keyword || '').trim();
-            if (!q) { setVolErr('제품 키워드를 입력하세요. 예: 입주청소'); setVol(null); return; }
-            apiUrl = `https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(q)}`;
-        }
-        setVolErr(''); setVolName(''); setVolLoading(true); setVol(null);
-        try {
-            const res = await fetch(apiUrl);
-            const d = await res.json();
-            if (!res.ok) throw new Error(d.error || '조회 실패');
-            if (d.name) setVolName(d.name);
-            setVol((d.keywords || []).slice(0, 20));
-        } catch (e) {
-            setVolErr(e instanceof Error ? e.message : '조회 실패');
-        } finally {
-            setVolLoading(false);
         }
     };
 
@@ -481,7 +462,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 <div className="mb-4">
                     <label className={labelCls}>접수 유형</label>
                     <div className="inline-flex rounded-lg border border-[#cbd5e1] p-0.5">
-                        {(['지역형', '키워드형'] as const).map((t) => (
+                        {(['지역형', '키워드형', '직접형'] as const).map((t) => (
                             <button key={t} type="button" onClick={() => set('deploy_type', t)}
                                 className={`rounded-md px-4 py-1.5 text-sm font-bold ${form.deploy_type === t ? 'bg-[#4338ca] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}>
                                 {t}
@@ -489,7 +470,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         ))}
                     </div>
                     <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">
-                        {isKw ? '키워드형 — 플레이스 주소 기반으로 키워드를 잡습니다(맛집 등).' : '지역형 — 서울/경기/인천 지역 선택 + 제품키워드(예: 입주청소·상가청소)로 지역+키워드를 잡습니다.'}
+                        {isKw ? '키워드형 — 플레이스 주소 기반으로 키워드를 잡습니다(맛집 등).'
+                            : isManual ? '직접형 — 발행할 키워드를 직접 입력합니다(인기탭 확인 없이 그대로 접수).'
+                            : '지역형 — 서울/경기/인천 지역 선택 + 제품키워드(예: 입주청소·상가청소)로 지역+키워드를 잡습니다.'}
                     </p>
                 </div>
 
@@ -498,34 +481,31 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <label className={labelCls}>업체명 *</label>
                         <input className={inputCls} value={form.company_name} onChange={(e) => set('company_name', e.target.value)} placeholder="test" />
                     </div>
-                    <div className="md:col-span-2">
-                        <label className={labelCls}>{isKw ? '플레이스 주소 (URL) *' : '홈페이지 (선택)'}</label>
-                        <div className="flex gap-2">
-                            <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder={isKw ? 'https://naver.me/... 또는 place.naver.com/...' : 'www.homepage.com'} />
-                            {isKw ? (
-                                <>
-                                    <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
-                                        {volLoading ? '조회 중…' : '인기글 조회'}
-                                    </button>
+                    {!isManual ? (
+                        <div className="md:col-span-2">
+                            <label className={labelCls}>{isKw ? '플레이스 주소 (URL) *' : '홈페이지 (선택)'}</label>
+                            <div className="flex gap-2">
+                                <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder={isKw ? 'https://naver.me/... 또는 place.naver.com/...' : 'www.homepage.com'} />
+                                {isKw ? (
                                     <button type="button" onClick={() => void runPlaceScan()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50" title="워커가 실제 인기글 섹션을 확인(수초~수십초)">
                                         {kwLoading ? '분석 중…' : '정확 인기탭 분석'}
                                     </button>
-                                </>
+                                ) : null}
+                            </div>
+                            {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">정확 인기탭 분석=실제 인기글 섹션 확인(큐 처리, 수초~수십초).</p> : null}
+                            {isKw ? (
+                                <details open className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
+                                    <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 상세 정보 입력 — 플레이스에 메뉴·정보가 없을 때 (여기에 붙여넣으면 접수에 저장)</summary>
+                                    <textarea className="mt-2 w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
+                                        value={placeDetail} onChange={(e) => setPlaceDetail(e.target.value)}
+                                        placeholder={'플레이스 정보·메뉴·홈 소개글, 취급 서비스/상품을 그대로 붙여넣으세요. 담당자가 키워드 선정에 활용합니다.\n예)\n입주청소\n이사청소\n준공청소'} />
+                                    <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">접수 시 비고에 [상세정보]로 함께 저장됩니다.</p>
+                                </details>
                             ) : null}
+                            {isKw ? kwPanel : null}
                         </div>
-                        {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">인기글 조회=업체명 기반 검색량(즉시). 정확 인기탭 분석=실제 인기글 섹션 확인(큐 처리, 수초~수십초).</p> : null}
-                        {isKw ? (
-                            <details open className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
-                                <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 상세 정보 입력 — 플레이스에 메뉴·정보가 없을 때 (여기에 붙여넣으면 접수에 저장)</summary>
-                                <textarea className="mt-2 w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
-                                    value={placeDetail} onChange={(e) => setPlaceDetail(e.target.value)}
-                                    placeholder={'플레이스 정보·메뉴·홈 소개글, 취급 서비스/상품을 그대로 붙여넣으세요. 담당자가 키워드 선정에 활용합니다.\n예)\n입주청소\n이사청소\n준공청소'} />
-                                <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">접수 시 비고에 [상세정보]로 함께 저장됩니다.</p>
-                            </details>
-                        ) : null}
-                        {isKw ? kwPanel : null}
-                    </div>
-                    {!isKw ? (
+                    ) : null}
+                    {isRegion ? (
                         <div className="md:col-span-2">
                             <label className={labelCls}>지역 선택 (복수)</label>
                             <div className="flex flex-wrap gap-2">
@@ -539,25 +519,24 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         </div>
                     ) : null}
                     <div className="md:col-span-2">
-                        <label className={labelCls}>{isKw ? '키워드' : '제품 키워드 (업종)'}</label>
+                        <label className={labelCls}>{isKw ? '키워드' : isManual ? '발행 키워드 (직접 입력)' : '제품 키워드 (업종)'}</label>
                         <div className="flex gap-2">
                             <input className={inputCls} value={form.keyword}
                                 onChange={(e) => set('keyword', e.target.value)}
-                                onKeyDown={(e) => { if (!isKw && e.key === 'Enter') { e.preventDefault(); addProductKw(); } }}
-                                placeholder={isKw ? '예: 광교 횟집' : '예: 입주청소 (입력 후 엔터/추가)'} />
-                            {!isKw ? (
+                                onKeyDown={(e) => { if (e.key === 'Enter' && (isRegion || isManual)) { e.preventDefault(); if (isManual) addManualKw(); else addProductKw(); } }}
+                                placeholder={isKw ? '예: 광교 횟집' : isManual ? '예: 강남 누수탐지 (입력 후 엔터/추가 · 최대 50개)' : '예: 입주청소 (입력 후 엔터/추가)'} />
+                            {isManual ? (
+                                <button type="button" onClick={addManualKw} className="h-10 shrink-0 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white hover:bg-[#3730a3]">추가</button>
+                            ) : isRegion ? (
                                 <>
                                     <button type="button" onClick={addProductKw} className="h-10 shrink-0 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white hover:bg-[#3730a3]">추가</button>
-                                    <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50">
-                                        {volLoading ? '조회 중…' : '인기글 조회'}
-                                    </button>
                                     <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50" title="선택 지역(서울/경기/인천)의 행정구 × 제품키워드 칩으로 발행 대상 키워드 생성">
                                         {kwLoading ? '생성 중…' : '지역 키워드 생성'}
                                     </button>
                                 </>
                             ) : null}
                         </div>
-                        {!isKw && productKws.length ? (
+                        {isRegion && productKws.length ? (
                             <div className="mt-2 flex flex-wrap gap-1.5">
                                 {productKws.map((kw) => (
                                     <span key={kw} className="inline-flex items-center gap-1 rounded-full bg-[#eef2ff] px-2.5 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
@@ -567,37 +546,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 ))}
                             </div>
                         ) : null}
-                        {!isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">제품키워드를 여러 개 추가하면, 아래 선택한 지역의 행정구마다 각 키워드로 인기탭을 찾습니다. 예: [누수탐지·누수] × 서울·경기 → 강남 누수탐지, 수원 누수 …</p> : null}
-                        {volErr && <p className="mb-0 mt-1 text-[12px] text-[#dc2626]">{volErr}</p>}
-                        {vol && (
-                            <div className="mt-2 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2">
-                                <div className="mb-1 text-[11px] font-semibold text-[#64748b]">{volName ? `업체: ${volName} · ` : ''}연관 키워드 · 월 검색량 (많은 순) — 검색량이 큰 키워드가 노출 가치가 높습니다</div>
-                                {vol.length === 0 ? (
-                                    <div className="py-2 text-center text-[12px] text-[#94a3b8]">결과 없음</div>
-                                ) : (
-                                    <div className="max-h-56 overflow-y-auto">
-                                        <table className="w-full text-[12px]">
-                                            <thead>
-                                                <tr className="text-left text-[#94a3b8]">
-                                                    <th className="py-1">키워드</th><th className="py-1 text-right">PC</th><th className="py-1 text-right">모바일</th><th className="py-1 text-right">합계</th><th className="py-1" />
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {vol.map((k) => (
-                                                    <tr key={k.keyword} className="border-t border-[#eef0f2]">
-                                                        <td className="py-1 pr-2">{k.keyword}</td>
-                                                        <td className="py-1 text-right text-[#64748b]">{k.pc.toLocaleString()}</td>
-                                                        <td className="py-1 text-right text-[#64748b]">{k.mobile.toLocaleString()}</td>
-                                                        <td className="py-1 text-right font-bold text-[#0369a1]">{k.total.toLocaleString()}</td>
-                                                        <td className="py-1 pl-2"><button type="button" onClick={() => set('keyword', k.keyword)} className="text-[11px] text-[#4338ca] hover:underline">선택</button></td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                        {isRegion ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">제품키워드를 여러 개 추가하면, 아래 선택한 지역의 행정구마다 각 키워드로 인기탭을 찾습니다. 예: [누수탐지·누수] × 서울·경기 → 강남 누수탐지, 수원 누수 …</p> : null}
+                        {isManual ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">입력한 키워드가 아래 '선택한 발행 키워드'에 그대로 담깁니다 — 인기탭 확인 없이 접수됩니다(최대 50개).</p> : null}
                         {!isKw ? kwPanel : null}
                     </div>
                     <div>
