@@ -4,6 +4,7 @@ import Sidebar from './Sidebar'
 import DevRoleSwitcher from './DevRoleSwitcher'
 import ForcePasswordChangeGate from './ForcePasswordChangeGate'
 import ReportPublishAlert from './ReportPublishAlert'
+import SignupRequestAlert from './SignupRequestAlert'
 import ReportToast from './ReportToast'
 
 type LayoutProps = {
@@ -18,6 +19,7 @@ function Layout({ children }: LayoutProps) {
       <main className="min-h-0 min-w-0 overflow-y-auto p-8 max-[800px]:overflow-visible">
         <Header />
         <ReportPublishAlert />
+        <SignupRequestAlert />
         {children}
       </main>
       <DevRoleSwitcher />
