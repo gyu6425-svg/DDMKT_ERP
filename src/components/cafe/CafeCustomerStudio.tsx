@@ -599,6 +599,29 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                 </ol>
                             ) : <div className="py-1 text-center text-[11px] text-[#94a3b8]">미사용 키워드 없음 — finder로 추가하세요.</div>}
                             {pendN ? <div className="mt-1.5 text-[10px] font-semibold text-[#b45309]">진행중 {pendN}건은 SUB2가 순차 게시 중…</div> : null}
+                            {/* 발행 진행 게이지 — 풀 대비 발행됨(초록)/진행중(주황, 게시 중 pulse)/미사용(회색) */}
+                            {poolKw.length ? (() => {
+                                const total = poolKw.length;
+                                const donePct = Math.min(100, Math.round((doneN / total) * 100));
+                                const pendPct = Math.min(100 - donePct, Math.round((pendN / total) * 100));
+                                return (
+                                    <div className="mt-2 border-t border-[#eef2ff] pt-2">
+                                        <div className="mb-1 flex items-center justify-between text-[10px] font-semibold">
+                                            <span className="text-[#4338ca]">발행 진행 {doneN}/{total}건 <span className="text-[#64748b]">({donePct}%)</span></span>
+                                            {pendN ? <span className="flex items-center gap-1 text-[#b45309]"><span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#f59e0b]" />지금 {pendN}건 발행 중…</span> : <span className="text-[#94a3b8]">대기 중</span>}
+                                        </div>
+                                        <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-[#eef2ff]">
+                                            <div className="h-full bg-[#16a34a] transition-all duration-500" style={{ width: `${donePct}%` }} />
+                                            <div className="h-full animate-pulse bg-[#f59e0b] transition-all duration-500" style={{ width: `${pendPct}%` }} />
+                                        </div>
+                                        <div className="mt-1 flex flex-wrap gap-3 text-[9px] text-[#94a3b8]">
+                                            <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#16a34a]" />발행됨 {doneN}</span>
+                                            <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#f59e0b]" />진행중 {pendN}</span>
+                                            <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-[#e2e8f0]" />미사용 {unused.length}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })() : null}
                         </div>
                     </div>
                 );
