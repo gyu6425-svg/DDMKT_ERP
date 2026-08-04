@@ -27,12 +27,6 @@ export function CafeKeywordFinder({
     const [keyword, setKeyword] = useState('');   // 지역형=제품키워드 / 키워드형=참고
     const [url, setUrl] = useState('');            // 키워드형 플레이스 주소
     const [regionSel, setRegionSel] = useState<string[]>([]);
-    const [kwChips, setKwChips] = useState<string[]>([]);   // 지역 조회용 키워드 칩(여러 개) — 고객ERP와 동일 UX
-    const addChips = () => {
-        const parts = keyword.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
-        if (parts.length) { setKwChips((prev) => [...new Set([...prev, ...parts])]); setKeyword(''); }
-    };
-    const removeChip = (kw: string) => setKwChips((prev) => prev.filter((k) => k !== kw));
     const inputCls = 'h-10 w-full rounded-md border border-[#cbd5e1] px-3 text-sm outline-none focus:border-[#4338ca]';
 
     // 검색량(연관어) 조회
@@ -123,7 +117,7 @@ export function CafeKeywordFinder({
     //   쉼표/줄바꿈으로 여러 개 입력하면 전부 먼저 큐에 넣고(누락 방지) 순차 폴링·누적.
     const runRegion = async (includeDong: boolean) => {
         // 칩이 있으면 칩 전부, 없으면 입력칸(쉼표/줄바꿈)으로. → 여러 키워드 한 번에 조회.
-        const kws = [...new Set([...kwChips, ...keyword.split(/[,\n]/).map((s) => s.trim()).filter(Boolean)])];
+        const kws = [...new Set(keyword.split(/[,\n]/).map((s) => s.trim()).filter(Boolean))];
         if (!kws.length) { setKwErr('키워드를 추가하세요(입력 후 추가). 예: 출장뷔페'); return; }
         if (!regionSel.length) { setKwErr('지역을 선택하세요.'); return; }
         const setLoading = includeDong ? setDongLoading : setKwLoading;
@@ -285,36 +279,6 @@ export function CafeKeywordFinder({
                         <input className={`${inputCls} flex-1 min-w-[200px]`} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="플레이스 주소 (https://naver.me/… )" />
                         <button type="button" onClick={() => void lookupVolume()} disabled={volLoading} className="h-10 shrink-0 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white disabled:opacity-50">{volLoading ? '조회 중…' : '인기글 조회'}</button>
                         <button type="button" onClick={() => void runPlaceScan()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '분석 중…' : '정확 인기탭 분석'}</button>
-                    </div>
-                    {/* 키워드 추가 조회 — 지역 × 키워드 인기탭. 이미 발행·선택한 건 자동 제외(위 결과의 fresh 로직). */}
-                    <div className="rounded-md border border-[#c7d2fe] bg-[#f8faff] p-2">
-                        <div className="mb-1.5 text-[11px] font-bold text-[#4338ca]">＋ 키워드 추가 조회 — 지역 × 키워드 인기탭 <span className="font-normal text-[#94a3b8]">(이미 발행·선택한 건 제외)</span></div>
-                        <div className="mb-2 flex flex-wrap gap-1.5">
-                            {REGION_KEYS.map((r) => (
-                                <button key={r} type="button" onClick={() => toggleRegion(r)}
-                                    className={`rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${regionSel.includes(r) ? 'border-[#4338ca] bg-[#4338ca] text-white' : 'border-[#cbd5e1] bg-white text-[#475569]'}`}>{r}</button>
-                            ))}
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <input className={`${inputCls} flex-1 min-w-[160px]`} value={keyword} onChange={(e) => setKeyword(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addChips(); } }}
-                                placeholder="키워드 입력 후 추가 (예: 출장뷔페) — 여러 개 가능" />
-                            <button type="button" onClick={addChips} className="h-10 shrink-0 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white hover:bg-[#3730a3]">추가</button>
-                            <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading || dongLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '조회 중…' : '지역 인기탭 조회'}</button>
-                            {kwResult && kwResult.length > 0 && !dongDone ? (
-                                <button type="button" onClick={() => void runRegion(true)} disabled={kwLoading || dongLoading} title="동(洞) 단위까지 추가" className="h-10 shrink-0 rounded-md border border-[#7c3aed] bg-white px-4 text-sm font-bold text-[#7c3aed] disabled:opacity-50">{dongLoading ? '동 스캔 중…' : '＋ 더 찾기(동)'}</button>
-                            ) : null}
-                        </div>
-                        {kwChips.length ? (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                                {kwChips.map((kw) => (
-                                    <span key={kw} className="inline-flex items-center gap-1 rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[12px] font-semibold text-[#3730a3]">
-                                        {kw}<button type="button" className="text-[#6366f1] hover:text-[#4338ca]" onClick={() => removeChip(kw)}>×</button>
-                                    </span>
-                                ))}
-                                <span className="self-center text-[11px] text-[#94a3b8]">칩의 모든 키워드 × 선택 지역을 조회합니다</span>
-                            </div>
-                        ) : null}
                     </div>
                     <details open className="rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
                         <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 정보/메뉴 붙여넣기 — 플레이스에 메뉴·정보가 없어 분석이 안 될 때 (여기 붙여넣고 아래 버튼)</summary>
