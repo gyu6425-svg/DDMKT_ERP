@@ -135,6 +135,13 @@ def region_tokens(gu):
     return toks
 
 
+# --refresh : 기존 캐시를 skip하지 않고 전수 재스캔한다. 옛 prescan 음성(빈200 위음성 시절 산출)을 치유하는 배치.
+#   저장 시 scanned_by 를 'prescan' 이 아닌 값으로 남긴다 — 워커 _cache_trust 가 'prescan' 음성은 항상 불신하기 때문.
+#   이걸 한 번 돌려두면 온디맨드 지역스캔이 캐시를 실제로 신뢰해 즉시 응답한다(현재는 100% 라이브 재검증이라 느림).
+REFRESH = "--refresh" in sys.argv
+SCANNED_BY = "prescan-v2" if REFRESH else "prescan"
+
+
 def _load_all_keywords():
     """cafe_kw_targets 의 keyword 전량 로드(offset 페이지네이션). PostgREST 기본 1000 상한 우회 — limit=100000 도 1000에서 잘림."""
     out, off = set(), 0
@@ -158,7 +165,8 @@ def cache_put(kw, r):
         "keyword": kw, "has_section": bool(r.get("has_section")), "theme": r.get("theme"),
         "verdict": r.get("verdict"), "volume": 0,
         "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"],
-        "scanned_by": "prescan",
+        "scanned_by": SCANNED_BY,
+        "scanned_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
     try:
         requests.post(f"{SB}/rest/v1/cafe_kw_targets", headers={**H, "Prefer": "resolution=merge-duplicates"},
@@ -184,13 +192,20 @@ def main():
 
     master = json.loads((HERE / "region_dong_master.json").read_text(encoding="utf-8"))
     # 이미 캐시된 키워드 전량 로드(멤버십 체크 — 재스캔 skip). PostgREST 기본 1000 상한이라 offset 페이지네이션 필수.
-    existing = _load_all_keywords()
-    print(f"[prescan] 기존 캐시 {len(existing)}건 로드", flush=True)
+    #   ⚠️ --refresh 면 skip하지 않는다: 옛 prescan 산출물(빈200 위음성 시절)을 새 classify로 다시 찍기 위함.
+    existing = set() if REFRESH else _load_all_keywords()
+    if REFRESH:
+        print("[prescan] ♻ --refresh — 기존 캐시 무시하고 전수 재스캔(옛 위음성 치유). "
+              f"scanned_by='{SCANNED_BY}' 로 저장돼 온디맨드가 신뢰(TTL 21일)한다.", flush=True)
+    else:
+        print(f"[prescan] 기존 캐시 {len(existing)}건 로드", flush=True)
 
     # 태스크: 시도 순서대로 행정구/시 토큰 × 업종어 → '강남 입주청소'. (동 폐기 — 실측상 인기탭 0)
     tasks, seen = [], set()
     for sido in SIDO_ORDER:
-        toks = set()
+        # ★ 시도명 자체도 토큰 — 보통 그 제품의 최대 검색량 키워드('서울 누수탐지' ≫ '강남 누수탐지').
+        #   실측(2026-08-04): 광역시 8/8 인기탭, 道도 다수. 접미형(서울시·강원도)은 섹션없음이라 제외.
+        toks = {sido}
         for m in master:
             if m["sido"] == sido:
                 toks |= region_tokens(m["gu"])

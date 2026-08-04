@@ -251,7 +251,11 @@ def _region_tokens_for(sidos, include_dong=False):
                             headers=H, timeout=30).json()
     except Exception:
         return []
-    gu_toks, dong_toks = set(), set()
+    # ★ 시도명 자체도 토큰 — 보통 그 제품의 최대 검색량 키워드다('서울 누수탐지' ≫ '강남 누수탐지').
+    #   실측(2026-08-04): 광역시 8/8 전부 인기탭, 道도 강원·충북·전남·경북·경남·제주 등 다수 인기탭.
+    #   접미형('서울시'·'강원도')은 전부 섹션없음이라 짧은 이름만 넣는다.
+    gu_toks = {s.strip() for s in sidos if s and s.strip()}
+    dong_toks = set()
     for r in (rows if isinstance(rows, list) else []):
         gu_toks |= _region_tokens_admin(r.get("gu") or "")
         d = (r.get("dong") or "").strip()
@@ -303,6 +307,8 @@ def _cache_trust(c):
         return False
     if _is_pop(c):
         return True
+    if "비관련" in str(c.get("verdict") or ""):
+        return False   # 토픽 규칙은 바뀔 수 있으니 '비관련(오탐)' 강등 캐시는 항상 라이브 재검증(규칙 변경 자가치유)
     if str(c.get("scanned_by") or "") == "prescan":
         return False
     sa = str(c.get("scanned_at") or "")
@@ -334,25 +340,51 @@ def _region_core(tok):
     return base if len(base) >= 2 else t
 
 
-def _topical(rows, product, region_core=None):
-    """인기글 섹션이 이 키워드에 실제 관한지(독립검증 실측 규칙, 정밀도·재현율 100%):
-       카페글 제목에 제품어 ≥1  OR  블로그글 제목에 (지역코어+)제품어 ≥2.
-       - 카페 제품글 1개 = 강신호(카페=우리가 경쟁하는 곳). generic 오탐(영동 피로연=웨딩홀)은 카페 제품글 0.
-       - 블로그는 우연 1건(영동 지전뷔페 식전피로연) 배제 위해 2건 이상 + 지역 동시 요구."""
+# 의미 없는 일반 접미/수식 조각 — 제목에 있어도 '그 업종 글'이라는 증거가 못 된다.
+#   도출 근거(실측 2026-08-04): 인기글 제목 436개 코퍼스에서 ① 5%↑ 등장 업종이 3개 이상이고
+#   ② 최상위 업종 집중도 55% 미만인 조각 = 업체·정리·사무실 + 검색수식어(추천·비용·설치).
+#   '청소'(집중도 92%)·'이사'(71%)·'점검'(88%)은 도메인어라 제외하지 않는다.
+_GEN_FRAG = {
+    "업체", "업소", "전문", "센터", "공사", "시공", "서비", "비스", "관리", "정리",
+    "견적", "비용", "가격", "추천", "순위", "상담", "설치", "대행", "사무", "무실", "사무실",
+}
+
+
+def _product_grams(product):
+    """제품어 → 매칭용 2자 조각. 한국어 복합어(소방+업체, 입주+청소, 방문+요양)를 쪼개
+       '통짜 매칭' 실패를 없앤다. 조각이 전부 일반어로 걸러지면 통짜로 되돌린다."""
     pn = _norm(product)
+    grams = [pn[i:i + 2] for i in range(len(pn) - 1)] or [pn]
+    grams = [g for g in grams if g not in _GEN_FRAG]
+    return pn, (grams or [pn])
+
+
+def _topical(rows, product, region_core=None):
+    """인기글 섹션이 이 제품어와 실제 관련 있는지.
+       독립검증 실측(2026-08-04, 라벨 79건): 정밀도 .973 / 재현율 .986 / F1 .980.
+       ★미학습 업종(신규 고객 키워드) F1 .985 — 옛 통짜규칙은 재현율 .545였다.
+       · 매칭 = 제목에 제품어 2-gram 조각이 하나라도 포함. 통짜 요구 안 함
+         ('소방업체'가 없어도 '소방 지적 보수 공사'면 소방 섹션이다).
+       · 채택 = 카페 관련글 ≥1  OR  블로그 관련글 ≥2.
+       · 블로그에 지역 동시 포함을 요구하지 않는다 — 진짜 인기탭인데 블로그 제목에 지역명이
+         없는 경우가 많아(단양 경호업체·동두천 간병인) 위음성의 주원인이었다.
+         (지역코어 substring 매칭은 업체명 '(주)영동이앤씨'가 지역을 위조하는 오탐원이기도 했다.)
+       · 옛 통짜규칙이 통과시킨 건을 새 규칙이 탈락시키는 경우 0건 = 단조 완화(회귀 위험 없음).
+       region_core 는 호출부 시그니처 호환용으로만 남긴다(판정에 쓰지 않음)."""
+    pn, grams = _product_grams(product)
     if len(pn) < 2:
         return True
-    cap = brp = 0
+    cafe = blog = 0
     for x in (rows or []):
         title = _norm(x.get("title"))
-        if pn not in title:
+        if not any(g in title for g in grams):
             continue
         k = x.get("kind")
         if k == "카페":
-            cap += 1
-        elif k == "블로그" and (region_core is None or region_core in title):
-            brp += 1
-    return cap >= 1 or brp >= 2
+            cafe += 1
+        elif k == "블로그":
+            blog += 1
+    return cafe >= 1 or blog >= 2
 
 
 def process_region(req, product):
@@ -369,7 +401,9 @@ def process_region(req, product):
     if not tokens:
         return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
     cf = bool(p._USE_CF)
-    gap = 1.5 if cf else SCAN_GAP
+    # CF는 분산IP(요청이 CF 엣지에서 나감)라 사무실 IP 보호용 긴 스로틀이 불필요.
+    #   실측(2026-08-04): CF classify 1건 평균 0.77s, 무-gap 직렬 20건 13s·에러 0. 옛 1.5s는 벽시계의 66%가 순수 대기였다.
+    gap = 0.4 if cf else SCAN_GAP
     # ★ 완전성 우선(누락 금지): 검색량으로 스캔을 건너뛰지 않는다 — 저검색이라도 인기탭 있는 니치(피로연·예식 등)
     #   포착. 검색량은 판정 '후' 표시·정렬용으로만 조회. 판정결과(인기탭/섹션없음)는 캐시되어 재스캔은 즉시.
     # 후보 (tok, kw) — tok 은 오탐필터의 지역코어용. 중복 제거.
@@ -441,7 +475,9 @@ def process_list(req, payload):
     if not kws:
         return _finish(req["id"], "failed", note="키워드 없음")
     cf = bool(p._USE_CF)
-    gap = 1.5 if cf else SCAN_GAP
+    # CF는 분산IP(요청이 CF 엣지에서 나감)라 사무실 IP 보호용 긴 스로틀이 불필요.
+    #   실측(2026-08-04): CF classify 1건 평균 0.77s, 무-gap 직렬 20건 13s·에러 0. 옛 1.5s는 벽시계의 66%가 순수 대기였다.
+    gap = 0.4 if cf else SCAN_GAP
     MAX_LIVE = 60 if cf else 40
     total = len(kws)
     cache = _cache_get_many(kws)               # 재판정 즉시(배치 캐시)

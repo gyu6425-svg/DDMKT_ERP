@@ -46,7 +46,10 @@ export async function getPopularFromCache(keywords: string[]): Promise<KwResult[
         const { data } = await supabase.from('cafe_kw_targets')
             .select('keyword,has_section,verdict,theme,volume,cafes').in('keyword', chunk);
         for (const r of (data ?? []) as { keyword: string; has_section: boolean; verdict: string | null; theme: string | null; volume: number | null; cafes: KwCafe[] | null }[]) {
-            const ok = r.has_section && (r.verdict || '').startsWith('카페분산') && !(r.theme || '').includes('레시피');
+            // 워커 _is_pop 과 동일 판정(카페분산 + 블로그섹션=카페무경쟁). 옛 코드는 카페분산만 읽어
+            //   워커 타임아웃 시 무혈입성 기회 키워드가 조용히 소실됐다.
+            const v = r.verdict || '';
+            const ok = r.has_section && (v.startsWith('카페분산') || v.startsWith('블로그섹션')) && !(r.theme || '').includes('레시피');
             if (!ok) continue;
             const nk = (r.keyword || '').replace(/\s/g, '');
             if (seen.has(nk)) continue;
@@ -65,6 +68,14 @@ export async function getRegionGuTokens(sidos: string[]): Promise<{ sido: string
     const rows = (data ?? []) as { sido: string; gu: string }[];
     const seen = new Set<string>();
     const out: { sido: string; token: string }[] = [];
+    // ★ 시도명 자체도 토큰 — 보통 그 제품의 최대 검색량 키워드('서울 누수탐지' ≫ '강남 누수탐지').
+    //   실측(2026-08-04): 광역시 8/8 인기탭, 道도 강원·충북·전남·경북·경남·제주 등 다수. 접미형(서울시·강원도)은 섹션없음이라 제외.
+    for (const s of sidos) {
+        const t = (s || '').trim();
+        if (!t || seen.has(`${t}|${t}`)) continue;
+        seen.add(`${t}|${t}`);
+        out.push({ sido: t, token: t });
+    }
     for (const r of rows) {
         for (const token of guTokens(r.gu)) {
             const key = `${r.sido}|${token}`;
