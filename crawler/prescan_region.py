@@ -176,6 +176,8 @@ def cache_put(kw, r):
 
 
 def main():
+    global W
+    import cafe_kw_worker as W   # 오탐필터(_topical/_is_pop/_region_core) 재사용. env 세팅 후여야 해서 main 안에서 import.
     SIDO_ORDER = _parse_sido_order()   # 인자 검증(오타면 여기서 중단) — import 부작용 방지 위해 main 안에서 파싱
     use_cf = "--cf" in sys.argv
     if use_cf:
@@ -217,7 +219,7 @@ def main():
                     tasks.append((t, kw))   # (스캔어, 업종어) — --cap 업종별 집계용
     print(f"[prescan] 총 태스크 {len(tasks)}건 (구/시 토큰 기반){' · cap ' + str(CAP) + '/업종' if CAP else ''}", flush=True)
 
-    done = hits = skipped = blocks = vskip = 0
+    done = hits = skipped = blocks = vskip = irrel = 0
     hits_by_biz = {}
     t0 = time.time()
     for i, (task, biz) in enumerate(tasks, 1):
@@ -249,6 +251,16 @@ def main():
                 time.sleep(random.uniform(GAP_MIN, GAP_MAX))
             continue
         blocks = 0
+        # 오탐 필터를 여기서도 적용 — 안 하면 캐시가 필터를 우회한다.
+        #   워커는 신뢰 캐시(scanned_by != 'prescan')를 캐시히트로 바로 채택하므로, prescan 이 원시 판정만
+        #   저장하면 generic 채움(무관 섹션)이 필터 없이 고객에게 나간다(실측 generic 기저율 7.6%).
+        #   task = "<지역토큰> <업종어>" 이므로 지역토큰을 되잘라 지역코어로 쓴다.
+        if W._is_pop(r):
+            tok = task[: len(task) - len(biz)].strip()
+            if not W._topical(r.get("rows"), biz, W._region_core(tok)):
+                r = {"has_section": r.get("has_section"), "verdict": "비관련(오탐)",
+                     "theme": r.get("theme"), "rows": r.get("rows")}
+                irrel += 1
         cache_put(task, r)
         existing.add(task)
         done += 1
@@ -266,7 +278,7 @@ def main():
         else:
             time.sleep(random.uniform(GAP_MIN, GAP_MAX))
     biz_summary = " · ".join(f"{b}:{hits_by_biz.get(b, 0)}" for b in KEYWORDS)
-    print(f"[prescan] ✅ 종료: 스캔 {done} · 인기글히트 {hits} · skip(캐시) {skipped} · 검색량컷 {vskip}", flush=True)
+    print(f"[prescan] ✅ 종료: 스캔 {done} · 인기글히트 {hits}(그중 비관련강등 {irrel}) · skip(캐시) {skipped} · 검색량컷 {vskip}", flush=True)
     print(f"[prescan]    업종별 인기글: {biz_summary}", flush=True)
 
 
