@@ -43,7 +43,7 @@ const mmdd = (iso: string) => { const [, mo, d] = iso.split('-'); return `${Numb
 
 export function CafeDashboardTab() {
     const [posts, setPosts] = useState<CafeRankPost[]>([]);
-    const [accounts, setAccounts] = useState<CafeAccount[]>([]);
+    const [, setAccounts] = useState<CafeAccount[]>([]);   // 로드는 유지(다른 집계용), 누적발행엔 미사용
     const [deployTargets, setDeployTargets] = useState<DeployDashTarget[]>([]);
     const [loading, setLoading] = useState(true);
     const [open, setOpen] = useState<Record<string, boolean>>({}); // 업체별 드롭다운 펼침
@@ -82,18 +82,12 @@ export function CafeDashboardTab() {
 
     // 진행(실적) = 수동 베이스라인(done_count) + 5위 24h 달성(top5_achieved). 관리시트·계약과 동일 기준.
     //   '누적 발행 글 수'(cumList)와 다름 — 계약 진행은 24h 유지 달성분만 +1.
-    const baseByBoard = useMemo(() => {
-        const m = new Map<string, number>();
-        for (const a of accounts) m.set(a.board_short || '', (m.get(a.board_short || '') || 0) + (a.done_count || 0));
-        return m;
-    }, [accounts]);
     const achievedCount = (b: string) => posts.filter((p) => boardKey(p) === b && p.top5_achieved_at && !p.top5_seeded).length;
-    const siljeok = (b: string) => (baseByBoard.get(b) || 0) + achievedCount(b);
 
     const KPI_TARGETS = targets.filter((t) => t.kpi !== false); // 오늘 발행 KPI 카드 대상(누수상담소=자사 운영 제외)
     const todayTotal = KPI_TARGETS.reduce((s, t) => s + todayCount(t.board), 0);
     const goalTodayTotal = KPI_TARGETS.reduce((s, t) => s + t.daily, 0);
-    const cumGrand = targets.reduce((s, t) => s + siljeok(t.board), 0);
+    const cumGrand = targets.reduce((s, t) => s + cumList(t.board).length, 0);   // 누적 발행 = 실제 발행 글 수(즉시 반영)
 
     if (loading) {
         return <div className="rounded-xl border border-[#e2e8f0] bg-white px-6 py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
@@ -141,24 +135,23 @@ export function CafeDashboardTab() {
                 <div className="grid gap-2">
                     {targets.map((t) => {
                         const bp = cumList(t.board);
-                        const done = siljeok(t.board);        // 진행(실적) = base + 24h달성
-                        const ach = achievedCount(t.board);   // 이번 추적분 달성(+N)
+                        const pubN = bp.length;               // 누적 발행 = 실제 발행 글 수(발행 즉시 반영)
+                        const ach = achievedCount(t.board);   // 5위 24h 유지 달성분(참고)
                         const okey = `cum:${t.board}`;
                         const isOpen = !!open[okey];
                         const st = BOARD_STYLE[t.board] || { bg: '#f8fafc', fg: '#475569' };
-                        const complete = done >= t.goal;
+                        const complete = pubN >= t.goal;
                         return (
                             <div className="rounded-lg border border-[#eef0f2]" key={t.board}>
                                 <button type="button" onClick={() => setOpen((o) => ({ ...o, [okey]: !o[okey] }))}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f8fafc]" disabled={bp.length === 0}>
                                     <span className={`text-[9px] text-[#94a3b8] transition-transform ${isOpen ? 'rotate-90' : ''}`}>▶</span>
                                     <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: st.bg, color: st.fg }}>{t.board}</span>
-                                    <span className="text-[13px] font-bold text-[#334155]">{done}건</span>
+                                    <span className="text-[13px] font-bold text-[#334155]">{pubN}건</span>
                                     <span className="text-[11px] font-semibold text-[#94a3b8]" title="계약 총 발행건수(목표)">/ 총 {t.goal}건</span>
-                                    {ach > 0 ? <span className="text-[11px] font-bold text-[#16a34a]">(+{ach})</span> : null}
-                                    <span className="text-[11px] text-[#cbd5e1]" title="실제 게시된 글 수(추적)">· 글 {bp.length}</span>
+                                    {ach > 0 ? <span className="text-[11px] font-bold text-[#16a34a]" title="5위 24시간 유지 달성분(참고)">달성 {ach}</span> : null}
                                     {complete ? <span className="text-[11px] font-bold text-[#15803d]">✓ 완료</span> : null}
-                                    {bp.length === 0 ? <span className="ml-auto text-[11px] text-[#cbd5e1]">발행 없음</span> : null}
+                                    {pubN === 0 ? <span className="ml-auto text-[11px] text-[#cbd5e1]">발행 없음</span> : null}
                                 </button>
                                 {isOpen && bp.length ? (
                                     <div className="overflow-x-auto border-t border-[#eef0f2] px-3 py-2">
