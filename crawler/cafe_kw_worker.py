@@ -496,7 +496,7 @@ def process(req):
             continue
         seen.add(nk)
         cached = _cache_get(kw)
-        if cached is not None:
+        if cached is not None and _cache_trust(cached):   # prescan 위음성은 불신 → 아래 라이브 재검증
             r = {"has_section": cached.get("has_section"), "theme": cached.get("theme"),
                  "verdict": cached.get("verdict"), "rows": cached.get("cafes") or []}
         elif scraped >= MAX_LIVE:
@@ -532,7 +532,7 @@ def process(req):
                 continue
             seen.add(nk)
             cached = _cache_get(kw)
-            if cached is not None:
+            if cached is not None and _cache_trust(cached):   # prescan 위음성은 불신 → 아래 라이브 재검증
                 r = {"has_section": cached.get("has_section"), "theme": cached.get("theme"),
                      "verdict": cached.get("verdict"), "rows": cached.get("cafes") or []}
             elif scraped >= MAX_LIVE:
