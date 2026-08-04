@@ -12,10 +12,10 @@ export function r2Urls(bucket: string, paths: string[]): string[] {
     return paths.filter(Boolean).map((p) => r2Url(bucket, p));
 }
 
-// 업로드 — 이미지 소스(dataURL/URL) → R2. 성공 시 저장 path(버킷 접두 없는 원래 path) 반환.
-export async function r2Upload(bucket: string, path: string, src: string, contentType = 'image/jpeg'): Promise<string | null> {
+// 업로드 — 이미지 소스(dataURL/URL 문자열 또는 Blob) → R2. 성공 시 저장 path(버킷 접두 없는 원래 path) 반환.
+export async function r2Upload(bucket: string, path: string, src: string | Blob, contentType = 'image/jpeg'): Promise<string | null> {
     try {
-        const blob = await (await fetch(src)).blob();
+        const blob = typeof src === 'string' ? await (await fetch(src)).blob() : src;
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
         if (!token) return null;
