@@ -482,6 +482,22 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                             </div>
                         </div>
                         {reqMsg ? <span className="text-[12px] font-semibold text-[#166534]">{reqMsg}</span> : null}
+                        {/* 발행 예정 큐 미리보기 — 다음 발행 시 이 순서로 올라갈 키워드 */}
+                        <div className="mt-1 rounded-lg border border-[#c7d2fe] bg-white p-2.5">
+                            <div className="mb-1.5 text-[11px] font-bold text-[#4338ca]">🕒 발행 예정 큐 — 다음 {pick}건 <span className="font-normal text-[#94a3b8]">(정보성/후기성 누르면 이 순서로 발행됩니다)</span></div>
+                            {unused.length ? (
+                                <ol className="grid gap-1">
+                                    {unused.slice(0, dailyCount).map((kw, i) => (
+                                        <li key={kw} className="flex items-center gap-2 rounded-md bg-[#f5f3ff] px-2.5 py-1 text-[12px]">
+                                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#7c3aed] text-[10px] font-bold text-white">{i + 1}</span>
+                                            <span className="font-semibold text-[#4338ca]">{kw}</span>
+                                            <span className="ml-auto text-[10px] text-[#94a3b8]">발행 예정</span>
+                                        </li>
+                                    ))}
+                                </ol>
+                            ) : <div className="py-1 text-center text-[11px] text-[#94a3b8]">미사용 키워드 없음 — finder로 추가하세요.</div>}
+                            {pendN ? <div className="mt-1.5 text-[10px] font-semibold text-[#b45309]">진행중 {pendN}건은 SUB2가 순차 게시 중…</div> : null}
+                        </div>
                     </div>
                 );
             })()}
