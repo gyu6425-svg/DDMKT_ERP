@@ -48,17 +48,18 @@ export async function launchLogin(profile: string, port: string, url?: string): 
 
 // 고객 스튜디오 '네이버 로그인' — SUB2 브릿지가 client_id 전용 크롬(포트/프로필 고정)을 띄운다.
 //   담당자가 그 창에서 직접 로그인(자동입력 안 함=봇 방지). 127.0.0.1 사용(localhost→::1 IPv6 미바인딩 회피).
-export async function customerLogin(clientId: string): Promise<{ ok: boolean; error?: string }> {
+export async function customerLogin(clientId: string): Promise<{ ok: boolean; error?: string; reached?: boolean }> {
     try {
         const r = await fetch(`${BRIDGE}/api/customer/login`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ client_id: clientId }),
         });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok || d.ok === false) return { ok: false, error: d.error || `HTTP ${r.status}` };
-        return { ok: true };
+        // reached=true: 브릿지에 도달함(응답 받음). ok=false면 크롬 실행 실패(프로필 잠금·포트충돌 등) — d.error 로 사유.
+        if (!r.ok || d.ok === false) return { ok: false, error: d.error || `HTTP ${r.status}`, reached: true };
+        return { ok: true, reached: true };
     } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        return { ok: false, error: e instanceof Error ? e.message : String(e), reached: false };
     }
 }
 

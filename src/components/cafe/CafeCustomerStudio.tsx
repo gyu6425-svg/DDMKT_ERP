@@ -340,7 +340,9 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                             setLoginBusy(false);
                             setLoginMsg(r.ok
                                 ? '전용 크롬을 띄웠습니다 — 뜬 창에서 직접 로그인하세요.'
-                                : `브릿지 연결 실패 — 발행 프로그램(SUB2)이 켜져 있는지 확인하세요. 로컬에서 접속해야 합니다. (${r.error || '연결 불가'})`);
+                                : r.reached
+                                    ? `크롬 실행 실패 — ${r.error || '알 수 없음'} (이미 열린 그 고객 크롬이 있으면 닫고 다시 시도하세요)`
+                                    : `브릿지 연결 실패 — 발행 프로그램(SUB2)이 켜져 있는지·로컬에서 접속했는지 확인하세요. (${r.error || '연결 불가'})`);
                         }}>
                         {loginBusy ? '실행 중…' : '네이버 로그인 (담당자 수동)'}
                     </button>
