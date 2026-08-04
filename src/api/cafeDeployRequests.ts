@@ -117,8 +117,8 @@ export async function uploadDeployPhoto(
     clientId: string, batch: string, type: 'main' | 'real' | 'banner', idx: number, blob: Blob,
 ): Promise<{ path: string | null; error: string | null }> {
     const path = `${clientId}/${batch}/${type}_${idx}.jpg`;
-    const ok = await r2Upload('deploy-intake', path, blob, 'image/jpeg');   // R2(egress 회피)
-    return { path: ok, error: ok ? null : '이미지 업로드 실패' };
+    const res = await r2Upload('deploy-intake', path, blob, 'image/jpeg');   // R2(egress 회피) — 실패 사유 그대로 전달
+    return { path: res.path, error: res.error };
 }
 
 // 저장 경로 → 조회 URL(/api/img, CDN 캐시). 서명URL 불필요 → Supabase 트래픽 0.

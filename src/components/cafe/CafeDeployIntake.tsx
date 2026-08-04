@@ -255,7 +255,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     setMsg(`사진 업로드 중… (${g} ${i + 1}/${files[g].length})`);
                     const blob = await compressImage(files[g][i]);
                     const { path, error } = await uploadDeployPhoto(clientId, batch, g, i, blob);
-                    if (error || !path) throw new Error(error || '업로드 실패');
+                    if (error || !path) throw new Error(`${g} ${i + 1}번째 — ${error || '업로드 실패'}`);
                     photos[g].push(path);
                 }
             }

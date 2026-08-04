@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { r2Upload, r2Urls } from './imageStore';
+import { r2Upload, r2Urls, type UploadResult } from './imageStore';
 
 // 카페 발행 스튜디오 업체별 저장 설정 — '값 저장하기'. 전제: docs/cafe-studio-settings.sql
 //   업체명·업종·홈페이지·유형 + 실사/마지막배너(storage 경로). client_id 당 1행(upsert).
@@ -53,8 +53,9 @@ export async function updateKeywordPool(clientId: string, pool: string[]) {
     return { error };
 }
 
-// dataURL/URL(이미지 소스) → R2(cafe-images) 업로드 → 저장 경로 반환. (Egress 회피)
-export async function uploadStudioImage(clientId: string, kind: 'photos' | 'banners' | 'main_banner', idx: number, src: string): Promise<string | null> {
+// dataURL/URL(이미지 소스) → R2(cafe-images) 업로드 → {path, error}. (Egress 회피)
+//   실패 사유(error)를 그대로 반환 — 호출부에서 반드시 노출(무음 손실 금지).
+export async function uploadStudioImage(clientId: string, kind: 'photos' | 'banners' | 'main_banner', idx: number, src: string): Promise<UploadResult> {
     const path = `studio-settings/${clientId}/${kind}_${idx}.jpg`;
     return r2Upload('cafe-images', path, src);
 }

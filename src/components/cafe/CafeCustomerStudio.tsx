@@ -98,10 +98,20 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         if (!clientId) return;
         setSavingSettings(true); setSettingsMsg('');
         try {
-            // 이미지 저장 — 이미 저장된 건(R2 URL) 재사용, 새 이미지(dataURL)만 R2 업로드. 그룹별 병렬로 빠르게.
-            const persist = (list: string[], kind: 'main_banner' | 'photos' | 'banners') =>
-                Promise.all(list.map(async (src, i) => studioSavedPath(src) ?? await uploadStudioImage(clientId, kind, i, src)))
-                    .then((arr) => arr.filter((p): p is string => !!p));
+            // 이미지 저장 — 이미 저장된 건(R2 URL) 재사용, 새 이미지(dataURL)만 R2 업로드.
+            //   ⚠️ 업로드 실패는 삼키지 않고 즉시 throw — 어느 사진이 왜 실패했는지 노출하고 저장 자체를 중단한다.
+            //   (실패를 무시하고 저장하면 DB엔 경로만 남고 R2엔 파일이 없어 근본 혼란이 된다.)
+            const persist = async (list: string[], kind: 'main_banner' | 'photos' | 'banners') => {
+                const out: string[] = [];
+                for (let i = 0; i < list.length; i += 1) {
+                    const saved = studioSavedPath(list[i]);
+                    if (saved) { out.push(saved); continue; }
+                    const res = await uploadStudioImage(clientId, kind, i, list[i]);
+                    if (res.error || !res.path) throw new Error(`사진 업로드 실패 (${kind} ${i + 1}번째): ${res.error ?? '알 수 없는 오류'}`);
+                    out.push(res.path);
+                }
+                return out;
+            };
             const totalImgs = mainBanner.length + photos.length + banners.length;
             if (totalImgs) setSettingsMsg(`사진 ${totalImgs}장 업로드 중…`);
             const [mainPaths, photoPaths, bannerPaths] = await Promise.all([
@@ -109,11 +119,6 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 persist(photos, 'photos'),
                 persist(banners, 'banners'),
             ]);
-            // 업로드 실패로 일부 사진이 누락됐으면 알린다(무음 손실 방지).
-            if (mainPaths.length + photoPaths.length + bannerPaths.length < totalImgs) {
-                setSettingsMsg('일부 사진 업로드 실패 — 다시 시도해 주세요.');
-                return;
-            }
             const { error } = await saveStudioSettings({
                 client_id: clientId, brand: brand || null, business: business || null, homepage: linkUrl || null,
                 deploy_type: '키워드형', main_banner: mainPaths, photos: photoPaths, banners: bannerPaths,
