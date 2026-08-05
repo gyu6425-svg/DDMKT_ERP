@@ -55,7 +55,8 @@ export async function enqueueGenRequests(companyKey: string, keywords: string[],
 //   done=발행됨 · pending/claimed/processing=진행중 · 그 외=미사용. 가장 진행된 상태 유지.
 export async function getGenRequestStatus(clientId: string): Promise<Record<string, string>> {
     const { data } = await supabase.from('cafe_gen_requests')
-        .select('keyword,status').eq('client_id', clientId);
+        .select('keyword,status').eq('client_id', clientId)
+        .neq('status', 'held');   // 중단(held)은 '발행 안 한 것'으로 간주 — 키워드가 미사용으로 되돌아간다
     const RANK: Record<string, number> = { done: 3, processing: 2, claimed: 2, pending: 1, fail: 0 };
     const m: Record<string, string> = {};
     for (const r of (data ?? []) as { keyword: string | null; status: string }[]) {
@@ -82,7 +83,8 @@ export type GenQueueSummary = {
 export async function getGenQueueSummary(clientId: string): Promise<GenQueueSummary> {
     const { data } = await supabase.from('cafe_gen_requests')
         .select('keyword,status,claimed_at,done_at,reason')
-        .eq('client_id', clientId);
+        .eq('client_id', clientId)
+        .neq('status', 'held');   // 중단분은 대기·발행중·완료·실패 어디에도 안 보인다(SUB2 규약)
     const rows = (data ?? []) as { keyword: string | null; status: string; claimed_at: string | null; done_at: string | null; reason: string | null }[];
     const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
     const out: GenQueueSummary = { publishing: [], pending: 0, doneToday: 0, failed: [] };
@@ -99,6 +101,34 @@ export async function getGenQueueSummary(clientId: string): Promise<GenQueueSumm
         }
     }
     return out;
+}
+
+// 발행 중단 — 그 업체의 '대기(pending)' 요청만 held 로. 반환=중단된 건수.
+//   ⚠️ 이미 claimed(크롬에서 작성 중)인 건은 대상 아님 — 그 1건은 끝까지 진행된다.
+//      즉 "이후 대기건을 멈춘다" 개념(중간 강제중단은 크롬 프로세스를 죽여야 해서 미지원).
+//   held 는 발행 안 한 것으로 간주 → 모든 목록·카운트에서 제외되고 키워드는 미사용으로 되돌아간다.
+export async function holdGenRequests(clientId: string): Promise<{ count: number; error: string | null }> {
+    const { data, error } = await supabase.from('cafe_gen_requests')
+        .update({ status: 'held', reason: '사용자 중단' })
+        .eq('client_id', clientId).eq('status', 'pending')
+        .select('id');
+    return { count: (data ?? []).length, error: error?.message ?? null };
+}
+
+// 중단 재개 — held 를 pending 으로 되돌린다.
+export async function resumeGenRequests(clientId: string): Promise<{ count: number; error: string | null }> {
+    const { data, error } = await supabase.from('cafe_gen_requests')
+        .update({ status: 'pending', reason: null })
+        .eq('client_id', clientId).eq('status', 'held')
+        .select('id');
+    return { count: (data ?? []).length, error: error?.message ?? null };
+}
+
+// 중단 보관분 건수 — 재개 버튼 노출용(메인 발행 목록엔 절대 안 넣는다).
+export async function countHeldGenRequests(clientId: string): Promise<number> {
+    const { data } = await supabase.from('cafe_gen_requests')
+        .select('id').eq('client_id', clientId).eq('status', 'held');
+    return (data ?? []).length;
 }
 
 // 아직 발행 안 된(예약) 요청 — 잔여 토큰 즉시 차감용. pending/claimed/processing = 토큰 예약.

@@ -6,7 +6,7 @@ import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudi
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
-import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, publishTargetFor, type GenQueueSummary } from '../../api/cafeGenRequests';
+import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, publishTargetFor, type GenQueueSummary } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { customerLogin } from '../../api/nusu2Bridge';
@@ -61,12 +61,25 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     };
     const [genStatus, setGenStatus] = useState<Record<string, string>>({});
     const [queue, setQueue] = useState<GenQueueSummary | null>(null);   // 하단 상태바(발행중/대기/오늘완료/실패)
+    const [heldN, setHeldN] = useState(0);        // 중단 보관분(재개 버튼용) — 메인 목록엔 안 넣는다
+    const [holdBusy, setHoldBusy] = useState(false);
     const [dailyCount, setDailyCount] = useState(1);
     async function loadGenStatus() {
         if (!clientId) return;
-        const [m, q] = await Promise.all([getGenRequestStatus(clientId), getGenQueueSummary(clientId)]);
-        setGenStatus(m); setQueue(q);
+        const [m, q, h] = await Promise.all([getGenRequestStatus(clientId), getGenQueueSummary(clientId), countHeldGenRequests(clientId)]);
+        setGenStatus(m); setQueue(q); setHeldN(h);
     }
+    // 발행 중단 / 재개 — 대기(pending)만 held 로 보류. 진행 중(claimed) 1건은 끝까지 진행된다.
+    const toggleHold = async (resume: boolean) => {
+        if (!clientId) return;
+        setHoldBusy(true);
+        const r = resume ? await resumeGenRequests(clientId) : await holdGenRequests(clientId);
+        setHoldBusy(false);
+        setReqMsg(r.error ? `실패: ${r.error}`
+            : resume ? `중단분 ${r.count}건을 다시 대기열에 넣었습니다.`
+                : `대기 ${r.count}건 발행을 중단했습니다.${queue?.publishing.length ? ' (진행 중 1건은 끝까지 게시됩니다)' : ''}`);
+        await loadGenStatus();
+    };
     // 진행중(발행 중)인 요청이 있으면 20초마다 상태 자동 갱신 → 현재 발행건 게이지 실시간 반영.
     useEffect(() => {
         const active = Object.values(genStatus).some((s) => ['pending', 'claimed', 'processing', 'posted'].includes(s));
@@ -682,6 +695,14 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                         <span className="text-[#0369a1]">대기 {queue.pending}</span>
                                         <span className="text-[#16a34a]">오늘완료 {queue.doneToday}</span>
                                         <span className={queue.failed.length ? 'font-semibold text-[#dc2626]' : 'text-[#94a3b8]'}>실패 {queue.failed.length}</span>
+                                        {/* 발행 중단 — 대기건만 보류(진행 중 1건은 끝까지 게시). 중단분은 목록·카운트에서 사라진다. */}
+                                        {queue.pending ? (
+                                            <button type="button" disabled={holdBusy} onClick={() => void toggleHold(false)}
+                                                className="ml-auto rounded border border-[#fecaca] bg-white px-2 py-0.5 text-[10px] font-bold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
+                                                title="대기 중인 발행을 멈춥니다. 이미 게시 중인 1건은 끝까지 진행됩니다.">
+                                                {holdBusy ? '처리 중…' : '■ 발행 중단'}
+                                            </button>
+                                        ) : null}
                                     </div>
                                     {queue.publishing.map((x) => (
                                         <div key={x.keyword} className="mt-1 truncate text-[10px] text-[#7c3aed]">▶ {x.keyword} 게시 중…</div>
@@ -689,6 +710,16 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                     {queue.failed.slice(0, 3).map((x, i) => (
                                         <div key={i} className="mt-1 truncate text-[10px] text-[#dc2626]" title={x.reason || ''}>✖ {x.keyword} — {x.reason || '실패'}</div>
                                     ))}
+                                </div>
+                            ) : null}
+                            {/* 중단 보관분 — 발행 목록·카운트엔 넣지 않고 여기서만 알린다(재개 가능). */}
+                            {heldN ? (
+                                <div className="mt-1.5 flex items-center gap-2 rounded-md border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-2 py-1 text-[10px] text-[#64748b]">
+                                    <span>중단해 둔 발행 {heldN}건 (목록에서 제외됨)</span>
+                                    <button type="button" disabled={holdBusy} onClick={() => void toggleHold(true)}
+                                        className="ml-auto rounded border border-[#c7d2fe] bg-white px-2 py-0.5 font-bold text-[#4338ca] hover:bg-[#eef2ff] disabled:opacity-50">
+                                        ▶ 발행 재개
+                                    </button>
                                 </div>
                             ) : null}
                             {/* 현재 발행건 게이지 — 진행중 1건의 단계(접수→작성·게시→완료)를 실시간 표시 */}
