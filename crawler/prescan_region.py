@@ -165,7 +165,7 @@ def cache_put(kw, r):
         "keyword": kw, "has_section": bool(r.get("has_section")), "theme": r.get("theme"),
         "verdict": r.get("verdict"), "volume": 0,
         "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"],
-        "scanned_by": SCANNED_BY,
+        "scanned_by": SCANNED_BY + "/m",   # 판정 호스트 기록(m.search 고정) — 워커 _cache_trust 가 이 마커를 요구한다
         "scanned_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
     try:

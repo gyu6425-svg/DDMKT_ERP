@@ -91,7 +91,9 @@ def _cache_put(kw, r, vol):
         "keyword": kw, "has_section": bool(r.get("has_section")), "theme": r.get("theme"),
         "verdict": r.get("verdict"), "volume": vol,
         "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"],
-        "scanned_by": WID,
+        # 판정 호스트를 기록한다(HOST_TAG='/m'). 인기탭 유무는 (키워드,호스트)의 결정적 함수라,
+        #   어느 호스트로 판정했는지 모르면 그 행은 신뢰할 수 없다(옛 로테이션 시절 행이 그렇다).
+        "scanned_by": WID + HOST_TAG,
         "scanned_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),  # 재스캔 시각 갱신(음성 TTL 판정용)
     }
     try:
@@ -300,6 +302,10 @@ NEG_TTL_DAYS = 21
 #   PID 목록으로 거르는 대신 시각 기준으로 판정해야 누락 없이 걸러진다. 양성은 영향 없음.
 FIX_CUTOFF_UTC = "2026-08-04T11:00:00+00:00"
 
+# 판정 호스트 마커 — scanned_by 끝에 붙인다(스키마 변경 없이 기록). 현재 판정은 m.search(모바일) 고정.
+#   이 마커가 없는 행 = 옛 PC/모바일 로테이션 시절 판정이라 어느 호스트인지 알 수 없다 → 신뢰 불가.
+HOST_TAG = "/m"
+
 
 def _cache_trust(c):
     """재스캔 시 이 캐시를 그대로 신뢰할지 — 신뢰=건너뜀, 불신=라이브 재검증.
@@ -310,6 +316,12 @@ def _cache_trust(c):
           - 그 외 음성도 NEG_TTL_DAYS(21일) 지나면 불신 → 재검증(네이버가 섹션 추가하는 시간차 대응).
           지연 재검증이라 블록 부담 없음. 재스캔되면 _cache_put이 scanned_by=WID·scanned_at 갱신 → 자가치유."""
     if str(c.get("verdict", "")) == "저검색":
+        return False
+    # ★ 판정 호스트가 기록되지 않은 행(옛 PC/모바일 로테이션 시절)은 양성·음성 모두 신뢰하지 않는다.
+    #   · 음성: PC로 판정됐으면 위음성일 수 있다(실측 m/pc 불일치 5.5%, 캐시 음성 재검증 시 3.5%가 실제 양성).
+    #   · 양성: PC에서만 잡힌 것이면 팔아도 measure_cafe_rank(m.search 전용)가 측정 못 해 미달성이 된다.
+    #   재스캔되면 모바일 판정으로 HOST_TAG 가 붙어 자가치유된다.
+    if not str(c.get("scanned_by") or "").endswith(HOST_TAG):
         return False
     if _is_pop(c):
         return True
@@ -411,7 +423,7 @@ def process_region(req, product):
     cf = bool(p._USE_CF)
     # CF는 분산IP(요청이 CF 엣지에서 나감)라 사무실 IP 보호용 긴 스로틀이 불필요.
     #   실측(2026-08-04): CF classify 1건 평균 0.77s, 무-gap 직렬 20건 13s·에러 0. 옛 1.5s는 벽시계의 66%가 순수 대기였다.
-    gap = 0.4 if cf else SCAN_GAP
+    gap = 0.8 if cf else SCAN_GAP   # CF 실측: 5.2 req/s 무사고 / 14 req/s 에서 naver 403 차단 → 프로세스 전체 ≤4 req/s 유지
     # ★ 완전성 우선(누락 금지): 검색량으로 스캔을 건너뛰지 않는다 — 저검색이라도 인기탭 있는 니치(피로연·예식 등)
     #   포착. 검색량은 판정 '후' 표시·정렬용으로만 조회. 판정결과(인기탭/섹션없음)는 캐시되어 재스캔은 즉시.
     # 후보 (tok, kw) — tok 은 오탐필터의 지역코어용. 중복 제거.
@@ -462,7 +474,7 @@ def process_region(req, product):
 
     # ② 라이브 패스 — CF는 분산IP(요청이 CF 엣지에서 나감)라 병렬이 안전하다.
     #    실측(2026-08-04): 병렬x6 20건 2.1s·에러0 (직렬 무gap 13s 대비 6배). 사무실 직접 IP는 차단 보호로 직렬 유지.
-    PAR = 6 if cf else 1
+    PAR = 4 if cf else 1
     ex = ThreadPoolExecutor(max_workers=PAR) if PAR > 1 else None
     try:
         for i in range(0, len(to_scan), PAR):
@@ -508,7 +520,7 @@ def process_list(req, payload):
     cf = bool(p._USE_CF)
     # CF는 분산IP(요청이 CF 엣지에서 나감)라 사무실 IP 보호용 긴 스로틀이 불필요.
     #   실측(2026-08-04): CF classify 1건 평균 0.77s, 무-gap 직렬 20건 13s·에러 0. 옛 1.5s는 벽시계의 66%가 순수 대기였다.
-    gap = 0.4 if cf else SCAN_GAP
+    gap = 0.8 if cf else SCAN_GAP   # CF 실측: 5.2 req/s 무사고 / 14 req/s 에서 naver 403 차단 → 프로세스 전체 ≤4 req/s 유지
     MAX_LIVE = 60 if cf else 40
     total = len(kws)
     cache = _cache_get_many(kws)               # 재판정 즉시(배치 캐시)
