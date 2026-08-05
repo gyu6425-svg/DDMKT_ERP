@@ -377,7 +377,9 @@ function ContractAddModal({
     const cardVat = cardSale ? (cardVatInput.trim() ? Number(onlyDigits(cardVatInput)) || 0 : Math.round(cardSupply * 0.1)) : 0;
     const cardFeeAmt = cardSale ? Number(onlyDigits(cardFeeInput)) || 0 : 0;
     const cardTotal = cardSupply + cardVat;          // 카드 결제 총액(공급가+부가세)
-    const saleAmt = cardSale ? cardSupply : amt;     // 저장/순매출 기준 공급가(카드면 수정값)
+    // 카드 수수료는 공급가·실매출에서 차감해 저장 — 공급가액=공급가−수수료, 실매출=카드합계−수수료(실수령), VAT는 그대로 유지.
+    const saleAmt = cardSale ? cardSupply - cardFeeAmt : amt;   // 저장 공급가(카드=수수료 차감)
+    const cardNet = cardTotal - cardFeeAmt;                     // 실매출(VAT포함)=실수령
 
     const pickCat = (key: string) => {
         setCatKey(key);
@@ -442,7 +444,7 @@ function ContractAddModal({
                 note: isService && serviceNote.trim() ? serviceNote.trim() : null, // 서비스 내용 메모
                 no_vat: noVat, // 부가세 없음(현금)
                 payment_method: cardSale ? 'card' : null, // 카드매출(공급가/부가세 분리 표기)
-                sale_total: cardSale ? cardTotal : null,  // 카드 결제 총액(공급가+부가세) → 실매출 정확 반영
+                sale_total: cardSale ? cardNet : null,    // 실매출(VAT포함)=카드합계−수수료(실수령)
                 card_fee: cardSale ? cardFeeAmt : null,   // 카드 수수료(건별 직접 입력)
             },
         ]);
@@ -868,9 +870,9 @@ function ContractAddModal({
                             <div className="mt-2 text-sm font-semibold text-[#0f172a]">
                                 카드합계 <span className="text-[#1e40af]">{cardTotal.toLocaleString('ko-KR')}</span> · 수수료{' '}
                                 <span className="text-[#c2410c]">{cardFeeAmt.toLocaleString('ko-KR')}</span> · 실수령{' '}
-                                <span className="text-[#7c3aed]">{(cardTotal - cardFeeAmt).toLocaleString('ko-KR')}</span> · 외주{' '}
+                                <span className="text-[#7c3aed]">{cardNet.toLocaleString('ko-KR')}</span> · 외주{' '}
                                 <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
-                                <span className="text-[#059669]">{(saleAmt - outAmt - cardFeeAmt).toLocaleString('ko-KR')}</span>원
+                                <span className="text-[#059669]">{(saleAmt - outAmt).toLocaleString('ko-KR')}</span>원
                             </div>
                             <div className="mt-1 text-[11px] text-[#94a3b8]">공급가·부가세 수정 가능(부가세 기본 10%), 수수료는 건별 직접 입력. 매출=공급가 기준.</div>
                         </div>
@@ -2869,7 +2871,6 @@ export function ClientDetail({
     const totalReal = contracts.reduce((s, ct) => s + saleVat(ct.amount, ct.no_vat, ct.sale_total), 0);
     const totalSupply = contracts.reduce((s, ct) => s + (ct.amount || 0), 0); // 공급가(VAT 제외) 합계
     const totalOutsource = contracts.reduce((s, ct) => s + (ct.outsource || 0), 0); // 외주비 합계(받은·고정)
-    const totalCardFee = contracts.reduce((s, ct) => s + (ct.card_fee || 0), 0); // 카드매출 수수료 합계(순매출 차감)
     // 순매출 = 공급가(VAT 제외) − 외주비 정산 차액(예상 외주비 − 실제 사용). (차액 = outMargin, 아래에서 계산)
 
     // 외주비 정산 — 품목별로 받은 외주비(단가×계약수량) vs 실제 사용 외주비(완료분 소진).
@@ -2893,8 +2894,8 @@ export function ClientDetail({
     const receivedTotal = totalOutsource; // 예상(받은) 외주비 = 상단 외주비 합계
     const usedTotal = outsourceRows.reduce((s, r) => s + r.used, 0); // 실제 사용 = 진행 이력 합
     const outMargin = receivedTotal - usedTotal; // 차액 = 예상 − 사용(외주비 정산 섹션용)
-    // 순매출 = 공급가(VAT 제외) − 받은 외주비 − 카드매출 수수료. 실제 사용은 '외주비 정산'에서 별도 추적.
-    const netRevenue = totalSupply - receivedTotal - totalCardFee;
+    // 순매출 = 공급가(VAT 제외) − 받은 외주비. (카드 수수료는 공급가에 이미 차감돼 저장됨) 실제 사용은 '외주비 정산'에서 별도 추적.
+    const netRevenue = totalSupply - receivedTotal;
 
     // (외주비 정산 내역의 삭제 버튼은 제거 — 외주비/사용이력 삭제는 계약(카드/진행 이력)에서만)
     // 계약 내역 일괄삭제(임시 버튼) — 이 업체의 모든 계약행 제거. 되돌릴 수 없음.
