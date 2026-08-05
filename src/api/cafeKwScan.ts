@@ -137,8 +137,10 @@ export async function pollPlaceScan(
         const row = data as { status: string; result: KwResult[] | null; biz_name: string | null; note: string | null } | null;
         if (row) {
             if (opts?.onProgress && row.note) opts.onProgress(row.note, row.status);
-            if (['done', 'fail', 'error'].includes(row.status)) {
-                if (row.status !== 'done') throw new Error('인기탭 분석 실패');
+            // 워커는 실패 시 status='failed' 를 쓴다('fail' 아님 — 예전엔 안 잡혀 900초 타임아웃까지 매달렸다).
+            //   실패 사유(note)를 그대로 노출한다 — 차단으로 못 판정한 걸 '0건'처럼 보이게 하면 안 된다.
+            if (['done', 'failed', 'fail', 'error'].includes(row.status)) {
+                if (row.status !== 'done') throw new Error(row.note || '인기탭 분석 실패');
                 return { result: row.result || [], bizName: row.biz_name };
             }
         }

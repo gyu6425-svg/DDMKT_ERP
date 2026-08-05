@@ -306,6 +306,9 @@ FIX_CUTOFF_UTC = "2026-08-04T11:00:00+00:00"
 #   이 마커가 없는 행 = 옛 PC/모바일 로테이션 시절 판정이라 어느 호스트인지 알 수 없다 → 신뢰 불가.
 HOST_TAG = "/m"
 
+# 차단 감지 시 백오프(초). 실측: naver 가 CF egress 를 403 차단하면 100초 이상 지속됐다.
+BLOCK_BACKOFF = 150
+
 
 def _cache_trust(c):
     """재스캔 시 이 캐시를 그대로 신뢰할지 — 신뢰=건너뜀, 불신=라이브 재검증.
@@ -440,6 +443,7 @@ def process_region(req, product):
     cache = _cache_get_many([kw for _, kw in kws])  # 배치 캐시(재스캔 즉시)
 
     found, scraped, errs, capped = [], 0, 0, False
+    dead_chunks, aborted = 0, False   # 차단 감지(청크 전멸)·중단 여부
     # ① 캐시 패스(네트워크 0) — 신뢰 캐시로 이미 결론난 건 즉시 채택/스킵하고, 남은 것만 라이브 대상으로.
     to_scan = []
     for tok, kw in kws:
@@ -487,6 +491,21 @@ def process_region(req, product):
             except Exception:
                 pass
             results = list(ex.map(_scan_one, chunk)) if ex else [_scan_one(x) for x in chunk]
+            # 청크가 통째로 실패 = 차단 신호. 백오프 후 1회 재시도하고, 그래도 전멸이면 중단한다.
+            #   ★ 차단인데 '0건 완료'로 반환하면 고객에겐 '인기탭 없음'과 구별되지 않는다(조용한 미달).
+            if all(k == "err" for k, _ in results):
+                dead_chunks += 1
+                if dead_chunks == 1:
+                    time.sleep(BLOCK_BACKOFF)          # 실측: CF 차단은 100초 이상 지속 → 충분히 쉬고 재시도
+                    results = list(ex.map(_scan_one, chunk)) if ex else [_scan_one(x) for x in chunk]
+                    if all(k == "err" for k, _ in results):
+                        aborted = True
+                    else:
+                        dead_chunks = 0
+                else:
+                    aborted = True
+            else:
+                dead_chunks = 0
             for kind, item in results:
                 if kind == "err":
                     errs += 1
@@ -494,12 +513,20 @@ def process_region(req, product):
                 scraped += 1
                 if kind == "pop":
                     found.append(item)
+            if aborted:
+                break
             time.sleep(gap)                    # 청크 사이만 쉼(병렬이면 건당 실효 gap = gap/PAR)
     finally:
         if ex:
             ex.shutdown(wait=False)
     found.sort(key=lambda f: -(f.get("volume") or 0))
     scope = "동포함" if include_dong else "구시"
+    # 판정 못 한 조합이 많으면 '완료'로 위장하지 않는다 — 결과가 불완전함을 명시하고 failed 로 끝낸다.
+    unscanned = len(to_scan) - scraped
+    if aborted or errs > max(5, 0.15 * max(len(to_scan), 1)):
+        return _finish(req["id"], "failed", result=found, extra={"biz_name": product},
+                       note=f"⚠ 스캔 차단 — {unscanned}/{len(to_scan)}건 판정 못 함(오류 {errs}). "
+                            f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
     _finish(req["id"], "done", result=found, extra={"biz_name": product},
             note=f"{len(found)}건 · 스캔 {scraped}{' · 오류 ' + str(errs) if errs else ''} · {scope}{' · 상한초과' if capped else ''}")
     print(f"[{_ts()}][{req['id']}] 지역스캔 '{product}' {sidos} {scope} → 인기탭 {len(found)}건 · 스크랩 {scraped} · err {errs}", flush=True)
