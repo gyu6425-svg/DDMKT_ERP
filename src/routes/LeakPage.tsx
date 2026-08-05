@@ -33,7 +33,7 @@ export default function LeakPage() {
 
     if (!canSeeLeakErp(profile?.email)) {
         return (
-            <div className="p-6">
+            <div>
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-8 text-center">
                     <p className="text-sm font-semibold text-[#334155]">접근 권한이 없습니다</p>
                     <p className="mt-1 text-xs text-[#94a3b8]">누수탐지 ERP는 지정된 담당자만 이용할 수 있습니다.</p>
@@ -43,14 +43,8 @@ export default function LeakPage() {
     }
 
     return (
-        <div className="flex flex-col gap-4 p-4">
-            <div className="flex items-center justify-between gap-3">
-                <div>
-                    <h1 className="text-lg font-bold text-[#0f172a]">누수탐지 ERP</h1>
-                    <p className="text-xs text-[#94a3b8]">든든한누수탐지 · 상담 접수부터 정산까지</p>
-                </div>
-            </div>
-
+        <div className="flex flex-col gap-4">
+            {/* 제목은 Header 가 '누수탐지 ERP' 로 표시한다(중복 방지). 여기서는 탭부터. */}
             <div className="inline-flex w-fit rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-0.5 text-sm font-semibold">
                 {TABS.map((t) => (
                     <button

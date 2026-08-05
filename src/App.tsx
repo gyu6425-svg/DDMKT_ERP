@@ -154,14 +154,16 @@ function App() {
         isExternal && !currentPath.startsWith(externalHome) ? externalHome : currentPath;
     const currentRoute = routes.find((route) => route.path === effectivePath) ?? routes[0];
     const isBannerGeneratorActive = !isExternal && currentPath === '/banner-generator';
+    // 누수탐지 ERP = 회사 ERP와 별도 영역 — 사이드바 없이 누수 화면만 띄운다(상단 전환 탭으로 복귀).
+    const isLeakErp = effectivePath === '/leak';
 
     return (
         <>
             <UpdateBanner />
             <ProtectedRoute>
                 <ErpDataProvider>
-                    <Layout>
-                        {!isExternal ? (
+                    <Layout hideSidebar={isLeakErp}>
+                        {!isExternal && !isLeakErp ? (
                             <div hidden={!isBannerGeneratorActive}>
                                 <BannerGeneratorPage />
                             </div>

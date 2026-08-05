@@ -14,6 +14,7 @@ const pageTitles: Record<string, string> = {
     '/mypage': '내 페이지',
     '/admin': '관리자 페이지',
     '/portal': '고객 ERP',
+    '/leak': '누수탐지 ERP',
 };
 
 // 상단 제목 — pathname + ?sub 기준(내부 ?tab 무시). '대시보드' 글자는 메인에만.
