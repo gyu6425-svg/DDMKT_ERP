@@ -15,6 +15,9 @@ import { useAuth } from '../../hooks/useAuth';
 
 type MyJob = { id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string };
 const STATUS_KO: Record<string, string> = { pending: '대기', processing: '작성 중', posted: '게시됨(확인중)', done: '완료', fail: '실패' };
+// 자체발행 전환 업체(더맨·설고·더반·누수상담소) — 고정 라우팅 대신 든든한마케팅과 동일 dep_ 자기카페 UI/발행을 쓴다.
+//   전제(SUB2): 해당 계정 기존 발행(SUB1/자율) 중단 · board_url에 clubid · 전용포트 로그인. dep_ 폴러가 client_id로 자동 처리.
+const SELF_PUBLISH_KEYS = new Set(['theman', 'theman2', 'seolgo', 'seolgo2', 'theban', 'nusu']);
 
 // 파일 → dataURL(긴 변 1600px 축소).
 function fileToDataUrl(file: File): Promise<string> {
@@ -506,11 +509,13 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             {/* 발행 요청 보내기 — 고른 키워드를 발행PC 대기열(cafe_gen_requests)로. 원고·이미지는 그 PC가 자기 양식으로 생성·게시. */}
             {(() => {
                 const target = publishTargetFor(company);
-                // 고정업체(더반/누수 등)=우리 카페. 그 외(신규 업체, 모델B: 고객 자기 카페·자기 계정 → SUB2).
-                const isSelf = !target && !!clientId;   // client_id 만 있으면 신규 발행 가능(cafe_account 없어도)
+                // 자체발행 전환 업체(더맨·설고·더반·누수상담소)는 고정 target이 있어도 dep_ 자기카페 UI를 쓴다.
+                const forceSelf = company ? SELF_PUBLISH_KEYS.has(company) : false;
+                // 고정업체(전환 안 된 우리 카페 고정 라우팅)=fixed UI. 그 외/전환업체=모델B(자기 카페·자기 계정 → SUB2 dep_).
+                const isSelf = !!clientId && (!target || forceSelf);
                 if (!target && !isSelf) return null;
-                // ── 고정업체: 기존 단일 발행요청 ──
-                if (target) {
+                // ── 고정업체(전환 안 된 것만): 기존 단일 발행요청 ──
+                if (target && !isSelf) {
                     const n = selectedKw.size;
                     const sendFixed = async () => {
                         if (!n) { setReqMsg('finder에서 발행할 키워드를 고르세요.'); return; }
