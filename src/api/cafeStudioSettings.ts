@@ -19,6 +19,8 @@ export type StudioSettings = {
     board_name?: string | null; // 발행 게시판 이름
     board_url?: string | null;  // 발행 게시판 주소
     kakao_url?: string | null;  // 카카오톡 상담 링크
+    daily_cap?: number | null;       // 하루 최대 발행 수(1~10). SUB2 dep_ poller 소비. 전제: docs/cafe-publish-gap.sql
+    publish_gap_min?: number | null; // 발행 최소 간격(분). 0=무제한. SUB2 dep_ poller 소비.
 };
 
 export async function getStudioSettings(clientId: string) {
@@ -28,8 +30,14 @@ export async function getStudioSettings(clientId: string) {
 }
 
 export async function saveStudioSettings(s: StudioSettings) {
-    const { error } = await supabase.from('cafe_studio_settings')
-        .upsert({ ...s, updated_at: new Date().toISOString() }, { onConflict: 'client_id' });
+    const payload = { ...s, updated_at: new Date().toISOString() };
+    const { error } = await supabase.from('cafe_studio_settings').upsert(payload, { onConflict: 'client_id' });
+    // 발행텀·상한 컬럼(daily_cap/publish_gap_min)이 아직 없으면(SQL 미실행) 그 필드만 빼고 재시도 — 나머지 설정은 정상 저장.
+    if (error && /daily_cap|publish_gap_min|column|schema cache/i.test(error.message || '')) {
+        const { daily_cap: _dc, publish_gap_min: _pg, ...rest } = payload;
+        const retry = await supabase.from('cafe_studio_settings').upsert(rest, { onConflict: 'client_id' });
+        return { error: retry.error, gapColumnsMissing: !retry.error as boolean };
+    }
     return { error };
 }
 

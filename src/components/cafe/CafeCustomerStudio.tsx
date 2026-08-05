@@ -90,6 +90,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [showPw, setShowPw] = useState(false);
     const [boardName, setBoardName] = useState('');
     const [boardUrl, setBoardUrl] = useState('');
+    const [dailyCap, setDailyCap] = useState(5);   // 하루 최대 발행 수(1~10) — SUB2 dep_ poller 소비
+    const [gapMin, setGapMin] = useState(0);        // 발행 최소 간격(분). 0=제한 없음
     const [loginMsg, setLoginMsg] = useState('');   // '네이버 로그인' 버튼 결과 안내 — SUB2 브릿지 호출 성공/실패.
     const [loginBusy, setLoginBusy] = useState(false);
     const [naverLoggedIn, setNaverLoggedIn] = useState(false);   // 네이버 로그인 이력 있으면 버튼 색 변경
@@ -136,6 +138,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 deploy_type: '키워드형', main_banner: mainPaths, photos: photoPaths, banners: bannerPaths,
                 naver_id: naverId || null, naver_pw: naverPw || null, board_name: boardName || null, board_url: boardUrl || null,
                 kakao_url: kakaoUrl || null,
+                daily_cap: dailyCap, publish_gap_min: gapMin,
                 keyword_pool: poolKw.length ? poolKw : null, product_kw: productKw || null,
             });
             if (error) throw new Error(error.message);
@@ -147,7 +150,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         if (!clientId) return;
         await clearStudioSettings(clientId);
         setBrand(brandDefault); setBusiness(''); setLinkUrl(''); setPhotos([]); setBanners([]); setMainBanner([]);
-        setNaverId(''); setNaverPw(''); setBoardName(''); setBoardUrl(''); setKakaoUrl('');
+        setNaverId(''); setNaverPw(''); setBoardName(''); setBoardUrl(''); setKakaoUrl(''); setDailyCap(5); setGapMin(0);
         setSettingsSaved(false); setSettingsMsg('초기화됨');
     };
     const [selectedKw, setSelectedKw] = useState<Set<string>>(() => new Set());
@@ -249,6 +252,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             const bname = s?.board_name ?? req?.board_name; if (bname) setBoardName(bname);
             if (s?.board_url) setBoardUrl(s.board_url);
             if (s?.kakao_url) setKakaoUrl(s.kakao_url);
+            if (s?.daily_cap != null) setDailyCap(s.daily_cap);
+            if (s?.publish_gap_min != null) setGapMin(s.publish_gap_min);
             // 모델B 일별 발행 — 저장된 키워드 풀 + 제품키워드 + 현재 발행상태.
             if (s?.keyword_pool?.length) setPoolKw(s.keyword_pool);
             if (s?.product_kw) setProductKw(s.product_kw);
@@ -406,6 +411,23 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     <label className="grid gap-1 text-xs font-semibold text-[#475569]">글쓰기 주소
                         <input className={inputCls} onChange={(e) => setBoardUrl(e.target.value)} placeholder="카페에서 '글쓰기' 열었을 때 주소창 URL" value={boardUrl} />
                         <span className="text-[11px] font-normal text-[#94a3b8]">발행할 게시판에서 '글쓰기'를 눌러 열린 주소창 URL을 그대로 붙여넣으세요(게시판 목록 주소 아님).</span>
+                    </label>
+                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">하루 최대 발행 수
+                        <input className={inputCls} type="number" min={1} max={10} value={dailyCap}
+                            onChange={(e) => setDailyCap(Math.min(10, Math.max(1, Number(e.target.value) || 1)))} placeholder="1~10" />
+                        <span className="text-[11px] font-normal text-[#94a3b8]">이 수만큼 발행하면 그날은 중단 → 다음날 자동 재개.</span>
+                    </label>
+                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">발행 간격 <span className="font-normal text-[#94a3b8]">(발행 텀)</span>
+                        <select className={inputCls} value={gapMin} onChange={(e) => setGapMin(Number(e.target.value))}>
+                            <option value={0}>제한 없음</option>
+                            <option value={360}>6시간에 1건</option>
+                            <option value={720}>12시간에 1건</option>
+                            <option value={1440}>하루 1건</option>
+                            <option value={2880}>이틀 1건</option>
+                            <option value={5040}>3~4일 1건</option>
+                            <option value={10080}>1주 1건</option>
+                        </select>
+                        <span className="text-[11px] font-normal text-[#b45309]">⚠ 신규 카페는 대량발행 시 노출 역효과 — 간격을 넉넉히(1주 1~2건급) 잡으세요.</span>
                     </label>
                 </div>
                 {/* 네이버 로그인 — SUB2가 이 고객 전용 크롬을 띄우고 담당자가 직접 로그인(자동입력 안 함=봇 방지) */}
