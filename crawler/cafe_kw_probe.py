@@ -774,18 +774,25 @@ def _fetch_serp(kw):
     pc = (_serp_rr[0] % 2 == 1)
     _serp_rr[0] += 1
     fetch = _fetch_cf if _USE_CF else _fetch_direct
+    blocked = 0
     for p in (pc, not pc):  # 이번 차례 호스트, 실패 시 다른 호스트
         code, html = fetch(p, kw)
         if code == 200 and html:
             return 200, html
-    return 0, ""
+        if code in (403, 429):
+            blocked = code   # ★ 진짜 차단 신호를 보존 — 예전엔 무조건 0을 반환해 CF 일시실패와 구분이 안 됐다.
+    return blocked, ""       # 0 = 응답실패(네트워크·CF 콜드스타트), 403/429 = 실제 차단
 
 
 def _classify_live(kw):
     """실제 인기탭 스크랩 판정(캐시 미스 시만 호출). 호스트 로테이션 사용."""
     code, html = _fetch_serp(kw)
     if code != 200:
-        return {"kw": kw, "err": f"code {code}(차단?)", "has_section": False}
+        # 차단(403/429)과 단순 응답실패(0=네트워크·CF 콜드스타트)를 구분한다.
+        #   prescan 은 err 에 '차단'이 있을 때만 연속카운트로 배치를 중단하므로, 이 구분이 없으면
+        #   CF 일시실패 3번에 5시간짜리 배치가 죽는다(SUB4 실측: 어제 8건 중 다수가 code 0).
+        kind = "차단" if code in (403, 429) else "응답실패"
+        return {"kw": kw, "err": f"code {code}({kind})", "has_section": False}
     n_blocks = 0
     for b in c.extract_bootstrap_json(html):
         n_blocks += 1
