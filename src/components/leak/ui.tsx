@@ -16,11 +16,12 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 
 export function Card({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
     return (
-        <section className="rounded-xl border border-[#e2e8f0] bg-white p-4 shadow-sm">
-            {/* 제목은 줄어들 수 있게(min-w-0), 우측 컨트롤은 눌리지 않게(shrink-0) — 글자 세로 깨짐 방지. */}
+        <section className="min-w-0 rounded-xl border border-[#e2e8f0] bg-white p-4 shadow-sm">
+            {/* 제목은 줄어들 수 있게(min-w-0), 우측 컨트롤은 개별로는 안 눌리되 묶음은 접히게(flex-wrap).
+                안 그러면 좁은 폭에서 카드가 가로로 밀려 페이지 전체가 넘친다. */}
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="min-w-0 text-sm font-bold text-[#0f172a]">{title}</h2>
-                {right ? <div className="flex shrink-0 items-center gap-2">{right}</div> : null}
+                {right ? <div className="flex flex-wrap items-center justify-end gap-2">{right}</div> : null}
             </div>
             {children}
         </section>

@@ -165,7 +165,7 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
     // ── 상세 ──────────────────────────────────────────────────────────────
     if (opened) {
         return (
-            <div className="flex flex-col gap-4">
+            <div className="flex min-w-0 flex-col gap-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                         <Btn kind="ghost" onClick={() => setOpenPhone('')}>← 목록</Btn>
@@ -281,7 +281,7 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
     );
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
             <div className="flex flex-wrap gap-3">
                 <Kpi label="전체 고객" sub="연락처 기준" value={`${kpi.total}`} />
                 <Kpi label="작업완료" sub={`성사율 ${kpi.rate}%`} tone="green" value={`${kpi.done}`} />

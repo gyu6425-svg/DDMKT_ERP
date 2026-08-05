@@ -123,7 +123,7 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
     );
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
             <Card
                 title={`통장 원장 (입금 ${won(total.in)}원 · 출금 ${won(total.out)}원 · 잔액 ${won(opening + total.in - total.out)}원)`}
                 right={

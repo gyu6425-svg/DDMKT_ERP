@@ -95,7 +95,7 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
     );
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
             <div className="flex flex-wrap gap-3">
                 <Kpi label={ym ? `${ym} 작업` : '전체 작업'} sub="건" value={`${counts.all}`} />
                 <Kpi label="결제금액 합계" tone="amber" value={`${won(inMonth.reduce((a, r) => a + r.gross_amount, 0))}원`} />

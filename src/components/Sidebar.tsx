@@ -128,6 +128,8 @@ function Sidebar() {
     // 고객 ERP(/portal*)·기자단 ERP(/reporter)에서는 내부 메뉴를 숨기고 각 전용 메뉴만 보여준다.
     const isCustomerView = isCustomerViewPath;
     const isReporterView = currentPath.startsWith('/reporter');
+    // 누수탐지 ERP — 회사 ERP와 별도 영역이라 전용 메뉴만 보여준다(4인 전용, 페이지에서 게이트).
+    const isLeakView = currentPath.startsWith('/leak');
 
     return (
         <aside
@@ -147,7 +149,14 @@ function Sidebar() {
             </div>
 
             <nav className="grid gap-[18px] max-[800px]:grid-cols-2">
-                {isReporterView ? (
+                {isLeakView ? (
+                    <>
+                        {renderNavItem({ path: '/leak', label: '고객 관리' })}
+                        {renderNavItem({ path: '/leak/jobs', label: '작업 · 정산' })}
+                        {renderNavItem({ path: '/leak/ledger', label: '통장 원장' })}
+                        {renderNavItem({ path: '/leak/outsourcing', label: '외주 발주' })}
+                    </>
+                ) : isReporterView ? (
                     <>{renderNavItem({ path: '/reporter', label: '기자단 대시보드' })}</>
                 ) : isCustomerView ? (
                     <>

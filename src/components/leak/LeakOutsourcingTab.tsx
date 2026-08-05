@@ -133,7 +133,7 @@ export default function LeakOutsourcingTab({ notify }: { notify: (m: string) => 
     );
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
             <Card
                 title={`외주 발주 (발주 ${stat.orderCount}건 · 환불 ${stat.refundCount}건 · VAT포함 합계 ${won(stat.vat)}원)`}
                 right={

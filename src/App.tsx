@@ -60,7 +60,11 @@ const routes = [
     { path: '/portal/video', element: <CustomerCategoryPage /> },
     { path: '/portal/blog', element: <CustomerCategoryPage /> },
     { path: '/reporter', element: <ReporterPortalPage /> },
-    { path: '/leak', element: <LeakPage /> }, // 누수탐지 ERP(4인 전용 — 페이지 자체에서 게이트)
+    // 누수탐지 ERP(4인 전용 — 페이지 자체에서 게이트). 메뉴 전환은 사이드바.
+    { path: '/leak', element: <LeakPage section="customers" /> },
+    { path: '/leak/jobs', element: <LeakPage section="jobs" /> },
+    { path: '/leak/ledger', element: <LeakPage section="ledger" /> },
+    { path: '/leak/outsourcing', element: <LeakPage section="outsourcing" /> },
     { path: '/banner-generator', element: <BannerGeneratorPage /> },
     { path: '/powerlink', element: <PowerLinkPage /> },
     { path: '/mypage', element: <MyPage /> },
@@ -154,15 +158,15 @@ function App() {
         isExternal && !currentPath.startsWith(externalHome) ? externalHome : currentPath;
     const currentRoute = routes.find((route) => route.path === effectivePath) ?? routes[0];
     const isBannerGeneratorActive = !isExternal && currentPath === '/banner-generator';
-    // 누수탐지 ERP = 회사 ERP와 별도 영역 — 사이드바 없이 누수 화면만 띄운다(상단 전환 탭으로 복귀).
-    const isLeakErp = effectivePath === '/leak';
+    // 누수탐지 ERP = 회사 ERP와 별도 영역 — 사이드바 메뉴가 누수 전용으로 바뀐다(Sidebar isLeakView).
+    const isLeakErp = effectivePath.startsWith('/leak');
 
     return (
         <>
             <UpdateBanner />
             <ProtectedRoute>
                 <ErpDataProvider>
-                    <Layout hideSidebar={isLeakErp}>
+                    <Layout>
                         {!isExternal && !isLeakErp ? (
                             <div hidden={!isBannerGeneratorActive}>
                                 <BannerGeneratorPage />
