@@ -49,6 +49,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [finderMode, setFinderMode] = useState<'keyword' | 'region' | 'manual'>('keyword'); // 키워드 찾기 유형(직접 키워드 포함)
     // 모델B 일별 발행 — 계약 키워드 풀 + 발행상태(칩 색상·미사용 판별) + 매일 건수.
     const [poolKw, setPoolKw] = useState<string[]>([]);
+    const [selfPicked, setSelfPicked] = useState<Set<string>>(new Set());   // 칩 클릭 선택발행 대상(비어있으면 앞에서 dailyCount건)
     // 풀에서 키워드 삭제(칩 ×) — 상태 갱신 + 즉시 저장.
     const removePoolKw = async (kw: string) => {
         const next = poolKw.filter((k) => k !== kw);
@@ -538,14 +539,22 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 const unused = poolKw.filter((kw) => !USED.has(st(kw)));
                 const doneN = poolKw.filter((k) => st(k) === 'done').length;
                 const pendN = poolKw.filter((k) => ['pending', 'processing', 'claimed'].includes(st(k))).length;
-                const pick = Math.min(dailyCount, unused.length);
+                // 발행 대상 — 칩으로 고른 게 있으면 그것(선택발행), 없으면 앞에서 dailyCount건(순서발행).
+                const chosen = selfPicked.size ? unused.filter((k) => selfPicked.has(k)) : unused.slice(0, dailyCount);
+                const pick = chosen.length;
+                const toggleSelf = (kw: string) => setSelfPicked((prev) => {
+                    const n = new Set(prev);
+                    if (n.has(kw)) n.delete(kw); else n.add(kw);
+                    return n;
+                });
                 const sendSelf = async (style: 'info' | 'review') => {
-                    const picks = unused.slice(0, dailyCount);
-                    if (!picks.length) { setReqMsg('미사용 키워드가 없습니다 — finder로 키워드를 더 추가하세요.'); return; }
+                    const picks = chosen;
+                    if (!picks.length) { setReqMsg('발행할 키워드가 없습니다 — 칩을 클릭해 고르거나 finder로 추가하세요.'); return; }
                     setReqBusy(true); setReqMsg('');
                     const { error, count } = await enqueueGenRequestsSelf(clientId!, picks, productKw, style);
                     setReqBusy(false);
                     if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
+                    setSelfPicked(new Set());
                     setReqMsg(`${count}건 발행 요청 완료(${style === 'info' ? '정보성' : '후기성'}) — SUB2가 순차 게시. 미사용 ${Math.max(0, unused.length - count)}개 남음.`);
                     await loadGenStatus();
                 };
@@ -557,20 +566,33 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                             <button type="button" onClick={() => void loadGenStatus()} className="ml-auto text-[11px] font-semibold text-[#4338ca] hover:underline">상태 새로고침</button>
                         </div>
                         {poolKw.length ? (
-                            <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
-                                {poolKw.map((kw) => {
-                                    const s = st(kw);
-                                    const cls = s === 'done' ? 'bg-[#dcfce7] text-[#166534] line-through'
-                                        : USED.has(s) ? 'bg-[#fef9c3] text-[#854d0e]'
-                                            : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]';
-                                    return (
-                                        <span key={kw} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
-                                            {kw}{s === 'done' ? ' ✓' : USED.has(s) ? ' …' : ''}
-                                            <button type="button" onClick={() => void removePoolKw(kw)} title="풀에서 삭제" className="text-[#94a3b8] hover:text-[#dc2626]">×</button>
-                                        </span>
-                                    );
-                                })}
-                            </div>
+                            <>
+                                <div className="flex items-center justify-between text-[11px] text-[#6d28d9]">
+                                    <span>칩을 클릭해 <b>선택 발행</b> · 미선택 시 앞에서 {dailyCount}건{selfPicked.size ? <b className="ml-1 text-[#7c3aed]">· {selfPicked.size}개 선택됨</b> : null}</span>
+                                    {selfPicked.size ? <button type="button" onClick={() => setSelfPicked(new Set())} className="font-semibold text-[#94a3b8] hover:text-[#4338ca]">선택 해제</button> : null}
+                                </div>
+                                <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                                    {poolKw.map((kw) => {
+                                        const s = st(kw);
+                                        const selectable = !USED.has(s);
+                                        const picked = selfPicked.has(kw);
+                                        const cls = s === 'done' ? 'bg-[#dcfce7] text-[#166534] line-through'
+                                            : USED.has(s) ? 'bg-[#fef9c3] text-[#854d0e]'
+                                                : picked ? 'bg-[#ede9fe] text-[#5b21b6] ring-2 ring-[#7c3aed]'
+                                                    : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]';
+                                        return (
+                                            <span key={kw} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
+                                                {selectable ? (
+                                                    <button type="button" onClick={() => toggleSelf(kw)} title="클릭해 선택 발행 대상 지정" className="inline-flex items-center gap-1">
+                                                        {picked ? '✓ ' : ''}{kw}
+                                                    </button>
+                                                ) : <span>{kw}{s === 'done' ? ' ✓' : ' …'}</span>}
+                                                <button type="button" onClick={() => void removePoolKw(kw)} title="풀에서 삭제" className="text-[#94a3b8] hover:text-[#dc2626]">×</button>
+                                            </span>
+                                        );
+                                    })}
+                                </div>
+                            </>
                         ) : (
                             <div className="text-[12px] text-[#94a3b8]">아래 finder로 키워드를 찾아 고르면 여기 풀에 쌓입니다. <b>'값 저장하기'로 풀을 저장</b>하세요(1회 세팅).</div>
                         )}
@@ -581,11 +603,11 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                     className={`h-8 w-8 rounded-md text-[13px] font-bold ${dailyCount === c ? 'bg-[#4338ca] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]'}`}>{c}</button>
                             ))}
                             <div className="ml-auto flex gap-2">
-                                <button type="button" onClick={() => void sendSelf('info')} disabled={reqBusy || !unused.length}
+                                <button type="button" onClick={() => void sendSelf('info')} disabled={reqBusy || !chosen.length}
                                     className="h-10 rounded-lg bg-[#2563eb] px-5 text-sm font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50">
                                     {reqBusy ? '전송 중…' : `정보성 ${pick}건`}
                                 </button>
-                                <button type="button" onClick={() => void sendSelf('review')} disabled={reqBusy || !unused.length}
+                                <button type="button" onClick={() => void sendSelf('review')} disabled={reqBusy || !chosen.length}
                                     className="h-10 rounded-lg bg-[#7c3aed] px-5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
                                     {reqBusy ? '전송 중…' : `후기성 ${pick}건`}
                                 </button>
@@ -594,10 +616,10 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                         {reqMsg ? <span className="text-[12px] font-semibold text-[#166534]">{reqMsg}</span> : null}
                         {/* 발행 예정 큐 미리보기 — 다음 발행 시 이 순서로 올라갈 키워드 */}
                         <div className="mt-1 rounded-lg border border-[#c7d2fe] bg-white p-2.5">
-                            <div className="mb-1.5 text-[11px] font-bold text-[#4338ca]">🕒 발행 예정 큐 — 다음 {pick}건 <span className="font-normal text-[#94a3b8]">(정보성/후기성 누르면 이 순서로 발행됩니다)</span></div>
-                            {unused.length ? (
+                            <div className="mb-1.5 text-[11px] font-bold text-[#4338ca]">🕒 발행 예정 큐 — {selfPicked.size ? '선택' : '다음'} {pick}건 <span className="font-normal text-[#94a3b8]">(정보성/후기성 누르면 이 순서로 발행됩니다)</span></div>
+                            {chosen.length ? (
                                 <ol className="grid gap-1">
-                                    {unused.slice(0, dailyCount).map((kw, i) => (
+                                    {chosen.map((kw, i) => (
                                         <li key={kw} className="flex items-center gap-2 rounded-md bg-[#f5f3ff] px-2.5 py-1 text-[12px]">
                                             <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#7c3aed] text-[10px] font-bold text-white">{i + 1}</span>
                                             <span className="font-semibold text-[#4338ca]">{kw}</span>
