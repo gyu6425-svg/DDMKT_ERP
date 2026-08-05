@@ -3,6 +3,7 @@ import { getCafeRankPosts, latestCafeMeasure, type CafeRankPost } from '../../..
 import { getCafeAccounts, type CafeAccount } from '../../../api/cafeAccounts';
 import { listActiveDeployTargets, type DeployDashTarget } from '../../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../../lib/exportCsv';
+import { latestKwAudit, auditStale, type KwAudit } from '../../../api/cafeKwAudit';
 
 // 누적 발행 글 목록 → 엑셀(CSV).
 function exportCumList(board: string, bp: CafeRankPost[], kwOf: (p: CafeRankPost) => string) {
@@ -47,12 +48,14 @@ export function CafeDashboardTab() {
     const [deployTargets, setDeployTargets] = useState<DeployDashTarget[]>([]);
     const [loading, setLoading] = useState(true);
     const [open, setOpen] = useState<Record<string, boolean>>({}); // 업체별 드롭다운 펼침
+    const [audit, setAudit] = useState<KwAudit | null>(null);      // 인기탭 스캔 자가점검 결과(이상 시 배너)
 
     const reload = async () => {
-        const [{ data }, accs, dep] = await Promise.all([getCafeRankPosts(), getCafeAccounts(), listActiveDeployTargets()]);
+        const [{ data }, accs, dep, au] = await Promise.all([getCafeRankPosts(), getCafeAccounts(), listActiveDeployTargets(), latestKwAudit()]);
         setPosts(data);
         setAccounts(accs.data ?? []);
         setDeployTargets(dep);
+        setAudit(au);
         setLoading(false);
     };
     useEffect(() => {
@@ -101,6 +104,24 @@ export function CafeDashboardTab() {
 
     return (
         <div className="grid gap-4">
+            {/* 인기탭 스캔 자가점검 경고 — 누락·오탐·차단을 사람이 눈치채기 전에 여기서 알린다.
+                정상이면 아무것도 띄우지 않는다(테이블 없으면 조용히 숨김). */}
+            {audit && (!audit.ok || auditStale(audit)) ? (
+                <div className={`rounded-lg border p-3 text-[13px] ${audit.status === 'blocked'
+                    ? 'border-[#fed7aa] bg-[#fff7ed] text-[#9a3412]' : 'border-[#fecaca] bg-[#fef2f2] text-[#991b1b]'}`}>
+                    <b>
+                        {auditStale(audit) ? '⚠ 인기탭 스캔 자가점검이 하루 넘게 안 돌았습니다'
+                            : audit.status === 'blocked' ? '⚠ 인기탭 스캔 점검 불가 (차단)'
+                                : '🚨 인기탭 스캔 이상 감지'}
+                    </b>
+                    <div className="mt-1">{audit.summary}</div>
+                    {(audit.alerts ?? []).map((a, i) => <div key={i} className="mt-0.5">· {a}</div>)}
+                    <div className="mt-1 text-[11px] opacity-70">
+                        점검 시각 {new Date(audit.run_at).toLocaleString('ko-KR')}
+                        {audit.status === 'blocked' ? ' · 스캔이 몰린 시간대일 수 있습니다. 잠시 후 다시 점검하면 해소됩니다.' : ''}
+                    </div>
+                </div>
+            ) : null}
             <div>
                 <h2 className="m-0 text-base font-bold text-[#0f172a]">카페 · 오늘 발행 현황</h2>
                 <p className="m-0 mt-0.5 text-xs text-[#64748b]">{mmdd(today)} · 업체별 하루 목표 발행 체크(설고점=1건, 그 외 5건) · 발행 시 자동 집계 · 60초 자동 갱신</p>

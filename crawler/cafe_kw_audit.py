@@ -58,6 +58,19 @@ FN_ALERT = 0.10          # 위음성률 경보 임계(표본이 작아 보수적
 GAP = 1.2
 
 
+def _report(status, ok, summary, alerts, **kw):
+    """결과를 DB(cafe_kw_audit)에 남긴다 — 로그 파일에만 두면 아무도 안 본다.
+       ERP 카페 대시보드가 최근 행을 읽어 이상 시 상단 배너로 띄운다. 전제: docs/cafe-kw-audit.sql"""
+    body = {"ok": ok, "status": status, "summary": summary,
+            "alerts": alerts or None, "worker": os.environ.get("COMPUTERNAME") or "?"}
+    body.update(kw)
+    try:
+        requests.post(f"{SB}/rest/v1/cafe_kw_audit", headers={**H, "Content-Type": "application/json"},
+                      json=[body], timeout=15, verify=False)
+    except Exception as e:
+        _log(f"  (DB 기록 실패: {e})")
+
+
 def _log(msg):
     line = f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}] {msg}"
     print(line, flush=True)
@@ -98,8 +111,11 @@ def main():
         alerts.append(f"골든셋 누락 {len(miss)}/{tested}: {', '.join(miss)}")
     # 표본의 상당수를 못 쟀으면 '정상'이라고 말할 수 없다 → 점검 자체를 실패로 보고한다.
     if len(undet) > len(GOLDEN) * 0.3:
-        _log(f"⚠ 점검 불가 — 골든셋 {len(undet)}/{len(GOLDEN)}건이 차단으로 판정불가. "
-             f"CF 차단이 풀린 뒤 다시 실행하세요(다른 스캔과 겹치지 않는 시간에).")
+        msg = (f"점검 불가 — 골든셋 {len(undet)}/{len(GOLDEN)}건이 차단으로 판정불가. "
+               f"CF 차단이 풀린 뒤 다시 실행하세요(다른 스캔과 겹치지 않는 시간에).")
+        _log("⚠ " + msg)
+        _report("blocked", False, msg, [msg],
+                golden_ok=tested - len(miss), golden_n=tested, golden_undet=len(undet))
         return 2
 
     # ② 음성 표본 재검증 — 없다고 한 게 정말 없는가
@@ -139,11 +155,15 @@ def main():
 
     summary = (f"골든 {tested - len(miss)}/{tested} 확인(판정불가 {len(undet)}) · "
                f"음성표본 {len(sample)}건 중 실제양성 {len(fn)} · 벤티지 불일치 {len(dis)}/{len(VANTAGE)}")
+    stat = dict(golden_ok=tested - len(miss), golden_n=tested, golden_undet=len(undet),
+                fn_sample=len(sample), fn_hit=len(fn), vantage_dis=len(dis))
     if alerts:
         _log("⚠ 인기탭 스캔 이상 감지 — " + summary)
         for a in alerts:
             _log("   · " + a)
+        _report("alert", False, summary, alerts, **stat)
         return 1
+    _report("ok", True, summary, None, **stat)
     if not quiet:
         _log("✅ 정상 — " + summary)
     return 0
