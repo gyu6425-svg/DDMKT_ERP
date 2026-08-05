@@ -343,6 +343,7 @@ function ContractAddModal({
     const [blogUrl, setBlogUrl] = useState(''); // 브랜드 블로그 발행 URL(크롤 대상 연동)
     const [serviceNote, setServiceNote] = useState(''); // 서비스 내용 메모(무슨 서비스인지)
     const [noVat, setNoVat] = useState(false); // 부가세 없음(현금) — 실매출 VAT 미포함
+    const [cardSale, setCardSale] = useState(false); // 카드매출 — 공급가/부가세 분리 표시(부가세는 붙음), payment_method='card'
     const [date, setDate] = useState('');
     const [saving, setSaving] = useState(false);
     const daily = isDailySub(subtype); // 리워드 등 = 일일수량 × 일수
@@ -431,6 +432,7 @@ function ContractAddModal({
                 blog_name: blogName.trim() || null, // 업체명/이름 라벨(전 카테고리 공통, 카드 칩 표시)
                 note: isService && serviceNote.trim() ? serviceNote.trim() : null, // 서비스 내용 메모
                 no_vat: noVat, // 부가세 없음(현금)
+                payment_method: cardSale ? 'card' : null, // 카드매출(공급가/부가세 분리 표기)
             },
         ]);
         setSaving(false);
@@ -837,16 +839,37 @@ function ContractAddModal({
                         </div>
                     ) : null}
                     <div className="rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
-                        실매출(VAT){' '}
-                        <span className="text-[#1e40af]">{saleVat(amt, noVat).toLocaleString('ko-KR')}</span> · 외주{' '}
-                        <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
-                        <span className="text-[#059669]">{(amt - outAmt).toLocaleString('ko-KR')}</span>원
+                        {cardSale ? (
+                            <>
+                                공급가 <span className="text-[#0f172a]">{amt.toLocaleString('ko-KR')}</span> · 부가세(10%){' '}
+                                <span className="text-[#c2410c]">{(saleVat(amt, false) - amt).toLocaleString('ko-KR')}</span> · 카드합계{' '}
+                                <span className="text-[#1e40af]">{saleVat(amt, false).toLocaleString('ko-KR')}</span> · 외주{' '}
+                                <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
+                                <span className="text-[#059669]">{(amt - outAmt).toLocaleString('ko-KR')}</span>원
+                            </>
+                        ) : (
+                            <>
+                                실매출(VAT){' '}
+                                <span className="text-[#1e40af]">{saleVat(amt, noVat).toLocaleString('ko-KR')}</span> · 외주{' '}
+                                <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
+                                <span className="text-[#059669]">{(amt - outAmt).toLocaleString('ko-KR')}</span>원
+                            </>
+                        )}
                     </div>
-                    {/* 부가세 없음(현금) — 체크 시 실매출에 VAT 10% 미포함 */}
-                    <label className="flex items-center gap-1.5 text-xs font-semibold text-[#059669]">
-                        <input checked={noVat} onChange={(e) => setNoVat(e.target.checked)} type="checkbox" />
-                        부가세 없음 (현금 — 실매출에 VAT 10% 미포함)
-                    </label>
+                    {/* 결제수단 — 카드매출(공급가·부가세 분리, 상품종류 무관) / 부가세 없음(현금). 상호 배타. */}
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setCardSale((v) => { const nv = !v; if (nv) setNoVat(false); return nv; })}
+                            className={`h-8 rounded-md px-3 text-xs font-bold ${cardSale ? 'bg-[#7c3aed] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1] hover:bg-[#f8fafc]'}`}
+                        >
+                            💳 카드매출{cardSale ? ' · 공급가/부가세 분리' : ''}
+                        </button>
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-[#059669]">
+                            <input checked={noVat} onChange={(e) => { setNoVat(e.target.checked); if (e.target.checked) setCardSale(false); }} type="checkbox" />
+                            부가세 없음 (현금 — 실매출에 VAT 10% 미포함)
+                        </label>
+                    </div>
                     <label className="block text-xs font-semibold text-[#475569]">
                         계약일
                         <input
