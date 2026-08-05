@@ -6,7 +6,7 @@ import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudi
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
-import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, publishTargetFor } from '../../api/cafeGenRequests';
+import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, publishTargetFor, type GenQueueSummary } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { customerLogin } from '../../api/nusu2Bridge';
@@ -60,13 +60,19 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         if (clientId) await updateKeywordPool(clientId, next);
     };
     const [genStatus, setGenStatus] = useState<Record<string, string>>({});
+    const [queue, setQueue] = useState<GenQueueSummary | null>(null);   // 하단 상태바(발행중/대기/오늘완료/실패)
     const [dailyCount, setDailyCount] = useState(1);
-    async function loadGenStatus() { if (clientId) setGenStatus(await getGenRequestStatus(clientId)); }
+    async function loadGenStatus() {
+        if (!clientId) return;
+        const [m, q] = await Promise.all([getGenRequestStatus(clientId), getGenQueueSummary(clientId)]);
+        setGenStatus(m); setQueue(q);
+    }
     // 진행중(발행 중)인 요청이 있으면 20초마다 상태 자동 갱신 → 현재 발행건 게이지 실시간 반영.
     useEffect(() => {
         const active = Object.values(genStatus).some((s) => ['pending', 'claimed', 'processing', 'posted'].includes(s));
         if (!active || !clientId) return;
-        const t = setInterval(() => { void loadGenStatus(); }, 20000);
+        // 발행 중엔 5초 폴링(SUB2 권장) — 상태 전이가 빨라 20초면 '발행중'을 놓친다.
+        const t = setInterval(() => { void loadGenStatus(); }, 5000);
         return () => clearInterval(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [genStatus, clientId]);
@@ -565,7 +571,9 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 const st = (kw: string) => genStatus[norm(kw)];
                 const unused = poolKw.filter((kw) => !USED.has(st(kw)));
                 const doneN = poolKw.filter((k) => st(k) === 'done').length;
-                const pendN = poolKw.filter((k) => ['pending', 'processing', 'claimed'].includes(st(k))).length;
+                // ⚠️ '대기(pending)'와 '발행중(claimed)'을 구분한다 — 합치면 대기 4건이 "발행중 4"로 보인다.
+                const waitN = poolKw.filter((k) => st(k) === 'pending').length;
+                const runN = poolKw.filter((k) => ['claimed', 'processing', 'posted'].includes(st(k))).length;
                 // 발행 대상 — 칩으로 고른 게 있으면 그것(선택발행), 없으면 앞에서 dailyCount건(순서발행).
                 const chosen = selfPicked.size ? unused.filter((k) => selfPicked.has(k)) : unused.slice(0, dailyCount);
                 const pick = chosen.length;
@@ -589,7 +597,12 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     <div className="grid gap-2 rounded-xl border border-[#c4b5fd] bg-[#f5f3ff] p-3">
                         <div className="flex flex-wrap items-center gap-2">
                             <div className="text-[13px] font-bold text-[#6d28d9]">SUB2 일별 발행 <span className="font-normal text-[#94a3b8]">— 자기 카페 · 스타일+건수</span></div>
-                            <span className="text-[11px] text-[#64748b]">풀 {poolKw.length} · <span className="text-[#16a34a]">발행됨 {doneN}</span> · <span className="text-[#b45309]">진행중 {pendN}</span> · <b>미사용 {unused.length}</b></span>
+                            <span className="text-[11px] text-[#64748b]">
+                                풀 {poolKw.length} · <span className="text-[#16a34a]">발행됨 {doneN}</span>
+                                {runN ? <> · <span className="font-semibold text-[#b45309]">발행중 {runN}</span></> : null}
+                                {waitN ? <> · <span className="text-[#0369a1]">대기 {waitN}</span></> : null}
+                                {' '}· <b>미사용 {unused.length}</b>
+                            </span>
                             <button type="button" onClick={() => void loadGenStatus()} className="ml-auto text-[11px] font-semibold text-[#4338ca] hover:underline">상태 새로고침</button>
                         </div>
                         {poolKw.length ? (
@@ -655,7 +668,29 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                     ))}
                                 </ol>
                             ) : <div className="py-1 text-center text-[11px] text-[#94a3b8]">미사용 키워드 없음 — finder로 추가하세요.</div>}
-                            {pendN ? <div className="mt-1.5 text-[10px] font-semibold text-[#b45309]">진행중 {pendN}건은 SUB2가 순차 게시 중…</div> : null}
+                            {/* 발행 대기열 상태바 — SUB2 poller 가 쓰는 cafe_gen_requests 를 5초 폴링해 그대로 표시(읽기 전용).
+                                pending=대기(발행텀·하루상한 포함) / claimed=지금 게시 중 / done_at 오늘=오늘완료 / fail=사유 노출 */}
+                            {queue && (queue.publishing.length || queue.pending || queue.doneToday || queue.failed.length) ? (
+                                <div className="mt-1.5 rounded-md border border-[#e9d5ff] bg-white px-2 py-1.5">
+                                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
+                                        {queue.publishing.length ? (
+                                            <span className="flex items-center gap-1 font-bold text-[#b45309]">
+                                                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#f59e0b]" />
+                                                발행중 {queue.publishing.length}
+                                            </span>
+                                        ) : null}
+                                        <span className="text-[#0369a1]">대기 {queue.pending}</span>
+                                        <span className="text-[#16a34a]">오늘완료 {queue.doneToday}</span>
+                                        <span className={queue.failed.length ? 'font-semibold text-[#dc2626]' : 'text-[#94a3b8]'}>실패 {queue.failed.length}</span>
+                                    </div>
+                                    {queue.publishing.map((x) => (
+                                        <div key={x.keyword} className="mt-1 truncate text-[10px] text-[#7c3aed]">▶ {x.keyword} 게시 중…</div>
+                                    ))}
+                                    {queue.failed.slice(0, 3).map((x, i) => (
+                                        <div key={i} className="mt-1 truncate text-[10px] text-[#dc2626]" title={x.reason || ''}>✖ {x.keyword} — {x.reason || '실패'}</div>
+                                    ))}
+                                </div>
+                            ) : null}
                             {/* 현재 발행건 게이지 — 진행중 1건의 단계(접수→작성·게시→완료)를 실시간 표시 */}
                             {(() => {
                                 const STAGE: Record<string, { pct: number; label: string }> = {
