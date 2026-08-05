@@ -60,14 +60,24 @@ export type CafeDeployRequest = {
 export type DeployDashTarget = { name: string; board: string; goal: number; daily: number; mission_start: string };
 export async function listActiveDeployTargets(): Promise<DeployDashTarget[]> {
     const { data } = await supabase.from('cafe_deploy_requests')
-        .select('company_name,board_name,cafe_name,total_count,daily_count,mission_start,status')
+        .select('client_id,company_name,board_name,cafe_name,total_count,daily_count,mission_start,status')
         .in('status', ['세팅중', '완료']);
+    // ★ 게시판 이름은 cafe_studio_settings.board_name 을 1순위로 쓴다 —
+    //   크롤러(cafe_board_crawl model_b_targets)가 글의 board 컬럼에 넣는 값이 바로 이것이라,
+    //   접수서의 board_name/cafe_name 을 쓰면 글과 매칭이 안 돼 대시보드에 0건으로 보인다.
+    //   (실제 사고: 라임출장부페 글 board='출장뷔페' vs 접수 cafe_name='라임출장뷔페 케이터링…' → 미매칭)
+    const { data: ss } = await supabase.from('cafe_studio_settings').select('client_id,board_name');
+    const boardOf = new Map<string, string>();
+    for (const s of (ss ?? []) as { client_id: string; board_name: string | null }[]) {
+        if (s.board_name) boardOf.set(s.client_id, s.board_name);
+    }
     return (data ?? [])
-        .filter((r) => (r as { mission_start: string | null }).mission_start && ((r as { board_name: string | null }).board_name || (r as { cafe_name: string | null }).cafe_name))
         .map((r) => {
-            const x = r as { company_name: string; board_name: string | null; cafe_name: string | null; total_count: number | null; daily_count: number | null; mission_start: string };
-            return { name: x.company_name, board: (x.board_name || x.cafe_name)!, goal: x.total_count || 0, daily: x.daily_count || 0, mission_start: x.mission_start.slice(0, 10) };
-        });
+            const x = r as { client_id: string | null; company_name: string; board_name: string | null; cafe_name: string | null; total_count: number | null; daily_count: number | null; mission_start: string | null };
+            const board = (x.client_id ? boardOf.get(x.client_id) : null) || x.board_name || x.cafe_name;
+            return { name: x.company_name, board: board ?? '', goal: x.total_count || 0, daily: x.daily_count || 0, mission_start: (x.mission_start || '').slice(0, 10) };
+        })
+        .filter((t) => t.mission_start && t.board);
 }
 
 // 담당자: 신규 고객 카페 clubid 저장(SUB2 가 이 값으로 그 카페에 발행). 숫자만.
