@@ -309,6 +309,10 @@ HOST_TAG = "/m"
 # 차단 감지 시 백오프(초). 실측: naver 가 CF egress 를 403 차단하면 100초 이상 지속됐다.
 BLOCK_BACKOFF = 150
 
+# 요청(스캔 1건) 사이 휴식(초). 회당 속도가 아니라 누적량이 차단을 부르므로 건 사이를 띄운다.
+#   회당 목표: 164조합 ≈ 3~4분(사장님 기준 10분 이내). 연속 처리 시에도 시간당 콜수를 낮춘다.
+REQ_REST = 45
+
 
 def _cache_trust(c):
     """재스캔 시 이 캐시를 그대로 신뢰할지 — 신뢰=건너뜀, 불신=라이브 재검증.
@@ -426,7 +430,7 @@ def process_region(req, product):
     cf = bool(p._USE_CF)
     # CF는 분산IP(요청이 CF 엣지에서 나감)라 사무실 IP 보호용 긴 스로틀이 불필요.
     #   실측(2026-08-04): CF classify 1건 평균 0.77s, 무-gap 직렬 20건 13s·에러 0. 옛 1.5s는 벽시계의 66%가 순수 대기였다.
-    gap = 0.8 if cf else SCAN_GAP   # CF 실측: 5.2 req/s 무사고 / 14 req/s 에서 naver 403 차단 → 프로세스 전체 ≤4 req/s 유지
+    gap = 1.2 if cf else SCAN_GAP   # CF 실측: 5.2 req/s 무사고 / 14 req/s 에서 naver 403 차단 → 프로세스 전체 ≤4 req/s 유지
     # ★ 완전성 우선(누락 금지): 검색량으로 스캔을 건너뛰지 않는다 — 저검색이라도 인기탭 있는 니치(피로연·예식 등)
     #   포착. 검색량은 판정 '후' 표시·정렬용으로만 조회. 판정결과(인기탭/섹션없음)는 캐시되어 재스캔은 즉시.
     # 후보 (tok, kw) — tok 은 오탐필터의 지역코어용. 중복 제거.
@@ -478,7 +482,7 @@ def process_region(req, product):
 
     # ② 라이브 패스 — CF는 분산IP(요청이 CF 엣지에서 나감)라 병렬이 안전하다.
     #    실측(2026-08-04): 병렬x6 20건 2.1s·에러0 (직렬 무gap 13s 대비 6배). 사무실 직접 IP는 차단 보호로 직렬 유지.
-    PAR = 4 if cf else 1
+    PAR = 3 if cf else 1
     ex = ThreadPoolExecutor(max_workers=PAR) if PAR > 1 else None
     try:
         for i in range(0, len(to_scan), PAR):
@@ -547,7 +551,7 @@ def process_list(req, payload):
     cf = bool(p._USE_CF)
     # CF는 분산IP(요청이 CF 엣지에서 나감)라 사무실 IP 보호용 긴 스로틀이 불필요.
     #   실측(2026-08-04): CF classify 1건 평균 0.77s, 무-gap 직렬 20건 13s·에러 0. 옛 1.5s는 벽시계의 66%가 순수 대기였다.
-    gap = 0.8 if cf else SCAN_GAP   # CF 실측: 5.2 req/s 무사고 / 14 req/s 에서 naver 403 차단 → 프로세스 전체 ≤4 req/s 유지
+    gap = 1.2 if cf else SCAN_GAP   # CF 실측: 5.2 req/s 무사고 / 14 req/s 에서 naver 403 차단 → 프로세스 전체 ≤4 req/s 유지
     MAX_LIVE = 60 if cf else 40
     total = len(kws)
     cache = _cache_get_many(kws)               # 재판정 즉시(배치 캐시)
@@ -695,6 +699,9 @@ def main():
                 print(f"[{row['id']}] 실패: {e}", flush=True)
             if once:
                 break
+            # 요청 사이 휴식 — 차단은 순간 속도보다 '누적량'에 걸린다(실측: 연속 7건 1,148콜에서 차단).
+            #   한 건은 2~4분이라 10분 기준에 여유가 있으므로, 다음 건 전에 쉬어 누적을 흩는다.
+            time.sleep(REQ_REST)
         else:
             if once:
                 print("대기 요청 없음")
