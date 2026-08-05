@@ -3,6 +3,7 @@ import {
     createInquiry,
     deleteInquiry,
     fmtPhone,
+    LEAK_COUNSELORS,
     LEAK_SOURCES,
     listInquiries,
     updateInquiry,
@@ -73,6 +74,14 @@ export default function LeakInquiriesTab({ notify }: { notify: (m: string) => vo
         });
     }, [rows, q, onlyContracted]);
 
+    // 기본 3인 + 기존 데이터에만 있는 이름(과거 담당자 등)도 살려둔다 — 수정 시 값이 조용히 지워지지 않게.
+    const counselorOptions = useMemo(() => {
+        const extra = rows.map((r) => (r.counselor ?? '').trim()).filter((c) => c && !LEAK_COUNSELORS.includes(c as never));
+        const cur = (form.counselor ?? '').trim();
+        if (cur && !LEAK_COUNSELORS.includes(cur as never)) extra.push(cur);
+        return [...LEAK_COUNSELORS, ...new Set(extra)];
+    }, [rows, form.counselor]);
+
     const stat = useMemo(() => {
         const total = rows.length;
         const done = rows.filter((r) => r.contracted).length;
@@ -87,7 +96,10 @@ export default function LeakInquiriesTab({ notify }: { notify: (m: string) => vo
             >
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
                     <Field label="상담자">
-                        <input className={INPUT_CLS} onChange={(e) => set('counselor', e.target.value)} value={form.counselor ?? ''} />
+                        <select className={INPUT_CLS} onChange={(e) => set('counselor', e.target.value)} value={form.counselor ?? ''}>
+                            <option value="">선택</option>
+                            {counselorOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
                     </Field>
                     <Field label="지역/현장">
                         <input className={INPUT_CLS} onChange={(e) => set('region', e.target.value)} value={form.region ?? ''} />

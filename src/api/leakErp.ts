@@ -23,6 +23,8 @@ export const parseWon = (v: string | number | null | undefined): number => {
     return Number.isFinite(n) ? Math.round(n) : 0;
 };
 
+// 상담 담당자 — 누수탐지 ERP 사용 4인 중 상담을 받는 3인.
+export const LEAK_COUNSELORS = ['김종인', '송민경', '조재현'] as const;
 export const LEAK_SOURCES = ['카페', '블로그', '플레이스', '지인소개', '기타'] as const;
 export const OUTFLOW_KINDS = ['외주비', '급여', '세금', '대표인출', '기타'] as const;
 export const INVOICE_STATUSES = ['미발행', '발행완료'] as const;
