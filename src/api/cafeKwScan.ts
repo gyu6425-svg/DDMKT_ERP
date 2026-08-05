@@ -63,9 +63,17 @@ export async function getPopularFromCache(keywords: string[]): Promise<KwResult[
 // 선택 시도(서울/경기/인천)의 행정구/시 토큰 목록. 지역형 '지역 키워드 생성'의 지역 축.
 export async function getRegionGuTokens(sidos: string[]): Promise<{ sido: string; token: string }[]> {
     if (!sidos.length) return [];
-    const { data } = await supabase.from('cafe_region_dong')
-        .select('sido,gu').in('sido', sidos).limit(5000);
-    const rows = (data ?? []) as { sido: string; gu: string }[];
+    // ★ PostgREST 는 limit 을 크게 줘도 1000행에서 자른다 → range() 페이지네이션 필수.
+    //   실측(2026-08-05): 17개 시도 선택 시 483개 토큰 중 204개만 잡히고 '강남'이 빠졌다.
+    const rows: { sido: string; gu: string }[] = [];
+    for (let off = 0; ; off += 1000) {
+        const { data, error } = await supabase.from('cafe_region_dong')
+            .select('sido,gu').in('sido', sidos).order('gu', { ascending: true }).range(off, off + 999);
+        if (error) break;
+        const page = (data ?? []) as { sido: string; gu: string }[];
+        rows.push(...page);
+        if (page.length < 1000) break;
+    }
     const seen = new Set<string>();
     const out: { sido: string; token: string }[] = [];
     // ★ 시도명 자체도 토큰 — 보통 그 제품의 최대 검색량 키워드('서울 누수탐지' ≫ '강남 누수탐지').

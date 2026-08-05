@@ -249,11 +249,23 @@ def _region_tokens_for(sidos, include_dong=False):
     if not sidos:
         return []
     inlist = ",".join(f'"{s}"' for s in sidos)
-    try:
-        rows = requests.get(f"{SB}/rest/v1/cafe_region_dong?sido=in.({inlist})&select=gu,dong&limit=20000",
-                            headers=H, timeout=30).json()
-    except Exception:
-        return []
+    # ★ PostgREST 는 limit 을 크게 줘도 1000행에서 자른다 → offset 페이지네이션 필수.
+    #   옛 코드는 limit=20000 이면 다 온다고 믿었다. 실측(2026-08-05): 17개 시도 선택 시
+    #   토큰 483개 중 204개만 잡히고 '강남'이 통째로 빠지는데 경고 없이 '완료'로 끝났다.
+    #   (수도권 3개만 쓰던 동안은 767행 < 1000 이라 우연히 안 터졌다.)
+    rows, off = [], 0
+    while True:
+        try:
+            r = requests.get(f"{SB}/rest/v1/cafe_region_dong?sido=in.({inlist})&select=gu,dong"
+                             f"&order=gu.asc,dong.asc&limit=1000&offset={off}", headers=H, timeout=30).json()
+        except Exception:
+            return []                       # 부분 결과로 조용히 진행하지 않는다 — 호출부가 실패로 처리
+        if not isinstance(r, list) or not r:
+            break
+        rows += r
+        if len(r) < 1000:
+            break
+        off += 1000
     # ★ 시도명 자체도 토큰 — 보통 그 제품의 최대 검색량 키워드다('서울 누수탐지' ≫ '강남 누수탐지').
     #   실측(2026-08-04): 광역시 8/8 전부 인기탭, 道도 강원·충북·전남·경북·경남·제주 등 다수 인기탭.
     #   접미형('서울시'·'강원도')은 전부 섹션없음이라 짧은 이름만 넣는다.
@@ -556,7 +568,7 @@ def process_list(req, payload):
     total = len(kws)
     cache = _cache_get_many(kws)               # 재판정 즉시(배치 캐시)
 
-    found, scraped = [], 0
+    found, scraped, errs, capped, aborted = [], 0, 0, False, False
     for idx, kw in enumerate(kws, 1):
         if idx % 5 == 1:
             try:
@@ -572,9 +584,14 @@ def process_list(req, payload):
                               "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
             continue
         if scraped >= MAX_LIVE:
+            capped = True                      # 상한으로 남은 키워드를 못 봄 — note 에 반드시 표기(조용한 절단 금지)
             break
         r = p.classify(kw)
         if r.get("err"):                       # C1 — 차단/일시실패는 캐시하지 않음(영구 위음성 방지)
+            errs += 1
+            if errs >= 5 and scraped == 0:     # 처음부터 연속 실패 = 차단. '0건'으로 위장하지 않는다.
+                aborted = True
+                break
             continue
         # 오탐 필터(키워드형=지역 없음) — 제목에 제품어(=키워드) 관련 글 없으면 비관련 강등.
         if _is_pop(r) and not _topical(r.get("rows"), kw, None):
@@ -587,7 +604,13 @@ def process_list(req, payload):
             found.append({"keyword": kw, "volume": v, "theme": _disp_theme(r),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
     found.sort(key=lambda f: -(f.get("volume") or 0))
-    _finish(req["id"], "done", result=found, note=f"{len(found)}건 · 스캔 {scraped}")
+    # 차단·다수 오류를 '완료 0건'으로 위장하지 않는다(process_region 과 동일 규약).
+    if aborted or errs > max(5, 0.15 * max(total, 1)):
+        return _finish(req["id"], "failed", result=found,
+                       note=f"⚠ 스캔 차단 — {total - scraped}/{total}건 판정 못 함(오류 {errs}). "
+                            f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
+    _finish(req["id"], "done", result=found,
+            note=f"{len(found)}건 · 스캔 {scraped}{' · 오류 ' + str(errs) if errs else ''}{' · 상한초과' if capped else ''}")
     print(f"[{_ts()}][{req['id']}] 리스트스캔 {total}개 → 인기탭 {len(found)}건 · 스크랩 {scraped}", flush=True)
 
 
@@ -612,6 +635,7 @@ def process(req):
     #   캐시 히트는 무제한(선수집된 플레이스는 전체 반환). 상한 도달 후 미수집분은 prescan 에 맡김.
     MAX_LIVE = 90 if target > 10 else 28
     capped = False
+    errs, aborted = 0, False
     for kw, vol in cands:
         if len(found) >= target:
             break
@@ -628,8 +652,13 @@ def process(req):
             continue  # 라이브 상한 도달 — 미수집분은 스캔 안 함(timeout·차단 방지, prescan 이 채움)
         else:
             r = p.classify(kw)  # 자기 IP 스캔(게이트 시 CF 자동전환)
-            if not r.get("err"):          # C1 — 차단/일시실패는 캐시 안 함(영구 위음성 방지)
-                _cache_put(kw, r, vol)
+            if r.get("err"):              # C1 — 차단/일시실패는 캐시 안 함(영구 위음성 방지)
+                errs += 1
+                if errs >= 5 and scraped == 0:   # 처음부터 연속 실패 = 차단 → '0건 발견'으로 위장 금지
+                    aborted = True
+                    break
+                continue
+            _cache_put(kw, r, vol)
             scraped += 1
             time.sleep(SCAN_GAP)
         if _is_pop(r):
@@ -673,9 +702,16 @@ def process(req):
                               "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
         found.sort(key=lambda f: -(f.get("volume") or 0))
     cap_note = f" · ⚠라이브상한({MAX_LIVE}) 도달-부분결과(prescan 권장)" if capped else ""
+    # 차단·다수 오류를 '0건 발견'으로 위장하지 않는다(process_region·process_list 와 동일 규약).
+    if aborted or errs > max(5, 0.15 * max(len(cands), 1)):
+        return _finish(req["id"], "failed", result=found,
+                       extra={"place_id": pid, "biz_name": info.get("name")},
+                       note=f"⚠ 스캔 차단 — 후보 {len(cands)}건 중 라이브 {scraped}건만 판정(오류 {errs}). "
+                            f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
     _finish(req["id"], "done", result=found,
             extra={"place_id": pid, "biz_name": info.get("name")},
-            note=f"{len(found)}건 발견 / 후보 {len(cands)} / 라이브 {scraped}{cap_note}")
+            note=f"{len(found)}건 발견 / 후보 {len(cands)} / 라이브 {scraped}{cap_note}"
+                 f"{' · 오류 ' + str(errs) if errs else ''}")
     top = ", ".join(f"{f['keyword']}({f.get('volume', 0)})" for f in found[:3])
     print(f"[{_ts()}][{req['id']}] {info.get('name')} → 인기탭 {len(found)}건 · 후보 {len(cands)} · 스크랩 {scraped}회 · {time.time() - t0:.0f}s | {top}", flush=True)
 
