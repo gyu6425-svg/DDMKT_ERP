@@ -104,11 +104,14 @@ def model_b_targets():
                             params={"select": "client_id,board_url,board_name"}, headers=DB, timeout=20, verify=False).json()
     except Exception:
         return []
+    # fixed TARGETS 가 이미 크롤하는 카페(clubid)는 제외 — 중복 등록(cafe_name=vanity vs clubid) 방지.
+    #   더맨·설고·더반·누수 self-카페(themansys/ojh097/thebanclean/ddnusu)는 fixed 로 추적 중이므로 model-B 재크롤 안 함.
+    fixed_clubs = {t[0] for t in TARGETS}
     out = []
     for x in (rows if isinstance(rows, list) else []):
         url = x.get("board_url") or ""
         club, menuid = _parse_club_menu(url)
-        if club and menuid and x.get("client_id"):
+        if club and menuid and x.get("client_id") and club not in fixed_clubs:
             out.append((club, menuid, x["client_id"], x.get("board_name") or "고객카페"))
     return out
 
