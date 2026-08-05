@@ -96,6 +96,10 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         return () => clearInterval(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [genStatus, clientId]);
+    // 칩 선택 개수 → '건수' 버튼 자동 동기화(2개 선택 = 건수 2). 선택 있으면 그 수로, 최대 5.
+    useEffect(() => {
+        if (selfPicked.size > 0) setDailyCount(Math.min(5, selfPicked.size));
+    }, [selfPicked]);
     const [reqBusy, setReqBusy] = useState(false);
     const [reqMsg, setReqMsg] = useState('');
     const [manualInput, setManualInput] = useState('');   // 직접 키워드 입력(인기탭 미검증)
