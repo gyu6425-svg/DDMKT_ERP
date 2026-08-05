@@ -131,8 +131,10 @@ def reply_account_for(url):
 #   여기 넣으면 댓글·대댓글 어디에도 안 쓰인다(그냥 그 카페에서 제외).
 #   rlawhddls25(=저스트): 설고점/더맨시스템엔 가입 안 함 → 두 카페 댓글에서 제외.
 COMMENT_EXCLUDE_BY_CAFE = {
-    "ojh097": {"rlawhddls25"},     "31764966": {"rlawhddls25"},   # 설고점
-    "themansys": {"rlawhddls25"},  "31764949": {"rlawhddls25"},   # 더맨시스템
+    "ojh097": {"rlawhddls25"},       "31764966": {"rlawhddls25"},   # 설고점
+    "themansys": {"rlawhddls25"},    "31764949": {"rlawhddls25"},   # 더맨시스템
+    "limebuffet": {"rlawhddls25"},   "31767649": {"rlawhddls25"},   # 라임뷔페
+    "dirtyclinic": {"rlawhddls25"},  "31768059": {"rlawhddls25"},   # 더티클리닉
 }
 
 
