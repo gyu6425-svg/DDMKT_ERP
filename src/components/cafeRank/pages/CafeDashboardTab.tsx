@@ -22,7 +22,7 @@ function exportCumList(board: string, bp: CafeRankPost[], kwOf: (p: CafeRankPost
 // board=크롤러 저장값 · goal=계약 총건수 · daily=하루 발행 목표(업체별 상이)
 const DAILY_TARGETS: { board: string; goal: number; daily: number; kpi?: boolean }[] = [
     { board: '더맨시스템', goal: 50, daily: 5 },
-    { board: '더티클리닉', goal: 10, daily: 0 }, // 현재 일일 발행 안 함
+    { board: '더티클리닉', goal: 10, daily: 5 }, // 자체발행 중 — 하루 목표 5건
     { board: '더반클린', goal: 50, daily: 5 },
     { board: '설고점', goal: 40, daily: 1 }, // 설고점만 하루 1건
     { board: '누수상담소', goal: 40, daily: 0, kpi: false }, // 자사 운영 — 오늘 발행 KPI 카드에서 제외(누적 발행엔 유지)
