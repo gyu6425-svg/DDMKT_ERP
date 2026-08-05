@@ -26,7 +26,10 @@ INTERVAL = int(sys.argv[1]) if len(sys.argv) > 1 else 1800   # 기본 30분
 RETRY_SEC = 240
 # 새벽 블로그/카페 크롤 구간 = 측정 금지. Full 이 01:00 시작이므로 00:50 부터 막아 구간 전체를 덮는다
 #   (01:00~08:30 Full → 체인 카페측정 → 09:05 당일건 → 09:20 플레이스까지).
-BUSY_START, BUSY_END = datetime.time(0, 50), datetime.time(9, 30)
+#   ★09:45 까지 연장: 플레이스 크롤은 crawl_status.running 을 안 세워 _blog_active 로 못 막으므로,
+#     플레이스(09:20 시작)가 09:30 을 넘겨 돌 때 카페 09:40 슬롯과 같은 IP 충돌하는 갭을 시간대로 차단.
+#     (독립검증 R1 — 플레이스 무플래그 + band 조기종료 갭. 09:45 로 여유 확보, 카페 첫 측정은 09:55 슬롯.)
+BUSY_START, BUSY_END = datetime.time(0, 50), datetime.time(9, 45)
 
 _seen = {"ua": None, "since": 0.0}
 
@@ -56,10 +59,10 @@ def _in_busy_band():
     return BUSY_START <= t <= BUSY_END
 
 
-# 카페 '당일 크롤' 고정 슬롯 — 매시 :20 / :50.
-#   블로그 당일크롤이 :05/:35 이므로 정확히 15분 어긋나 시간대가 절대 겹치지 않는다.
-#   (기존 '시작 시각 기준 30분마다'는 시간이 흐르며 위상이 물려 매번 건너뛰던 문제가 있었음.)
-SLOT_MINUTES = (20, 50)
+# 카페 '당일 크롤' 고정 슬롯 — 매시 :10 / :25 / :40 / :55 (15분 주기).
+#   발행현황·순위트래커 반영을 빠르게(발행 후 최대 15분). 블로그 당일크롤(:05/:35)과 최소 5분 이격 + _blog_active 게이트로 겹침 방지.
+#   (기존 :20/:50 = 30분 주기라 발행 반영이 느렸음.)
+SLOT_MINUTES = (10, 25, 40, 55)
 
 
 def _sleep_to_next_slot():
@@ -75,14 +78,20 @@ def _sleep_to_next_slot():
 
 def _measure_new():
     today = datetime.date.today().isoformat()
-    posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*"})
-    # 대상 = ① 오늘 미측정 글 + ② 현재 5위 안인 글(30분마다 재측정해 24h 유지 여부 확인 — 사용자 선택).
-    def _top5(p):
+    # 최신 발행 우선 정렬 — 측정 창이 짧게 끊겨도 최근 등록 글이 뒤로 반복 밀리지 않게(독립검증 R3).
+    posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*", "order": "published_date.desc.nullslast"})
+    # 대상 = ① 오늘 미측정 글 + ② 매 사이클(15분) 재측정: 현재 순위권(ok) OR 최근 발행 신규글.
+    #   순위권 글은 순위 변동을 바로바로 반영, 최근 신규글은 아직 변동이 커 매번 추적(진입/이탈 즉시 포착).
+    #   권외·측정불가 옛글은 매 사이클 안 돌고 하루 1회만(전체 재측정 시 ~22분=차단위험이라 순위권+신규로 한정).
+    recent_cut = (datetime.date.today() - datetime.timedelta(days=2)).isoformat()  # 최근 2일 발행분
+    def _track(p):
         ms = p.get("measurements") or []
         cur = ms[-1] if ms else {}
-        return cur.get("ti_status") == "ok" and isinstance(cur.get("ti"), (int, float)) and not isinstance(cur.get("ti"), bool) and cur.get("ti") <= 5
+        ranked = cur.get("ti_status") == "ok"                      # 현재 순위권 = 순위 변동 즉시 반영
+        recent = (p.get("published_date") or "") >= recent_cut     # 최근 신규글 = 변동 큼, 매번 추적
+        return ranked or recent
     todo = [p for p in posts
-            if (not any((m.get("date") == today) for m in (p.get("measurements") or []))) or _top5(p)]
+            if (not any((m.get("date") == today) for m in (p.get("measurements") or []))) or _track(p)]
     if not todo:
         print(f"[{datetime.datetime.now():%H:%M}] 재측정 대상 없음 — {len(posts)}글", flush=True)
         return

@@ -19,6 +19,8 @@ export type StudioSettings = {
     board_name?: string | null; // 발행 게시판 이름
     board_url?: string | null;  // 발행 게시판 주소
     kakao_url?: string | null;  // 카카오톡 상담 링크
+    daily_cap?: number | null;       // 하루 최대 발행 수(1~10). SUB2 dep_ poller 소비. 전제: docs/cafe-publish-gap.sql
+    publish_gap_min?: number | null; // 발행 최소 간격(분). 0=무제한. SUB2 dep_ poller 소비.
 };
 
 export async function getStudioSettings(clientId: string) {
@@ -28,8 +30,14 @@ export async function getStudioSettings(clientId: string) {
 }
 
 export async function saveStudioSettings(s: StudioSettings) {
-    const { error } = await supabase.from('cafe_studio_settings')
-        .upsert({ ...s, updated_at: new Date().toISOString() }, { onConflict: 'client_id' });
+    const payload = { ...s, updated_at: new Date().toISOString() };
+    const { error } = await supabase.from('cafe_studio_settings').upsert(payload, { onConflict: 'client_id' });
+    // 발행텀·상한 컬럼(daily_cap/publish_gap_min)이 아직 없으면(SQL 미실행) 그 필드만 빼고 재시도 — 나머지 설정은 정상 저장.
+    if (error && /daily_cap|publish_gap_min|column|schema cache/i.test(error.message || '')) {
+        const { daily_cap: _dc, publish_gap_min: _pg, ...rest } = payload;
+        const retry = await supabase.from('cafe_studio_settings').upsert(rest, { onConflict: 'client_id' });
+        return { error: retry.error, gapColumnsMissing: !retry.error as boolean };
+    }
     return { error };
 }
 
@@ -46,11 +54,17 @@ export async function markNaverLogin(clientId: string) {
 }
 
 // 키워드 풀만 부분 업데이트(칩 삭제 등) — 즉시 반영.
+//   ⚠️ update 는 행이 없으면 0건 갱신인데 error 도 안 난다 → 화면에선 지워졌는데 DB는 그대로라
+//      새로고침하면 칩이 되살아난다(2026-08-05 실제 증상). 그래서 upsert 로 바꾸고,
+//      실제로 반영됐는지 select 로 확인해 호출부가 실패를 알 수 있게 한다.
 export async function updateKeywordPool(clientId: string, pool: string[]) {
-    const { error } = await supabase.from('cafe_studio_settings')
-        .update({ keyword_pool: pool.length ? pool : null, updated_at: new Date().toISOString() })
-        .eq('client_id', clientId);
-    return { error };
+    const { data, error } = await supabase.from('cafe_studio_settings')
+        .upsert({ client_id: clientId, keyword_pool: pool.length ? pool : null, updated_at: new Date().toISOString() },
+            { onConflict: 'client_id' })
+        .select('client_id');
+    if (error) return { error: error.message };
+    if (!data || !data.length) return { error: '저장되지 않았습니다(권한 또는 설정 행 없음).' };
+    return { error: null };
 }
 
 // dataURL/URL(이미지 소스) → R2(cafe-images) 업로드 → {path, error}. (Egress 회피)

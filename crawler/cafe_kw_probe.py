@@ -771,21 +771,35 @@ def _fetch_cf(pc, kw):
 def _fetch_serp(kw):
     """인기글 SERP 가져오기. --cf면 CF경유(즉시용), 아니면 사무실 직접(미리크롤용).
     각 모드에서 m.search↔PC 호스트 로테이션 + 실패 시 다른 호스트 폴백."""
-    pc = (_serp_rr[0] % 2 == 1)
-    _serp_rr[0] += 1
+    # ★ 판정 기준 호스트 = m.search(모바일) 고정. PC/모바일 로테이션 금지.
+    #   근거(독립검증 실측 2026-08-05):
+    #     ① has_section 은 (키워드, 호스트)의 결정적 함수다. 같은 호스트면 CF와 사무실직접이 20/20 일치하고,
+    #        호스트가 다르면 5.5%(n=110)가 갈린다. 예: '광진/금천 소방업체' = 모바일 O / PC X (각 3/3 재현).
+    #     ② 채택가능 키워드의 96%를 모바일이 포착(PC 85%). 모바일 단독 포착이 PC 단독보다 4배 많다.
+    #     ③ 결정적으로, 계약 KPI를 채점하는 blog_rank_crawler.measure_cafe_rank 가 m.search 전용이다.
+    #        PC에서만 잡힌 키워드는 팔아도 순위 측정이 안 돼(no_section) 미달성 처리된다.
+    #   로테이션의 '부하분산' 이득은 미검증인 반면(차단은 IP 단위로 보임), 정확도 손실은 실측됐다.
     fetch = _fetch_cf if _USE_CF else _fetch_direct
-    for p in (pc, not pc):  # 이번 차례 호스트, 실패 시 다른 호스트
-        code, html = fetch(p, kw)
-        if code == 200 and html:
-            return 200, html
-    return 0, ""
+    code, html = fetch(False, kw)          # False = m.search
+    if code == 200 and html:
+        return 200, html
+    if code in (403, 429):
+        return code, ""                    # 차단은 호스트를 바꿔도 같은 IP → 폴백 무의미
+    code2, html2 = fetch(False, kw)        # 일시실패(0)만 모바일로 1회 재시도
+    if code2 == 200 and html2:
+        return 200, html2
+    return (code or code2), ""             # 0 = 응답실패(네트워크·CF 콜드스타트), 403/429 = 실제 차단
 
 
 def _classify_live(kw):
     """실제 인기탭 스크랩 판정(캐시 미스 시만 호출). 호스트 로테이션 사용."""
     code, html = _fetch_serp(kw)
     if code != 200:
-        return {"kw": kw, "err": f"code {code}(차단?)", "has_section": False}
+        # 차단(403/429)과 단순 응답실패(0=네트워크·CF 콜드스타트)를 구분한다.
+        #   prescan 은 err 에 '차단'이 있을 때만 연속카운트로 배치를 중단하므로, 이 구분이 없으면
+        #   CF 일시실패 3번에 5시간짜리 배치가 죽는다(SUB4 실측: 어제 8건 중 다수가 code 0).
+        kind = "차단" if code in (403, 429) else "응답실패"
+        return {"kw": kw, "err": f"code {code}({kind})", "has_section": False}
     n_blocks = 0
     for b in c.extract_bootstrap_json(html):
         n_blocks += 1

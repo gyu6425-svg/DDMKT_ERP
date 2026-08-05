@@ -343,6 +343,10 @@ function ContractAddModal({
     const [blogUrl, setBlogUrl] = useState(''); // 브랜드 블로그 발행 URL(크롤 대상 연동)
     const [serviceNote, setServiceNote] = useState(''); // 서비스 내용 메모(무슨 서비스인지)
     const [noVat, setNoVat] = useState(false); // 부가세 없음(현금) — 실매출 VAT 미포함
+    const [cardSale, setCardSale] = useState(false); // 카드매출 — 공급가/부가세 분리, payment_method='card'
+    const [cardSupplyInput, setCardSupplyInput] = useState(''); // 카드 공급가 직접수정(비우면 단가×수량)
+    const [cardVatInput, setCardVatInput] = useState('');       // 카드 부가세(비우면 공급가×10%, 거의 고정)
+    const [cardFeeInput, setCardFeeInput] = useState('');       // 카드 수수료(건별 상이 · 직접 입력)
     const [date, setDate] = useState('');
     const [saving, setSaving] = useState(false);
     const daily = isDailySub(subtype); // 리워드 등 = 일일수량 × 일수
@@ -368,6 +372,14 @@ function ContractAddModal({
         : outDirect > 0
           ? outDirect
           : (Number(onlyDigits(outUnit)) || 0) * cnt;
+    // 카드매출 — 공급가는 직접 수정(비우면 단가×수량=amt), 부가세는 기본 10%(비우면 자동·거의 고정), 수수료는 건별 직접 입력.
+    const cardSupply = cardSale && cardSupplyInput.trim() ? Number(onlyDigits(cardSupplyInput)) || 0 : amt;
+    const cardVat = cardSale ? (cardVatInput.trim() ? Number(onlyDigits(cardVatInput)) || 0 : Math.round(cardSupply * 0.1)) : 0;
+    const cardFeeAmt = cardSale ? Number(onlyDigits(cardFeeInput)) || 0 : 0;
+    const cardTotal = cardSupply + cardVat;          // 카드 결제 총액(공급가+부가세)
+    // 카드 수수료는 공급가·실매출에서 차감해 저장 — 공급가액=공급가−수수료, 실매출=카드합계−수수료(실수령), VAT는 그대로 유지.
+    const saleAmt = cardSale ? cardSupply - cardFeeAmt : amt;   // 저장 공급가(카드=수수료 차감)
+    const cardNet = cardTotal - cardFeeAmt;                     // 실매출(VAT포함)=실수령
 
     const pickCat = (key: string) => {
         setCatKey(key);
@@ -405,14 +417,14 @@ function ContractAddModal({
             onToast('금액을 입력하세요');
             return;
         }
-        if (!isService && !isOutOnly && !n && !amt) {
-            onToast('수량 또는 단가를 입력하세요');
+        if (!isService && !isOutOnly && !n && !saleAmt) {
+            onToast('수량 또는 단가(카드매출은 공급가)를 입력하세요');
             return;
         }
         setSaving(true);
         const { error } = await insertClientContracts([
             {
-                amount: amt,
+                amount: saleAmt,
                 // 컨테이너 2차는 계약 category를 컨테이너(lockCategoryLabel)로 고정. 일반은 선택 카테고리.
                 category: lockCategoryLabel ?? cat.label,
                 client_id: clientId,
@@ -431,6 +443,9 @@ function ContractAddModal({
                 blog_name: blogName.trim() || null, // 업체명/이름 라벨(전 카테고리 공통, 카드 칩 표시)
                 note: isService && serviceNote.trim() ? serviceNote.trim() : null, // 서비스 내용 메모
                 no_vat: noVat, // 부가세 없음(현금)
+                payment_method: cardSale ? 'card' : null, // 카드매출(공급가/부가세 분리 표기)
+                sale_total: cardSale ? cardNet : null,    // 실매출(VAT포함)=카드합계−수수료(실수령)
+                card_fee: cardSale ? cardFeeAmt : null,   // 카드 수수료(건별 직접 입력)
             },
         ]);
         setSaving(false);
@@ -444,7 +459,7 @@ function ContractAddModal({
         //   컨테이너 2차(상위노출·종합광고) 하위는 블로그 계정 자동생성 제외.
         if (isBrandBlog && !boostPrefix) {
             await ensureClientBlogAccount(clientId, blogName.trim() || companyName || '업체', {
-                amount: amt || null,
+                amount: saleAmt || null,
                 contract_date: date || null,
                 goal_count: n,
                 manager: managerName || null,
@@ -836,17 +851,53 @@ function ContractAddModal({
                             외주비를 직접 입력해 외주단가×수량 대신 이 값을 사용합니다.
                         </div>
                     ) : null}
-                    <div className="rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
-                        실매출(VAT){' '}
-                        <span className="text-[#1e40af]">{saleVat(amt, noVat).toLocaleString('ko-KR')}</span> · 외주{' '}
-                        <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
-                        <span className="text-[#059669]">{(amt - outAmt).toLocaleString('ko-KR')}</span>원
+                    {cardSale ? (
+                        <div className="rounded-md bg-[#faf5ff] px-3 py-2.5 ring-1 ring-[#e9d5ff]">
+                            <div className="grid grid-cols-3 gap-2">
+                                <label className="block text-[11px] font-semibold text-[#6d28d9]">공급가(원)
+                                    <input className="mt-1 h-9 w-full rounded-md border border-[#c4b5fd] px-2 text-right text-sm" inputMode="numeric" type="text"
+                                        value={withCommas(cardSupplyInput)} onChange={(e) => setCardSupplyInput(e.target.value)} placeholder={amt.toLocaleString('ko-KR')} />
+                                </label>
+                                <label className="block text-[11px] font-semibold text-[#6d28d9]">부가세(원) <span className="font-normal text-[#a78bda]">기본10%</span>
+                                    <input className="mt-1 h-9 w-full rounded-md border border-[#c4b5fd] px-2 text-right text-sm" inputMode="numeric" type="text"
+                                        value={withCommas(cardVatInput)} onChange={(e) => setCardVatInput(e.target.value)} placeholder={Math.round(cardSupply * 0.1).toLocaleString('ko-KR')} />
+                                </label>
+                                <label className="block text-[11px] font-semibold text-[#6d28d9]">카드 수수료(원)
+                                    <input className="mt-1 h-9 w-full rounded-md border border-[#c4b5fd] px-2 text-right text-sm" inputMode="numeric" type="text"
+                                        value={withCommas(cardFeeInput)} onChange={(e) => setCardFeeInput(e.target.value)} placeholder="0" />
+                                </label>
+                            </div>
+                            <div className="mt-2 text-sm font-semibold text-[#0f172a]">
+                                카드합계 <span className="text-[#1e40af]">{cardTotal.toLocaleString('ko-KR')}</span> · 수수료{' '}
+                                <span className="text-[#c2410c]">{cardFeeAmt.toLocaleString('ko-KR')}</span> · 실수령{' '}
+                                <span className="text-[#7c3aed]">{cardNet.toLocaleString('ko-KR')}</span> · 외주{' '}
+                                <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
+                                <span className="text-[#059669]">{(saleAmt - outAmt).toLocaleString('ko-KR')}</span>원
+                            </div>
+                            <div className="mt-1 text-[11px] text-[#94a3b8]">공급가·부가세 수정 가능(부가세 기본 10%), 수수료는 건별 직접 입력. 매출=공급가 기준.</div>
+                        </div>
+                    ) : (
+                        <div className="rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
+                            실매출(VAT){' '}
+                            <span className="text-[#1e40af]">{saleVat(amt, noVat).toLocaleString('ko-KR')}</span> · 외주{' '}
+                            <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
+                            <span className="text-[#059669]">{(amt - outAmt).toLocaleString('ko-KR')}</span>원
+                        </div>
+                    )}
+                    {/* 결제수단 — 카드매출(공급가·부가세·수수료 직접) / 부가세 없음(현금). 상호 배타. */}
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setCardSale((v) => { const nv = !v; if (nv) setNoVat(false); return nv; })}
+                            className={`h-8 rounded-md px-3 text-xs font-bold ${cardSale ? 'bg-[#7c3aed] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1] hover:bg-[#f8fafc]'}`}
+                        >
+                            💳 카드매출{cardSale ? ' · 공급가/부가세/수수료 입력' : ''}
+                        </button>
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-[#059669]">
+                            <input checked={noVat} onChange={(e) => { setNoVat(e.target.checked); if (e.target.checked) setCardSale(false); }} type="checkbox" />
+                            부가세 없음 (현금 — 실매출에 VAT 10% 미포함)
+                        </label>
                     </div>
-                    {/* 부가세 없음(현금) — 체크 시 실매출에 VAT 10% 미포함 */}
-                    <label className="flex items-center gap-1.5 text-xs font-semibold text-[#059669]">
-                        <input checked={noVat} onChange={(e) => setNoVat(e.target.checked)} type="checkbox" />
-                        부가세 없음 (현금 — 실매출에 VAT 10% 미포함)
-                    </label>
                     <label className="block text-xs font-semibold text-[#475569]">
                         계약일
                         <input
@@ -2843,7 +2894,7 @@ export function ClientDetail({
     const receivedTotal = totalOutsource; // 예상(받은) 외주비 = 상단 외주비 합계
     const usedTotal = outsourceRows.reduce((s, r) => s + r.used, 0); // 실제 사용 = 진행 이력 합
     const outMargin = receivedTotal - usedTotal; // 차액 = 예상 − 사용(외주비 정산 섹션용)
-    // 순매출 = 공급가(VAT 제외) − 받은 외주비(계약 시 외주비). 실제 사용은 '외주비 정산'에서 별도 추적.
+    // 순매출 = 공급가(VAT 제외) − 받은 외주비. (카드 수수료는 공급가에 이미 차감돼 저장됨) 실제 사용은 '외주비 정산'에서 별도 추적.
     const netRevenue = totalSupply - receivedTotal;
 
     // (외주비 정산 내역의 삭제 버튼은 제거 — 외주비/사용이력 삭제는 계약(카드/진행 이력)에서만)

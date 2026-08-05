@@ -91,7 +91,9 @@ def _cache_put(kw, r, vol):
         "keyword": kw, "has_section": bool(r.get("has_section")), "theme": r.get("theme"),
         "verdict": r.get("verdict"), "volume": vol,
         "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"],
-        "scanned_by": WID,
+        # 판정 호스트를 기록한다(HOST_TAG='/m'). 인기탭 유무는 (키워드,호스트)의 결정적 함수라,
+        #   어느 호스트로 판정했는지 모르면 그 행은 신뢰할 수 없다(옛 로테이션 시절 행이 그렇다).
+        "scanned_by": WID + HOST_TAG,
         "scanned_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),  # 재스캔 시각 갱신(음성 TTL 판정용)
     }
     try:
@@ -247,11 +249,23 @@ def _region_tokens_for(sidos, include_dong=False):
     if not sidos:
         return []
     inlist = ",".join(f'"{s}"' for s in sidos)
-    try:
-        rows = requests.get(f"{SB}/rest/v1/cafe_region_dong?sido=in.({inlist})&select=gu,dong&limit=20000",
-                            headers=H, timeout=30).json()
-    except Exception:
-        return []
+    # ★ PostgREST 는 limit 을 크게 줘도 1000행에서 자른다 → offset 페이지네이션 필수.
+    #   옛 코드는 limit=20000 이면 다 온다고 믿었다. 실측(2026-08-05): 17개 시도 선택 시
+    #   토큰 483개 중 204개만 잡히고 '강남'이 통째로 빠지는데 경고 없이 '완료'로 끝났다.
+    #   (수도권 3개만 쓰던 동안은 767행 < 1000 이라 우연히 안 터졌다.)
+    rows, off = [], 0
+    while True:
+        try:
+            r = requests.get(f"{SB}/rest/v1/cafe_region_dong?sido=in.({inlist})&select=gu,dong"
+                             f"&order=gu.asc,dong.asc&limit=1000&offset={off}", headers=H, timeout=30).json()
+        except Exception:
+            return []                       # 부분 결과로 조용히 진행하지 않는다 — 호출부가 실패로 처리
+        if not isinstance(r, list) or not r:
+            break
+        rows += r
+        if len(r) < 1000:
+            break
+        off += 1000
     # ★ 시도명 자체도 토큰 — 보통 그 제품의 최대 검색량 키워드다('서울 누수탐지' ≫ '강남 누수탐지').
     #   실측(2026-08-04): 광역시 8/8 전부 인기탭, 道도 강원·충북·전남·경북·경남·제주 등 다수 인기탭.
     #   접미형('서울시'·'강원도')은 전부 섹션없음이라 짧은 이름만 넣는다.
@@ -300,6 +314,17 @@ NEG_TTL_DAYS = 21
 #   PID 목록으로 거르는 대신 시각 기준으로 판정해야 누락 없이 걸러진다. 양성은 영향 없음.
 FIX_CUTOFF_UTC = "2026-08-04T11:00:00+00:00"
 
+# 판정 호스트 마커 — scanned_by 끝에 붙인다(스키마 변경 없이 기록). 현재 판정은 m.search(모바일) 고정.
+#   이 마커가 없는 행 = 옛 PC/모바일 로테이션 시절 판정이라 어느 호스트인지 알 수 없다 → 신뢰 불가.
+HOST_TAG = "/m"
+
+# 차단 감지 시 백오프(초). 실측: naver 가 CF egress 를 403 차단하면 100초 이상 지속됐다.
+BLOCK_BACKOFF = 150
+
+# 요청(스캔 1건) 사이 휴식(초). 회당 속도가 아니라 누적량이 차단을 부르므로 건 사이를 띄운다.
+#   회당 목표: 164조합 ≈ 3~4분(사장님 기준 10분 이내). 연속 처리 시에도 시간당 콜수를 낮춘다.
+REQ_REST = 45
+
 
 def _cache_trust(c):
     """재스캔 시 이 캐시를 그대로 신뢰할지 — 신뢰=건너뜀, 불신=라이브 재검증.
@@ -310,6 +335,12 @@ def _cache_trust(c):
           - 그 외 음성도 NEG_TTL_DAYS(21일) 지나면 불신 → 재검증(네이버가 섹션 추가하는 시간차 대응).
           지연 재검증이라 블록 부담 없음. 재스캔되면 _cache_put이 scanned_by=WID·scanned_at 갱신 → 자가치유."""
     if str(c.get("verdict", "")) == "저검색":
+        return False
+    # ★ 판정 호스트가 기록되지 않은 행(옛 PC/모바일 로테이션 시절)은 양성·음성 모두 신뢰하지 않는다.
+    #   · 음성: PC로 판정됐으면 위음성일 수 있다(실측 m/pc 불일치 5.5%, 캐시 음성 재검증 시 3.5%가 실제 양성).
+    #   · 양성: PC에서만 잡힌 것이면 팔아도 measure_cafe_rank(m.search 전용)가 측정 못 해 미달성이 된다.
+    #   재스캔되면 모바일 판정으로 HOST_TAG 가 붙어 자가치유된다.
+    if not str(c.get("scanned_by") or "").endswith(HOST_TAG):
         return False
     if _is_pop(c):
         return True
@@ -411,7 +442,7 @@ def process_region(req, product):
     cf = bool(p._USE_CF)
     # CF는 분산IP(요청이 CF 엣지에서 나감)라 사무실 IP 보호용 긴 스로틀이 불필요.
     #   실측(2026-08-04): CF classify 1건 평균 0.77s, 무-gap 직렬 20건 13s·에러 0. 옛 1.5s는 벽시계의 66%가 순수 대기였다.
-    gap = 0.4 if cf else SCAN_GAP
+    gap = 1.2 if cf else SCAN_GAP   # CF 실측: 5.2 req/s 무사고 / 14 req/s 에서 naver 403 차단 → 프로세스 전체 ≤4 req/s 유지
     # ★ 완전성 우선(누락 금지): 검색량으로 스캔을 건너뛰지 않는다 — 저검색이라도 인기탭 있는 니치(피로연·예식 등)
     #   포착. 검색량은 판정 '후' 표시·정렬용으로만 조회. 판정결과(인기탭/섹션없음)는 캐시되어 재스캔은 즉시.
     # 후보 (tok, kw) — tok 은 오탐필터의 지역코어용. 중복 제거.
@@ -428,6 +459,7 @@ def process_region(req, product):
     cache = _cache_get_many([kw for _, kw in kws])  # 배치 캐시(재스캔 즉시)
 
     found, scraped, errs, capped = [], 0, 0, False
+    dead_chunks, aborted = 0, False   # 차단 감지(청크 전멸)·중단 여부
     # ① 캐시 패스(네트워크 0) — 신뢰 캐시로 이미 결론난 건 즉시 채택/스킵하고, 남은 것만 라이브 대상으로.
     to_scan = []
     for tok, kw in kws:
@@ -462,7 +494,7 @@ def process_region(req, product):
 
     # ② 라이브 패스 — CF는 분산IP(요청이 CF 엣지에서 나감)라 병렬이 안전하다.
     #    실측(2026-08-04): 병렬x6 20건 2.1s·에러0 (직렬 무gap 13s 대비 6배). 사무실 직접 IP는 차단 보호로 직렬 유지.
-    PAR = 6 if cf else 1
+    PAR = 3 if cf else 1
     ex = ThreadPoolExecutor(max_workers=PAR) if PAR > 1 else None
     try:
         for i in range(0, len(to_scan), PAR):
@@ -475,6 +507,21 @@ def process_region(req, product):
             except Exception:
                 pass
             results = list(ex.map(_scan_one, chunk)) if ex else [_scan_one(x) for x in chunk]
+            # 청크가 통째로 실패 = 차단 신호. 백오프 후 1회 재시도하고, 그래도 전멸이면 중단한다.
+            #   ★ 차단인데 '0건 완료'로 반환하면 고객에겐 '인기탭 없음'과 구별되지 않는다(조용한 미달).
+            if all(k == "err" for k, _ in results):
+                dead_chunks += 1
+                if dead_chunks == 1:
+                    time.sleep(BLOCK_BACKOFF)          # 실측: CF 차단은 100초 이상 지속 → 충분히 쉬고 재시도
+                    results = list(ex.map(_scan_one, chunk)) if ex else [_scan_one(x) for x in chunk]
+                    if all(k == "err" for k, _ in results):
+                        aborted = True
+                    else:
+                        dead_chunks = 0
+                else:
+                    aborted = True
+            else:
+                dead_chunks = 0
             for kind, item in results:
                 if kind == "err":
                     errs += 1
@@ -482,12 +529,20 @@ def process_region(req, product):
                 scraped += 1
                 if kind == "pop":
                     found.append(item)
+            if aborted:
+                break
             time.sleep(gap)                    # 청크 사이만 쉼(병렬이면 건당 실효 gap = gap/PAR)
     finally:
         if ex:
             ex.shutdown(wait=False)
     found.sort(key=lambda f: -(f.get("volume") or 0))
     scope = "동포함" if include_dong else "구시"
+    # 판정 못 한 조합이 많으면 '완료'로 위장하지 않는다 — 결과가 불완전함을 명시하고 failed 로 끝낸다.
+    unscanned = len(to_scan) - scraped
+    if aborted or errs > max(5, 0.15 * max(len(to_scan), 1)):
+        return _finish(req["id"], "failed", result=found, extra={"biz_name": product},
+                       note=f"⚠ 스캔 차단 — {unscanned}/{len(to_scan)}건 판정 못 함(오류 {errs}). "
+                            f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
     _finish(req["id"], "done", result=found, extra={"biz_name": product},
             note=f"{len(found)}건 · 스캔 {scraped}{' · 오류 ' + str(errs) if errs else ''} · {scope}{' · 상한초과' if capped else ''}")
     print(f"[{_ts()}][{req['id']}] 지역스캔 '{product}' {sidos} {scope} → 인기탭 {len(found)}건 · 스크랩 {scraped} · err {errs}", flush=True)
@@ -508,12 +563,12 @@ def process_list(req, payload):
     cf = bool(p._USE_CF)
     # CF는 분산IP(요청이 CF 엣지에서 나감)라 사무실 IP 보호용 긴 스로틀이 불필요.
     #   실측(2026-08-04): CF classify 1건 평균 0.77s, 무-gap 직렬 20건 13s·에러 0. 옛 1.5s는 벽시계의 66%가 순수 대기였다.
-    gap = 0.4 if cf else SCAN_GAP
+    gap = 1.2 if cf else SCAN_GAP   # CF 실측: 5.2 req/s 무사고 / 14 req/s 에서 naver 403 차단 → 프로세스 전체 ≤4 req/s 유지
     MAX_LIVE = 60 if cf else 40
     total = len(kws)
     cache = _cache_get_many(kws)               # 재판정 즉시(배치 캐시)
 
-    found, scraped = [], 0
+    found, scraped, errs, capped, aborted = [], 0, 0, False, False
     for idx, kw in enumerate(kws, 1):
         if idx % 5 == 1:
             try:
@@ -529,9 +584,14 @@ def process_list(req, payload):
                               "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
             continue
         if scraped >= MAX_LIVE:
+            capped = True                      # 상한으로 남은 키워드를 못 봄 — note 에 반드시 표기(조용한 절단 금지)
             break
         r = p.classify(kw)
         if r.get("err"):                       # C1 — 차단/일시실패는 캐시하지 않음(영구 위음성 방지)
+            errs += 1
+            if errs >= 5 and scraped == 0:     # 처음부터 연속 실패 = 차단. '0건'으로 위장하지 않는다.
+                aborted = True
+                break
             continue
         # 오탐 필터(키워드형=지역 없음) — 제목에 제품어(=키워드) 관련 글 없으면 비관련 강등.
         if _is_pop(r) and not _topical(r.get("rows"), kw, None):
@@ -544,7 +604,13 @@ def process_list(req, payload):
             found.append({"keyword": kw, "volume": v, "theme": _disp_theme(r),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
     found.sort(key=lambda f: -(f.get("volume") or 0))
-    _finish(req["id"], "done", result=found, note=f"{len(found)}건 · 스캔 {scraped}")
+    # 차단·다수 오류를 '완료 0건'으로 위장하지 않는다(process_region 과 동일 규약).
+    if aborted or errs > max(5, 0.15 * max(total, 1)):
+        return _finish(req["id"], "failed", result=found,
+                       note=f"⚠ 스캔 차단 — {total - scraped}/{total}건 판정 못 함(오류 {errs}). "
+                            f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
+    _finish(req["id"], "done", result=found,
+            note=f"{len(found)}건 · 스캔 {scraped}{' · 오류 ' + str(errs) if errs else ''}{' · 상한초과' if capped else ''}")
     print(f"[{_ts()}][{req['id']}] 리스트스캔 {total}개 → 인기탭 {len(found)}건 · 스크랩 {scraped}", flush=True)
 
 
@@ -569,6 +635,7 @@ def process(req):
     #   캐시 히트는 무제한(선수집된 플레이스는 전체 반환). 상한 도달 후 미수집분은 prescan 에 맡김.
     MAX_LIVE = 90 if target > 10 else 28
     capped = False
+    errs, aborted = 0, False
     for kw, vol in cands:
         if len(found) >= target:
             break
@@ -585,8 +652,13 @@ def process(req):
             continue  # 라이브 상한 도달 — 미수집분은 스캔 안 함(timeout·차단 방지, prescan 이 채움)
         else:
             r = p.classify(kw)  # 자기 IP 스캔(게이트 시 CF 자동전환)
-            if not r.get("err"):          # C1 — 차단/일시실패는 캐시 안 함(영구 위음성 방지)
-                _cache_put(kw, r, vol)
+            if r.get("err"):              # C1 — 차단/일시실패는 캐시 안 함(영구 위음성 방지)
+                errs += 1
+                if errs >= 5 and scraped == 0:   # 처음부터 연속 실패 = 차단 → '0건 발견'으로 위장 금지
+                    aborted = True
+                    break
+                continue
+            _cache_put(kw, r, vol)
             scraped += 1
             time.sleep(SCAN_GAP)
         if _is_pop(r):
@@ -630,9 +702,16 @@ def process(req):
                               "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
         found.sort(key=lambda f: -(f.get("volume") or 0))
     cap_note = f" · ⚠라이브상한({MAX_LIVE}) 도달-부분결과(prescan 권장)" if capped else ""
+    # 차단·다수 오류를 '0건 발견'으로 위장하지 않는다(process_region·process_list 와 동일 규약).
+    if aborted or errs > max(5, 0.15 * max(len(cands), 1)):
+        return _finish(req["id"], "failed", result=found,
+                       extra={"place_id": pid, "biz_name": info.get("name")},
+                       note=f"⚠ 스캔 차단 — 후보 {len(cands)}건 중 라이브 {scraped}건만 판정(오류 {errs}). "
+                            f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
     _finish(req["id"], "done", result=found,
             extra={"place_id": pid, "biz_name": info.get("name")},
-            note=f"{len(found)}건 발견 / 후보 {len(cands)} / 라이브 {scraped}{cap_note}")
+            note=f"{len(found)}건 발견 / 후보 {len(cands)} / 라이브 {scraped}{cap_note}"
+                 f"{' · 오류 ' + str(errs) if errs else ''}")
     top = ", ".join(f"{f['keyword']}({f.get('volume', 0)})" for f in found[:3])
     print(f"[{_ts()}][{req['id']}] {info.get('name')} → 인기탭 {len(found)}건 · 후보 {len(cands)} · 스크랩 {scraped}회 · {time.time() - t0:.0f}s | {top}", flush=True)
 
@@ -656,6 +735,9 @@ def main():
                 print(f"[{row['id']}] 실패: {e}", flush=True)
             if once:
                 break
+            # 요청 사이 휴식 — 차단은 순간 속도보다 '누적량'에 걸린다(실측: 연속 7건 1,148콜에서 차단).
+            #   한 건은 2~4분이라 10분 기준에 여유가 있으므로, 다음 건 전에 쉬어 누적을 흩는다.
+            time.sleep(REQ_REST)
         else:
             if once:
                 print("대기 요청 없음")

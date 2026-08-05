@@ -63,9 +63,17 @@ export async function getPopularFromCache(keywords: string[]): Promise<KwResult[
 // 선택 시도(서울/경기/인천)의 행정구/시 토큰 목록. 지역형 '지역 키워드 생성'의 지역 축.
 export async function getRegionGuTokens(sidos: string[]): Promise<{ sido: string; token: string }[]> {
     if (!sidos.length) return [];
-    const { data } = await supabase.from('cafe_region_dong')
-        .select('sido,gu').in('sido', sidos).limit(5000);
-    const rows = (data ?? []) as { sido: string; gu: string }[];
+    // ★ PostgREST 는 limit 을 크게 줘도 1000행에서 자른다 → range() 페이지네이션 필수.
+    //   실측(2026-08-05): 17개 시도 선택 시 483개 토큰 중 204개만 잡히고 '강남'이 빠졌다.
+    const rows: { sido: string; gu: string }[] = [];
+    for (let off = 0; ; off += 1000) {
+        const { data, error } = await supabase.from('cafe_region_dong')
+            .select('sido,gu').in('sido', sidos).order('gu', { ascending: true }).range(off, off + 999);
+        if (error) break;
+        const page = (data ?? []) as { sido: string; gu: string }[];
+        rows.push(...page);
+        if (page.length < 1000) break;
+    }
     const seen = new Set<string>();
     const out: { sido: string; token: string }[] = [];
     // ★ 시도명 자체도 토큰 — 보통 그 제품의 최대 검색량 키워드('서울 누수탐지' ≫ '강남 누수탐지').
@@ -137,8 +145,10 @@ export async function pollPlaceScan(
         const row = data as { status: string; result: KwResult[] | null; biz_name: string | null; note: string | null } | null;
         if (row) {
             if (opts?.onProgress && row.note) opts.onProgress(row.note, row.status);
-            if (['done', 'fail', 'error'].includes(row.status)) {
-                if (row.status !== 'done') throw new Error('인기탭 분석 실패');
+            // 워커는 실패 시 status='failed' 를 쓴다('fail' 아님 — 예전엔 안 잡혀 900초 타임아웃까지 매달렸다).
+            //   실패 사유(note)를 그대로 노출한다 — 차단으로 못 판정한 걸 '0건'처럼 보이게 하면 안 된다.
+            if (['done', 'failed', 'fail', 'error'].includes(row.status)) {
+                if (row.status !== 'done') throw new Error(row.note || '인기탭 분석 실패');
                 return { result: row.result || [], bizName: row.biz_name };
             }
         }

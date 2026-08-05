@@ -6,7 +6,7 @@ import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudi
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
-import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, publishTargetFor } from '../../api/cafeGenRequests';
+import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, publishTargetFor, type GenQueueSummary } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { customerLogin } from '../../api/nusu2Bridge';
@@ -15,6 +15,9 @@ import { useAuth } from '../../hooks/useAuth';
 
 type MyJob = { id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string };
 const STATUS_KO: Record<string, string> = { pending: '대기', processing: '작성 중', posted: '게시됨(확인중)', done: '완료', fail: '실패' };
+// 자체발행 전환 업체(더맨·설고·더반·누수상담소) — 고정 라우팅 대신 든든한마케팅과 동일 dep_ 자기카페 UI/발행을 쓴다.
+//   전제(SUB2): 해당 계정 기존 발행(SUB1/자율) 중단 · board_url에 clubid · 전용포트 로그인. dep_ 폴러가 client_id로 자동 처리.
+const SELF_PUBLISH_KEYS = new Set(['theman', 'theman2', 'seolgo', 'seolgo2', 'theban', 'nusu']);
 
 // 파일 → dataURL(긴 변 1600px 축소).
 function fileToDataUrl(file: File): Promise<string> {
@@ -51,22 +54,52 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [poolKw, setPoolKw] = useState<string[]>([]);
     const [selfPicked, setSelfPicked] = useState<Set<string>>(new Set());   // 칩 클릭 선택발행 대상(비어있으면 앞에서 dailyCount건)
     // 풀에서 키워드 삭제(칩 ×) — 상태 갱신 + 즉시 저장.
+    // 칩 삭제 — DB 저장 실패를 삼키면 화면만 지워지고 새로고침 때 되살아난다(실제 증상). 실패 시 되돌리고 알린다.
     const removePoolKw = async (kw: string) => {
+        if (!clientId) return;
+        const prev = poolKw;
         const next = poolKw.filter((k) => k !== kw);
         setPoolKw(next);
-        if (clientId) await updateKeywordPool(clientId, next);
+        const { error } = await updateKeywordPool(clientId, next);
+        if (error) {
+            setPoolKw(prev);                       // 낙관적 반영 취소 — DB와 화면을 일치시킨다
+            setReqMsg(`키워드 삭제 실패: ${error}`);
+        }
     };
     const [genStatus, setGenStatus] = useState<Record<string, string>>({});
+    const [queue, setQueue] = useState<GenQueueSummary | null>(null);   // 하단 상태바(발행중/대기/오늘완료/실패)
+    const [heldN, setHeldN] = useState(0);        // 중단 보관분(재개 버튼용) — 메인 목록엔 안 넣는다
+    const [holdBusy, setHoldBusy] = useState(false);
     const [dailyCount, setDailyCount] = useState(1);
-    async function loadGenStatus() { if (clientId) setGenStatus(await getGenRequestStatus(clientId)); }
+    async function loadGenStatus() {
+        if (!clientId) return;
+        const [m, q, h] = await Promise.all([getGenRequestStatus(clientId), getGenQueueSummary(clientId), countHeldGenRequests(clientId)]);
+        setGenStatus(m); setQueue(q); setHeldN(h);
+    }
+    // 발행 중단 / 재개 — 대기(pending)만 held 로 보류. 진행 중(claimed) 1건은 끝까지 진행된다.
+    const toggleHold = async (resume: boolean) => {
+        if (!clientId) return;
+        setHoldBusy(true);
+        const r = resume ? await resumeGenRequests(clientId) : await holdGenRequests(clientId);
+        setHoldBusy(false);
+        setReqMsg(r.error ? `실패: ${r.error}`
+            : resume ? `중단분 ${r.count}건을 다시 대기열에 넣었습니다.`
+                : `대기 ${r.count}건 발행을 중단했습니다.${queue?.publishing.length ? ' (진행 중 1건은 끝까지 게시됩니다)' : ''}`);
+        await loadGenStatus();
+    };
     // 진행중(발행 중)인 요청이 있으면 20초마다 상태 자동 갱신 → 현재 발행건 게이지 실시간 반영.
     useEffect(() => {
         const active = Object.values(genStatus).some((s) => ['pending', 'claimed', 'processing', 'posted'].includes(s));
         if (!active || !clientId) return;
-        const t = setInterval(() => { void loadGenStatus(); }, 20000);
+        // 발행 중엔 5초 폴링(SUB2 권장) — 상태 전이가 빨라 20초면 '발행중'을 놓친다.
+        const t = setInterval(() => { void loadGenStatus(); }, 5000);
         return () => clearInterval(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [genStatus, clientId]);
+    // 칩 선택 개수 → '건수' 버튼 자동 동기화(2개 선택 = 건수 2). 선택 있으면 그 수로, 최대 5.
+    useEffect(() => {
+        if (selfPicked.size > 0) setDailyCount(Math.min(5, selfPicked.size));
+    }, [selfPicked]);
     const [reqBusy, setReqBusy] = useState(false);
     const [reqMsg, setReqMsg] = useState('');
     const [manualInput, setManualInput] = useState('');   // 직접 키워드 입력(인기탭 미검증)
@@ -87,6 +120,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [showPw, setShowPw] = useState(false);
     const [boardName, setBoardName] = useState('');
     const [boardUrl, setBoardUrl] = useState('');
+    const [dailyCap, setDailyCap] = useState(5);   // 하루 최대 발행 수(1~10) — SUB2 dep_ poller 소비
+    const [gapMin, setGapMin] = useState(0);        // 발행 최소 간격(분). 0=제한 없음
     const [loginMsg, setLoginMsg] = useState('');   // '네이버 로그인' 버튼 결과 안내 — SUB2 브릿지 호출 성공/실패.
     const [loginBusy, setLoginBusy] = useState(false);
     const [naverLoggedIn, setNaverLoggedIn] = useState(false);   // 네이버 로그인 이력 있으면 버튼 색 변경
@@ -133,6 +168,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 deploy_type: '키워드형', main_banner: mainPaths, photos: photoPaths, banners: bannerPaths,
                 naver_id: naverId || null, naver_pw: naverPw || null, board_name: boardName || null, board_url: boardUrl || null,
                 kakao_url: kakaoUrl || null,
+                daily_cap: dailyCap, publish_gap_min: gapMin,
                 keyword_pool: poolKw.length ? poolKw : null, product_kw: productKw || null,
             });
             if (error) throw new Error(error.message);
@@ -144,7 +180,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         if (!clientId) return;
         await clearStudioSettings(clientId);
         setBrand(brandDefault); setBusiness(''); setLinkUrl(''); setPhotos([]); setBanners([]); setMainBanner([]);
-        setNaverId(''); setNaverPw(''); setBoardName(''); setBoardUrl(''); setKakaoUrl('');
+        setNaverId(''); setNaverPw(''); setBoardName(''); setBoardUrl(''); setKakaoUrl(''); setDailyCap(5); setGapMin(0);
         setSettingsSaved(false); setSettingsMsg('초기화됨');
     };
     const [selectedKw, setSelectedKw] = useState<Set<string>>(() => new Set());
@@ -246,6 +282,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             const bname = s?.board_name ?? req?.board_name; if (bname) setBoardName(bname);
             if (s?.board_url) setBoardUrl(s.board_url);
             if (s?.kakao_url) setKakaoUrl(s.kakao_url);
+            if (s?.daily_cap != null) setDailyCap(s.daily_cap);
+            if (s?.publish_gap_min != null) setGapMin(s.publish_gap_min);
             // 모델B 일별 발행 — 저장된 키워드 풀 + 제품키워드 + 현재 발행상태.
             if (s?.keyword_pool?.length) setPoolKw(s.keyword_pool);
             if (s?.product_kw) setProductKw(s.product_kw);
@@ -404,6 +442,23 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                         <input className={inputCls} onChange={(e) => setBoardUrl(e.target.value)} placeholder="카페에서 '글쓰기' 열었을 때 주소창 URL" value={boardUrl} />
                         <span className="text-[11px] font-normal text-[#94a3b8]">발행할 게시판에서 '글쓰기'를 눌러 열린 주소창 URL을 그대로 붙여넣으세요(게시판 목록 주소 아님).</span>
                     </label>
+                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">하루 최대 발행 수
+                        <input className={inputCls} type="number" min={1} max={10} value={dailyCap}
+                            onChange={(e) => setDailyCap(Math.min(10, Math.max(1, Number(e.target.value) || 1)))} placeholder="1~10" />
+                        <span className="text-[11px] font-normal text-[#94a3b8]">이 수만큼 발행하면 그날은 중단 → 다음날 자동 재개.</span>
+                    </label>
+                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">발행 간격 <span className="font-normal text-[#94a3b8]">(발행 텀)</span>
+                        <select className={inputCls} value={gapMin} onChange={(e) => setGapMin(Number(e.target.value))}>
+                            <option value={0}>제한 없음</option>
+                            <option value={30}>30분에 1건</option>
+                            <option value={60}>1시간에 1건</option>
+                            <option value={90}>1시간 30분에 1건</option>
+                            <option value={120}>2시간에 1건</option>
+                            <option value={150}>2시간 30분에 1건</option>
+                            <option value={180}>3시간에 1건</option>
+                        </select>
+                        <span className="text-[11px] font-normal text-[#b45309]">⚠ 신규 카페는 짧은 간격 대량발행 시 노출 역효과 — 간격을 넉넉히(2~3시간급) 잡으세요.</span>
+                    </label>
                 </div>
                 {/* 네이버 로그인 — SUB2가 이 고객 전용 크롬을 띄우고 담당자가 직접 로그인(자동입력 안 함=봇 방지) */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -506,11 +561,13 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             {/* 발행 요청 보내기 — 고른 키워드를 발행PC 대기열(cafe_gen_requests)로. 원고·이미지는 그 PC가 자기 양식으로 생성·게시. */}
             {(() => {
                 const target = publishTargetFor(company);
-                // 고정업체(더반/누수 등)=우리 카페. 그 외(신규 업체, 모델B: 고객 자기 카페·자기 계정 → SUB2).
-                const isSelf = !target && !!clientId;   // client_id 만 있으면 신규 발행 가능(cafe_account 없어도)
+                // 자체발행 전환 업체(더맨·설고·더반·누수상담소)는 고정 target이 있어도 dep_ 자기카페 UI를 쓴다.
+                const forceSelf = company ? SELF_PUBLISH_KEYS.has(company) : false;
+                // 고정업체(전환 안 된 우리 카페 고정 라우팅)=fixed UI. 그 외/전환업체=모델B(자기 카페·자기 계정 → SUB2 dep_).
+                const isSelf = !!clientId && (!target || forceSelf);
                 if (!target && !isSelf) return null;
-                // ── 고정업체: 기존 단일 발행요청 ──
-                if (target) {
+                // ── 고정업체(전환 안 된 것만): 기존 단일 발행요청 ──
+                if (target && !isSelf) {
                     const n = selectedKw.size;
                     const sendFixed = async () => {
                         if (!n) { setReqMsg('finder에서 발행할 키워드를 고르세요.'); return; }
@@ -538,7 +595,9 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 const st = (kw: string) => genStatus[norm(kw)];
                 const unused = poolKw.filter((kw) => !USED.has(st(kw)));
                 const doneN = poolKw.filter((k) => st(k) === 'done').length;
-                const pendN = poolKw.filter((k) => ['pending', 'processing', 'claimed'].includes(st(k))).length;
+                // ⚠️ '대기(pending)'와 '발행중(claimed)'을 구분한다 — 합치면 대기 4건이 "발행중 4"로 보인다.
+                const waitN = poolKw.filter((k) => st(k) === 'pending').length;
+                const runN = poolKw.filter((k) => ['claimed', 'processing', 'posted'].includes(st(k))).length;
                 // 발행 대상 — 칩으로 고른 게 있으면 그것(선택발행), 없으면 앞에서 dailyCount건(순서발행).
                 const chosen = selfPicked.size ? unused.filter((k) => selfPicked.has(k)) : unused.slice(0, dailyCount);
                 const pick = chosen.length;
@@ -562,7 +621,12 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     <div className="grid gap-2 rounded-xl border border-[#c4b5fd] bg-[#f5f3ff] p-3">
                         <div className="flex flex-wrap items-center gap-2">
                             <div className="text-[13px] font-bold text-[#6d28d9]">SUB2 일별 발행 <span className="font-normal text-[#94a3b8]">— 자기 카페 · 스타일+건수</span></div>
-                            <span className="text-[11px] text-[#64748b]">풀 {poolKw.length} · <span className="text-[#16a34a]">발행됨 {doneN}</span> · <span className="text-[#b45309]">진행중 {pendN}</span> · <b>미사용 {unused.length}</b></span>
+                            <span className="text-[11px] text-[#64748b]">
+                                풀 {poolKw.length} · <span className="text-[#16a34a]">발행됨 {doneN}</span>
+                                {runN ? <> · <span className="font-semibold text-[#b45309]">발행중 {runN}</span></> : null}
+                                {waitN ? <> · <span className="text-[#0369a1]">대기 {waitN}</span></> : null}
+                                {' '}· <b>미사용 {unused.length}</b>
+                            </span>
                             <button type="button" onClick={() => void loadGenStatus()} className="ml-auto text-[11px] font-semibold text-[#4338ca] hover:underline">상태 새로고침</button>
                         </div>
                         {poolKw.length ? (
@@ -628,7 +692,47 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                     ))}
                                 </ol>
                             ) : <div className="py-1 text-center text-[11px] text-[#94a3b8]">미사용 키워드 없음 — finder로 추가하세요.</div>}
-                            {pendN ? <div className="mt-1.5 text-[10px] font-semibold text-[#b45309]">진행중 {pendN}건은 SUB2가 순차 게시 중…</div> : null}
+                            {/* 발행 대기열 상태바 — SUB2 poller 가 쓰는 cafe_gen_requests 를 5초 폴링해 그대로 표시(읽기 전용).
+                                pending=대기(발행텀·하루상한 포함) / claimed=지금 게시 중 / done_at 오늘=오늘완료 / fail=사유 노출 */}
+                            {queue && (queue.publishing.length || queue.pending || queue.doneToday || queue.failed.length) ? (
+                                <div className="mt-1.5 rounded-md border border-[#e9d5ff] bg-white px-2 py-1.5">
+                                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
+                                        {queue.publishing.length ? (
+                                            <span className="flex items-center gap-1 font-bold text-[#b45309]">
+                                                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#f59e0b]" />
+                                                발행중 {queue.publishing.length}
+                                            </span>
+                                        ) : null}
+                                        <span className="text-[#0369a1]">대기 {queue.pending}</span>
+                                        <span className="text-[#16a34a]">오늘완료 {queue.doneToday}</span>
+                                        <span className={queue.failed.length ? 'font-semibold text-[#dc2626]' : 'text-[#94a3b8]'}>실패 {queue.failed.length}</span>
+                                        {/* 발행 중단 — 대기건만 보류(진행 중 1건은 끝까지 게시). 중단분은 목록·카운트에서 사라진다. */}
+                                        {queue.pending ? (
+                                            <button type="button" disabled={holdBusy} onClick={() => void toggleHold(false)}
+                                                className="ml-auto rounded border border-[#fecaca] bg-white px-2 py-0.5 text-[10px] font-bold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
+                                                title="대기 중인 발행을 멈춥니다. 이미 게시 중인 1건은 끝까지 진행됩니다.">
+                                                {holdBusy ? '처리 중…' : '■ 발행 중단'}
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                    {queue.publishing.map((x) => (
+                                        <div key={x.keyword} className="mt-1 truncate text-[10px] text-[#7c3aed]">▶ {x.keyword} 게시 중…</div>
+                                    ))}
+                                    {queue.failed.slice(0, 3).map((x, i) => (
+                                        <div key={i} className="mt-1 truncate text-[10px] text-[#dc2626]" title={x.reason || ''}>✖ {x.keyword} — {x.reason || '실패'}</div>
+                                    ))}
+                                </div>
+                            ) : null}
+                            {/* 중단 보관분 — 발행 목록·카운트엔 넣지 않고 여기서만 알린다(재개 가능). */}
+                            {heldN ? (
+                                <div className="mt-1.5 flex items-center gap-2 rounded-md border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-2 py-1 text-[10px] text-[#64748b]">
+                                    <span>중단해 둔 발행 {heldN}건 (목록에서 제외됨)</span>
+                                    <button type="button" disabled={holdBusy} onClick={() => void toggleHold(true)}
+                                        className="ml-auto rounded border border-[#c7d2fe] bg-white px-2 py-0.5 font-bold text-[#4338ca] hover:bg-[#eef2ff] disabled:opacity-50">
+                                        ▶ 발행 재개
+                                    </button>
+                                </div>
+                            ) : null}
                             {/* 현재 발행건 게이지 — 진행중 1건의 단계(접수→작성·게시→완료)를 실시간 표시 */}
                             {(() => {
                                 const STAGE: Record<string, { pct: number; label: string }> = {

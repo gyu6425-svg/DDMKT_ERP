@@ -10,7 +10,6 @@ import { ensureClientBlogAccount, getBlogAccounts, type BlogAccount } from '../a
 import {
     completedOutsource,
     getClientContracts,
-    hasProcessInPeriod,
     insertClientContracts,
     outsourceInPeriod,
     supplyInPeriod,
@@ -386,15 +385,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         if (!year && !month) return true;
         const cs = clientContracts.filter((ct) => ct.client_id === client.id && ct.contract_date);
         if (cs.length) {
-            const bySale = cs.some((ct) => {
+            // 계약일(contract_date) 기준만 — 선택한 달에 '계약된' 업체만 노출(처리월 확장 제외).
+            return cs.some((ct) => {
                 const d = ct.contract_date || '';
                 return (!year || Number(d.slice(0, 4)) === year) && (!month || Number(d.slice(5, 7)) === month);
             });
-            // 월 보장형은 처리월(주간 로그)에도 노출 — 외주비 정산이 그 달에 잡히므로.
-            const byProcess = clientContracts.some(
-                (ct) => ct.client_id === client.id && hasProcessInPeriod(ct, year, month),
-            );
-            return bySale || byProcess;
         }
         if (contractsOnly) return false; // 계약 관리: 날짜 없으면 임시 탭에서만
         const cy = client.created_at ? new Date(client.created_at).getFullYear() : 0;
@@ -405,9 +400,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const contractInPeriod = (ct: ClientContract, year: number, month: number) => {
         if (!year && !month) return true;
         const d = ct.contract_date || '';
-        const bySale = !!d && (!year || Number(d.slice(0, 4)) === year) && (!month || Number(d.slice(5, 7)) === month);
-        // 월 보장형은 처리월(주간 로그)에도 노출(외주비만 그 달에 귀속).
-        return bySale || hasProcessInPeriod(ct, year, month);
+        // 계약일 기준만 — 그 달에 계약된 상품만(처리월 확장 제외).
+        return !!d && (!year || Number(d.slice(0, 4)) === year) && (!month || Number(d.slice(5, 7)) === month);
     };
     // 계약 관리(연/월 필터 화면)에서만 상품을 스코프. 임시 탭은 스코프 안 함(날짜 없는 상품 전부).
     const scopeMonth = (cts: ClientContract[]) =>
