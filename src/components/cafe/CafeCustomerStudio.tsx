@@ -54,10 +54,17 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [poolKw, setPoolKw] = useState<string[]>([]);
     const [selfPicked, setSelfPicked] = useState<Set<string>>(new Set());   // 칩 클릭 선택발행 대상(비어있으면 앞에서 dailyCount건)
     // 풀에서 키워드 삭제(칩 ×) — 상태 갱신 + 즉시 저장.
+    // 칩 삭제 — DB 저장 실패를 삼키면 화면만 지워지고 새로고침 때 되살아난다(실제 증상). 실패 시 되돌리고 알린다.
     const removePoolKw = async (kw: string) => {
+        if (!clientId) return;
+        const prev = poolKw;
         const next = poolKw.filter((k) => k !== kw);
         setPoolKw(next);
-        if (clientId) await updateKeywordPool(clientId, next);
+        const { error } = await updateKeywordPool(clientId, next);
+        if (error) {
+            setPoolKw(prev);                       // 낙관적 반영 취소 — DB와 화면을 일치시킨다
+            setReqMsg(`키워드 삭제 실패: ${error}`);
+        }
     };
     const [genStatus, setGenStatus] = useState<Record<string, string>>({});
     const [queue, setQueue] = useState<GenQueueSummary | null>(null);   // 하단 상태바(발행중/대기/오늘완료/실패)
