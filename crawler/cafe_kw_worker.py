@@ -295,6 +295,11 @@ def _is_pop(r):
 #   양성은 무기한 신뢰(진짜 인기탭은 안정적), 음성만 이 기간 지나면 재검증. CF=직접 실측 일치로 원인이 시간차임을 확인(2026-08-04).
 NEG_TTL_DAYS = 21
 
+# 빈200 방어(_classify_live) 투입 시각 — 이 이전에 캐시된 '음성'은 빈 응답을 '섹션없음'으로 굳혔을 수 있어
+#   신뢰하지 않는다(실측: 돌봄 5개 업종 496조합이 전부 섹션없음으로 박혀 재스캔이 막혀 있었다).
+#   PID 목록으로 거르는 대신 시각 기준으로 판정해야 누락 없이 걸러진다. 양성은 영향 없음.
+FIX_CUTOFF_UTC = "2026-08-04T11:00:00+00:00"
+
 
 def _cache_trust(c):
     """재스캔 시 이 캐시를 그대로 신뢰할지 — 신뢰=건너뜀, 불신=라이브 재검증.
@@ -315,6 +320,8 @@ def _cache_trust(c):
     sa = str(c.get("scanned_at") or "")
     if not sa:
         return False   # 시각 불명 음성 → 재검증
+    if sa < FIX_CUTOFF_UTC:
+        return False   # 빈200 방어 이전 음성 → 재검증(위음성일 수 있음)
     cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=NEG_TTL_DAYS)).isoformat()
     return sa >= cutoff   # 최근 음성만 신뢰(오래된 건 재검증)
 
