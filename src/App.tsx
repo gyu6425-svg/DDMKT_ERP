@@ -27,6 +27,7 @@ import ReporterPortalPage from './routes/ReporterPortalPage';
 import { SkeletonRankPage, PlaceRankPage, CategoryDashPage } from './components/categoryRank/SkeletonRankPage';
 import InstaRankPage from './routes/InstaRankPage';
 import CafeRankPage from './routes/CafeRankPage';
+import LeakPage from './routes/LeakPage';
 import { UpdateBanner } from './components/UpdateBanner';
 
 const routes = [
@@ -59,6 +60,7 @@ const routes = [
     { path: '/portal/video', element: <CustomerCategoryPage /> },
     { path: '/portal/blog', element: <CustomerCategoryPage /> },
     { path: '/reporter', element: <ReporterPortalPage /> },
+    { path: '/leak', element: <LeakPage /> }, // 누수탐지 ERP(4인 전용 — 페이지 자체에서 게이트)
     { path: '/banner-generator', element: <BannerGeneratorPage /> },
     { path: '/powerlink', element: <PowerLinkPage /> },
     { path: '/mypage', element: <MyPage /> },

@@ -1,0 +1,108 @@
+import type { ReactNode } from 'react';
+
+// 누수탐지 ERP 공용 UI 조각 — 기존 ERP 톤(slate 계열 hex)에 맞춤.
+
+export const INPUT_CLS = 'h-9 w-full rounded-md border border-[#cbd5e1] bg-white px-2.5 text-sm outline-none focus:border-[#1e40af]';
+
+export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+    return (
+        <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold text-[#64748b]">{label}</span>
+            {children}
+            {hint ? <span className="text-[11px] text-[#94a3b8]">{hint}</span> : null}
+        </label>
+    );
+}
+
+export function Card({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
+    return (
+        <section className="rounded-xl border border-[#e2e8f0] bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 className="text-sm font-bold text-[#0f172a]">{title}</h2>
+                {right}
+            </div>
+            {children}
+        </section>
+    );
+}
+
+export function Btn({
+    children,
+    onClick,
+    kind = 'primary',
+    type = 'button',
+    disabled,
+}: {
+    children: ReactNode;
+    onClick?: () => void;
+    kind?: 'primary' | 'ghost' | 'danger';
+    type?: 'button' | 'submit';
+    disabled?: boolean;
+}) {
+    const cls =
+        kind === 'primary'
+            ? 'bg-[#1e40af] text-white hover:bg-[#1d4ed8]'
+            : kind === 'danger'
+              ? 'border border-[#fecaca] bg-white text-[#b91c1c] hover:bg-[#fef2f2]'
+              : 'border border-[#cbd5e1] bg-white text-[#475569] hover:bg-[#f8fafc]';
+    return (
+        <button
+            className={`h-9 shrink-0 rounded-md px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${cls}`}
+            disabled={disabled}
+            onClick={onClick}
+            type={type}
+        >
+            {children}
+        </button>
+    );
+}
+
+export function Chip({ tone, children }: { tone: 'ok' | 'warn' | 'muted' | 'info'; children: ReactNode }) {
+    const cls =
+        tone === 'ok'
+            ? 'bg-[#dcfce7] text-[#15803d]'
+            : tone === 'warn'
+              ? 'bg-[#fee2e2] text-[#b91c1c]'
+              : tone === 'info'
+                ? 'bg-[#dbeafe] text-[#1e40af]'
+                : 'bg-[#f1f5f9] text-[#64748b]';
+    return <span className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold ${cls}`}>{children}</span>;
+}
+
+// ⚠️ Tailwind 는 동적 클래스(`text-${align}`)를 정적 스캔하지 못한다 — 반드시 완성된 클래스명으로.
+const ALIGN_CLS = { left: 'text-left', right: 'text-right', center: 'text-center' } as const;
+type Align = keyof typeof ALIGN_CLS;
+
+export function Th({ children, align = 'left' }: { children: ReactNode; align?: Align }) {
+    return (
+        <th className={`whitespace-nowrap border-b border-[#e2e8f0] px-2 py-2 text-[11px] font-semibold text-[#64748b] ${ALIGN_CLS[align]}`}>
+            {children}
+        </th>
+    );
+}
+
+export function Td({ children, align = 'left', className = '' }: { children: ReactNode; align?: Align; className?: string }) {
+    return (
+        <td className={`whitespace-nowrap border-b border-[#f1f5f9] px-2 py-1.5 text-sm text-[#334155] ${ALIGN_CLS[align]} ${className}`}>
+            {children}
+        </td>
+    );
+}
+
+export function Empty({ children }: { children: ReactNode }) {
+    return <div className="px-3 py-8 text-center text-sm text-[#94a3b8]">{children}</div>;
+}
+
+export function Toast({ msg }: { msg: string }) {
+    if (!msg) return null;
+    const err = msg.startsWith('!');
+    return (
+        <div
+            className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg px-4 py-2 text-sm font-semibold shadow-lg ${
+                err ? 'bg-[#b91c1c] text-white' : 'bg-[#0f172a] text-white'
+            }`}
+        >
+            {err ? msg.slice(1) : msg}
+        </div>
+    );
+}
