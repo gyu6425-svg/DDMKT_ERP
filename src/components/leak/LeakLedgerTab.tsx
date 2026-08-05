@@ -11,7 +11,7 @@ import {
     type LeakLedger,
     type LedgerInput,
 } from '../../api/leakErp';
-import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Td, Th } from './ui';
+import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Modal, Td, Th } from './ui';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const blank = (): LedgerInput => ({
@@ -26,6 +26,7 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
     const [loading, setLoading] = useState(true);
     const [form, setForm] = useState<LedgerInput>(blank());
     const [editId, setEditId] = useState('');
+    const [open, setOpen] = useState(false);
     const [opening, setOpening] = useState(() => Number(localStorage.getItem(OPENING_KEY) || 0));
 
     const load = async () => {
@@ -47,16 +48,17 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
         notify(editId ? '수정했습니다' : '내역을 등록했습니다');
         setForm(blank());
         setEditId('');
+        setOpen(false);
         void load();
     };
 
     const startEdit = (r: LeakLedger) => {
         setEditId(r.id);
+        setOpen(true);
         setForm({
             entry_date: r.entry_date, inflow: r.inflow, memo: r.memo ?? '',
             outflow: r.outflow, outflow_kind: r.outflow_kind ?? '', unreconciled: r.unreconciled,
         });
-        window.scrollTo({ behavior: 'smooth', top: 0 });
     };
 
     const remove = async (r: LeakLedger) => {
@@ -89,13 +91,9 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
         localStorage.setItem(OPENING_KEY, String(v));
     };
 
-    return (
-        <div className="flex flex-col gap-4">
-            <Card
-                title={editId ? '원장 수정' : '입출금 등록'}
-                right={editId ? <Btn kind="ghost" onClick={() => { setEditId(''); setForm(blank()); }}>취소</Btn> : null}
-            >
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+    const formBody = (
+        <>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                     <Field label="날짜">
                         <input className={INPUT_CLS} onChange={(e) => set('entry_date', e.target.value)} type="date" value={form.entry_date ?? ''} />
                     </Field>
@@ -121,17 +119,20 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
                         </select>
                     </Field>
                 </div>
-                <div className="mt-3">
-                    <Btn onClick={submit}>{editId ? '수정 저장' : '등록'}</Btn>
-                </div>
-            </Card>
+        </>
+    );
 
+    return (
+        <div className="flex flex-col gap-4">
             <Card
                 title={`통장 원장 (입금 ${won(total.in)}원 · 출금 ${won(total.out)}원 · 잔액 ${won(opening + total.in - total.out)}원)`}
                 right={
-                    <Field label="시작 잔액(이월)">
-                        <input className={`${INPUT_CLS} w-36`} onChange={(e) => saveOpening(parseWon(e.target.value))} value={won(opening)} />
-                    </Field>
+                    <>
+                        <Field label="시작 잔액(이월)">
+                            <input className={`${INPUT_CLS} w-36`} onChange={(e) => saveOpening(parseWon(e.target.value))} value={won(opening)} />
+                        </Field>
+                        <Btn onClick={() => { setEditId(''); setForm(blank()); setOpen(true); }}>+ 입출금 추가</Btn>
+                    </>
                 }
             >
                 {byKind.length ? (
@@ -177,6 +178,21 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
                     </div>
                 )}
             </Card>
+
+            {open ? (
+                <Modal
+                    footer={
+                        <>
+                            <Btn kind="ghost" onClick={() => { setOpen(false); setEditId(''); setForm(blank()); }}>취소</Btn>
+                            <Btn onClick={submit}>{editId ? '수정 저장' : '등록'}</Btn>
+                        </>
+                    }
+                    onClose={() => { setOpen(false); setEditId(''); setForm(blank()); }}
+                    title={editId ? '입출금 수정' : '입출금 추가'}
+                >
+                    {formBody}
+                </Modal>
+            ) : null}
         </div>
     );
 }

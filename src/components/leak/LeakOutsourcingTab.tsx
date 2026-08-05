@@ -9,7 +9,7 @@ import {
     type LeakOutsourcing,
     type OutsourcingInput,
 } from '../../api/leakErp';
-import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Td, Th } from './ui';
+import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Modal, Td, Th } from './ui';
 
 const blank: OutsourcingInput = {
     amount: 0, amount_vat: 0, ended_on: '', entry_kind: 'order', item_name: '', marketing_type: '',
@@ -21,6 +21,7 @@ export default function LeakOutsourcingTab({ notify }: { notify: (m: string) => 
     const [loading, setLoading] = useState(true);
     const [form, setForm] = useState<OutsourcingInput>(blank);
     const [editId, setEditId] = useState('');
+    const [open, setOpen] = useState(false);
     const [q, setQ] = useState('');
 
     const load = async () => {
@@ -42,18 +43,19 @@ export default function LeakOutsourcingTab({ notify }: { notify: (m: string) => 
         notify(editId ? '수정했습니다' : '발주를 등록했습니다');
         setForm(blank);
         setEditId('');
+        setOpen(false);
         void load();
     };
 
     const startEdit = (r: LeakOutsourcing) => {
         setEditId(r.id);
+        setOpen(true);
         setForm({
             amount: r.amount, amount_vat: r.amount_vat, ended_on: r.ended_on ?? '', entry_kind: r.entry_kind,
             item_name: r.item_name ?? '', marketing_type: r.marketing_type ?? '', note: r.note ?? '',
             settled_final: r.settled_final, settled_to_vendor: r.settled_to_vendor,
             started_on: r.started_on ?? '', vendor: r.vendor ?? '',
         });
-        window.scrollTo({ behavior: 'smooth', top: 0 });
     };
 
     const remove = async (r: LeakOutsourcing) => {
@@ -81,13 +83,9 @@ export default function LeakOutsourcingTab({ notify }: { notify: (m: string) => 
         };
     }, [filtered]);
 
-    return (
-        <div className="flex flex-col gap-4">
-            <Card
-                title={editId ? '발주 수정' : '외주 발주 등록'}
-                right={editId ? <Btn kind="ghost" onClick={() => { setEditId(''); setForm(blank); }}>취소</Btn> : null}
-            >
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-6">
+    const formBody = (
+        <>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                     <Field label="품목명 *">
                         <input className={INPUT_CLS} onChange={(e) => set('item_name', e.target.value)} value={form.item_name ?? ''} />
                     </Field>
@@ -131,14 +129,19 @@ export default function LeakOutsourcingTab({ notify }: { notify: (m: string) => 
                         <input className={INPUT_CLS} onChange={(e) => set('note', e.target.value)} value={form.note ?? ''} />
                     </Field>
                 </div>
-                <div className="mt-3">
-                    <Btn onClick={submit}>{editId ? '수정 저장' : '등록'}</Btn>
-                </div>
-            </Card>
+        </>
+    );
 
+    return (
+        <div className="flex flex-col gap-4">
             <Card
                 title={`외주 발주 (발주 ${stat.orderCount}건 · 환불 ${stat.refundCount}건 · VAT포함 합계 ${won(stat.vat)}원)`}
-                right={<input className={`${INPUT_CLS} w-52`} onChange={(e) => setQ(e.target.value)} placeholder="품목·업체 검색" value={q} />}
+                right={
+                    <>
+                        <input className={`${INPUT_CLS} w-52 shrink-0`} onChange={(e) => setQ(e.target.value)} placeholder="품목·업체 검색" value={q} />
+                        <Btn onClick={() => { setEditId(''); setForm(blank); setOpen(true); }}>+ 발주 추가</Btn>
+                    </>
+                }
             >
                 {loading ? (
                     <Empty>불러오는 중…</Empty>
@@ -181,6 +184,22 @@ export default function LeakOutsourcingTab({ notify }: { notify: (m: string) => 
                     </div>
                 )}
             </Card>
+
+            {open ? (
+                <Modal
+                    footer={
+                        <>
+                            <Btn kind="ghost" onClick={() => { setOpen(false); setEditId(''); setForm(blank); }}>취소</Btn>
+                            <Btn onClick={submit}>{editId ? '수정 저장' : '등록'}</Btn>
+                        </>
+                    }
+                    onClose={() => { setOpen(false); setEditId(''); setForm(blank); }}
+                    title={editId ? '발주 수정' : '외주 발주 추가'}
+                    wide
+                >
+                    {formBody}
+                </Modal>
+            ) : null}
         </div>
     );
 }

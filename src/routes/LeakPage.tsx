@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { canSeeLeakErp } from '../lib/permissions';
-import LeakInquiriesTab from '../components/leak/LeakInquiriesTab';
+import LeakCustomersTab from '../components/leak/LeakCustomersTab';
 import LeakJobsTab from '../components/leak/LeakJobsTab';
 import LeakLedgerTab from '../components/leak/LeakLedgerTab';
 import LeakOutsourcingTab from '../components/leak/LeakOutsourcingTab';
@@ -10,7 +10,7 @@ import { Toast } from '../components/leak/ui';
 // 누수탐지 ERP — 상담 → 작업·정산 → 통장원장 → 외주발주.
 //   4인 전용(김종인·송민경·조재현·장규진). 화면 게이트 + DB RLS(is_leak_member) 이중.
 const TABS = [
-    { key: 'inquiries', label: '상담 접수' },
+    { key: 'customers', label: '고객 관리' },
     { key: 'jobs', label: '작업 · 정산' },
     { key: 'ledger', label: '통장 원장' },
     { key: 'outsourcing', label: '외주 발주' },
@@ -19,7 +19,7 @@ type TabKey = (typeof TABS)[number]['key'];
 
 export default function LeakPage() {
     const { profile } = useAuth();
-    const [tab, setTab] = useState<TabKey>('inquiries');
+    const [tab, setTab] = useState<TabKey>('customers');
     const [toast, setToast] = useState('');
 
     const notify = (m: string) => {
@@ -58,7 +58,7 @@ export default function LeakPage() {
                 ))}
             </div>
 
-            {tab === 'inquiries' ? <LeakInquiriesTab notify={notify} /> : null}
+            {tab === 'customers' ? <LeakCustomersTab notify={notify} /> : null}
             {tab === 'jobs' ? <LeakJobsTab notify={notify} /> : null}
             {tab === 'ledger' ? <LeakLedgerTab notify={notify} /> : null}
             {tab === 'outsourcing' ? <LeakOutsourcingTab notify={notify} /> : null}

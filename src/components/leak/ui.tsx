@@ -122,6 +122,52 @@ export function Empty({ children }: { children: ReactNode }) {
     return <div className="px-3 py-8 text-center text-sm text-[#94a3b8]">{children}</div>;
 }
 
+// 등록/수정 모달 — 기존 ERP('+ 고객사 추가' 등)와 같은 방식.
+export function Modal({
+    title,
+    onClose,
+    children,
+    footer,
+    wide,
+}: {
+    title: string;
+    onClose: () => void;
+    children: ReactNode;
+    footer?: ReactNode;
+    wide?: boolean;
+}) {
+    return (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 py-10" onMouseDown={onClose}>
+            <div
+                className={`w-full rounded-xl bg-white p-5 shadow-xl ${wide ? 'max-w-5xl' : 'max-w-3xl'}`}
+                onMouseDown={(e) => e.stopPropagation()}
+            >
+                <div className="mb-4 flex items-center justify-between gap-2">
+                    <h3 className="m-0 text-base font-bold text-[#0f172a]">{title}</h3>
+                    <button className="rounded px-2 py-1 text-lg leading-none text-[#94a3b8] hover:bg-[#f1f5f9]" onClick={onClose} type="button">
+                        ×
+                    </button>
+                </div>
+                {children}
+                {footer ? <div className="mt-4 flex justify-end gap-2">{footer}</div> : null}
+            </div>
+        </div>
+    );
+}
+
+// 상단 KPI 카드 — 기존 ERP 대시보드 톤.
+export function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'blue' | 'green' | 'amber' }) {
+    const val =
+        tone === 'green' ? 'text-[#15803d]' : tone === 'amber' ? 'text-[#b45309]' : 'text-[#1e40af]';
+    return (
+        <div className="min-w-[140px] flex-1 rounded-xl border border-[#e2e8f0] bg-white px-4 py-3">
+            <div className="text-[11px] font-semibold text-[#64748b]">{label}</div>
+            <div className={`mt-0.5 text-xl font-bold ${val}`}>{value}</div>
+            {sub ? <div className="text-[11px] text-[#94a3b8]">{sub}</div> : null}
+        </div>
+    );
+}
+
 export function Toast({ msg }: { msg: string }) {
     if (!msg) return null;
     const err = msg.startsWith('!');
