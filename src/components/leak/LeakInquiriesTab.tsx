@@ -3,17 +3,20 @@ import {
     createInquiry,
     deleteInquiry,
     fmtPhone,
+    fullPlace,
     LEAK_COUNSELORS,
+    LEAK_SIDOS,
     LEAK_SOURCES,
     listInquiries,
     updateInquiry,
     type InquiryInput,
     type LeakInquiry,
 } from '../../api/leakErp';
-import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Td, Th } from './ui';
+import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Td, Th, Toggle } from './ui';
 
 const blank: InquiryInput = {
-    counselor: '', region: '', phone: '', inquired_on: '', leak_type: '', contracted: false, source: '', note: '',
+    contracted: false, counselor: '', inquired_on: '', leak_type: '', note: '',
+    phone: '', region: '', sido: '', site_name: '', source: '',
 };
 
 export default function LeakInquiriesTab({ notify }: { notify: (m: string) => void }) {
@@ -49,15 +52,15 @@ export default function LeakInquiriesTab({ notify }: { notify: (m: string) => vo
     const startEdit = (r: LeakInquiry) => {
         setEditId(r.id);
         setForm({
-            counselor: r.counselor ?? '', region: r.region ?? '', phone: r.phone ?? '',
-            inquired_on: r.inquired_on ?? '', leak_type: r.leak_type ?? '',
-            contracted: r.contracted, source: r.source ?? '', note: r.note ?? '',
+            contracted: r.contracted, counselor: r.counselor ?? '', inquired_on: r.inquired_on ?? '',
+            leak_type: r.leak_type ?? '', note: r.note ?? '', phone: r.phone ?? '',
+            region: r.region ?? '', sido: r.sido ?? '', site_name: r.site_name ?? '', source: r.source ?? '',
         });
         window.scrollTo({ behavior: 'smooth', top: 0 });
     };
 
     const remove = async (r: LeakInquiry) => {
-        if (!window.confirm(`상담 삭제 — ${r.region || fmtPhone(r.phone)}\n되돌릴 수 없습니다. 진행할까요?`)) return;
+        if (!window.confirm(`상담 삭제 — ${fullPlace(r.sido, r.region, r.site_name)}\n되돌릴 수 없습니다. 진행할까요?`)) return;
         const { error } = await deleteInquiry(r.id);
         if (error) return notify(`!${error.message}`);
         notify('삭제했습니다');
@@ -69,7 +72,7 @@ export default function LeakInquiriesTab({ notify }: { notify: (m: string) => vo
         return rows.filter((r) => {
             if (onlyContracted && !r.contracted) return false;
             if (!s) return true;
-            return [r.region, r.counselor, r.phone, r.leak_type, r.source, r.note]
+            return [r.sido, r.region, r.site_name, r.counselor, r.phone, r.leak_type, r.source, r.note]
                 .some((v) => (v || '').toLowerCase().includes(s));
         });
     }, [rows, q, onlyContracted]);
@@ -101,8 +104,14 @@ export default function LeakInquiriesTab({ notify }: { notify: (m: string) => vo
                             {counselorOptions.map((c) => <option key={c} value={c}>{c}</option>)}
                         </select>
                     </Field>
-                    <Field label="지역/현장">
-                        <input className={INPUT_CLS} onChange={(e) => set('region', e.target.value)} value={form.region ?? ''} />
+                    <Field label="지역">
+                        <Toggle onChange={(v) => set('sido', v)} options={LEAK_SIDOS} value={form.sido ?? ''} />
+                    </Field>
+                    <Field label="시/구/동">
+                        <input className={INPUT_CLS} onChange={(e) => set('region', e.target.value)} placeholder="수원시 팔달구" value={form.region ?? ''} />
+                    </Field>
+                    <Field label="현장">
+                        <input className={INPUT_CLS} onChange={(e) => set('site_name', e.target.value)} placeholder="아파트·상가명" value={form.site_name ?? ''} />
                     </Field>
                     <Field label="연락처">
                         <input className={INPUT_CLS} onChange={(e) => set('phone', e.target.value)} placeholder="010-0000-0000" value={form.phone ?? ''} />
@@ -137,13 +146,14 @@ export default function LeakInquiriesTab({ notify }: { notify: (m: string) => vo
             <Card
                 title={`상담 목록 (${filtered.length}건 / 전체 ${stat.total}건 · 성사 ${stat.done}건 · ${stat.rate}%)`}
                 right={
-                    <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-1.5 text-xs font-semibold text-[#64748b]">
+                    <>
+                        {/* whitespace-nowrap 없으면 좁은 폭에서 '성/사/만' 으로 세로 줄바꿈된다. */}
+                        <label className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-[#64748b]">
                             <input checked={onlyContracted} onChange={(e) => setOnlyContracted(e.target.checked)} type="checkbox" />
                             성사만
                         </label>
-                        <input className={`${INPUT_CLS} w-52`} onChange={(e) => setQ(e.target.value)} placeholder="지역·연락처·종류 검색" value={q} />
-                    </div>
+                        <input className={`${INPUT_CLS} w-52 shrink-0`} onChange={(e) => setQ(e.target.value)} placeholder="지역·현장·연락처 검색" value={q} />
+                    </>
                 }
             >
                 {loading ? (
@@ -155,7 +165,7 @@ export default function LeakInquiriesTab({ notify }: { notify: (m: string) => vo
                         <table className="w-full min-w-[900px]">
                             <thead>
                                 <tr>
-                                    <Th>문의일</Th><Th>상담자</Th><Th>지역/현장</Th><Th>연락처</Th>
+                                    <Th>문의일</Th><Th>상담자</Th><Th>지역</Th><Th>현장</Th><Th>연락처</Th>
                                     <Th>누수 종류</Th><Th>유입</Th><Th align="center">계약</Th><Th>비고</Th><Th align="right">관리</Th>
                                 </tr>
                             </thead>
@@ -164,7 +174,10 @@ export default function LeakInquiriesTab({ notify }: { notify: (m: string) => vo
                                     <tr className="hover:bg-[#f8fafc]" key={r.id}>
                                         <Td>{r.inquired_on ?? '-'}</Td>
                                         <Td>{r.counselor ?? '-'}</Td>
-                                        <Td className="font-semibold">{r.region ?? '-'}</Td>
+                                        <Td className="font-semibold">
+                                            {r.sido ? <Chip tone="info">{r.sido}</Chip> : null} {r.region ?? ''}
+                                        </Td>
+                                        <Td>{r.site_name ?? '-'}</Td>
                                         <Td>{fmtPhone(r.phone)}</Td>
                                         <Td>{r.leak_type ?? '-'}</Td>
                                         <Td>{r.source ? <Chip tone="info">{r.source}</Chip> : '-'}</Td>

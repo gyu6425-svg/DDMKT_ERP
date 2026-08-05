@@ -25,6 +25,11 @@ export const parseWon = (v: string | number | null | undefined): number => {
 
 // 상담 담당자 — 누수탐지 ERP 사용 4인 중 상담을 받는 3인.
 export const LEAK_COUNSELORS = ['김종인', '송민경', '조재현'] as const;
+// 영업 권역 — 현재 수도권만. 시/구/동은 자유 입력(region), 현장명은 별도(site_name).
+export const LEAK_SIDOS = ['서울', '경기', '인천'] as const;
+// 표시용 합성 — '경기 수원시 팔달구 · 광교아파트'
+export const fullPlace = (sido?: string | null, region?: string | null, site?: string | null) =>
+    [[sido, region].filter(Boolean).join(' '), site].filter(Boolean).join(' · ') || '-';
 export const LEAK_SOURCES = ['카페', '블로그', '플레이스', '지인소개', '기타'] as const;
 export const OUTFLOW_KINDS = ['외주비', '급여', '세금', '대표인출', '기타'] as const;
 export const INVOICE_STATUSES = ['미발행', '발행완료'] as const;
@@ -34,7 +39,9 @@ export type LeakInquiry = {
     created_at: string;
     updated_at: string | null;
     counselor: string | null;
-    region: string | null;
+    sido: string | null;          // 서울 | 경기 | 인천
+    region: string | null;        // 시/구/동
+    site_name: string | null;     // 현장명
     phone: string | null;
     phone_norm: string | null;
     inquired_on: string | null;
@@ -49,7 +56,9 @@ export type LeakJob = {
     created_at: string;
     updated_at: string | null;
     inquiry_id: string | null;
-    site_name: string | null;
+    sido: string | null;          // 서울 | 경기 | 인천
+    region: string | null;        // 시/구/동
+    site_name: string | null;     // 현장명
     phone: string | null;
     phone_norm: string | null;
     worked_on: string | null;
@@ -117,7 +126,9 @@ export type InquiryInput = Partial<Omit<LeakInquiry, 'id' | 'created_at' | 'upda
 function inquiryPayload(input: InquiryInput) {
     return {
         counselor: trimOrNull(input.counselor),
+        sido: trimOrNull(input.sido),
         region: trimOrNull(input.region),
+        site_name: trimOrNull(input.site_name),
         phone: trimOrNull(input.phone),
         phone_norm: normPhone(input.phone) || null,
         inquired_on: input.inquired_on || null,
@@ -129,8 +140,8 @@ function inquiryPayload(input: InquiryInput) {
 }
 
 export async function createInquiry(input: InquiryInput) {
-    if (!trimOrNull(input.region) && !normPhone(input.phone)) {
-        return { error: { message: '지역 또는 연락처 중 하나는 입력하세요' } };
+    if (!trimOrNull(input.region) && !trimOrNull(input.site_name) && !normPhone(input.phone)) {
+        return { error: { message: '지역·현장·연락처 중 하나는 입력하세요' } };
     }
     const { error } = await supabase.from('leak_inquiries').insert(inquiryPayload(input));
     return { error };
@@ -166,6 +177,8 @@ export type JobInput = Partial<Omit<LeakJob, 'id' | 'created_at' | 'updated_at' 
 function jobPayload(input: JobInput) {
     return {
         inquiry_id: input.inquiry_id || null,
+        sido: trimOrNull(input.sido),
+        region: trimOrNull(input.region),
         site_name: trimOrNull(input.site_name),
         phone: trimOrNull(input.phone),
         phone_norm: normPhone(input.phone) || null,
@@ -188,7 +201,9 @@ function jobPayload(input: JobInput) {
 }
 
 export async function createJob(input: JobInput) {
-    if (!trimOrNull(input.site_name)) return { error: { message: '현장(지역)을 입력하세요' } };
+    if (!trimOrNull(input.site_name) && !trimOrNull(input.region)) {
+        return { error: { message: '지역(시/구/동) 또는 현장명을 입력하세요' } };
+    }
     const { error } = await supabase.from('leak_jobs').insert(jobPayload(input));
     return { error };
 }

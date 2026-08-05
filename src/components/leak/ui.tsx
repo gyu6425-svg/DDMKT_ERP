@@ -17,9 +17,10 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 export function Card({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
     return (
         <section className="rounded-xl border border-[#e2e8f0] bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between gap-2">
-                <h2 className="text-sm font-bold text-[#0f172a]">{title}</h2>
-                {right}
+            {/* 제목은 줄어들 수 있게(min-w-0), 우측 컨트롤은 눌리지 않게(shrink-0) — 글자 세로 깨짐 방지. */}
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="min-w-0 text-sm font-bold text-[#0f172a]">{title}</h2>
+                {right ? <div className="flex shrink-0 items-center gap-2">{right}</div> : null}
             </div>
             {children}
         </section>
@@ -54,6 +55,34 @@ export function Btn({
         >
             {children}
         </button>
+    );
+}
+
+// 세그먼트 토글 — 선택된 것 다시 누르면 해제.
+export function Toggle({
+    options,
+    value,
+    onChange,
+}: {
+    options: readonly string[];
+    value: string;
+    onChange: (v: string) => void;
+}) {
+    return (
+        <div className="inline-flex h-9 items-center rounded-md border border-[#cbd5e1] bg-white p-0.5">
+            {options.map((o) => (
+                <button
+                    className={`h-full whitespace-nowrap rounded px-2.5 text-sm font-semibold ${
+                        value === o ? 'bg-[#1e40af] text-white' : 'text-[#64748b] hover:bg-[#f1f5f9]'
+                    }`}
+                    key={o}
+                    onClick={() => onChange(value === o ? '' : o)}
+                    type="button"
+                >
+                    {o}
+                </button>
+            ))}
+        </div>
     );
 }
 

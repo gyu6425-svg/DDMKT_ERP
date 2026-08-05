@@ -3,7 +3,9 @@ import {
     createJob,
     deleteJob,
     fmtPhone,
+    fullPlace,
     INVOICE_STATUSES,
+    LEAK_SIDOS,
     listInquiries,
     listJobs,
     parseWon,
@@ -15,13 +17,13 @@ import {
     type LeakInquiry,
     type LeakJob,
 } from '../../api/leakErp';
-import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Td, Th } from './ui';
+import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Td, Th, Toggle } from './ui';
 
 const blank: JobInput = {
     applied_rate: 30, base_amount: null, deduction_amount: 0, deduction_note: '', exception_reason: '',
     gross_amount: 0, inquiry_id: '', invoice_status: '미발행', is_rule_exception: false, note: '',
-    our_share: 0, partner_share: 0, phone: '', settled_on: '', site_name: '', vendor: '백준누수',
-    vendor_phone: '', worked_on: '',
+    our_share: 0, partner_share: 0, phone: '', region: '', settled_on: '', sido: '', site_name: '',
+    vendor: '백준누수', vendor_phone: '', worked_on: '',
 };
 
 export default function LeakJobsTab({ notify }: { notify: (m: string) => void }) {
@@ -86,15 +88,15 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
             deduction_note: r.deduction_note ?? '', exception_reason: r.exception_reason ?? '',
             gross_amount: r.gross_amount, inquiry_id: r.inquiry_id ?? '', invoice_status: r.invoice_status,
             is_rule_exception: r.is_rule_exception, note: r.note ?? '', our_share: r.our_share,
-            partner_share: r.partner_share, phone: r.phone ?? '', settled_on: r.settled_on ?? '',
-            site_name: r.site_name ?? '', vendor: r.vendor ?? '', vendor_phone: r.vendor_phone ?? '',
-            worked_on: r.worked_on ?? '',
+            partner_share: r.partner_share, phone: r.phone ?? '', region: r.region ?? '',
+            settled_on: r.settled_on ?? '', sido: r.sido ?? '', site_name: r.site_name ?? '',
+            vendor: r.vendor ?? '', vendor_phone: r.vendor_phone ?? '', worked_on: r.worked_on ?? '',
         });
         window.scrollTo({ behavior: 'smooth', top: 0 });
     };
 
     const remove = async (r: LeakJob) => {
-        if (!window.confirm(`작업 삭제 — ${r.site_name}\n되돌릴 수 없습니다. 진행할까요?`)) return;
+        if (!window.confirm(`작업 삭제 — ${fullPlace(r.sido, r.region, r.site_name)}\n되돌릴 수 없습니다. 진행할까요?`)) return;
         const { error } = await deleteJob(r.id);
         if (error) return notify(`!${error.message}`);
         notify('삭제했습니다');
@@ -104,13 +106,22 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
     // 상담 선택 시 현장/연락처 자동 채움(연락처가 두 표를 잇는 키).
     const pickInquiry = (id: string) => {
         const hit = inquiries.find((i) => i.id === id);
-        setForm((f) => ({ ...f, inquiry_id: id, ...(hit ? { phone: hit.phone ?? '', site_name: hit.region ?? '' } : {}) }));
+        setForm((f) => ({
+            ...f,
+            inquiry_id: id,
+            ...(hit
+                ? { phone: hit.phone ?? '', region: hit.region ?? '', sido: hit.sido ?? '', site_name: hit.site_name ?? '' }
+                : {}),
+        }));
     };
 
     const filtered = useMemo(() => {
         const s = q.trim().toLowerCase();
         if (!s) return rows;
-        return rows.filter((r) => [r.site_name, r.phone, r.vendor, r.note, r.deduction_note].some((v) => (v || '').toLowerCase().includes(s)));
+        return rows.filter((r) =>
+            [r.sido, r.region, r.site_name, r.phone, r.vendor, r.note, r.deduction_note]
+                .some((v) => (v || '').toLowerCase().includes(s)),
+        );
     }, [rows, q]);
 
     const sum = useMemo(
@@ -134,12 +145,20 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
                         <select className={INPUT_CLS} onChange={(e) => pickInquiry(e.target.value)} value={form.inquiry_id ?? ''}>
                             <option value="">연결 안 함</option>
                             {contracted.map((i) => (
-                                <option key={i.id} value={i.id}>{i.region ?? '(지역없음)'} · {fmtPhone(i.phone)}</option>
+                                <option key={i.id} value={i.id}>
+                                    {fullPlace(i.sido, i.region, i.site_name)} · {fmtPhone(i.phone)}
+                                </option>
                             ))}
                         </select>
                     </Field>
-                    <Field label="현장/지역 *">
-                        <input className={INPUT_CLS} onChange={(e) => set('site_name', e.target.value)} value={form.site_name ?? ''} />
+                    <Field label="지역">
+                        <Toggle onChange={(v) => set('sido', v)} options={LEAK_SIDOS} value={form.sido ?? ''} />
+                    </Field>
+                    <Field label="시/구/동">
+                        <input className={INPUT_CLS} onChange={(e) => set('region', e.target.value)} placeholder="수원시 팔달구" value={form.region ?? ''} />
+                    </Field>
+                    <Field label="현장">
+                        <input className={INPUT_CLS} onChange={(e) => set('site_name', e.target.value)} placeholder="아파트·상가명" value={form.site_name ?? ''} />
                     </Field>
                     <Field label="연락처">
                         <input className={INPUT_CLS} onChange={(e) => set('phone', e.target.value)} value={form.phone ?? ''} />
@@ -230,7 +249,7 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
                         <table className="w-full min-w-[1100px]">
                             <thead>
                                 <tr>
-                                    <Th>진행일</Th><Th>현장</Th><Th>연락처</Th><Th align="right">결제금액</Th>
+                                    <Th>진행일</Th><Th>지역</Th><Th>현장</Th><Th>연락처</Th><Th align="right">결제금액</Th>
                                     <Th align="right">공제</Th><Th align="right">든든</Th><Th align="right">백준</Th>
                                     <Th align="center">검산</Th><Th>정산일</Th><Th align="center">계산서</Th><Th align="right">관리</Th>
                                 </tr>
@@ -241,7 +260,10 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
                                     return (
                                         <tr className="hover:bg-[#f8fafc]" key={r.id}>
                                             <Td>{r.worked_on ?? '-'}</Td>
-                                            <Td className="font-semibold">{r.site_name ?? '-'}</Td>
+                                            <Td className="font-semibold">
+                                                {r.sido ? <Chip tone="info">{r.sido}</Chip> : null} {r.region ?? ''}
+                                            </Td>
+                                            <Td>{r.site_name ?? '-'}</Td>
                                             <Td>{fmtPhone(r.phone)}</Td>
                                             <Td align="right">{won(r.gross_amount)}</Td>
                                             <Td align="right" className={r.deduction_amount ? 'text-[#b45309]' : ''}>
