@@ -571,17 +571,17 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                     <span>칩을 클릭해 <b>선택 발행</b> · 미선택 시 앞에서 {dailyCount}건{selfPicked.size ? <b className="ml-1 text-[#7c3aed]">· {selfPicked.size}개 선택됨</b> : null}</span>
                                     {selfPicked.size ? <button type="button" onClick={() => setSelfPicked(new Set())} className="font-semibold text-[#94a3b8] hover:text-[#4338ca]">선택 해제</button> : null}
                                 </div>
-                                <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                                <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto py-1">
                                     {poolKw.map((kw) => {
                                         const s = st(kw);
                                         const selectable = !USED.has(s);
                                         const picked = selfPicked.has(kw);
-                                        const cls = s === 'done' ? 'bg-[#dcfce7] text-[#166534] line-through'
-                                            : USED.has(s) ? 'bg-[#fef9c3] text-[#854d0e]'
-                                                : picked ? 'bg-[#ede9fe] text-[#5b21b6] ring-2 ring-[#7c3aed]'
-                                                    : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]';
+                                        const cls = s === 'done' ? 'bg-[#dcfce7] text-[#166534] line-through ring-1 ring-inset ring-[#bbf7d0]'
+                                            : USED.has(s) ? 'bg-[#fef9c3] text-[#854d0e] ring-1 ring-inset ring-[#fde68a]'
+                                                : picked ? 'bg-[#ede9fe] text-[#5b21b6] ring-2 ring-inset ring-[#7c3aed]'
+                                                    : 'bg-white text-[#475569] ring-1 ring-inset ring-[#cbd5e1]';
                                         return (
-                                            <span key={kw} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
+                                            <span key={kw} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold leading-none ${cls}`}>
                                                 {selectable ? (
                                                     <button type="button" onClick={() => toggleSelf(kw)} title="클릭해 선택 발행 대상 지정" className="inline-flex items-center gap-1">
                                                         {picked ? '✓ ' : ''}{kw}
