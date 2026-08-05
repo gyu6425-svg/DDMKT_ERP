@@ -420,14 +420,14 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     <label className="grid gap-1 text-xs font-semibold text-[#475569]">발행 간격 <span className="font-normal text-[#94a3b8]">(발행 텀)</span>
                         <select className={inputCls} value={gapMin} onChange={(e) => setGapMin(Number(e.target.value))}>
                             <option value={0}>제한 없음</option>
-                            <option value={360}>6시간에 1건</option>
-                            <option value={720}>12시간에 1건</option>
-                            <option value={1440}>하루 1건</option>
-                            <option value={2880}>이틀 1건</option>
-                            <option value={5040}>3~4일 1건</option>
-                            <option value={10080}>1주 1건</option>
+                            <option value={30}>30분에 1건</option>
+                            <option value={60}>1시간에 1건</option>
+                            <option value={90}>1시간 30분에 1건</option>
+                            <option value={120}>2시간에 1건</option>
+                            <option value={150}>2시간 30분에 1건</option>
+                            <option value={180}>3시간에 1건</option>
                         </select>
-                        <span className="text-[11px] font-normal text-[#b45309]">⚠ 신규 카페는 대량발행 시 노출 역효과 — 간격을 넉넉히(1주 1~2건급) 잡으세요.</span>
+                        <span className="text-[11px] font-normal text-[#b45309]">⚠ 신규 카페는 짧은 간격 대량발행 시 노출 역효과 — 간격을 넉넉히(2~3시간급) 잡으세요.</span>
                     </label>
                 </div>
                 {/* 네이버 로그인 — SUB2가 이 고객 전용 크롬을 띄우고 담당자가 직접 로그인(자동입력 안 함=봇 방지) */}
