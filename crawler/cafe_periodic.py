@@ -80,13 +80,18 @@ def _measure_new():
     today = datetime.date.today().isoformat()
     # 최신 발행 우선 정렬 — 측정 창이 짧게 끊겨도 최근 등록 글이 뒤로 반복 밀리지 않게(독립검증 R3).
     posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*", "order": "published_date.desc.nullslast"})
-    # 대상 = ① 오늘 미측정 글 + ② 현재 5위 안인 글(30분마다 재측정해 24h 유지 여부 확인 — 사용자 선택).
-    def _top5(p):
+    # 대상 = ① 오늘 미측정 글 + ② 매 사이클(15분) 재측정: 현재 순위권(ok) OR 최근 발행 신규글.
+    #   순위권 글은 순위 변동을 바로바로 반영, 최근 신규글은 아직 변동이 커 매번 추적(진입/이탈 즉시 포착).
+    #   권외·측정불가 옛글은 매 사이클 안 돌고 하루 1회만(전체 재측정 시 ~22분=차단위험이라 순위권+신규로 한정).
+    recent_cut = (datetime.date.today() - datetime.timedelta(days=2)).isoformat()  # 최근 2일 발행분
+    def _track(p):
         ms = p.get("measurements") or []
         cur = ms[-1] if ms else {}
-        return cur.get("ti_status") == "ok" and isinstance(cur.get("ti"), (int, float)) and not isinstance(cur.get("ti"), bool) and cur.get("ti") <= 5
+        ranked = cur.get("ti_status") == "ok"                      # 현재 순위권 = 순위 변동 즉시 반영
+        recent = (p.get("published_date") or "") >= recent_cut     # 최근 신규글 = 변동 큼, 매번 추적
+        return ranked or recent
     todo = [p for p in posts
-            if (not any((m.get("date") == today) for m in (p.get("measurements") or []))) or _top5(p)]
+            if (not any((m.get("date") == today) for m in (p.get("measurements") or []))) or _track(p)]
     if not todo:
         print(f"[{datetime.datetime.now():%H:%M}] 재측정 대상 없음 — {len(posts)}글", flush=True)
         return
