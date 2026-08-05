@@ -870,7 +870,7 @@ function ContractAddModal({
                                 <span className="text-[#c2410c]">{cardFeeAmt.toLocaleString('ko-KR')}</span> · 실수령{' '}
                                 <span className="text-[#7c3aed]">{(cardTotal - cardFeeAmt).toLocaleString('ko-KR')}</span> · 외주{' '}
                                 <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
-                                <span className="text-[#059669]">{(saleAmt - outAmt).toLocaleString('ko-KR')}</span>원
+                                <span className="text-[#059669]">{(saleAmt - outAmt - cardFeeAmt).toLocaleString('ko-KR')}</span>원
                             </div>
                             <div className="mt-1 text-[11px] text-[#94a3b8]">공급가·부가세 수정 가능(부가세 기본 10%), 수수료는 건별 직접 입력. 매출=공급가 기준.</div>
                         </div>
@@ -2869,6 +2869,7 @@ export function ClientDetail({
     const totalReal = contracts.reduce((s, ct) => s + saleVat(ct.amount, ct.no_vat, ct.sale_total), 0);
     const totalSupply = contracts.reduce((s, ct) => s + (ct.amount || 0), 0); // 공급가(VAT 제외) 합계
     const totalOutsource = contracts.reduce((s, ct) => s + (ct.outsource || 0), 0); // 외주비 합계(받은·고정)
+    const totalCardFee = contracts.reduce((s, ct) => s + (ct.card_fee || 0), 0); // 카드매출 수수료 합계(순매출 차감)
     // 순매출 = 공급가(VAT 제외) − 외주비 정산 차액(예상 외주비 − 실제 사용). (차액 = outMargin, 아래에서 계산)
 
     // 외주비 정산 — 품목별로 받은 외주비(단가×계약수량) vs 실제 사용 외주비(완료분 소진).
@@ -2892,8 +2893,8 @@ export function ClientDetail({
     const receivedTotal = totalOutsource; // 예상(받은) 외주비 = 상단 외주비 합계
     const usedTotal = outsourceRows.reduce((s, r) => s + r.used, 0); // 실제 사용 = 진행 이력 합
     const outMargin = receivedTotal - usedTotal; // 차액 = 예상 − 사용(외주비 정산 섹션용)
-    // 순매출 = 공급가(VAT 제외) − 받은 외주비(계약 시 외주비). 실제 사용은 '외주비 정산'에서 별도 추적.
-    const netRevenue = totalSupply - receivedTotal;
+    // 순매출 = 공급가(VAT 제외) − 받은 외주비 − 카드매출 수수료. 실제 사용은 '외주비 정산'에서 별도 추적.
+    const netRevenue = totalSupply - receivedTotal - totalCardFee;
 
     // (외주비 정산 내역의 삭제 버튼은 제거 — 외주비/사용이력 삭제는 계약(카드/진행 이력)에서만)
     // 계약 내역 일괄삭제(임시 버튼) — 이 업체의 모든 계약행 제거. 되돌릴 수 없음.
