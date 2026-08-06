@@ -326,6 +326,12 @@ BLOCK_BACKOFF = 150
 REQ_REST = 45
 
 
+def _err_budget(n):
+    """미판정 허용치 — 절대 상한을 둔다. 옛 코드는 15% 비율이라 조합이 커질수록 자동 완화됐다
+       (2,924조합이면 438건 오류에도 '완료'). 규모와 무관하게 25건을 넘으면 결과가 불완전하다."""
+    return min(25, max(5, 0.15 * max(n, 1)))
+
+
 def _cache_trust(c):
     """재스캔 시 이 캐시를 그대로 신뢰할지 — 신뢰=건너뜀, 불신=라이브 재검증.
        ① '저검색'은 판정 아님 → 불신.
@@ -346,7 +352,9 @@ def _cache_trust(c):
         return True
     if "비관련" in str(c.get("verdict") or ""):
         return False   # 토픽 규칙은 바뀔 수 있으니 '비관련(오탐)' 강등 캐시는 항상 라이브 재검증(규칙 변경 자가치유)
-    if str(c.get("scanned_by") or "") == "prescan":
+    # prescan 산출물 음성은 항상 불신. ⚠️ startswith 로 봐야 한다 — HOST_TAG 도입 후 prescan 이
+    #   'prescan/m'·'prescan-v2/m' 으로 쓰는데 == 비교면 그게 다 빠져나가 21일간 신뢰됐다.
+    if str(c.get("scanned_by") or "").startswith("prescan"):
         return False
     sa = str(c.get("scanned_at") or "")
     if not sa:
@@ -539,7 +547,7 @@ def process_region(req, product):
     scope = "동포함" if include_dong else "구시"
     # 판정 못 한 조합이 많으면 '완료'로 위장하지 않는다 — 결과가 불완전함을 명시하고 failed 로 끝낸다.
     unscanned = len(to_scan) - scraped
-    if aborted or errs > max(5, 0.15 * max(len(to_scan), 1)):
+    if aborted or errs > _err_budget(len(to_scan)):
         return _finish(req["id"], "failed", result=found, extra={"biz_name": product},
                        note=f"⚠ 스캔 차단 — {unscanned}/{len(to_scan)}건 판정 못 함(오류 {errs}). "
                             f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
@@ -605,7 +613,7 @@ def process_list(req, payload):
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
     found.sort(key=lambda f: -(f.get("volume") or 0))
     # 차단·다수 오류를 '완료 0건'으로 위장하지 않는다(process_region 과 동일 규약).
-    if aborted or errs > max(5, 0.15 * max(total, 1)):
+    if aborted or errs > _err_budget(total):
         return _finish(req["id"], "failed", result=found,
                        note=f"⚠ 스캔 차단 — {total - scraped}/{total}건 판정 못 함(오류 {errs}). "
                             f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
@@ -703,7 +711,7 @@ def process(req):
         found.sort(key=lambda f: -(f.get("volume") or 0))
     cap_note = f" · ⚠라이브상한({MAX_LIVE}) 도달-부분결과(prescan 권장)" if capped else ""
     # 차단·다수 오류를 '0건 발견'으로 위장하지 않는다(process_region·process_list 와 동일 규약).
-    if aborted or errs > max(5, 0.15 * max(len(cands), 1)):
+    if aborted or errs > _err_budget(len(cands)):
         return _finish(req["id"], "failed", result=found,
                        extra={"place_id": pid, "biz_name": info.get("name")},
                        note=f"⚠ 스캔 차단 — 후보 {len(cands)}건 중 라이브 {scraped}건만 판정(오류 {errs}). "
@@ -721,7 +729,14 @@ def main():
         print("SUPABASE_URL/SERVICE_KEY 없음 (.env 확인)")
         return
     once = "--once" in sys.argv
-    print(f"=== 카페 인기탭 워커 시작 · {WID} ===", flush=True)
+    # ★ 로컬 파일 캐시(cafe_kw_cache.json, TTL 7일)를 끈다 — DB 캐시(_cache_trust)가 유일한 권위가 되게.
+    #   끄지 않으면: _cache_trust 가 '불신 → 라이브 재검증'으로 판단한 조합에 대해 p.classify() 안에서
+    #   로컬 파일이 옛 판정을 조용히 돌려주고, 그걸 _cache_put 이 scanned_by=WID+'/m' · scanned_at=now 로
+    #   DB에 다시 써서 '방금 모바일로 스캔한 신선한 음성'으로 세탁된다.
+    #   → HOST_TAG · NEG_TTL_DAYS · FIX_CUTOFF_UTC · prescan 불신 네 방어가 한꺼번에 무력화된다.
+    #   워커는 이미 _cache_get_many 로 DB 배치캐시를 쓰므로 로컬 캐시는 불필요하다.
+    p._USE_CACHE = False
+    print(f"=== 카페 인기탭 워커 시작 · {WID} · 로컬캐시 OFF(DB 권위) ===", flush=True)
     while True:
         row = _claim()
         if row:
