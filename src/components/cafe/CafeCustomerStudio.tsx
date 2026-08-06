@@ -39,6 +39,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [board, setBoard] = useState<string | null>(null);
     const [company, setCompany] = useState<string | null>(null);
     const [brandDefault, setBrandDefault] = useState('');
+    const [preview, setPreview] = useState<string | null>(null); // 이미지 확대 보기(라이트박스)
 
     // 공통 업체정보
     const [brand, setBrand] = useState('');
@@ -293,6 +294,14 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clientId]);
 
+    // 라이트박스 열렸을 때 ESC로 닫기
+    useEffect(() => {
+        if (!preview) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(null); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [preview]);
+
     async function addFiles(setter: (u: (prev: string[]) => string[]) => void, files: FileList | null, max: number) {
         if (!files || !files.length) return;
         try {
@@ -312,7 +321,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 <div className="mt-1 flex flex-wrap gap-2">
                     {list.map((src, i) => (
                         <div className="relative" key={i}>
-                            <img alt={`${label} ${i + 1}`} className="h-16 w-16 rounded-md border border-[#e2e8f0] object-cover" src={src} />
+                            <img alt={`${label} ${i + 1}`} className="h-16 w-16 cursor-zoom-in rounded-md border border-[#e2e8f0] object-cover transition hover:brightness-95" src={src} onClick={() => setPreview(src)} title="클릭하면 크게 보기" />
                             <button className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#dc2626] text-[11px] font-bold text-white" onClick={() => setter((p) => p.filter((_, j) => j !== i))} type="button">×</button>
                         </div>
                     ))}
@@ -344,6 +353,14 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
 
     return (
         <div className="grid gap-4">
+            {/* 이미지 확대 보기(라이트박스) — 썸네일 클릭 시 원본 크게 */}
+            {preview ? (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-6" onClick={() => setPreview(null)}>
+                    <img alt="확대 보기" className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl" src={preview} onClick={(e) => e.stopPropagation()} />
+                    <button className="absolute right-5 top-5 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-xl font-bold text-[#334155] hover:bg-white" onClick={() => setPreview(null)} type="button" aria-label="닫기">×</button>
+                </div>
+            ) : null}
+
             <div className="rounded-lg bg-[#eff6ff] px-4 py-3 text-sm text-[#1e40af]">
                 발행 대상 게시판: <b>{board ?? '(확인 중)'}</b>
                 <span className="ml-2 text-[#64748b]">— 발행하면 본인 카페의 이 게시판에 자동 게시됩니다.</span>
