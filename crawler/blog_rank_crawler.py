@@ -123,6 +123,17 @@ RECENT_DAYS = 90
 RSS_INGEST_MAX = 60  # RSS 수집 안전상한(창 이내 글만 담되, 폭주 방지 상한)
 def recent_cutoff():
     return (datetime.date.today() - datetime.timedelta(days=RECENT_DAYS)).isoformat()
+
+# 누수탐지 블로그 앵커 client — 이 client 의 블로그는 8월1일 이후 글만 추적(옛 글 재유입 차단).
+LEAK_TRACK_CLIENT_ID = "c05e9c96-0f3e-4cc9-9554-443c80f1672a"
+LEAK_SINCE = "2026-08-01"
+
+
+def _keep_entry(acc, published_date):
+    """이 계정 글목록 동기화 대상 판정. 누수탐지 블로그=8월1일 이후 확정일자만, 그 외=최근 90일(미일자 유지)."""
+    if (acc or {}).get("client_id") == LEAK_TRACK_CLIENT_ID:
+        return bool(published_date) and published_date >= LEAK_SINCE
+    return (not published_date) or published_date >= recent_cutoff()
 MAX_KEYWORDS_PER_ACCOUNT = 3  # 블로그당 대표키워드 측정 상한(네이버 요청량/차단 가드)
 MAX_RANK_SCAN = 30         # 이 순위까지 탐색(넘으면 권외=99)
 OUT_OF_RANK = 99
@@ -1608,8 +1619,8 @@ def _process_blog(acc, kw_by_acc, force=False):
     except Exception as exc:
         print(f"  RSS 실패 {name}: {exc}")
         rss = []
-    # 너무 옛날 글 제외(최신 1~2년만). published_date 없으면(판단 불가) 유지.
-    rss = [p for p in rss if not p.get("published_date") or p["published_date"] >= recent_cutoff()]
+    # 너무 옛날 글 제외(최근 90일). 누수탐지 블로그는 8월1일 이후만(옛 글 재유입 차단).
+    rss = [p for p in rss if _keep_entry(acc, p.get("published_date"))]
     rows = [
         {"blog_account_id": acc["id"], "post_url": p["url"], "title": p["title"],
          "keyword": derive_keyword(p["title"], p.get("tags") or []), "published_date": p["published_date"], "published_at": p.get("published_at")}
@@ -1751,7 +1762,7 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
         except Exception as exc:
             print(f"  RSS 실패 {acc.get('name')}: {exc}", flush=True)
             entries = []
-        entries = [e for e in entries if not e.get("published_date") or e["published_date"] >= recent_cutoff()]
+        entries = [e for e in entries if _keep_entry(acc, e.get("published_date"))]
         rows = [{"blog_account_id": acc["id"], "post_url": e["url"], "title": e["title"],
                  "keyword": derive_keyword(e["title"], e["rss_tags"]), "published_date": e["published_date"], "published_at": e.get("published_at")}
                 for e in entries if e["url"]]
