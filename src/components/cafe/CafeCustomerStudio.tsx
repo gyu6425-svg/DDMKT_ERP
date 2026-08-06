@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { listMyCafeJobs, listCafeJobsByCompanies } from '../../api/cafePublishQueue';
 import { listTokens, balanceOf } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls, studioSavedPath, updateKeywordPool, markNaverLogin } from '../../api/cafeStudioSettings';
@@ -13,8 +12,6 @@ import { customerLogin } from '../../api/nusu2Bridge';
 import { grantTokens } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
-type MyJob = { id: string; title: string; status: string; posted_url: string | null; reason: string | null; created_at: string };
-const STATUS_KO: Record<string, string> = { pending: '대기', processing: '작성 중', posted: '게시됨(확인중)', done: '완료', fail: '실패' };
 // 자체발행 전환 업체(더맨·설고·더반·누수상담소) — 고정 라우팅 대신 든든한마케팅과 동일 dep_ 자기카페 UI/발행을 쓴다.
 //   전제(SUB2): 해당 계정 기존 발행(SUB1/자율) 중단 · board_url에 clubid · 전용포트 로그인. dep_ 폴러가 client_id로 자동 처리.
 const SELF_PUBLISH_KEYS = new Set(['theman', 'theman2', 'seolgo', 'seolgo2', 'theban', 'nusu']);
@@ -185,16 +182,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     };
     const [selectedKw, setSelectedKw] = useState<Set<string>>(() => new Set());
 
-    // 발행 현황 — 관리자가 고객사 선택 발행 시엔 그 업체(들) 히스토리만. 고객 셀프뷰는 RLS로 본인만.
-    const [jobs, setJobs] = useState<MyJob[]>([]);
-    const companiesRef = useRef<string[]>([]); // 이 client 의 업체키들(theman/theman2 등) — 히스토리 필터
-    async function loadJobs() {
-        const cos = companiesRef.current;
-        const { data } = (clientId && cos.length)
-            ? await listCafeJobsByCompanies(cos, 10)
-            : await listMyCafeJobs(10);
-        setJobs(data as MyJob[]);
-    }
+    // 발행 현황 — 이 client 의 업체키(히스토리 필터용). '오늘 발행'/'순위 트래커' 히스토리는 rankPosts 기준.
+    const companiesRef = useRef<string[]>([]);
 
     // 발행 히스토리(순위 트래커 기준) — 이 업체의 실제 발행·측정된 글. 더맨/설고/더반처럼 SUB PC 발행분도 여기 잡힘.
     const [rankPosts, setRankPosts] = useState<CafeRankPost[]>([]);
@@ -249,11 +238,10 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             setBrandDefault(enabled?.display_name ?? '');
             if (!brand && enabled?.display_name) setBrand(enabled.display_name);
             setApproved(!!enabled);
-            void loadJobs(); // 업체키 세팅 후 로드(그 업체 히스토리만)
         });
         void loadTokens();
         void loadRankPosts();
-        const t = setInterval(() => { void loadJobs(); }, 15000);
+        const t = setInterval(() => { void loadRankPosts(); }, 15000);   // 오늘 발행 리스트 실시간 갱신
         return () => { alive = false; clearInterval(t); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clientId]);
@@ -774,28 +762,33 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 );
             })()}
 
-            {/* 히스토리(발행 현황) */}
-            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-                <div className="mb-2 flex items-center justify-between">
-                    <div className="text-[13px] font-bold text-[#334155]">발행 히스토리</div>
-                    <button className="text-xs font-semibold text-[#4338ca] hover:underline" onClick={() => void loadJobs()} type="button">새로고침</button>
-                </div>
-                {jobs.length ? (
-                    <div className="divide-y divide-[#f1f5f9]">
-                        {jobs.map((j) => {
-                            const st = STATUS_KO[j.status] ?? j.status;
-                            const color = j.status === 'done' ? 'text-[#166534]' : j.status === 'fail' ? 'text-[#991b1b]' : 'text-[#64748b]';
-                            return (
-                                <div className="flex items-center justify-between gap-3 py-1.5 text-[12px]" key={j.id}>
-                                    <span className="min-w-0 flex-1 truncate text-[#334155]">{j.title}</span>
-                                    {j.posted_url ? <a className="shrink-0 text-[#2563eb] hover:underline" href={j.posted_url} rel="noreferrer" target="_blank">게시글 보기</a> : null}
-                                    <span className={`shrink-0 font-semibold ${color}`}>{st}</span>
-                                </div>
-                            );
-                        })}
+            {/* 오늘 발행 — 당일 발행분만(다음날 자동 초기화). 순위트래커 등록분 기준, '이동'으로 게시글 열기. */}
+            {(() => {
+                const todayPosts = rankPosts.filter((p) => (p.published_date || '') === cafeTodayKST());
+                return (
+                    <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                        <div className="mb-2 flex items-center justify-between">
+                            <div className="text-[13px] font-bold text-[#334155]">오늘 발행 <span className="font-normal text-[#94a3b8]">— {cafeTodayKST()} · {todayPosts.length}건 · 다음날 초기화</span></div>
+                            <button className="text-xs font-semibold text-[#4338ca] hover:underline" onClick={() => void loadRankPosts()} type="button">새로고침</button>
+                        </div>
+                        {todayPosts.length ? (
+                            <div className="divide-y divide-[#f1f5f9]">
+                                {todayPosts.map((p) => {
+                                    const url = p.post_url || (p.cafe_name && p.article_id ? `https://cafe.naver.com/${p.cafe_name}/${p.article_id}` : '');
+                                    return (
+                                        <div className="flex items-center justify-between gap-3 py-1.5 text-[12px]" key={p.id}>
+                                            <span className="min-w-0 flex-1 truncate text-[#334155]"><b className="text-[#4338ca]">{p.keyword_manual || p.keyword || '—'}</b> · {p.title || '—'}</span>
+                                            {url
+                                                ? <a className="shrink-0 rounded-md border border-[#4338ca] px-2.5 py-1 text-[11px] font-bold text-[#4338ca] hover:bg-[#eef2ff]" href={url} rel="noreferrer" target="_blank">이동</a>
+                                                : <span className="shrink-0 text-[11px] text-[#cbd5e1]">링크 없음</span>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : <div className="py-4 text-center text-[12px] text-[#94a3b8]">오늘 발행한 글이 없습니다.</div>}
                     </div>
-                ) : <div className="py-4 text-center text-[12px] text-[#94a3b8]">아직 발행 내역이 없습니다.</div>}
-            </div>
+                );
+            })()}
 
             {/* 발행 히스토리 — 순위 트래커 기준(실제 발행·측정된 글). 더맨/설고/더반 등 SUB PC 발행분 포함. */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
