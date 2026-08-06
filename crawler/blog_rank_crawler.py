@@ -1322,6 +1322,57 @@ def _ad_ranks_cafe(j):
     return ads - real
 
 
+# ── 통합리스트(인기글 섹션이 없는 키워드) 안의 카페 순위 ──────────────────────────
+#   왜: 약국·창업처럼 '○○ 인기글' 라벨이 아예 없는 키워드가 있다. 그런 SERP 는 UGC 를 묶음 섹션이
+#     아니라 '개별 문서 카드'(meta.area = urB_boR / urB_coR)로 한 건씩 나열한다.
+#     실측(2026-08-06): 그런데도 카페 글이 실제로 상위를 먹고 있다 —
+#       서울 약국·드럭스토어는 1~5위 5칸 전부 카페, 카페창업·프랜차이즈창업은 1~3위가 카페.
+#       인기탭 없는 6키워드 1~5위 30칸 중 카페 22칸(73%). (인기탭 있는 키워드는 50%)
+#     이걸 못 세서 status=no_section 으로 버려 왔다 → 글이 1위여도 계약상 미달성 처리됐다.
+#   순위 규칙은 통합탭(_rank_in_popular)과 같다: 광고·웹문서·이미지·연관검색어를 빼고
+#     블로그·카페 글만 화면 위에서부터 1,2,3… 으로 센다.
+#   ⚠️ 인기글 섹션 판정 자체는 건드리지 않는다. 광고 블록(area=ugB_pkR)이 인기글(ugB_bsR)과
+#     템플릿 파일명·CSS 클래스가 완전히 같아서, area 말고 다른 걸로 판정하면 광고를 인기글로 오탐한다.
+_UGC_LIST_AREAS = ("urB_boR", "urB_coR")
+
+
+def _rank_in_cafe_list(html_text, cafe_name, article_id, club_id=None):
+    """인기글 섹션이 없는 SERP 의 통합리스트에서 카페 글 순위.
+       반환 (순위, status). status: list_ok / list_out / no_list."""
+    seen = []          # [(kind, key, is_ours)] 화면 순서
+    found_any = False
+    for b in extract_bootstrap_json(html_text):
+        try:
+            j = json.loads(b)
+        except Exception:
+            continue
+        area = ((j.get("meta") or {}).get("area")) or ""
+        if area not in _UGC_LIST_AREAS:
+            continue
+        found_any = True
+        if "ader.naver.com" in b:          # 광고 카드는 순위에서 제외(통합탭 규약과 동일)
+            continue
+        # ★ 이 블록은 '문서 1건'이다(1:1). 블록 안의 첫 링크만 그 문서로 본다.
+        #   같은 URL 이 제목·본문·댓글·keep 으로 8~11번 반복되고, 그 뒤엔 댓글글·클러스터처럼
+        #   순위 아이템이 아닌 다른 URL 도 섞여 있다. 전부 세면 순위가 부풀려진다
+        #   (실측: barman/1298333 이 7위인데 12위로 나왔다).
+        m = re.search(r"(cafe|blog)\.naver\.com/([A-Za-z0-9_-]+)/(\d{4,})", b)
+        if not m:
+            continue                       # 외부 웹문서 카드 — 통합탭 순위에서 제외
+        key = f"{m.group(2)}/{m.group(3)}"
+        if any(s[1] == key for s in seen):
+            continue
+        ours = (m.group(1) == "cafe" and str(m.group(3)) == str(article_id)
+                and (not cafe_name or m.group(2) == cafe_name))
+        seen.append((m.group(1), key, ours))
+    if not found_any:
+        return OUT_OF_RANK, "no_list"
+    for i, (_kind, _key, ours) in enumerate(seen, 1):
+        if ours:
+            return i, "list_ok"
+    return OUT_OF_RANK, "list_out"
+
+
 def _rank_in_cafe_section(html_text, cafe_name, article_id, club_id=None):
     """통합검색 HTML → 카페 글의 '인기글 테마 섹션 내 순위'(clickLog.r). (2026-07-16 기준 변경)
     status: ok=섹션 내 순위 / out=섹션은 있으나 우리 글 없음(권외) / no_section=인기글 섹션 자체 없음(측정불가) / fail=차단."""
@@ -1353,7 +1404,10 @@ def _rank_in_cafe_section(html_text, cafe_name, article_id, club_id=None):
     if best is not None:
         return int(best), "ok"
     if not saw_section:
-        return OUT_OF_RANK, "no_section"
+        # 인기글 섹션이 없으면 통합리스트(개별 문서 나열)에서 다시 본다 — 거기 카페 자리가 실제로 있다.
+        #   status 를 list_ok/list_out 으로 따로 두어 '인기글 5위'와 섞이지 않게 한다
+        #   (배포 종류별로 달성 기준을 다르게 잡을 수 있어야 한다 — 사장님 확정 2026-08-06).
+        return _rank_in_cafe_list(html_text, cafe_name, article_id, club_id)
     return OUT_OF_RANK, "out"
 
 
