@@ -108,6 +108,20 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         if (parts.length) { setManualChips((prev) => [...new Set([...prev, ...parts])].slice(0, 50)); setManualInput(''); }
     };
     const removeManualChip = (kw: string) => setManualChips((prev) => prev.filter((k) => k !== kw));
+    // 직접 키워드 발행 큐 — '발행 요청'한 키워드를 하단에 개별 항목으로(상태는 genStatus로 실시간). 새로고침해도 유지(localStorage).
+    const [manualQueued, setManualQueued] = useState<string[]>([]);
+    const MQ_KEY = (cid: string) => `cafe_manual_queue_${cid}`;
+    const saveManualQueued = (next: string[]) => {
+        setManualQueued(next);
+        if (clientId) localStorage.setItem(MQ_KEY(clientId), JSON.stringify(next));
+    };
+    // 직접 키워드 큐 항목 상태 → 표시 메타(색·라벨). requested=요청 직후(상태 로딩 전).
+    const manualStatusMeta = (s: string) => {
+        if (s === 'done') return { label: '완료', cls: 'bg-[#dcfce7] text-[#166534]', dot: false };
+        if (s === 'fail') return { label: '실패', cls: 'bg-[#fee2e2] text-[#b91c1c]', dot: false };
+        if (['claimed', 'processing', 'posted'].includes(s)) return { label: '발행중', cls: 'bg-[#fef3c7] text-[#b45309]', dot: true };
+        return { label: '대기', cls: 'bg-[#e0e7ff] text-[#4338ca]', dot: false };
+    };
 
     // SEO 키워드 찾기
 
@@ -276,6 +290,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             // 모델B 일별 발행 — 저장된 키워드 풀 + 제품키워드 + 현재 발행상태.
             if (s?.keyword_pool?.length) setPoolKw(s.keyword_pool);
             if (s?.product_kw) setProductKw(s.product_kw);
+            // 직접 키워드 발행 큐 복원(localStorage).
+            try { const raw = clientId ? localStorage.getItem(MQ_KEY(clientId)) : null; if (raw) setManualQueued(JSON.parse(raw)); } catch { /* 무시 */ }
             void loadGenStatus();
             // 접수 선택 키워드 — 파인더 시딩 + 재조회 제외.
             const picks = (req?.selected_keywords ?? []).map((p) => ({ keyword: p.keyword, volume: p.volume ?? null, theme: p.theme ?? null }));
@@ -532,6 +548,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                 setReqBusy(false);
                                 if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
                                 setReqMsg(`직접 키워드 ${count}건 발행 요청(${manualStyle === 'review' ? '후기성' : '정보성'}) — SUB2 순차 게시.`);
+                                // 요청분을 하단 큐에 누적(최신이 위로) — 상태는 genStatus로 실시간 표시.
+                                saveManualQueued([...manualChips, ...manualQueued.filter((k) => !manualChips.includes(k))]);
                                 setManualChips([]); setManualInput('');
                                 await loadGenStatus();
                             }}>발행 요청 ({manualChips.length})</button>
@@ -547,6 +565,36 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                         </div>
                     ) : null}
                     {reqMsg ? <p className="mb-0 mt-2 text-[12px] font-semibold text-[#166534]">{reqMsg}</p> : null}
+
+                    {/* 직접 키워드 발행 큐 — '발행 요청'한 키워드가 여기에 잡힌다(상태 실시간). */}
+                    {manualQueued.length ? (
+                        <div className="mt-3 rounded-lg border border-[#c7d2fe] bg-white p-2.5">
+                            <div className="mb-1.5 flex items-center justify-between gap-2">
+                                <div className="text-[11px] font-bold text-[#4338ca]">🕒 직접 키워드 발행 큐 <span className="font-normal text-[#94a3b8]">— 요청한 키워드 {manualQueued.length}건 · SUB2가 순차 게시</span></div>
+                                <div className="flex items-center gap-2">
+                                    <button type="button" onClick={() => void loadGenStatus()} className="text-[11px] font-semibold text-[#4338ca] hover:underline">상태 새로고침</button>
+                                    <button type="button" onClick={() => saveManualQueued(manualQueued.filter((k) => genStatus[k.replace(/\s/g, '')] !== 'done'))} className="text-[11px] font-semibold text-[#94a3b8] hover:text-[#4338ca]" title="완료된 항목을 목록에서 정리">완료 정리</button>
+                                </div>
+                            </div>
+                            <ol className="grid gap-1">
+                                {manualQueued.map((kw, i) => {
+                                    const s = genStatus[kw.replace(/\s/g, '')] || 'requested';
+                                    const meta = manualStatusMeta(s);
+                                    return (
+                                        <li key={kw} className="flex items-center gap-2 rounded-md bg-[#f5f3ff] px-2.5 py-1 text-[12px]">
+                                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#7c3aed] text-[10px] font-bold text-white">{i + 1}</span>
+                                            <span className="min-w-0 flex-1 truncate font-semibold text-[#4338ca]">{kw}</span>
+                                            <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${meta.cls}`}>
+                                                {meta.dot ? <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" /> : null}{meta.label}
+                                            </span>
+                                            <button type="button" onClick={() => saveManualQueued(manualQueued.filter((k) => k !== kw))} className="shrink-0 text-[#cbd5e1] hover:text-[#dc2626]" title="목록에서 제거(발행 취소 아님)">×</button>
+                                        </li>
+                                    );
+                                })}
+                            </ol>
+                            <p className="m-0 mt-1.5 text-[10px] text-[#94a3b8]">※ 발행텀·하루 상한에 따라 순차 게시됩니다. '×'는 목록에서만 지우며 이미 보낸 발행 요청은 취소되지 않습니다.</p>
+                        </div>
+                    ) : null}
                 </div>
             ) : (
                 <CafeKeywordFinder
