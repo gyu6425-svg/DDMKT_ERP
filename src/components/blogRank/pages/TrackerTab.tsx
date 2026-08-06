@@ -4,6 +4,7 @@ import { dayN, lastM, PER_FEED } from '../lib/helpers';
 import { Pager } from '../lib/ui';
 import { useBlogRank } from '../lib/BlogRankContext';
 import { PostSearchCell } from '../components/PostSearchCell';
+import { QuickRankLookup } from '../components/QuickRankLookup';
 import { RankCell } from '../components/RankCell';
 
 export function TrackerTab() {
@@ -118,6 +119,8 @@ export function TrackerTab() {
 
     return (
         <div className="grid gap-3">
+            {/* 즉석 순위 조회 — 계약 업체와 무관하게 주소+키워드로 1회성 조회(내부 전용). 탭바와 이름검색 사이. */}
+            {!external ? <QuickRankLookup /> : null}
             <input
                 aria-label="블로그 이름 검색"
                 className="h-11 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
