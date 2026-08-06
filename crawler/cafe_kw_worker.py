@@ -457,6 +457,32 @@ def _product_grams(product):
     return pn, (grams or [pn])
 
 
+# 수량·범위를 나타내는 꼬리 — 지역명 뒤엔 거의 안 붙고, 일반명사 뒤엔 자주 붙는다.
+#   ⚠️ 위치조사(에·에서·은·는·을·를)를 넣으면 안 된다 — '강남에 있는 네일샵'처럼 지역명에도
+#      똑같이 붙어 진짜 지역을 죽인다(실측에서 위음성 0을 지킨 핵심).
+_QTY_TAIL = re.compile(r"(별|대비|이내|내에|범위|짜리|만원|초과|미만|절약|산정|한도|안에)")
+
+
+def _region_used_as_region(rows, core):
+    """이 인기탭이 '그 지역' 것인가, 아니면 지역명과 같은 일반명사 글인가.
+       예: '예산 인테리어'의 인기글은 예산군이 아니라 '인테리어 예산(비용)' 글이다 —
+           우리가 예산군 글을 발행해도 이 섹션엔 못 들어간다.
+       판별: 토큰 뒤에 수량·범위 꼬리가 붙은 쓰임(예산별·예산 범위)이 지역 쓰임보다 많으면 탈락.
+       실측(2026-08-06, 28조합): 진짜 지역 24건 전부 유지(위음성 0), '예산 인테리어' 탈락(오탐 0).
+       ※ 시도·시군구 접미형('서울'·'강남구')은 애초에 일반명사와 안 겹쳐 사실상 항상 통과한다."""
+    if not core or len(core) < 2:
+        return True
+    gen = reg = 0
+    for x in (rows or []):
+        n = _norm(x.get("title"))
+        for m in re.finditer(re.escape(core), n):
+            gen += 1 if _QTY_TAIL.match(n[m.end():m.end() + 3]) else 0
+            reg += 0 if _QTY_TAIL.match(n[m.end():m.end() + 3]) else 1
+    if gen == 0:
+        return True                     # 일반명사 용법이 아예 없으면 판단할 것도 없다
+    return reg >= gen
+
+
 def _topical(rows, product, region_core=None):
     """인기글 섹션이 이 제품어와 실제 관련 있는지.
        독립검증 실측(2026-08-04, 라벨 79건): 정밀도 .973 / 재현율 .986 / F1 .980.
@@ -468,7 +494,9 @@ def _topical(rows, product, region_core=None):
          없는 경우가 많아(단양 경호업체·동두천 간병인) 위음성의 주원인이었다.
          (지역코어 substring 매칭은 업체명 '(주)영동이앤씨'가 지역을 위조하는 오탐원이기도 했다.)
        · 옛 통짜규칙이 통과시킨 건을 새 규칙이 탈락시키는 경우 0건 = 단조 완화(회귀 위험 없음).
-       region_core 는 호출부 시그니처 호환용으로만 남긴다(판정에 쓰지 않음)."""
+       region_core 가 오면 '지역명과 같은 일반명사' 오탐(예산 인테리어)도 함께 거른다."""
+    if region_core and not _region_used_as_region(rows, _norm(region_core)):
+        return False
     pn, grams = _product_grams(product)
     if len(pn) < 2:
         return True
