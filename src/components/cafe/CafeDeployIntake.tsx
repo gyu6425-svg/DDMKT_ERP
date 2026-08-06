@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, getRegionGuTokens, getPopularFromCache, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueMenuScan, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -135,6 +135,30 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         set('keyword', '');
     };
     const removeProductKw = (kw: string) => set('product_keywords', productKws.filter((k) => k !== kw));
+    // 플레이스가 없는 고객용 — 위치 직접입력 + 소개/메뉴 붙여넣기 → GPT 추출 → 체크박스로 확정 → 제품키워드 칩.
+    //   ★ 자동 채우기 금지: 추출엔 늘 군더더기가 섞여, 자동 확정하면 그게 조용히 스캔 비용·오탐이 된다.
+    const [ownAddr, setOwnAddr] = useState('');
+    const [extracted, setExtracted] = useState<ExtractedProduct[] | null>(null);
+    const [picked, setPicked] = useState<Set<string>>(new Set());
+    const [extracting, setExtracting] = useState(false);
+    const runExtract = async () => {
+        const raw = placeDetail.trim();
+        if (!raw) { setKwErr('업체 소개·메뉴를 붙여넣으세요.'); return; }
+        setKwErr(''); setExtracting(true); setExtracted(null);
+        try {
+            const { products } = await extractMenuKeywords(raw, (form.keyword || '').trim());
+            setExtracted(products);
+            setPicked(new Set(products.filter((x) => x.kind !== 'niche').map((x) => x.kw)));
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '키워드 추출 실패');
+        } finally { setExtracting(false); }
+    };
+    const confirmExtracted = () => {
+        const add = (extracted || []).map((x) => x.kw).filter((k) => picked.has(k) && !productKws.includes(k));
+        if (!add.length) { setKwErr('추가할 키워드를 체크하세요(이미 추가된 것은 제외됩니다).'); return; }
+        set('product_keywords', [...productKws, ...add]);
+        setExtracted(null); setPicked(new Set()); setKwErr('');
+    };
     // 직접형 — 입력한 키워드를 인기탭 확인 없이 바로 선택 키워드(kwPicked)로. 최대 50개·중복 제거.
     const addManualKw = () => {
         const v = (form.keyword || '').trim().replace(/\s+/g, ' ');
@@ -202,9 +226,19 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         const kws = (productKws.length ? productKws : [(form.keyword || '').trim()]).filter(Boolean);
         if (!kws.length) { setKwErr('제품 키워드를 추가하세요(입력 후 엔터/추가). 예: 누수탐지'); return; }
         const sidos = form.region_sets || [];
-        if (!sidos.length) { setKwErr('지역(서울/경기/인천)을 선택하세요.'); return; }
+        if (!sidos.length && !ownAddr.trim()) { setKwErr('지역을 선택하거나 위치를 직접 입력하세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote('지역 인기탭 조회 준비 중…'); setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
         try {
+            // 위치를 직접 적었으면 그 주소에서 지역 축을 뽑아 '가까운 곳부터' 본다(플레이스 없는 업체).
+            //   시도까지 골랐으면 자기 지역을 채운 뒤 그 시도 전체로 확장한다.
+            if (ownAddr.trim()) {
+                const { id, error } = await enqueueMenuScan(ownAddr, kws, { name: form.company_name, regions: sidos.join(',') });
+                if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+                const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(note) });
+                if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${ownAddr.trim()} × [${kws.join(', ')}]`); return; }
+                setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+                return;
+            }
             // ① 캐시 양성 즉시 표시(UX) — 하지만 여기서 멈추지 않고 ②에서 전수 재검증한다.
             const gus = await getRegionGuTokens(sidos);
             const combos = new Set<string>();
@@ -272,13 +306,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         // 나머지 키워드를 담당자에게 맡긴 경우 — 비고에 위임 표시(담당자가 스튜디오에서 목표까지 채움).
         const shortfall = (form.total_count ?? 0) - kwPicked.length;
         const delegateNote = delegate && shortfall > 0 ? `[키워드 ${shortfall}건 선정 위임 — 담당자가 나머지 키워드 선정]` : '';
-        const detailNote = placeDetail.trim() ? `[상세정보]\n${placeDetail.trim()}` : '';   // 키워드형 상세 정보 입력 → 비고에 저장
-        const note = [form.note?.trim(), delegateNote, detailNote].filter(Boolean).join('\n');
+        const detailNote = placeDetail.trim() ? `[상세정보]\n${placeDetail.trim()}` : '';   // 상세 정보 입력 → 비고에 저장
+        const addrNote = ownAddr.trim() ? `[위치] ${ownAddr.trim()}` : '';                  // 플레이스 없는 업체가 직접 적은 위치
+        const note = [form.note?.trim(), delegateNote, addrNote, detailNote].filter(Boolean).join('\n');
         const { error } = await submitCafeDeployRequest(clientId, { ...form, note, photos, photo_provided: summary, selected_keywords: picks });
         setBusy(false);
         if (error) return setMsg(`접수 실패: ${error.message}`);
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
         setForm({ ...empty, company_name: bizName }); setFiles({ main: [], real: [], banner: [] }); setPlaceDetail('');
+        setOwnAddr(''); setExtracted(null); setPicked(new Set());
         setKwResult(null); setKwPicked([]); setKwHidden([]); setKwExpanded(false); setPickedOpen(false);
         reload();
     };
@@ -536,6 +572,45 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     </button>
                                 ))}
                             </div>
+                            {/* 플레이스가 없는 업체용 — 위치를 직접 적고 소개/메뉴를 붙여넣으면 제품키워드를 만들어 준다. */}
+                            <details className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
+                                <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 플레이스가 없나요? — 위치 + 업체 정보로 키워드 만들기</summary>
+                                <div className="mt-2 grid gap-2">
+                                    <input className={inputCls} value={ownAddr} onChange={(e) => setOwnAddr(e.target.value)}
+                                        placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
+                                    <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
+                                        value={placeDetail} onChange={(e) => setPlaceDetail(e.target.value)}
+                                        placeholder={'업체 소개글·메뉴·서비스 설명을 그대로 붙여넣으세요(홈페이지 통째로 넣어도 됩니다).\n예)\n저희는 20년 경력의 누수탐지 전문업체로 아파트 배관 누수, 바닥 난방배관 누수를 정밀 장비로 찾아드립니다.'} />
+                                    <div className="flex items-center gap-2">
+                                        <button type="button" onClick={() => void runExtract()} disabled={extracting || kwLoading}
+                                            className="h-9 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">{extracting ? '추출 중…' : '① 키워드 뽑기'}</button>
+                                        <span className="text-[11px] text-[#6d28d9]">뽑힌 키워드를 확인·수정해 제품키워드로 추가한 뒤 ‘지역 키워드 생성’을 누르세요.</span>
+                                    </div>
+                                    {extracted ? (
+                                        <div className="rounded-md border border-[#ddd6fe] bg-white p-2">
+                                            <div className="mb-1 flex items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
+                                                <span>② 쓸 키워드만 체크 ({picked.size}/{extracted.length})</span>
+                                                <button type="button" className="rounded border border-[#c4b5fd] px-2 py-0.5 text-[11px] font-semibold text-[#6d28d9]"
+                                                    onClick={() => setPicked(picked.size === extracted.length ? new Set() : new Set(extracted.map((x) => x.kw)))}>
+                                                    {picked.size === extracted.length ? '전체 해제' : '전체 선택'}
+                                                </button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {extracted.map((x) => (
+                                                    <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${picked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>
+                                                        <input type="checkbox" className="h-3 w-3 accent-[#6d28d9]" checked={picked.has(x.kw)}
+                                                            onChange={() => { const n = new Set(picked); if (n.has(x.kw)) n.delete(x.kw); else n.add(x.kw); setPicked(n); }} />
+                                                        {x.kw}
+                                                        <span className="text-[10px] font-normal opacity-60">{x.kind === 'core' ? '대표' : x.kind === 'niche' ? '세부' : '메뉴'}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            <button type="button" onClick={confirmExtracted} disabled={!picked.size}
+                                                className="mt-2 h-9 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white disabled:opacity-50">③ 제품키워드로 추가</button>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            </details>
                         </div>
                     ) : null}
                     <div className="md:col-span-2">

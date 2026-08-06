@@ -485,19 +485,11 @@ def _topical(rows, product, region_core=None):
     return cafe >= 1 or blog >= 2
 
 
-def process_region(req, product):
-    """지역 인기탭 조회 — 선택 시도의 구/시(기본) × 제품키워드 전수 인기탭 판정(누락 금지). 통과분만 반환·캐시.
-       deploy_type 에 '동'/'dong' 오면 동(洞)까지('더 찾기'). 완전성: 검색량 게이트 없음 + err 캐시 금지 + 전수 스캔."""
-    product = (product or "").strip()
-    if not product:
-        return _finish(req["id"], "failed", note="제품키워드 없음")
-    sidos = [s for s in (req.get("regions") or "").replace(" ", "").split(",") if s]
-    target = int(req.get("target") or 300)
-    dt = (req.get("deploy_type") or "")
-    include_dong = ("동" in dt) or ("dong" in dt.lower())
-    tokens = _region_tokens_for(sidos, include_dong)
-    if not tokens:
-        return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
+def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
+    """지역축 × 제품 조합 스캔 공통 루프. kws = [(지역토큰, 키워드, 제품키워드)].
+       지역형(process_region)과 정보입력형(process_menu)이 이 하나를 공유한다 —
+       차단 감지·오탐 필터·캐시 규약·조기 종료가 두 경로에서 갈라지지 않게.
+       max_live=이번 회차 라이브 스캔 상한(None=조합 전수). 캐시분은 상한에 안 걸린다."""
     cf = bool(p._USE_CF)
     # CF는 분산IP(요청이 CF 엣지에서 나감)라 사무실 IP 보호용 긴 스로틀이 불필요.
     #   실측(2026-08-04): CF classify 1건 평균 0.77s, 무-gap 직렬 20건 13s·에러 0. 옛 1.5s는 벽시계의 66%가 순수 대기였다.
@@ -508,24 +500,17 @@ def process_region(req, product):
     gap = 2.5 if cf else SCAN_GAP
     # ★ 완전성 우선(누락 금지): 검색량으로 스캔을 건너뛰지 않는다 — 저검색이라도 인기탭 있는 니치(피로연·예식 등)
     #   포착. 검색량은 판정 '후' 표시·정렬용으로만 조회. 판정결과(인기탭/섹션없음)는 캐시되어 재스캔은 즉시.
-    # 후보 (tok, kw) — tok 은 오탐필터의 지역코어용. 중복 제거.
-    kws, seen = [], set()
-    for tok in tokens:
-        kw = f"{tok} {product}"
-        nk = kw.replace(" ", "")
-        if nk in seen:
-            continue
-        seen.add(nk)
-        kws.append((tok, kw))
     total = len(kws)
     MAX_LIVE = max(total, 400) if cf else 120   # 전수 스캔 보장 — 상한이 토큰수보다 작아 뒷지역 누락되던 것 방지
-    cache = _cache_get_many([kw for _, kw in kws])  # 배치 캐시(재스캔 즉시)
+    if max_live:
+        MAX_LIVE = min(MAX_LIVE, max_live)      # 회차 상한(정보입력형) — 남은 건 '더 찾기'가 이어서 본다
+    cache = _cache_get_many([kw for _, kw, _ in kws])  # 배치 캐시(재스캔 즉시)
 
     found, scraped, errs, capped = [], 0, 0, False
     dead_chunks, aborted = 0, False   # 차단 감지(청크 전멸)·중단 여부
     # ① 캐시 패스(네트워크 0) — 신뢰 캐시로 이미 결론난 건 즉시 채택/스킵하고, 남은 것만 라이브 대상으로.
     to_scan = []
-    for tok, kw in kws:
+    for tok, kw, prod in kws:
         c = cache.get(kw.replace(" ", ""))
         # 신뢰 캐시만 채택·건너뜀. prescan 위음성(섹션없음)은 불신 → 라이브 재검증. verdict 에 topicality 반영됨.
         if c is not None and _cache_trust(c):
@@ -533,14 +518,16 @@ def process_region(req, product):
                 found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": _disp_theme(c),
                               "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
             continue
-        to_scan.append((tok, kw))
+        to_scan.append((tok, kw, prod))
+    left = 0
     if len(to_scan) > MAX_LIVE:
+        left = len(to_scan) - MAX_LIVE          # 이번 회차에 못 본 조합 수 — note 에 명시(조용한 절단 금지)
         to_scan = to_scan[:MAX_LIVE]
         capped = True
 
     # 조합 1건 처리(스레드에서 실행) — classify → 오탐필터 → 캐시. 반환 ('pop'|'neg'|'err', 결과).
     def _scan_one(item):
-        tok, kw = item
+        tok, kw, product = item
         r = p.classify(kw)
         if r.get("err"):                       # C1 — 차단/일시실패는 캐시하지 않음(영구 위음성 방지). 다음에 재시도.
             return ("err", None)
@@ -599,16 +586,123 @@ def process_region(req, product):
         if ex:
             ex.shutdown(wait=False)
     found.sort(key=lambda f: -(f.get("volume") or 0))
-    scope = "동포함" if include_dong else "구시"
     # 판정 못 한 조합이 많으면 '완료'로 위장하지 않는다 — 결과가 불완전함을 명시하고 failed 로 끝낸다.
     unscanned = len(to_scan) - scraped
     if aborted or errs > _err_budget(len(to_scan)):
-        return _finish(req["id"], "failed", result=found, extra={"biz_name": product},
-                       note=f"⚠ 스캔 차단 — {unscanned}/{len(to_scan)}건 판정 못 함(오류 {errs}). "
-                            f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
-    _finish(req["id"], "done", result=found, extra={"biz_name": product},
-            note=f"{len(found)}건 · 스캔 {scraped}{' · 오류 ' + str(errs) if errs else ''} · {scope}{' · 상한초과' if capped else ''}")
-    print(f"[{_ts()}][{req['id']}] 지역스캔 '{product}' {sidos} {scope} → 인기탭 {len(found)}건 · 스크랩 {scraped} · err {errs}", flush=True)
+        _finish(req["id"], "failed", result=found, extra=extra,
+                note=f"⚠ 스캔 차단 — {unscanned}/{len(to_scan)}건 판정 못 함(오류 {errs}). "
+                     f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
+        return found
+    _finish(req["id"], "done", result=found, extra=extra,
+            note=f"{len(found)}건 · 스캔 {scraped}{' · 오류 ' + str(errs) if errs else ''} · {scope}"
+                 f"{f' · 남은 조합 {left}개(＋더 찾기로 이어서)' if capped else ''}")
+    print(f"[{_ts()}][{req['id']}] {tag} {total}조합 {scope} → 인기탭 {len(found)}건 · 스크랩 {scraped} · err {errs}", flush=True)
+    return found
+
+
+def process_region(req, product):
+    """지역 인기탭 조회 — 선택 시도의 구/시(기본) × 제품키워드 전수 인기탭 판정(누락 금지). 통과분만 반환·캐시.
+       deploy_type 에 '동'/'dong' 오면 동(洞)까지('더 찾기'). 완전성: 검색량 게이트 없음 + err 캐시 금지 + 전수 스캔."""
+    product = (product or "").strip()
+    if not product:
+        return _finish(req["id"], "failed", note="제품키워드 없음")
+    sidos = [s for s in (req.get("regions") or "").replace(" ", "").split(",") if s]
+    target = int(req.get("target") or 300)
+    dt = (req.get("deploy_type") or "")
+    include_dong = ("동" in dt) or ("dong" in dt.lower())
+    tokens = _region_tokens_for(sidos, include_dong)
+    if not tokens:
+        return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
+    # 후보 (tok, kw, product) — tok 은 오탐필터의 지역코어용. 중복 제거.
+    kws, seen = [], set()
+    for tok in tokens:
+        kw = f"{tok} {product}"
+        nk = kw.replace(" ", "")
+        if nk in seen:
+            continue
+        seen.add(nk)
+        kws.append((tok, kw, product))
+    _run_scan(req, kws, target, "동포함" if include_dong else "구시",
+              extra={"biz_name": product}, tag=f"지역스캔 '{product}' {sidos}")
+
+
+_SIDO_SUF = re.compile(r"(특별자치시|특별자치도|특별시|광역시|자치시|자치구|시|군|구|도)$")
+
+
+def normalize_region(addr):
+    """직접 입력한 위치 문자열 → 스캔용 지역 토큰(넓은 것 → 좁은 것).
+       플레이스가 없는 업체용. '전북 군산시 옥도면 선유남길 19-9'
+         → ['전북','군산','옥도면','옥도','선유남길','선유남']
+       ★ 접미형('강남구')만 있으면 기본형('강남')도 만든다 — 실측(2026-08-06) 기본형이 접미형보다
+         적중 5배(2,316쌍 중 489 vs 100). 접미형은 뒤로 미루되 버리지는 않는다(누락 0)."""
+    addr = (addr or "").strip()
+    if not addr:
+        return []
+    sido = p._sido(addr, addr)
+    narrow = p.region_tokens(addr, addr)
+    base, suffixed, road = [], [], []
+    for t in narrow:
+        b = _SIDO_SUF.sub("", t)
+        if b != t and len(b) >= 2:
+            base.append(b)
+            suffixed.append(t)
+        elif t.endswith(("로", "길")):
+            road.append(t)                      # 도로명은 인기탭 확률이 낮아 맨 뒤
+        else:
+            base.append(t)
+    out, seen = [], set()
+    for t in ([sido] if sido else []) + base + suffixed + road:
+        t = (t or "").strip()
+        if len(t) >= 2 and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+def process_menu(req, payload):
+    """정보입력형 — 플레이스가 없는 업체. 위치(직접입력) × 제품키워드(붙여넣기→GPT 추출, 사용자 체크 확정).
+       payload = JSON {"addr": "...", "products": ["누수탐지", ...], "name": "업체명"}
+       지역 축 = 자기 주소에서 뽑은 토큰(가까운 곳 우선). regions(시도)가 오면 그 시도 전체 토큰까지 확장."""
+    try:
+        d = json.loads(payload or "{}")
+    except Exception:
+        return _finish(req["id"], "failed", note="정보입력 payload 파싱 실패")
+    addr = (d.get("addr") or "").strip()
+    products = [str(x).strip() for x in (d.get("products") or []) if str(x).strip()]
+    if not products:
+        return _finish(req["id"], "failed", note="제품키워드 없음 — 추출 결과에서 1개 이상 선택하세요")
+    own = normalize_region(addr)
+    sidos = [s for s in (req.get("regions") or "").replace(" ", "").split(",") if s]
+    dt = (req.get("deploy_type") or "")
+    include_dong = ("동" in dt) or ("dong" in dt.lower())
+    wide = _region_tokens_for(sidos, include_dong) if sidos else []
+    if not own and not wide:
+        return _finish(req["id"], "failed", note=f"위치를 해석하지 못했습니다(입력: {addr[:40] or '없음'})")
+    # 자기 지역 먼저, 그 다음 시도 전체 — target 조기 종료가 '가까운 곳'을 먼저 채우도록.
+    tokens, tseen = [], set()
+    for t in own + wide:
+        if t not in tseen:
+            tseen.add(t)
+            tokens.append(t)
+    # 제품 우선(첫 제품의 전 지역 → 다음 제품)이 아니라 지역 우선으로 섞는다 —
+    #   조기 종료 때 특정 제품만 몰리지 않게.
+    kws, seen = [], set()
+    for tok in tokens:
+        for prod in products:
+            kw = f"{tok} {prod}"
+            nk = kw.replace(" ", "")
+            if nk in seen:
+                continue
+            seen.add(nk)
+            kws.append((tok, kw, prod))
+    target = int(req.get("target") or 30)
+    # ★ 회차 상한 — 제품 축이 곱해져 조합이 폭증한다(제품 11 × 서울 340 = 3,740).
+    #   웹 폴링이 900초라 그 안에 못 끝내면 '결과 없음'처럼 보이고, CF 쿼터(300콜/10분)도 터진다.
+    #   2.5초 간격 × 330 ≈ 14분 → 폴링 안쪽. 남은 조합은 '＋더 찾기'가 캐시를 건너뛰고 이어서 본다.
+    _run_scan(req, kws, target, f"정보입력·지역{len(tokens)}×제품{len(products)}",
+              extra={"biz_name": (d.get("name") or products[0])},
+              tag=f"정보입력스캔 '{products[0]}'{'…' if len(products) > 1 else ''} @{addr[:20]}",
+              max_live=330)
 
 
 def process_list(req, payload):
@@ -687,6 +781,8 @@ def process(req):
         return process_region(req, pu[len("region:"):])
     if pu.startswith("list:"):          # 키워드형 — 붙여넣기 추출 키워드 리스트(지역 없이) 인기탭 판정
         return process_list(req, pu[len("list:"):])
+    if pu.startswith("menu:"):          # 정보입력형 — 플레이스 없는 업체(위치 직접입력 × 추출 제품키워드)
+        return process_menu(req, pu[len("menu:"):])
     pid = p.parse_place_id(pu)
     info = p.place_info(pid) if pid else None
     if not info:

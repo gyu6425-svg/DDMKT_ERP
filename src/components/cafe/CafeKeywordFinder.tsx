@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, getRegionGuTokens, getPopularFromCache, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -44,6 +44,12 @@ export function CafeKeywordFinder({
     const [kwHidden, setKwHidden] = useState<string[]>([]);
     const [kwPicked, setKwPicked] = useState<KwResult[]>([]);
     const [usedKw, setUsedKw] = useState<Set<string>>(new Set());
+    // 정보입력형(플레이스 없는 업체) — 위치 직접입력 + 붙여넣기 추출 결과를 체크박스로 확정.
+    //   ★ 자동 채우기를 쓰지 않는 이유: GPT 추출엔 늘 군더더기가 섞이는데, 자동 확정하면
+    //     그게 조용히 스캔 비용과 오탐이 된다. 고객이 '내 서비스가 맞는지' 고르는 게 가장 정확하다.
+    const [addr, setAddr] = useState('');
+    const [extracted, setExtracted] = useState<ExtractedProduct[] | null>(null);
+    const [picked, setPicked] = useState<Set<string>>(new Set());
     const normKw = (s: string) => (s || '').trim().replace(/\s+/g, ' ');
 
     useEffect(() => { onPick(kwPicked.map((k) => k.keyword), keyword.trim()); }, [kwPicked, keyword, onPick]);
@@ -214,10 +220,37 @@ export function CafeKeywordFinder({
         setVol(top);                                  // 추출된 키워드+검색량 표시(기존 검색량 표 재사용)
         return top;
     };
-    // 지역형 — 추출한 키워드를 제품키워드 칸에 채움(이후 지역 선택 → '지역 키워드 생성').
-    const extractKeywords = async () => {
-        const top = await extractScored();
-        if (top) setKeyword(top.map((t) => t.keyword).join(', '));
+    // 정보입력형 ① — 붙여넣은 소개/메뉴 → GPT 가 검색 가능한 제품·서비스 키워드로 정리.
+    //   결과는 체크박스로만 보여준다(자동 확정 금지). 대표어(core)·메뉴(menu)는 기본 체크, 세부(niche)는 해제.
+    const runExtract = async () => {
+        const raw = pasteText.trim();
+        if (!raw) { setKwErr('업체 정보(소개·메뉴)를 붙여넣으세요.'); return; }
+        setKwErr(''); setExtracting('키워드 추출 중…'); setExtracted(null);
+        try {
+            const { products, biz } = await extractMenuKeywords(raw, keyword.trim());
+            setExtracted(products);
+            setPicked(new Set(products.filter((x) => x.kind !== 'niche').map((x) => x.kw)));
+            if (biz) setKwErr(`업종 인식: ${biz} — 아래에서 스캔할 키워드를 골라 주세요.`);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '키워드 추출 실패');
+        } finally { setExtracting(''); }
+    };
+    // 정보입력형 ② — 체크한 키워드 × 위치(직접입력, + 선택 시도)로 인기탭 스캔.
+    const runMenuScan = async (target = FIRST_TARGET) => {
+        const list = (extracted || []).map((x) => x.kw).filter((k) => picked.has(k));
+        if (!list.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
+        if (!addr.trim() && !regionSel.length) { setKwErr('위치를 입력하거나 시도를 1개 이상 선택하세요.'); return; }
+        setKwErr(''); setKwLoading(true); setScanNote(''); setRegionTarget(target);
+        try {
+            const { id, error } = await enqueueMenuScan(addr, list, { regions: regionSel.join(','), target });
+            if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+            const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(note) });
+            if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${addr.trim() || regionSel.join('·')} × "${list.join(', ')}"`); return; }
+            setKwResult(result);
+            setKeyword(list.join(', '));   // 아래 발행 단계가 쓰는 제품키워드(지역 분리 기준)
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '조회 실패');
+        } finally { setKwLoading(false); setScanNote(''); }
     };
     // 키워드형 — 추출한 키워드를 지역 없이(전국) 바로 인기탭 판정(워커 process_list).
     const extractAndScan = async () => {
@@ -254,16 +287,53 @@ export function CafeKeywordFinder({
                                 className={`rounded-full border px-3 py-1 text-sm font-semibold ${regionSel.includes(r) ? 'border-[#4338ca] bg-[#4338ca] text-white' : 'border-[#cbd5e1] bg-white text-[#475569]'}`}>{r}</button>
                         ))}
                     </div>
+                    {/* 플레이스가 없는 업체용 경로 — 위치를 직접 적고, 소개/메뉴를 붙여넣어 제품키워드를 만든다.
+                        추출 결과는 반드시 체크박스로 확정한다(자동 채우기 금지). */}
                     <details className="rounded-md border border-dashed border-[#c4b5fd] bg-white/60 px-3 py-2">
-                        <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 정보/메뉴 붙여넣기 — 플레이스에 메뉴·정보가 없을 때 (여기서 제품키워드 자동 추출)</summary>
+                        <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 플레이스가 없나요? — 위치 + 업체 정보 붙여넣기로 키워드 찾기</summary>
                         <div className="mt-2 grid gap-2">
+                            <input className={inputCls} value={addr} onChange={(e) => setAddr(e.target.value)}
+                                placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
                             <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
                                 value={pasteText} onChange={(e) => setPasteText(e.target.value)}
-                                placeholder="플레이스 '정보'·'메뉴'·홈 소개글을 그대로 붙여넣으세요. 줄 단위로 넣으면 더 정확합니다.&#10;예)&#10;입주청소&#10;이사청소&#10;준공청소&#10;상가/사무실 청소" />
+                                placeholder="업체 소개글·메뉴·서비스 설명을 그대로 붙여넣으세요(홈페이지 통째로 넣어도 됩니다).&#10;예)&#10;저희는 20년 경력의 누수탐지 전문업체로 아파트 배관 누수, 바닥 난방배관 누수를 정밀 장비로 찾아드립니다." />
                             <div className="flex items-center gap-2">
-                                <button type="button" onClick={() => void extractKeywords()} disabled={!!extracting} className="h-9 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">{extracting ? '추출 중…' : '① 키워드 뽑기'}</button>
-                                <span className="text-[12px] text-[#6d28d9]">{extracting || '검색량 있는 키워드만 골라 아래 제품키워드 칸에 자동으로 채웁니다.'}</span>
+                                <button type="button" onClick={() => void runExtract()} disabled={!!extracting || kwLoading} className="h-9 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">{extracting ? '추출 중…' : '① 키워드 뽑기'}</button>
+                                <span className="text-[12px] text-[#6d28d9]">{extracting || '뽑힌 키워드를 확인·수정한 뒤 ②를 누르세요.'}</span>
                             </div>
+                            {extracted && (
+                                <div className="rounded-md border border-[#ddd6fe] bg-white p-2">
+                                    <div className="mb-1 flex items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
+                                        <span>② 스캔할 키워드 확정 ({picked.size}/{extracted.length})</span>
+                                        <button type="button" className="rounded border border-[#c4b5fd] px-2 py-0.5 text-[11px] font-semibold text-[#6d28d9]"
+                                            onClick={() => setPicked(picked.size === extracted.length ? new Set() : new Set(extracted.map((x) => x.kw)))}>
+                                            {picked.size === extracted.length ? '전체 해제' : '전체 선택'}
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {extracted.map((x) => (
+                                            <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${picked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>
+                                                <input type="checkbox" className="h-3 w-3 accent-[#6d28d9]" checked={picked.has(x.kw)}
+                                                    onChange={() => { const n = new Set(picked); if (n.has(x.kw)) n.delete(x.kw); else n.add(x.kw); setPicked(n); }} />
+                                                {x.kw}
+                                                <span className="text-[10px] font-normal opacity-60">{x.kind === 'core' ? '대표' : x.kind === 'niche' ? '세부' : '메뉴'}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                    <div className="mt-2 flex items-center gap-2">
+                                        <button type="button" onClick={() => void runMenuScan()} disabled={kwLoading || !picked.size} className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '찾는 중…' : '③ 인기탭 찾기'}</button>
+                                        {kwResult && kwResult.length > 0 && (
+                                            <button type="button" onClick={() => void runMenuScan(regionTarget + MORE_STEP)} disabled={kwLoading}
+                                                className="h-9 shrink-0 rounded-md border border-[#4338ca] bg-white px-3 text-sm font-bold text-[#4338ca] disabled:opacity-50">＋{MORE_STEP} 더 찾기</button>
+                                        )}
+                                        <span className="text-[11px] text-[#64748b]">
+                                            {picked.size > 6
+                                                ? `⚠ ${picked.size}개는 조합이 많아 한 번에 다 못 봅니다 — 중요한 것부터 5~6개로 줄이면 빠릅니다.`
+                                                : '위치 주변부터 먼저 봅니다. 위 시도를 선택하면 그 지역 전체까지 넓힙니다.'}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </details>
                     <div className="flex flex-wrap gap-2">

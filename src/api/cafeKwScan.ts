@@ -159,6 +159,46 @@ export async function enqueueListScan(keywords: string[], target = 50) {
     return { id: (data as { id: number }).id, error: null };
 }
 
+export type ExtractedProduct = { kw: string; kind: string };
+
+// 업체 정보 붙여넣기 → 제품·서비스 키워드 추출(GPT). 플레이스가 없는 업체용.
+//   ★ 결과를 그대로 확정하지 않는다 — 호출부가 체크박스로 보여주고 고객이 고른 것만 스캔한다.
+export async function extractMenuKeywords(text: string, hint = ''): Promise<{ products: ExtractedProduct[]; biz: string }> {
+    const r = await fetch('/api/extract-menu', {
+        body: JSON.stringify({ text, hint }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((j as { message?: string }).message || `키워드 추출 실패(${r.status})`);
+    return { biz: (j as { biz?: string }).biz ?? '', products: ((j as { products?: ExtractedProduct[] }).products ?? []) };
+}
+
+// 정보입력형 — 위치 직접입력 × 확정된 제품키워드로 인기탭 스캔. place_url='menu:{JSON}' → 워커 process_menu.
+//   regions(시도)를 주면 자기 지역을 먼저 채운 뒤 그 시도 전체로 확장한다(target 도달 시 조기 종료).
+export async function enqueueMenuScan(
+    addr: string, products: string[], opts?: { name?: string; regions?: string; target?: number; includeDong?: boolean },
+) {
+    const { data: u } = await supabase.auth.getUser();
+    const uid = u.user?.id ?? null;
+    const list = products.map((k) => k.trim()).filter(Boolean);
+    if (!list.length) return { id: null as number | null, error: { message: '제품키워드를 1개 이상 선택하세요' } };
+    if (!addr.trim() && !opts?.regions) return { id: null as number | null, error: { message: '위치를 입력하세요' } };
+    const payload = JSON.stringify({ addr: addr.trim(), name: opts?.name ?? '', products: list });
+    const { data, error } = await supabase.from('cafe_kw_requests')
+        .insert({
+            deploy_type: opts?.includeDong ? '지역-동' : '지역',   // ⚠️ '키워드'로 두면 워커가 지역축을 지운다
+            place_url: `menu:${payload}`,
+            regions: opts?.regions ?? '',
+            requested_by: uid,
+            status: 'queued',
+            target: opts?.target ?? 30,
+        })
+        .select('id').single();
+    if (error || !data) return { id: null as number | null, error };
+    return { id: (data as { id: number }).id, error: null };
+}
+
 // 폴링 — done 까지. result 반환. onProgress(note) 로 워커 진행상태(note "진행 x/total · 인기탭 n") 전달.
 export async function pollPlaceScan(
     id: number, opts?: { signal?: AbortSignal; timeoutSec?: number; onProgress?: (note: string, status: string) => void },
