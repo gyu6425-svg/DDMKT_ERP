@@ -181,12 +181,21 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
     const rows = ((j as { keywords: { keyword?: string; total?: number }[] }).keywords)
         .map((x) => ({ kw: String(x.keyword ?? '').trim(), total: Number(x.total ?? 0) }))
         .filter((x) => x.kw);
+    // near 조각에서 '아무 데나 붙는 일반 수식어'를 뺀다.
+    //   ★ 실측(2026-08-06): '골프'의 near 에 BMW인증중고차·중고자동차·미니쿠퍼가 올라왔다.
+    //     원인은 '중고골프채' → 조각 '중고' → '중고'가 든 자동차 키워드가 전부 near 로 승격된 것.
+    //     이런 조각은 주제를 전혀 좁히지 못하므로 near 판정에 쓰면 안 된다.
+    const GENERIC_FRAG = new Set([
+        '중고', '신품', '새제품', '할인', '특가', '최저', '최저가', '가격', '비용', '요금',
+        '후기', '추천', '순위', '비교', '정보', '인기', '최신', '브랜드', '판매', '구매',
+        '렌탈', '대여', '사이트', '쇼핑', '직구', '무료', '이벤트', '종류',
+    ]);
     const frags = new Set<string>();
     for (const { kw } of rows) {
         const n = kw.replace(/\s/g, '');
         if (!n.includes(nq)) continue;
         const rest = n.split(nq).join(' ').trim();
-        for (const w of rest.split(/\s+/)) if (w.length >= 2) frags.add(w);
+        for (const w of rest.split(/\s+/)) if (w.length >= 2 && !GENERIC_FRAG.has(w)) frags.add(w);
     }
     const out: RelatedCand[] = rows.map(({ kw, total }) => {
         const n = kw.replace(/\s/g, '');

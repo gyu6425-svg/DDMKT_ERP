@@ -243,15 +243,39 @@ export function CafeKeywordFinder({
         } finally { setExtracting(''); }
     };
     // 연관 인기글 ② — 체크한 키워드를 지역 없이(전국) 인기탭 판정.
+    //   ★ 워커(process_list)의 라이브 상한은 60개다. 61번째부터는 '느려지는' 게 아니라
+    //     아예 안 재진다(조용한 절단). 그래서 여기서 미리 자르고 그 사실을 화면에 남긴다.
+    const REL_MAX = 60;
     const runRelatedScan = async () => {
-        const list = [...relPicked];
-        if (!list.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
+        const all = [...relPicked];
+        if (!all.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
+        // 검색량 높은 순으로 상한까지만 — 잘린 건 아래에 명시한다.
+        const byVol = new Map((cands || []).map((c) => [c.kw, c.total]));
+        const sorted = [...all].sort((a, b) => (byVol.get(b) ?? 0) - (byVol.get(a) ?? 0));
+        const list = sorted.slice(0, REL_MAX);
+        const cut = sorted.length - list.length;
         setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwHidden([]);
+        let lastNote = '';
         try {
             const { id, error } = await enqueueListScan(list, Math.max(30, list.length));
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (n) => setScanNote(n) });
-            if (!result.length) { setKwErr(`체크한 ${list.length}개 중 인기탭이 확인된 키워드가 없습니다.`); return; }
+            const { result } = await pollPlaceScan(id, {
+                timeoutSec: 900, onProgress: (n) => { lastNote = n; setScanNote(n); },
+            });
+            const far = new Set((cands || []).filter((c) => c.tier === 'far').map((c) => c.kw));
+            const farHit = result.filter((r) => far.has(r.keyword)).map((r) => r.keyword);
+            const notes = [
+                cut > 0 ? `한 번에 ${REL_MAX}개까지만 확인합니다 — 검색량 낮은 ${cut}개는 이번에 못 봤습니다(다시 체크해 재조회하세요).` : '',
+                // far = 씨앗어와 문자열로 안 겹치는 층. 실측(2026-08-06) '하와이' far 의 '디트로이트'가
+                //   인기탭으로 잡혔는데 내용은 MLB·피자 맛집이었다 — 판정은 맞지만 팔면 안 되는 키워드다.
+                farHit.length ? `⚠ ${farHit.join(', ')} 은(는) "${seed.trim()}"과 문자열이 겹치지 않는 후보입니다. 내용이 정말 관련 있는지 확인 후 쓰세요.` : '',
+                /상한초과|남은 조합/.test(lastNote) ? lastNote : '',
+            ].filter(Boolean);
+            if (!result.length) {
+                setKwErr([`체크한 ${list.length}개 중 인기탭이 확인된 키워드가 없습니다.`, ...notes].join(' '));
+                return;
+            }
+            if (notes.length) setKwErr(notes.join(' '));
             setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
             setKeyword(seed.trim());
         } catch (e) {
@@ -333,12 +357,19 @@ export function CafeKeywordFinder({
                             {extracting ? '조회 중…' : '① 연관어 펼치기'}
                         </button>
                     </div>
+                    {/* 실측(2026-08-06, 30조합)으로 확인된 패턴 — 미리 알려야 "5만 검색인데 왜 없냐"는 오해가 없다. */}
+                    <p className="m-0 text-[11px] text-[#7c3aed]">
+                        💡 <b>지명·상품명 단독은 인기글이 거의 없습니다</b>(보홀 49,600 · 필리핀 56,500 · 골프채 15,230 모두 없음).
+                        <b>씨앗어 + 의도어</b>(여행·숙소·투어·패키지·맛집·연습장 …) 조합에서 나옵니다.
+                    </p>
                     {cands ? (
                         <div className="rounded-md border border-[#ddd6fe] bg-white p-2">
                             <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
                                 <span>② 스캔할 키워드 확정 ({relPicked.size}/{cands.length})</span>
                                 <div className="inline-flex rounded-md border border-[#c4b5fd] p-0.5">
-                                    {([['seed', `"${seed.trim()}" 포함`], ['near', '연관 포함'], ['far', '전체']] as const).map(([t, lbl]) => (
+                                    {/* 층 이름에 신뢰도를 담는다 — near/far 는 씨앗에 따라 오염된다.
+                                        실측: '골프'(자동차 모델명과 동음이의)의 near 에 수영강습·피트니스가 섞였다. */}
+                                    {([['seed', `"${seed.trim()}" 포함 · 확실`], ['near', '연관어 · 확인 필요'], ['far', '전체 · 무관 섞임']] as const).map(([t, lbl]) => (
                                         <button key={t} type="button" onClick={() => setRelTier(t)}
                                             className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
                                     ))}
@@ -366,7 +397,7 @@ export function CafeKeywordFinder({
                                 </button>
                                 <span className="text-[11px] text-[#64748b]">
                                     {relPicked.size > 60
-                                        ? `⚠ ${relPicked.size}개는 시간이 오래 걸립니다 — 검색량 높은 것부터 40개 안쪽을 권합니다.`
+                                        ? `⚠ 한 번에 60개까지만 확인됩니다 — ${relPicked.size - 60}개는 이번에 안 재집니다. 검색량 높은 순으로 잘립니다.`
                                         : '지역을 붙이지 않고 키워드 자체로 인기글 섹션을 확인합니다.'}
                                 </span>
                             </div>
