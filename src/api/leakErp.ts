@@ -1,7 +1,9 @@
 import { supabase } from '../lib/supabase';
 
-// 누수탐지 블로그/카페 순위 트래커 앵커 client — 회사ERP 트래커를 이 client_id 로 스코프 재사용(계약관리 미연동).
+// 누수탐지 순위 트래커 앵커 client — 회사ERP 트래커를 이 client_id 로 스코프 재사용(계약관리 미연동).
+//   블로그=전용 앵커(c05e9c96). 카페=누수탐지 상담소(4e22efbf, 자동발행 client 겸용) — ddnusu 카페가 이미 이 client 밑에 있음.
 export const LEAK_TRACK_CLIENT_ID = 'c05e9c96-0f3e-4cc9-9554-443c80f1672a';
+export const LEAK_CAFE_CLIENT_ID = '4e22efbf-5fa2-4ea3-9c09-97817c36d045';
 
 // 누수탐지 ERP — 상담/작업·정산/통장원장/외주발주.
 //   ⚠️ 정산액(our_share·partner_share)은 절대 자동계산하지 않는다. 화면에서 "제안값"만 보여주고

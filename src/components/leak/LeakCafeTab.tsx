@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { CafeSheetTab } from '../cafeRank/pages/CafeSheetTab';
 import { CafeTrackerTab } from '../cafeRank/pages/CafeTrackerTab';
-import { LEAK_TRACK_CLIENT_ID } from '../../api/leakErp';
+import { LEAK_CAFE_CLIENT_ID } from '../../api/leakErp';
 
 // 누수탐지 카페 — 관리시트 + 순위 트래커(계약관리 미연동). 회사ERP 컴포넌트를 누수 client_id 로 스코프해 재사용.
 //   등록: 관리시트 '업체 등록' → cafe_accounts(client_id=누수). 글: 순위 트래커 '시트 붙여넣기' → cafe_rank_posts.
@@ -32,8 +32,8 @@ export default function LeakCafeTab() {
                 ))}
             </div>
             {tab === 'sheet'
-                ? <CafeSheetTab scopeClientId={LEAK_TRACK_CLIENT_ID} />
-                : <CafeTrackerTab scopeClientId={LEAK_TRACK_CLIENT_ID} />}
+                ? <CafeSheetTab scopeClientId={LEAK_CAFE_CLIENT_ID} />
+                : <CafeTrackerTab scopeClientId={LEAK_CAFE_CLIENT_ID} />}
         </div>
     );
 }
