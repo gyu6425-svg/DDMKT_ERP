@@ -35,14 +35,42 @@ def _get(path):
     return r.json() if r.status_code == 200 else []
 
 
+def _norm(s):
+    return (s or "").strip().replace(" ", "")
+
+
+def _manual_keywords():
+    """일반 배포(직접형 접수) 키워드 — client_id → {정규화 키워드}.
+       일반 배포는 인기탭을 안 따지므로 '발행되면 그 자체가 실적'이다(5위 24h를 기다리지 않는다).
+       인기탭 배포는 종전대로 5위 24시간 유지에서만 +1 — 두 계약의 조건이 다르므로 집계를 나눈다."""
+    out = {}
+    for r in _get("cafe_deploy_requests?deploy_type=eq." + quote("직접형")
+                  + "&select=client_id,selected_keywords,keyword"):
+        cid = r.get("client_id")
+        if not cid:
+            continue
+        s = out.setdefault(cid, set())
+        # selected_keywords 는 {keyword, volume, theme} 객체 배열이다(문자열 아님).
+        for k in (r.get("selected_keywords") or []):
+            kw = _norm(k.get("keyword") if isinstance(k, dict) else k)
+            if kw:
+                s.add(kw)
+        if _norm(r.get("keyword")):
+            s.add(_norm(r.get("keyword")))
+    return out
+
+
 def sync(verbose=True):
-    """모든 '카페 배포' 계약의 remain_count 를 카페 실적(베이스+5위24h달성)으로 갱신. 변경 건수 반환."""
+    """모든 '카페 배포' 계약의 remain_count 를 카페 실적으로 갱신. 변경 건수 반환.
+       실적 = 베이스(done_count) + 인기탭 배포 5위24h 달성 + 일반 배포 발행분."""
     if not _SB or not _KEY:
         if verbose:
             print("SUPABASE_URL/SERVICE_KEY 없음 — sync 건너뜀", flush=True)
         return 0
     accounts = _get("cafe_accounts?select=id,client_id,board_short,done_count")
-    posts = _get("cafe_rank_posts?select=board,cafe_account_id,top5_achieved_at,top5_seeded&limit=5000")
+    posts = _get("cafe_rank_posts?select=board,cafe_account_id,keyword,keyword_manual,"
+                 "top5_achieved_at,top5_seeded,excluded&limit=5000")
+    manual_kw = _manual_keywords()
     contracts = _get(f"client_contracts?subtype=eq.{quote(_SUBTYPE)}&select=id,client_id,goal_count,remain_count")
     changed = 0
     for ct in contracts:
@@ -54,12 +82,19 @@ def sync(verbose=True):
         acc_ids = {a["id"] for a in accs}
         boards = {a.get("board_short") for a in accs}
         base = sum(a.get("done_count") or 0 for a in accs)
-        achieved = sum(
-            1 for p in posts
-            if (p.get("cafe_account_id") in acc_ids or p.get("board") in boards)
-            and p.get("top5_achieved_at") and not p.get("top5_seeded")
-        )
-        done = base + achieved
+        mine = manual_kw.get(cid, set())
+        achieved = normal = 0
+        for p in posts:
+            if not (p.get("cafe_account_id") in acc_ids or p.get("board") in boards):
+                continue
+            if p.get("excluded"):
+                continue
+            kw = _norm(p.get("keyword_manual") or p.get("keyword"))
+            if kw and kw in mine:
+                normal += 1                      # 일반 배포 — 발행 자체가 실적
+            elif p.get("top5_achieved_at") and not p.get("top5_seeded"):
+                achieved += 1                    # 인기탭 배포 — 5위 24시간 유지
+        done = base + achieved + normal
         remain = max(0, goal - done)
         if remain == (ct.get("remain_count")):
             continue
@@ -70,7 +105,9 @@ def sync(verbose=True):
         if r.status_code < 300:
             changed += 1
             if verbose:
-                print(f"  계약 sync: client {cid[:8]} · 실적 {done}(base{base}+달성{achieved}) → remain {remain}/{goal}", flush=True)
+                print(f"  계약 sync: client {cid[:8]} · 실적 {done}"
+                      f"(base{base}+인기탭{achieved}{f'+일반{normal}' if normal else ''}) "
+                      f"→ remain {remain}/{goal}", flush=True)
     if verbose:
         print(f"=== 카페 계약 sync 완료: {changed}건 갱신 ===", flush=True)
     return changed

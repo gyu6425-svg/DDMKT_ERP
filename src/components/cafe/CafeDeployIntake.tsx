@@ -514,22 +514,45 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 <div className="mb-1 text-[15px] font-bold text-[#0f172a]">카페 배포 접수</div>
                 <p className="mb-4 mt-0 text-[13px] text-[#64748b]">배포를 원하시는 내용과 사진을 접수해 주세요. 담당자 확인 후 세팅해 드립니다. (금액·정산은 별도 안내)</p>
 
-                {/* 접수 유형 토글 */}
+                {/* ① 배포 종류 → ② (인기탭일 때만) 키워드 잡는 방식.
+                    한 줄에 3개를 늘어놓으면 '인기탭을 따지는지'가 안 보여 고객이 헷갈린다.
+                    일반 배포는 그 자리에서 키워드 입력으로 끝난다(고를 게 없음). */}
                 <div className="mb-4">
-                    <label className={labelCls}>접수 유형</label>
+                    <label className={labelCls}>배포 종류</label>
                     <div className="inline-flex rounded-lg border border-[#cbd5e1] p-0.5">
-                        {(['지역형', '키워드형', '직접형'] as const).map((t) => (
-                            <button key={t} type="button" onClick={() => set('deploy_type', t)}
-                                className={`rounded-md px-4 py-1.5 text-sm font-bold ${form.deploy_type === t ? 'bg-[#4338ca] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}>
-                                {t}
-                            </button>
-                        ))}
+                        {([['일반 배포', '직접형'], ['인기탭 배포', '지역형']] as const).map(([name, dt]) => {
+                            const on = name === '일반 배포' ? isManual : !isManual;
+                            return (
+                                <button key={name} type="button" onClick={() => set('deploy_type', dt)}
+                                    className={`rounded-md px-4 py-1.5 text-sm font-bold ${on ? 'bg-[#4338ca] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}>
+                                    {name}
+                                </button>
+                            );
+                        })}
                     </div>
                     <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">
-                        {isKw ? '키워드형 — 플레이스 주소 기반으로 키워드를 잡습니다(맛집 등).'
-                            : isManual ? '직접형 — 발행할 키워드를 직접 입력합니다(인기탭 확인 없이 그대로 접수).'
-                            : '지역형 — 서울/경기/인천 지역 선택 + 제품키워드(예: 입주청소·상가청소)로 지역+키워드를 잡습니다.'}
+                        {isManual
+                            ? '일반 배포 — 인기탭을 따지지 않고, 적어 주신 키워드 그대로 발행합니다.'
+                            : '인기탭 배포 — 실제 인기글 섹션에 들어갈 수 있는 키워드만 골라 발행합니다.'}
                     </p>
+
+                    {!isManual ? (
+                        <div className="mt-3">
+                            <label className={labelCls}>키워드 잡는 방식</label>
+                            <div className="inline-flex rounded-lg border border-[#cbd5e1] p-0.5">
+                                {(['지역형', '키워드형'] as const).map((t) => (
+                                    <button key={t} type="button" onClick={() => set('deploy_type', t)}
+                                        className={`rounded-md px-4 py-1.5 text-sm font-bold ${form.deploy_type === t ? 'bg-[#4338ca] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}>
+                                        {t}
+                                    </button>
+                                ))}
+                            </div>
+                            <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">
+                                {isKw ? '키워드형 — 플레이스 주소 기반으로 키워드를 잡습니다(맛집 등).'
+                                    : '지역형 — 지역 선택 + 제품키워드(예: 입주청소·상가청소)로 지역+키워드를 잡습니다.'}
+                            </p>
+                        </div>
+                    ) : null}
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -784,7 +807,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                             <td className="whitespace-nowrap px-2 py-2 font-semibold">{r.company_name}</td>
                                             <td className="max-w-[160px] truncate px-2 py-2" title={r.url ?? ''}>{r.url ? <a className="text-[#2563eb] underline" href={r.url} target="_blank" rel="noreferrer">{r.url}</a> : '-'}</td>
                                             <td className="whitespace-nowrap px-2 py-2">
-                                                <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.deploy_type === '키워드형' ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-[#e0e7ff] text-[#4338ca]'}`}>{r.deploy_type ?? '지역형'}</span>
+                                                {/* 배포 종류가 먼저 보여야 한다 — 실적 집계 방식이 다르다(일반=발행 즉시 / 인기탭=5위 24h). */}
+                                                <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.deploy_type === '직접형' ? 'bg-[#f1f5f9] text-[#475569]' : 'bg-[#dcfce7] text-[#15803d]'}`}>
+                                                    {r.deploy_type === '직접형' ? '일반' : '인기탭'}
+                                                </span>
+                                                {r.deploy_type !== '직접형' ? (
+                                                    <span className="ml-1 rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-bold text-[#4338ca]">{r.deploy_type ?? '지역형'}</span>
+                                                ) : null}
                                                 {!r.deploy_type || r.deploy_type === '지역형' ? (r.region_sets?.length ? <div className="mt-0.5 text-[11px] text-[#64748b]">{r.region_sets.join('·')}</div> : null) : null}
                                             </td>
                                             <td className="px-2 py-2">
