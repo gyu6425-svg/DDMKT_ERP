@@ -83,8 +83,43 @@ create policy cafe_scan_budget_read on public.cafe_scan_budget
     using (exists (select 1 from public.profiles pr
                    where pr.user_id = auth.uid() and pr.role in ('admin', 'manager', 'sales')));
 
+-- ④ 단일 실행 보장(리스) — 데몬이 두 개 뜨면 각자 몫만큼 가져가 예산이 배로 나간다.
+--    크래시 재시작 루프를 붙이면 실수로 두 번 뜰 여지가 생기므로 DB 한 곳에서 막는다.
+--    리스는 '만료 시각'이 있어, 데몬이 죽으면 자동으로 풀린다(수동 정리 불필요).
+create table if not exists public.cafe_scan_lease (
+    name   text primary key,
+    holder text not null,
+    until  timestamptz not null
+);
+
+-- 잡거나 갱신. 반환 = 지금 리스를 가진 사람. 내가 아니면 나는 돌면 안 된다.
+create or replace function public.scan_lease_take(p_name text, p_holder text, p_sec int default 120)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    cur text;
+begin
+    perform pg_advisory_xact_lock(hashtext('cafe_scan_lease:' || p_name));
+    delete from cafe_scan_lease where name = p_name and until < now();   -- 죽은 소유자 정리
+    select holder into cur from cafe_scan_lease where name = p_name;
+    if cur is null or cur = p_holder then
+        insert into cafe_scan_lease (name, holder, until)
+        values (p_name, p_holder, now() + make_interval(secs => p_sec))
+        on conflict (name) do update set holder = excluded.holder, until = excluded.until;
+        return p_holder;
+    end if;
+    return cur;
+end;
+$$;
+
+alter table public.cafe_scan_lease enable row level security;
+
 grant execute on function public.scan_budget_take(int, int) to service_role;
 grant execute on function public.scan_budget_prune() to service_role;
+grant execute on function public.scan_lease_take(text, text, int) to service_role;
 
 comment on function public.scan_budget_take is
     'CF 단일 버킷(약 300콜/10분)을 여러 PC가 나눠 쓰도록 원자적으로 예약. 반환=허용된 콜 수.';

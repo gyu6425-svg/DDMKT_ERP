@@ -66,6 +66,29 @@ def busy():
         return True          # 확인 못 하면 긁지 않는다(안전 쪽으로)
 
 
+def lease():
+    """단일 실행 보장 — 리스를 잡거나 갱신한다. 내가 주인이면 True.
+       재시작 루프(run_scan_daemon.bat)를 붙이면 실수로 두 개가 뜰 수 있는데, 그러면 각자
+       share 만큼 가져가 예산이 배로 나간다. 리스는 만료가 있어 죽으면 자동으로 풀린다.
+       ★ 리스 테이블이 없으면(구버전 SQL) 막지 않고 그냥 진행한다 — 있으면 지키고 없으면 종전대로."""
+    try:
+        r = requests.post(f"{SB}/rest/v1/rpc/scan_lease_take", headers=H,
+                          json={"p_name": "cafe_scan_daemon", "p_holder": WID, "p_sec": 180}, timeout=15)
+        if r.status_code == 404:
+            return True
+        if r.status_code != 200:
+            log(f"⚠ 리스 RPC {r.status_code} {r.text[:100]} — 단일실행 보장 없이 진행")
+            return True
+        owner = (r.json() or "").strip('"')
+        if owner != WID:
+            log(f"다른 데몬이 실행 중({owner}) — 이 프로세스는 종료합니다")
+            return False
+        return True
+    except Exception as e:
+        log(f"⚠ 리스 확인 실패({e}) — 단일실행 보장 없이 진행")
+        return True
+
+
 def take(want):
     """전역 예산에서 want 콜 예약. 반환=실제 허용치(0이면 지금은 긁지 마라)."""
     try:
@@ -157,6 +180,8 @@ def run_plan(plan, share):
         return 0
     used = pops = errs = 0
     while todo and used < share:
+        if not lease():        # 한 계획이 share=90콜 ≈ 4분이라 리스(180초)가 도중에 만료된다 → 청크마다 갱신
+            break
         if busy():
             log("  온디맨드 요청 감지 — 양보하고 대기")
             break
@@ -179,6 +204,8 @@ def run_plan(plan, share):
             else:
                 errs += 1
             time.sleep(GAP)
+        # 청크마다 진행표시 저장 — 강제 종료돼도 어디까지 했는지 남고, 계획 순환(last_run_at)이 멈추지 않는다.
+        mark_plan(plan["id"], done)
         if errs >= 5 and pops == 0 and used <= errs + 2:
             log("  연속 실패 — 차단으로 보고 중단")     # '0건'으로 위장하지 않는다
             break
@@ -212,8 +239,12 @@ def main():
     p._USE_CACHE = False
     p._USE_CF = True                       # 항상 CF 분산IP — 사무실 IP 미노출
     log(f"=== 점진 스캔 데몬 시작 · {WID} · 데몬몫 {share}콜/10분(전역한도 {CAP}) ===")
+    if not lease():
+        return 0                       # 재시작 루프가 즉시 되살리지 않도록 정상 종료(0)
     prune_at = 0
     while True:
+        if not lease():                # 매 라운드 갱신 — 죽으면 180초 뒤 자동으로 풀린다
+            return 0
         if time.time() - prune_at > 3600:
             try:
                 requests.post(f"{SB}/rest/v1/rpc/scan_budget_prune", headers=H, json={}, timeout=15)
