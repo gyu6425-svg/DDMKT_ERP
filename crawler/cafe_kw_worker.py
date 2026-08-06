@@ -276,9 +276,21 @@ def _region_tokens_for(sidos, include_dong=False):
         d = (r.get("dong") or "").strip()
         if d:
             dong_toks.add(d)
+    # ★ '좋은 것부터' 정렬 — target 조기 종료와 '+N 더 찾기'가 의미를 가지려면 순서가 효용순이어야 한다.
+    #   실측 적중률(2026-08-06): 시도 16.2% · 시군구 기본형 12.3% · 시군구 접미형은 기본형 대비 5배 열세
+    #   (같은 지역 2,316쌍 중 기본형 적중 489 vs 접미형 100) · 동은 업종 의존(네일 58%, 청소 0%).
+    #   순서: 시도 → 시군구 기본형 → 시군구 접미형 → 동. 순서만 바꿀 뿐 전수 범위는 그대로다(누락 없음).
+    sido_set = {s.strip() for s in sidos if s and s.strip()}
+    admin = gu_toks - sido_set
+    suf = set()
+    for t in admin:
+        b = re.sub(r"(특별자치시|특별자치도|특별시|광역시|자치시|자치구|시|군|구)$", "", t)
+        if b != t and len(b) >= 2 and b in admin:
+            suf.add(t)                                      # '강남구'(기본형 '강남'도 있음) = 접미형 → 뒤로
+    ordered = sorted(sido_set) + sorted(admin - suf) + sorted(suf)
     if not include_dong:
-        return sorted(gu_toks)                              # 기본: 구/시만(수초)
-    return sorted(gu_toks) + sorted(dong_toks - gu_toks)   # 더 찾기: 구/시 먼저, 동은 그 뒤
+        return ordered                                      # 기본: 구/시만(수초)
+    return ordered + sorted(dong_toks - gu_toks)            # 더 찾기: 구/시 먼저, 동은 그 뒤
 
 
 def _cache_get_many(kws):

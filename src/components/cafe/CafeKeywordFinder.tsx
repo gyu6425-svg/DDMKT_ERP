@@ -94,21 +94,29 @@ export function CafeKeywordFinder({
     // 지역형 — 선택 시도의 행정구/시 × 제품키워드(들) 인기탭 조회.
     //   기본(includeDong=false): 구/시만 빠르게 → 결과 즉시. '더 찾기(동까지)'(true): 동(洞)까지 추가 스캔해 기존 결과에 합침.
     //   쉼표/줄바꿈으로 여러 개 입력하면 전부 먼저 큐에 넣고(누락 방지) 순차 폴링·누적.
-    const runRegion = async (includeDong: boolean) => {
+    // 한 번에 목표 건수만 찾고 멈춘다 — 전수 스캔은 오래 걸리고 차단 예산(CF 300콜/10분)을 태운다.
+    //   워커가 target 을 채우면 즉시 종료하므로, 실측상 입주청소 10건은 20콜(전수 265콜 대비 -92%).
+    //   부족하면 '+10 더 찾기'로 target 을 올려 이어서 스캔한다(이미 판정된 건 캐시 히트라 즉시 통과).
+    const FIRST_TARGET = 30;
+    const MORE_STEP = 10;
+    const [regionTarget, setRegionTarget] = useState(FIRST_TARGET);
+    const runRegion = async (includeDong: boolean, target = FIRST_TARGET) => {
         // 칩이 있으면 칩 전부, 없으면 입력칸(쉼표/줄바꿈)으로. → 여러 키워드 한 번에 조회.
         const kws = [...new Set(keyword.split(/[,\n]/).map((s) => s.trim()).filter(Boolean))];
         if (!kws.length) { setKwErr('키워드를 추가하세요(입력 후 추가). 예: 출장뷔페'); return; }
         if (!regionSel.length) { setKwErr('지역을 선택하세요.'); return; }
         const setLoading = includeDong ? setDongLoading : setKwLoading;
         setKwErr(''); setLoading(true); setScanNote('');
-        if (!includeDong) { setKwResult(null); setKwExpanded(false); setKwHidden([]); setDongDone(false); if (!initialPicked?.length) setKwPicked([]); }
+        if (!includeDong && target === FIRST_TARGET) { setKwResult(null); setKwExpanded(false); setKwHidden([]); setDongDone(false); if (!initialPicked?.length) setKwPicked([]); }
+        setRegionTarget(target);
         const dedup = (arr: KwResult[]) => {
             const seen = new Set<string>(); const out: KwResult[] = [];
             for (const r of arr) { const nk = (r.keyword || '').replace(/\s/g, ''); if (seen.has(nk)) continue; seen.add(nk); out.push(r); }
             return out.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
         };
         try {
-            const merged: KwResult[] = includeDong ? [...(kwResult || [])] : [];
+            // '+더 찾기'(target 상향)나 동 확장이면 기존 결과에 이어붙인다.
+            const merged: KwResult[] = (includeDong || target > FIRST_TARGET) ? [...(kwResult || [])] : [];
             const toScan: string[] = [];
             if (!includeDong) {
                 // 구/시 캐시 먼저(즉시). 캐시 없는 것만 라이브 스캔 대상으로.
@@ -126,7 +134,7 @@ export function CafeKeywordFinder({
             // 캐시 없는 키워드는 '전부 먼저 큐 등록' → 순차 폴링.
             const jobs: { kw: string; id: number }[] = [];
             for (const kw of toScan) {
-                const { id } = await enqueueRegionScan(kw, regionSel.join(','), 300, includeDong);
+                const { id } = await enqueueRegionScan(kw, regionSel.join(','), target, includeDong);
                 if (id) jobs.push({ kw, id });
             }
             for (let i = 0; i < jobs.length; i++) {
@@ -247,8 +255,17 @@ export function CafeKeywordFinder({
                     <div className="flex flex-wrap gap-2">
                         <input className={`${inputCls} flex-1 min-w-[160px]`} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="제품 키워드 (예: 입주청소, 출장뷔페 — 여러 개는 쉼표)" />
                         <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading || dongLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '생성 중…' : '지역 키워드 생성'}</button>
+                        {/* +N 더 찾기 — target 을 올려 이어서 스캔. 이미 판정된 조합은 캐시 히트라 즉시 통과하고
+                            새 구간만 라이브로 본다. 한 번에 전수를 돌지 않아 빠르고 차단 예산도 아낀다. */}
+                        {kwResult && kwResult.length > 0 && (
+                            <button type="button" onClick={() => void runRegion(false, regionTarget + MORE_STEP)} disabled={kwLoading || dongLoading}
+                                title="구/시 범위에서 목표를 10개 올려 이어서 스캔합니다(이미 본 건 건너뜀)"
+                                className="h-10 shrink-0 rounded-md border border-[#4338ca] bg-white px-3 text-sm font-bold text-[#4338ca] disabled:opacity-50">
+                                {kwLoading ? '찾는 중…' : `＋${MORE_STEP} 더 찾기`}
+                            </button>
+                        )}
                         {kwResult && kwResult.length > 0 && !dongDone && (
-                            <button type="button" onClick={() => void runRegion(true)} disabled={kwLoading || dongLoading} title="동(洞) 단위까지 추가로 스캔 — 검색량 있는 동만" className="h-10 shrink-0 rounded-md border border-[#7c3aed] bg-white px-4 text-sm font-bold text-[#7c3aed] disabled:opacity-50">{dongLoading ? '동 스캔 중…' : '＋ 더 찾기(동까지)'}</button>
+                            <button type="button" onClick={() => void runRegion(true, regionTarget)} disabled={kwLoading || dongLoading} title="동(洞) 단위까지 추가로 스캔 — 네일·치과 등 동네업종에서 효과가 큽니다(실측 58~74%)" className="h-10 shrink-0 rounded-md border border-[#7c3aed] bg-white px-4 text-sm font-bold text-[#7c3aed] disabled:opacity-50">{dongLoading ? '동 스캔 중…' : '＋ 더 찾기(동까지)'}</button>
                         )}
                     </div>
                 </div>
