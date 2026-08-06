@@ -117,48 +117,86 @@ def _measure_new():
         c._pause(c.REQUEST_DELAY)
 
 
+def _measure_priority(cap=20):
+    """블로그 당일크롤 중에도 '오늘 발행 신규글'만 소량 우선 측정 — 발행 직후 순위 즉시 반영.
+       대량(전체 순위권) 재측정은 블로그 끝난 자유슬롯에서 _measure_new 가 한다. m.search 소량이라 부하 낮음."""
+    today = datetime.date.today().isoformat()
+    posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*",
+                                         "published_date": f"eq.{today}", "order": "created_at.desc"})
+    todo = [p for p in posts
+            if not any((m.get("date") == today) for m in (p.get("measurements") or []))][:cap]
+    if not todo:
+        return
+    print(f"[{datetime.datetime.now():%H:%M}] (블로그 중) 오늘 신규 {len(todo)}글 우선측정", flush=True)
+    for p in todo:
+        kw = (p.get("keyword_manual") or p.get("keyword") or "").strip()
+        aid = str(p.get("article_id") or "").strip()
+        if not kw or not aid:
+            continue
+        club = str(p.get("club_id")).strip() if p.get("club_id") else None
+        ti, ti_s = c.measure_cafe_rank(kw, (p.get("cafe_name") or "").strip() or None, aid, club_id=club)
+        recs = [r for r in (p.get("measurements") or []) if r.get("date") != today]
+        recs.append({"date": today, "ti": ti, "ti_status": ti_s})
+        try:
+            c.sb_patch("cafe_rank_posts", {"id": f"eq.{p['id']}"}, {"measurements": recs})
+        except Exception as exc:
+            print(f"    [저장실패] #{aid}: {exc}", flush=True)
+        tag = f"{ti}위" if ti_s == "ok" else ti_s
+        print(f"    [{p.get('board') or '?'}] #{aid} '{kw}' → {tag}", flush=True)
+        c._pause(c.REQUEST_DELAY)
+
+
 def main():
     c.need_config()
     print(f"[카페 주기측정 시작] {datetime.datetime.now():%H:%M} · 간격 {INTERVAL // 60}분 · 블로그크롤 겹침 방지 게이트 ON", flush=True)
     while True:
-        # 게이트: 블로그 크롤 중이거나 새벽 바쁜 시간대면 네이버 접촉 전부 건너뜀(겹침 방지)
-        if _blog_active():
-            print(f"[{datetime.datetime.now():%H:%M}] 블로그 크롤 중 — {RETRY_SEC // 60}분 뒤 재시도", flush=True)
-            time.sleep(RETRY_SEC)   # 당일크롤은 금방 끝나므로 짧게 재시도(위상 겹침 방지)
-            continue
+        # ① 새벽 Full 구간(00:50~09:45) = 전면 양보 — 무거운 새벽 크롤과 절대 겹치지 않게 등록·측정 모두 건너뜀.
         if _in_busy_band():
             print(f"[{datetime.datetime.now():%H:%M}] 새벽 크롤 시간대({BUSY_START:%H:%M}~{BUSY_END:%H:%M}) — 건너뜀", flush=True)
-        else:
-            # 1) 게시판 직접 수집(네이버 API) — 발행경로 무관하게 신규글 등록
+            _sleep_to_next_slot()
+            continue
+        # ② 당일 블로그 크롤 중 — 등록(게시판 API=m.search 안 씀, 무충돌)은 항상 + 오늘 신규글만 우선측정(소량).
+        #    대량 재측정(전체 순위권)은 블로그 끝난 자유슬롯에서. → 발행 직후 '오늘 발행'·순위가 바로 잡힘.
+        if _blog_active():
             try:
                 cafe_board_crawl.main()
             except SystemExit:
                 pass
             except Exception as exc:
                 print(f"  게시판수집 오류: {exc}", flush=True)
-            # 2) 발행큐 sync(DB만, 중복 무해)
             try:
-                cafe_rank_sync.main()
-            except SystemExit:
-                pass
+                _measure_priority()
             except Exception as exc:
-                print(f"  sync 오류: {exc}", flush=True)
-            # 3) 신규 포함 미측정 글 + 현재 5위 글 재측정
-            try:
-                _measure_new()
-            except Exception as exc:
-                print(f"  측정 오류: {exc}", flush=True)
-            # 4) 5위 24h 유지 실적 집계(글별 상태만 갱신, done_count 미변경)
-            try:
-                cafe_top5_tracker.run()
-            except Exception as exc:
-                print(f"  top5 집계 오류: {exc}", flush=True)
-            # 5) 발행 토큰 → 실제 발행건수 동기화(잔여 토큰 최신화)
-            try:
-                cafe_token_sync.sync()
-            except Exception as exc:
-                print(f"  토큰 sync 오류: {exc}", flush=True)
-        _sleep_to_next_slot()   # 다음 고정 슬롯(:20/:50)까지 — 블로그 당일크롤(:05/:35)과 15분 어긋남
+                print(f"  우선측정 오류: {exc}", flush=True)
+            print(f"[{datetime.datetime.now():%H:%M}] 블로그 크롤 중 — 등록+신규측정만, {RETRY_SEC // 60}분 뒤 재시도", flush=True)
+            time.sleep(RETRY_SEC)
+            continue
+        # ③ 자유 슬롯 — 풀 사이클(등록 + sync + 전체 재측정 + 실적/토큰).
+        try:
+            cafe_board_crawl.main()   # 게시판 직접 수집 — 발행경로 무관 신규글 등록
+        except SystemExit:
+            pass
+        except Exception as exc:
+            print(f"  게시판수집 오류: {exc}", flush=True)
+        try:
+            cafe_rank_sync.main()     # 발행큐 sync(DB만)
+        except SystemExit:
+            pass
+        except Exception as exc:
+            print(f"  sync 오류: {exc}", flush=True)
+        try:
+            _measure_new()            # 신규+순위권 전체 재측정
+        except Exception as exc:
+            print(f"  측정 오류: {exc}", flush=True)
+        try:
+            cafe_top5_tracker.run()   # 5위 24h 유지 실적 집계
+        except Exception as exc:
+            print(f"  top5 집계 오류: {exc}", flush=True)
+        try:
+            cafe_token_sync.sync()    # 발행 토큰 동기화
+        except Exception as exc:
+            print(f"  토큰 sync 오류: {exc}", flush=True)
+        _sleep_to_next_slot()   # 다음 고정 슬롯(:10/:25/:40/:55)까지
 
 
 if __name__ == "__main__":
