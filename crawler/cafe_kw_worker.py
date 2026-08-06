@@ -857,6 +857,13 @@ def process(req):
     provinces = set((req.get("regions") or "").replace(" ", "").split(",")) if req.get("regions") else set()
     target = int(req.get("target") or 10)
     cands = _candidates(info, provinces, pid, req.get("deploy_type"))
+    # ★ 플레이스 주소에서 나온 하위 지역어(도로명 코어 등)는 제목 확인을 강제한다.
+    #   실측 감사(2026-08-06): 인기탭 캐시 703건 중 5건이 이런 토큰이었다 — '선유남 맛집'·'전북도 삼합'.
+    #   네이버가 '선유남'을 '선유동'으로 고쳐 검색해 남의 동네 인기글을 돌려준 것(검색량도 전부 ≤10).
+    #   행정 마스터에 있는 토큰(시도·시군구·동·읍면)은 종전대로 — '전북 누수탐지'처럼 제목이
+    #   하위 지명으로만 채워지는 정상 케이스를 죽이면 안 된다.
+    _sido_of = p._sido(*(p.place_address(pid) if pid else ("", "")))
+    _known = set(_region_tokens_for([_sido_of], True)) if _sido_of else set()
     found = []
     seen = set()  # 띄어쓰기 변형(군산 맛집/군산맛집) 중복 스캔·중복 결과 방지
     t0 = time.time()
@@ -889,6 +896,11 @@ def process(req):
                     aborted = True
                     break
                 continue
+            tok0 = kw.split()[0] if " " in kw else ""
+            if (tok0 and tok0 not in _known and _is_pop(r)
+                    and not _title_has_token(r.get("rows"), tok0)):
+                r = {"has_section": r.get("has_section"), "verdict": "비관련(지역불일치)",
+                     "theme": r.get("theme"), "rows": r.get("rows")}
             _cache_put(kw, r, vol)
             scraped += 1
             time.sleep(SCAN_GAP)
