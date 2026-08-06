@@ -92,7 +92,11 @@ def run():
         cur = ms[-1] if ms else {}
         st = cur.get("ti_status")
         ti = cur.get("ti")
-        in_top5 = st == "ok" and isinstance(ti, (int, float)) and not isinstance(ti, bool) and ti <= 5
+        # ok = 인기글 테마섹션 내 순위 / list_ok = 인기글 섹션이 없는 키워드의 통합리스트 순위.
+        #   둘 다 '화면에서 위에서부터 센 5위'라는 점은 같아 실적 판정은 동일하게 본다(사장님 확정 2026-08-06).
+        #   ※ 나중에 배포 종류별로 기준을 다르게 할 거면 여기서 st 로 갈라 주면 된다.
+        in_top5 = (st in ("ok", "list_ok")
+                   and isinstance(ti, (int, float)) and not isinstance(ti, bool) and ti <= 5)
         since = _parse(p.get("top5_since"))
         patch = {}
         if in_top5:
@@ -102,7 +106,7 @@ def run():
                 patch["top5_achieved_at"] = now.isoformat()    # 24h 유지 달성 = 실적 +1
                 achieved += 1
         else:
-            # fail(측정오류)은 상태 유지 — 진짜 하락(out/no_section/ok&ti>5)일 때만 리셋.
+            # fail(측정오류)은 상태 유지 — 진짜 하락(out/list_out/no_section/no_list/5위밖)일 때만 리셋.
             if st != "fail" and since is not None:
                 patch["top5_since"] = None
         if patch:

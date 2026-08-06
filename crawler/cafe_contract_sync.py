@@ -41,8 +41,8 @@ def _norm(s):
 
 def _manual_keywords():
     """일반 배포(직접형 접수) 키워드 — client_id → {정규화 키워드}.
-       일반 배포는 인기탭을 안 따지므로 '발행되면 그 자체가 실적'이다(5위 24h를 기다리지 않는다).
-       인기탭 배포는 종전대로 5위 24시간 유지에서만 +1 — 두 계약의 조건이 다르므로 집계를 나눈다."""
+       달성 기준은 인기탭 배포와 같다(5위 24시간). 이 목록은 '어느 쪽 배포로 달성했는지'를
+       로그에 나눠 찍기 위한 것이다 — 나중에 기준을 갈라야 할 때 바로 쓸 수 있게 남겨 둔다."""
     out = {}
     for r in _get("cafe_deploy_requests?deploy_type=eq." + quote("직접형")
                   + "&select=client_id,selected_keywords,keyword"):
@@ -89,11 +89,16 @@ def sync(verbose=True):
                 continue
             if p.get("excluded"):
                 continue
-            kw = _norm(p.get("keyword_manual") or p.get("keyword"))
-            if kw and kw in mine:
-                normal += 1                      # 일반 배포 — 발행 자체가 실적
-            elif p.get("top5_achieved_at") and not p.get("top5_seeded"):
-                achieved += 1                    # 인기탭 배포 — 5위 24시간 유지
+            # ★ 일반 배포도 인기탭 배포와 같은 기준(5위 24시간 유지)으로 센다 — 사장님 확정 2026-08-06.
+            #   인기글 섹션이 없는 키워드는 통합리스트 순위(list_ok)로 잡히고, 그것도 top5_achieved_at
+            #   으로 흘러온다(cafe_top5_tracker 가 ok/list_ok 를 같이 인정).
+            #   집계만 배포 종류별로 나눠 두어(normal), 나중에 기준을 바꿀 때 여기만 손대면 되게 한다.
+            if p.get("top5_achieved_at") and not p.get("top5_seeded"):
+                kw = _norm(p.get("keyword_manual") or p.get("keyword"))
+                if kw and kw in mine:
+                    normal += 1                  # 일반 배포분(표시용 분리)
+                else:
+                    achieved += 1                # 인기탭 배포분
         done = base + achieved + normal
         remain = max(0, goal - done)
         if remain == (ct.get("remain_count")):
