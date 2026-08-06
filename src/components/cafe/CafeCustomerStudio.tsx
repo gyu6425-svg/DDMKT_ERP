@@ -51,13 +51,21 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     // 모델B 일별 발행 — 계약 키워드 풀 + 발행상태(칩 색상·미사용 판별) + 매일 건수.
     const [poolKw, setPoolKw] = useState<string[]>([]);
     const [selfPicked, setSelfPicked] = useState<Set<string>>(new Set());   // 칩 클릭 선택발행 대상(비어있으면 앞에서 dailyCount건)
-    // 풀에서 키워드 삭제(칩 ×) — 상태 갱신 + 즉시 저장.
+    // 삭제한 풀 키워드 기억(finder가 매 렌더 onPick으로 seed를 재주입 → 삭제가 되살아나는 것 차단). 새로고침에도 유지(localStorage).
+    const [removedKw, setRemovedKw] = useState<Set<string>>(new Set());
+    const RK_KEY = (cid: string) => `cafe_removed_pool_${cid}`;
+    // 풀에서 키워드 삭제(칩 ×) — 상태 갱신 + 즉시 저장 + 삭제목록에 등록(재주입 차단).
     // 칩 삭제 — DB 저장 실패를 삼키면 화면만 지워지고 새로고침 때 되살아난다(실제 증상). 실패 시 되돌리고 알린다.
     const removePoolKw = async (kw: string) => {
         if (!clientId) return;
         const prev = poolKw;
         const next = poolKw.filter((k) => k !== kw);
         setPoolKw(next);
+        setRemovedKw((r) => {
+            const n = new Set(r); n.add(kw);
+            try { localStorage.setItem(RK_KEY(clientId), JSON.stringify([...n])); } catch { /* 무시 */ }
+            return n;
+        });
         const { error } = await updateKeywordPool(clientId, next);
         if (error) {
             setPoolKw(prev);                       // 낙관적 반영 취소 — DB와 화면을 일치시킨다
@@ -101,26 +109,20 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [reqBusy, setReqBusy] = useState(false);
     const [reqMsg, setReqMsg] = useState('');
     const [manualInput, setManualInput] = useState('');   // 직접 키워드 입력(인기탭 미검증)
-    const [manualChips, setManualChips] = useState<string[]>([]);   // 칩(최대 50)
-    const [manualStyle, setManualStyle] = useState<'info' | 'review'>('review');
-    const addManualChips = () => {
+    // '추가' → 로컬 칩이 아니라 아래 'SUB2 일별 발행' 풀(poolKw)에 바로 쌓는다. 발행은 그 섹션의 정보성/후기성으로.
+    const addManualToPool = async () => {
         const parts = manualInput.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
-        if (parts.length) { setManualChips((prev) => [...new Set([...prev, ...parts])].slice(0, 50)); setManualInput(''); }
-    };
-    const removeManualChip = (kw: string) => setManualChips((prev) => prev.filter((k) => k !== kw));
-    // 직접 키워드 발행 큐 — '발행 요청'한 키워드를 하단에 개별 항목으로(상태는 genStatus로 실시간). 새로고침해도 유지(localStorage).
-    const [manualQueued, setManualQueued] = useState<string[]>([]);
-    const MQ_KEY = (cid: string) => `cafe_manual_queue_${cid}`;
-    const saveManualQueued = (next: string[]) => {
-        setManualQueued(next);
-        if (clientId) localStorage.setItem(MQ_KEY(clientId), JSON.stringify(next));
-    };
-    // 직접 키워드 큐 항목 상태 → 표시 메타(색·라벨). requested=요청 직후(상태 로딩 전).
-    const manualStatusMeta = (s: string) => {
-        if (s === 'done') return { label: '완료', cls: 'bg-[#dcfce7] text-[#166534]', dot: false };
-        if (s === 'fail') return { label: '실패', cls: 'bg-[#fee2e2] text-[#b91c1c]', dot: false };
-        if (['claimed', 'processing', 'posted'].includes(s)) return { label: '발행중', cls: 'bg-[#fef3c7] text-[#b45309]', dot: true };
-        return { label: '대기', cls: 'bg-[#e0e7ff] text-[#4338ca]', dot: false };
+        if (!parts.length) return;
+        const next = Array.from(new Set([...poolKw, ...parts]));
+        setPoolKw(next);
+        setManualInput('');
+        // 다시 추가하는 것이므로 삭제목록에서 해제(재주입 차단 대상에서 제외).
+        setRemovedKw((r) => {
+            const n = new Set(r); parts.forEach((p) => n.delete(p));
+            if (clientId) { try { localStorage.setItem(RK_KEY(clientId), JSON.stringify([...n])); } catch { /* 무시 */ } }
+            return n;
+        });
+        if (clientId) { const { error } = await updateKeywordPool(clientId, next); if (error) setReqMsg(`저장 실패: ${error}`); }
     };
 
     // SEO 키워드 찾기
@@ -290,8 +292,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             // 모델B 일별 발행 — 저장된 키워드 풀 + 제품키워드 + 현재 발행상태.
             if (s?.keyword_pool?.length) setPoolKw(s.keyword_pool);
             if (s?.product_kw) setProductKw(s.product_kw);
-            // 직접 키워드 발행 큐 복원(localStorage).
-            try { const raw = clientId ? localStorage.getItem(MQ_KEY(clientId)) : null; if (raw) setManualQueued(JSON.parse(raw)); } catch { /* 무시 */ }
+            // 삭제한 풀 키워드 복원(finder 재주입 차단이 새로고침에도 유지되게).
+            try { const raw = clientId ? localStorage.getItem(RK_KEY(clientId)) : null; if (raw) setRemovedKw(new Set(JSON.parse(raw))); } catch { /* 무시 */ }
             void loadGenStatus();
             // 접수 선택 키워드 — 파인더 시딩 + 재조회 제외.
             const picks = (req?.selected_keywords ?? []).map((p) => ({ keyword: p.keyword, volume: p.volume ?? null, theme: p.theme ?? null }));
@@ -526,77 +528,18 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 ))}
             </div>
             {finderMode === 'manual' ? (
-                /* 직접 키워드 발행 — 인기탭 없어도 업체가 직접 넣어 발행(검증분과 분리된 도어). */
+                /* 직접 키워드 발행 — 인기탭 없어도 업체가 직접 넣어 발행. '추가'하면 아래 'SUB2 일별 발행' 풀에 칩으로 쌓이고, 발행은 그 섹션의 정보성/후기성으로. */
                 <div className="rounded-xl border-2 border-[#f59e0b] bg-[#fffbeb] p-4">
-                    <div className="mb-2 text-[13px] font-bold text-[#b45309]">✍️ 직접 키워드 발행 <span className="font-normal text-[#a16207]">(인기탭 없어도 발행 · 최대 50개)</span></div>
+                    <div className="mb-2 text-[13px] font-bold text-[#b45309]">✍️ 직접 키워드 발행 <span className="font-normal text-[#a16207]">(인기탭 없어도 발행 · 추가하면 아래 ‘SUB2 일별 발행’ 풀에 쌓입니다)</span></div>
                     <div className="flex flex-wrap items-center gap-2">
                         <input className={`${inputCls} flex-1 min-w-[200px]`} value={manualInput} onChange={(e) => setManualInput(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addManualChips(); } }}
-                            placeholder="키워드 입력 후 추가 (예: 수원 출장뷔페)" />
-                        <button type="button" onClick={addManualChips} className="h-10 shrink-0 rounded-md bg-[#b45309] px-4 text-sm font-bold text-white hover:bg-[#92400e]">추가</button>
-                        <div className="flex gap-1">
-                            {(['review', 'info'] as const).map((s) => (
-                                <button key={s} type="button" onClick={() => setManualStyle(s)}
-                                    className={`h-10 rounded-md px-3 text-sm font-bold ${manualStyle === s ? 'bg-[#d97706] text-white' : 'bg-white text-[#b45309] ring-1 ring-[#f59e0b]'}`}>{s === 'review' ? '후기성' : '정보성'}</button>
-                            ))}
-                        </div>
-                        <button type="button" disabled={reqBusy || !manualChips.length} className="h-10 rounded-md bg-[#d97706] px-5 text-sm font-bold text-white hover:bg-[#b45309] disabled:opacity-50"
-                            onClick={async () => {
-                                if (!manualChips.length) { setReqMsg('추가된 키워드가 없습니다.'); return; }
-                                setReqBusy(true); setReqMsg('');
-                                const { error, count } = await enqueueGenRequestsSelf(clientId!, manualChips, productKw, manualStyle, true);
-                                setReqBusy(false);
-                                if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
-                                setReqMsg(`직접 키워드 ${count}건 발행 요청(${manualStyle === 'review' ? '후기성' : '정보성'}) — SUB2 순차 게시.`);
-                                // 요청분을 하단 큐에 누적(최신이 위로) — 상태는 genStatus로 실시간 표시.
-                                saveManualQueued([...manualChips, ...manualQueued.filter((k) => !manualChips.includes(k))]);
-                                setManualChips([]); setManualInput('');
-                                await loadGenStatus();
-                            }}>발행 요청 ({manualChips.length})</button>
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addManualToPool(); } }}
+                            placeholder="키워드 입력 후 추가 (예: 수원 출장뷔페) — 쉼표로 여러 개" />
+                        <button type="button" onClick={() => void addManualToPool()} disabled={!manualInput.trim()} className="h-10 shrink-0 rounded-md bg-[#b45309] px-5 text-sm font-bold text-white hover:bg-[#92400e] disabled:opacity-50">추가 ↓</button>
                     </div>
-                    {manualChips.length ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                            {manualChips.map((kw) => (
-                                <span key={kw} className="inline-flex items-center gap-1 rounded-full bg-[#fde68a] px-2 py-0.5 text-[12px] font-semibold text-[#92400e]">
-                                    {kw}<button type="button" className="text-[#b45309] hover:text-[#dc2626]" onClick={() => removeManualChip(kw)}>×</button>
-                                </span>
-                            ))}
-                            <span className="self-center text-[11px] text-[#a16207]">{manualChips.length}/50</span>
-                        </div>
-                    ) : null}
-                    {reqMsg ? <p className="mb-0 mt-2 text-[12px] font-semibold text-[#166534]">{reqMsg}</p> : null}
-
-                    {/* 직접 키워드 발행 큐 — '발행 요청'한 키워드가 여기에 잡힌다(상태 실시간). */}
-                    {manualQueued.length ? (
-                        <div className="mt-3 rounded-lg border border-[#c7d2fe] bg-white p-2.5">
-                            <div className="mb-1.5 flex items-center justify-between gap-2">
-                                <div className="text-[11px] font-bold text-[#4338ca]">🕒 직접 키워드 발행 큐 <span className="font-normal text-[#94a3b8]">— 요청한 키워드 {manualQueued.length}건 · SUB2가 순차 게시</span></div>
-                                <div className="flex items-center gap-2">
-                                    <button type="button" onClick={() => void loadGenStatus()} className="text-[11px] font-semibold text-[#4338ca] hover:underline">상태 새로고침</button>
-                                    <button type="button" onClick={() => saveManualQueued(manualQueued.filter((k) => genStatus[k.replace(/\s/g, '')] !== 'done'))} className="text-[11px] font-semibold text-[#94a3b8] hover:text-[#4338ca]" title="완료된 항목을 목록에서 정리">완료 정리</button>
-                                </div>
-                            </div>
-                            <ol className="grid gap-1">
-                                {manualQueued.map((kw, i) => {
-                                    const s = genStatus[kw.replace(/\s/g, '')] || 'requested';
-                                    const meta = manualStatusMeta(s);
-                                    return (
-                                        <li key={kw} className="flex items-center gap-2 rounded-md bg-[#f5f3ff] px-2.5 py-1 text-[12px]">
-                                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#7c3aed] text-[10px] font-bold text-white">{i + 1}</span>
-                                            <span className="min-w-0 flex-1 truncate font-semibold text-[#4338ca]">{kw}</span>
-                                            <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${meta.cls}`}>
-                                                {meta.dot ? <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" /> : null}{meta.label}
-                                            </span>
-                                            <button type="button" onClick={() => saveManualQueued(manualQueued.filter((k) => k !== kw))} className="shrink-0 text-[#cbd5e1] hover:text-[#dc2626]" title="목록에서 제거(발행 취소 아님)">×</button>
-                                        </li>
-                                    );
-                                })}
-                            </ol>
-                            <p className="m-0 mt-1.5 text-[10px] text-[#94a3b8]">※ 발행텀·하루 상한에 따라 순차 게시됩니다. '×'는 목록에서만 지우며 이미 보낸 발행 요청은 취소되지 않습니다.</p>
-                        </div>
-                    ) : null}
-                </div>
-            ) : (
+                    <p className="m-0 mt-2 text-[11px] text-[#a16207]">추가한 키워드는 아래 <b>SUB2 일별 발행</b> 풀에 칩으로 쌓입니다. 거기서 건수를 고르고 <b>정보성/후기성</b>으로 발행하세요.</p>
+                </div>) : null}
+            {finderMode !== 'manual' ? (
                 <CafeKeywordFinder
                     clientId={clientId}
                     mode={finderMode}
@@ -606,11 +549,11 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     onPick={(kws, pk) => {
                         setSelectedKw(new Set(kws));
                         setProductKw(pk);
-                        // 모델B: 고른 키워드를 계약 키워드 풀에 누적(중복 제외).
-                        setPoolKw((prev) => Array.from(new Set([...prev, ...kws.filter(Boolean)])));
+                        // 모델B: 고른 키워드를 계약 키워드 풀에 누적(중복 제외) · 사용자가 삭제한 키워드는 재주입 금지.
+                        setPoolKw((prev) => Array.from(new Set([...prev, ...kws.filter(Boolean)])).filter((k) => !removedKw.has(k)));
                     }}
                 />
-            )}
+            ) : null}
             {/* 발행 요청 보내기 — 고른 키워드를 발행PC 대기열(cafe_gen_requests)로. 원고·이미지는 그 PC가 자기 양식으로 생성·게시. */}
             {(() => {
                 const target = publishTargetFor(company);
