@@ -12,7 +12,7 @@
 
   실행: python cafe_kw_audit.py          (결과를 콘솔+cafe_kw_audit.log 에 기록)
         python cafe_kw_audit.py --quiet  (이상 있을 때만 출력 — 스케줄러용)
-  종료코드: 0=정상 / 1=이상 감지(스케줄러에서 실패로 잡힘)
+  종료코드: 0=정상 / 1=이상 감지 / 2=점검 불가(차단) / 3=DB 기록 실패(결과가 증발 — 스케줄러 이력에 드러남)
 """
 import sys
 import os
@@ -60,15 +60,25 @@ GAP = 1.2
 
 def _report(status, ok, summary, alerts, **kw):
     """결과를 DB(cafe_kw_audit)에 남긴다 — 로그 파일에만 두면 아무도 안 본다.
-       ERP 카페 대시보드가 최근 행을 읽어 이상 시 상단 배너로 띄운다. 전제: docs/cafe-kw-audit.sql"""
+       ERP 카페 대시보드가 최근 행을 읽어 이상 시 상단 배너로 띄운다. 전제: docs/cafe-kw-audit.sql
+       ★ 기록 실패를 성공으로 넘기지 않는다 — 실패하면 False 를 반환해 종료코드 3으로 끝낸다.
+         (SUB4 지적 2026-08-06: 테이블 미생성 상태에서 예약작업이 '결과 0(성공)'으로 찍혀
+          카나리가 매일 돌지만 결과가 증발하는 걸 아무도 눈치채지 못했다.)"""
     body = {"ok": ok, "status": status, "summary": summary,
             "alerts": alerts or None, "worker": os.environ.get("COMPUTERNAME") or "?"}
     body.update(kw)
     try:
-        requests.post(f"{SB}/rest/v1/cafe_kw_audit", headers={**H, "Content-Type": "application/json"},
-                      json=[body], timeout=15, verify=False)
+        r = requests.post(f"{SB}/rest/v1/cafe_kw_audit", headers={**H, "Content-Type": "application/json"},
+                          json=[body], timeout=15, verify=False)
+        if r.status_code >= 300:
+            _log(f"  ⚠ DB 기록 실패 HTTP {r.status_code}: {r.text[:160]}")
+            if r.status_code == 404:
+                _log("     → docs/cafe-kw-audit.sql 을 Supabase SQL Editor 에서 1회 실행하세요.")
+            return False
+        return True
     except Exception as e:
-        _log(f"  (DB 기록 실패: {e})")
+        _log(f"  ⚠ DB 기록 실패: {e}")
+        return False
 
 
 def _log(msg):
@@ -114,9 +124,9 @@ def main():
         msg = (f"점검 불가 — 골든셋 {len(undet)}/{len(GOLDEN)}건이 차단으로 판정불가. "
                f"CF 차단이 풀린 뒤 다시 실행하세요(다른 스캔과 겹치지 않는 시간에).")
         _log("⚠ " + msg)
-        _report("blocked", False, msg, [msg],
-                golden_ok=tested - len(miss), golden_n=tested, golden_undet=len(undet))
-        return 2
+        wrote = _report("blocked", False, msg, [msg],
+                        golden_ok=tested - len(miss), golden_n=tested, golden_undet=len(undet))
+        return 2 if wrote else 3
 
     # ② 음성 표본 재검증 — 없다고 한 게 정말 없는가
     fn = []
@@ -161,9 +171,12 @@ def main():
         _log("⚠ 인기탭 스캔 이상 감지 — " + summary)
         for a in alerts:
             _log("   · " + a)
-        _report("alert", False, summary, alerts, **stat)
-        return 1
-    _report("ok", True, summary, None, **stat)
+        wrote = _report("alert", False, summary, alerts, **stat)
+        return 1 if wrote else 3
+    wrote = _report("ok", True, summary, None, **stat)
+    if not wrote:
+        _log("⚠ 점검은 정상이나 결과를 DB에 남기지 못했습니다 — 이력이 증발합니다(종료코드 3).")
+        return 3
     if not quiet:
         _log("✅ 정상 — " + summary)
     return 0

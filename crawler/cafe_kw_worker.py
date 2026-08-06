@@ -4,7 +4,9 @@
   동작: Supabase 큐(cafe_kw_requests)에서 '이 플레이스 조회' 요청을 원자적으로 하나 집어
         (claim_kw_request RPC · 중복 방지) → 업종·지역 후보를 검색광고로 뽑고 → 자기 IP로
         인기탭 스캔(공유 캐시 우선) → 결과를 요청.result + 공유 캐시(cafe_kw_targets)에 저장.
-  여러 PC에 설치하면 각자 다른 요청을 맡아 IP가 분산된다(용량 = PC 수 배).
+  ⚠️ 옛 설명 정정(2026-08-06 실측): "여러 PC에 설치하면 IP가 분산돼 용량 = PC 수 배"는 거짓이다.
+     워커는 항상 CF 경유(`p._USE_CF`)라 나가는 IP가 CF egress 하나뿐이고, 그 쿼터(약 300콜/10분)를
+     모든 PC·프리스캔·프론트가 공유한다. PC를 늘리면 서로의 쿼터를 갉아먹을 뿐 총량은 그대로다.
 
   실행: python cafe_kw_worker.py          (상시 데몬 · 큐 폴링)
         python cafe_kw_worker.py --once   (한 건만 처리하고 종료 · 테스트)
