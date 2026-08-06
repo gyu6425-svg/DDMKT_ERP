@@ -68,8 +68,10 @@ function RankCell({ ms }: { ms: CafeMeasurement[] }) {
 export function CafeTrackerTab({
     readOnly = false,
     lockCompany = null,
-}: { readOnly?: boolean; lockCompany?: string | string[] | null } = {}) {
-    // lockCompany: 고객 뷰 — 이 업체(company_key) 글만. 배열이면 그 업체들 모두(한 고객의 여러 카페). 자동으로 읽기전용.
+    scopeClientId = null,
+}: { readOnly?: boolean; lockCompany?: string | string[] | null; scopeClientId?: string | null } = {}) {
+    // lockCompany: 고객 뷰 — 이 업체(company_key) 글만(자동 읽기전용).
+    // scopeClientId: 내부 관리 스코프(누수탐지 등) — 이 client 의 카페 글만, 등록/붙여넣기는 그대로 가능.
     const external = readOnly || !!lockCompany;
     const [posts, setPosts] = useState<CafeRankPost[]>([]);
     const [loading, setLoading] = useState(true);
@@ -90,7 +92,13 @@ export function CafeTrackerTab({
         setLoading(true);
         const { data, error } = await getCafeRankPosts();
         if (error) setErr(error.message || 'cafe_rank_posts 조회 실패 — docs/cafe-rank-tables.sql 실행 필요');
-        else { setErr(''); setPosts(lockCompany ? data.filter((p) => { const ck = p.cafe_accounts?.company_key ?? ''; return Array.isArray(lockCompany) ? lockCompany.includes(ck) : ck === lockCompany; }) : data); }
+        else {
+            setErr('');
+            let list = data;
+            if (lockCompany) list = list.filter((p) => { const ck = p.cafe_accounts?.company_key ?? ''; return Array.isArray(lockCompany) ? lockCompany.includes(ck) : ck === lockCompany; });
+            if (scopeClientId) list = list.filter((p) => p.cafe_accounts?.client_id === scopeClientId);
+            setPosts(list);
+        }
         setLoading(false);
     };
     useEffect(() => { void reload(); }, []);

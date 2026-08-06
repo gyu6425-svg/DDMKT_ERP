@@ -1,5 +1,8 @@
 import { supabase } from '../lib/supabase';
 
+// 누수탐지 블로그/카페 순위 트래커 앵커 client — 회사ERP 트래커를 이 client_id 로 스코프 재사용(계약관리 미연동).
+export const LEAK_TRACK_CLIENT_ID = 'c05e9c96-0f3e-4cc9-9554-443c80f1672a';
+
 // 누수탐지 ERP — 상담/작업·정산/통장원장/외주발주.
 //   ⚠️ 정산액(our_share·partner_share)은 절대 자동계산하지 않는다. 화면에서 "제안값"만 보여주고
 //      저장은 입력값 그대로. 기존 11건 중 8건이 30/70 규칙 이탈이고 일부는 계산서 발행완료라,

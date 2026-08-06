@@ -30,9 +30,11 @@ const OWN_COMPANY_NAMES = new Set(['누수상담소']);
 
 export function CafeSheetTab({
     scopeCompanyKey = null,
+    scopeClientId = null,
     readOnly = false,
-}: { scopeCompanyKey?: string | string[] | null; readOnly?: boolean } = {}) {
-    // scopeCompanyKey: 고객 뷰 — 이 업체만. readOnly: 입력·등록·토글 숨기고 텍스트로 표시.
+}: { scopeCompanyKey?: string | string[] | null; scopeClientId?: string | null; readOnly?: boolean } = {}) {
+    // scopeCompanyKey: 고객 뷰 — 이 업체만. scopeClientId: 내부 관리 스코프(누수탐지) — 이 client 계정만·등록 시 client_id 자동.
+    // readOnly: 입력·등록·토글 숨기고 텍스트로 표시.
     const [accounts, setAccounts] = useState<CafeAccount[]>([]);
     const [setupAccount, setSetupAccount] = useState<CafeAccount | null>(null); // 발행 세팅 모달 대상
     const [posts, setPosts] = useState<CafeRankPost[]>([]);
@@ -103,13 +105,14 @@ export function CafeSheetTab({
     const rows = useMemo(
         () => accounts
             .filter((a) => !scopeCompanyKey || (Array.isArray(scopeCompanyKey) ? scopeCompanyKey.includes(a.company_key) : a.company_key === scopeCompanyKey))
+            .filter((a) => !scopeClientId || a.client_id === scopeClientId)
             .filter((a) => !(a.cafe_name === 'ddmkt2' && a.client_id && clientsWithOwnCafe.has(a.client_id)))
             .sort(
                 (a, b) => cafeNameRank(a.cafe_name) - cafeNameRank(b.cafe_name)
                     || cafeCompanyRank(a.company_key) - cafeCompanyRank(b.company_key)
                     || a.display_name.localeCompare(b.display_name),
             ),
-        [accounts, scopeCompanyKey, clientsWithOwnCafe],
+        [accounts, scopeCompanyKey, scopeClientId, clientsWithOwnCafe],
     );
 
     // 숨긴 마이클(ddmkt2) 카페의 실적을 같은 업체(client)의 자체 카페 행에 합산 — 회사 총 실적 표시.
@@ -160,7 +163,7 @@ export function CafeSheetTab({
             ...form,
             board_name: form.board_name || form.display_name,
             board_short: form.board_short || form.display_name,
-            client_id: linkedReq?.client_id || undefined,
+            client_id: linkedReq?.client_id || scopeClientId || undefined,
             club_id: club || undefined,
         });
         setBusy(false);

@@ -155,6 +155,8 @@ function Sidebar() {
                         {renderNavItem({ path: '/leak/jobs', label: '작업 · 정산' })}
                         {renderNavItem({ path: '/leak/ledger', label: '통장 원장' })}
                         {renderNavItem({ path: '/leak/outsourcing', label: '외주 발주' })}
+                        {renderNavItem({ path: '/leak/blog', label: '누수탐지 블로그' })}
+                        {renderNavItem({ path: '/leak/cafe', label: '누수탐지 카페' })}
                     </>
                 ) : isReporterView ? (
                     <>{renderNavItem({ path: '/reporter', label: '기자단 대시보드' })}</>

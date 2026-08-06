@@ -20,7 +20,7 @@ export type CafeRankPost = {
     top5_achieved_at?: string | null; // 5위 24h 유지 달성 시각(실적)
     top5_seeded?: boolean | null; // 수동 베이스라인에 포함된 글(자동 카운트 제외)
     cafe_account_id?: string | null;
-    cafe_accounts?: { company_key: string; display_name: string; board_short: string } | null;
+    cafe_accounts?: { company_key: string; display_name: string; board_short: string; client_id?: string | null } | null;
     excluded: boolean;
     measurements: CafeMeasurement[];
 };
@@ -42,7 +42,7 @@ export function parseCafeUrl(url: string): { clubId: string | null; cafeName: st
 export async function getCafeRankPosts() {
     const joined = await supabase
         .from('cafe_rank_posts')
-        .select('*,cafe_accounts(company_key,display_name,board_short)')
+        .select('*,cafe_accounts(company_key,display_name,board_short,client_id)')
         .eq('excluded', false)
         .order('published_date', { ascending: false, nullsFirst: false });
     if (!joined.error) return { data: (joined.data ?? []) as unknown as CafeRankPost[], error: null };

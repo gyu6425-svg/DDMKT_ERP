@@ -65,6 +65,8 @@ const routes = [
     { path: '/leak/jobs', element: <LeakPage section="jobs" /> },
     { path: '/leak/ledger', element: <LeakPage section="ledger" /> },
     { path: '/leak/outsourcing', element: <LeakPage section="outsourcing" /> },
+    { path: '/leak/blog', element: <LeakPage section="blog" /> },
+    { path: '/leak/cafe', element: <LeakPage section="cafe" /> },
     { path: '/banner-generator', element: <BannerGeneratorPage /> },
     { path: '/powerlink', element: <PowerLinkPage /> },
     { path: '/mypage', element: <MyPage /> },
