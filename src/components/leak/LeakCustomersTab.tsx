@@ -198,7 +198,7 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
                                 <thead>
                                     <tr>
                                         <Th>문의일</Th><Th>상담자</Th><Th>지역</Th><Th>현장</Th>
-                                        <Th>누수 종류</Th><Th>유입</Th><Th align="center">계약</Th><Th align="right">관리</Th>
+                                        <Th>누수 종류</Th><Th align="right">금액</Th><Th>유입</Th><Th align="center">계약</Th><Th align="right">관리</Th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -209,6 +209,7 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
                                             <Td>{r.sido ? <Chip tone="info">{r.sido}</Chip> : null} {r.region ?? ''}</Td>
                                             <Td>{r.site_name ?? '-'}</Td>
                                             <Td>{r.leak_type ?? '-'}</Td>
+                                            <Td align="right">{r.amount ? `${won(r.amount)}원` : '-'}</Td>
                                             <Td>{r.source ?? '-'}</Td>
                                             <Td align="center">{r.contracted ? <Chip tone="ok">진행</Chip> : <Chip tone="muted">미진행</Chip>}</Td>
                                             <Td align="right">

@@ -4,19 +4,21 @@ import {
     LEAK_COUNSELORS,
     LEAK_SIDOS,
     LEAK_SOURCES,
+    parseWon,
     updateInquiry,
+    won,
     type InquiryInput,
     type LeakInquiry,
 } from '../../api/leakErp';
 import { Btn, Field, INPUT_CLS, Modal, Toggle } from './ui';
 
 const blank: InquiryInput = {
-    contracted: false, counselor: '', inquired_on: '', leak_type: '', note: '',
+    amount: null, contracted: false, counselor: '', inquired_on: '', leak_type: '', note: '',
     phone: '', region: '', sido: '', site_name: '', source: '',
 };
 
 const fromRow = (r: LeakInquiry): InquiryInput => ({
-    contracted: r.contracted, counselor: r.counselor ?? '', inquired_on: r.inquired_on ?? '',
+    amount: r.amount ?? null, contracted: r.contracted, counselor: r.counselor ?? '', inquired_on: r.inquired_on ?? '',
     leak_type: r.leak_type ?? '', note: r.note ?? '', phone: r.phone ?? '',
     region: r.region ?? '', sido: r.sido ?? '', site_name: r.site_name ?? '', source: r.source ?? '',
 });
@@ -103,6 +105,15 @@ export default function LeakInquiryForm({
                 </Field>
                 <Field label="누수 종류">
                     <input className={INPUT_CLS} onChange={(e) => set('leak_type', e.target.value)} placeholder="욕실 누수 등" value={form.leak_type ?? ''} />
+                </Field>
+                <Field label="금액" hint="견적·예상">
+                    <input
+                        className={INPUT_CLS}
+                        inputMode="numeric"
+                        onChange={(e) => set('amount', e.target.value.trim() ? parseWon(e.target.value) : null)}
+                        placeholder="예: 1,500,000"
+                        value={form.amount == null ? '' : won(form.amount)}
+                    />
                 </Field>
                 <Field label="유입경로">
                     <select className={INPUT_CLS} onChange={(e) => set('source', e.target.value)} value={form.source ?? ''}>

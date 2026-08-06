@@ -53,6 +53,7 @@ export type LeakInquiry = {
     leak_type: string | null;
     contracted: boolean;
     source: string | null;
+    amount: number | null;        // 견적/예상 금액(문의 단계) — docs/leak-inquiry-amount.sql
     note: string | null;
 };
 
@@ -140,23 +141,35 @@ function inquiryPayload(input: InquiryInput) {
         leak_type: trimOrNull(input.leak_type),
         contracted: !!input.contracted,
         source: trimOrNull(input.source),
+        amount: input.amount == null ? null : Math.round(input.amount),
         note: trimOrNull(input.note),
     };
 }
+
+// amount 컬럼이 아직 없을 때(마이그레이션 전) 스키마 에러를 감지 — 컬럼 빼고 재시도용.
+const isMissingAmountCol = (e: { code?: string; message?: string } | null) =>
+    !!e && (e.code === 'PGRST204' || e.code === '42703') && /amount/i.test(e.message ?? '');
 
 export async function createInquiry(input: InquiryInput) {
     if (!trimOrNull(input.region) && !trimOrNull(input.site_name) && !normPhone(input.phone)) {
         return { error: { message: '지역·현장·연락처 중 하나는 입력하세요' } };
     }
-    const { error } = await supabase.from('leak_inquiries').insert(inquiryPayload(input));
+    const payload = inquiryPayload(input);
+    let { error } = await supabase.from('leak_inquiries').insert(payload);
+    if (isMissingAmountCol(error)) {
+        const { amount: _drop, ...rest } = payload;
+        ({ error } = await supabase.from('leak_inquiries').insert(rest));
+    }
     return { error };
 }
 
 export async function updateInquiry(id: string, input: InquiryInput) {
-    const { error } = await supabase
-        .from('leak_inquiries')
-        .update({ ...inquiryPayload(input), updated_at: nowIso() })
-        .eq('id', id);
+    const payload = { ...inquiryPayload(input), updated_at: nowIso() };
+    let { error } = await supabase.from('leak_inquiries').update(payload).eq('id', id);
+    if (isMissingAmountCol(error)) {
+        const { amount: _drop, ...rest } = payload;
+        ({ error } = await supabase.from('leak_inquiries').update(rest).eq('id', id));
+    }
     return { error };
 }
 
