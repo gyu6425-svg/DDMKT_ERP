@@ -975,6 +975,7 @@ function ContractEditModal({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isBrandContract, contract.client_id, contract.blog_name]);
     const [bulk, setBulk] = useState(''); // N건 일괄 완료 입력
+    const [deduct, setDeduct] = useState(''); // N건 차감(환불) 입력 — 진행 이력에 −N건으로 기록
     const [outSheetOpen, setOutSheetOpen] = useState(false); // 외주 시트 붙여넣기 모달
     const [outSheetText, setOutSheetText] = useState(OUT_SHEET_HEADER + '\n');
     const [outUnitEdit, setOutUnitEdit] = useState(contract.unit_outsource?.toString() ?? ''); // 나중 외주단가 입력
@@ -1186,10 +1187,12 @@ function ContractEditModal({
     // 리워드 주간 처리 — 잔여(진실의 원천)를 먼저 저장해 게이지/외주비 즉시 반영,
     //   주차 로그는 별도 저장(weekly_logs 컬럼 미생성 시에도 진행은 반영되게).
     const commitWeek = async (count: number, auto: boolean) => {
-        if (saving || !hasGoal || count <= 0) return;
-        const applied = Math.min(remainN, count); // 잔여 초과 방지
-        if (applied <= 0) return;
-        const next = remainN - applied;
+        if (saving || !hasGoal || count === 0) return;
+        // 양수=완료(잔여 초과 방지) / 음수=차감·환불(완료분 초과 차감 방지 → 잔여가 목표 초과 못 함).
+        const done = goalN - remainN;
+        const applied = count > 0 ? Math.min(remainN, count) : Math.max(count, -done);
+        if (applied === 0) return;
+        const next = remainN - applied; // 완료면 잔여 감소, 차감이면 잔여 증가(0~목표 범위)
         // 입력한 외주단가·외주업체를 사용(비면 계약의 기존값). 외주비 = 타수 × 외주단가.
         const unit = outUnitEdit.trim() ? Math.round(evalNum(outUnitEdit)) : contract.unit_outsource ?? null;
         const vendor = outCompanyEdit.trim() || contract.outsource_company || null;
@@ -1986,6 +1989,38 @@ function ContractEditModal({
                                         일괄 완료
                                     </button>
                                 </div>
+                                {/* 차감(환불) — 건수로 입력하면 진행 이력에 −N건으로 기록, 실제 사용 외주비·정산에서 자동 차감 */}
+                                <div className="mt-1.5 flex items-center gap-1.5">
+                                    <input
+                                        className="h-9 w-full rounded-md border border-[#fca5a5] bg-white px-2 text-sm"
+                                        inputMode="numeric"
+                                        onChange={(e) => setDeduct(withCommas(e.target.value))}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && Number(onlyDigits(deduct)) > 0) {
+                                                void commitWeek(-Number(onlyDigits(deduct)), false);
+                                                setDeduct('');
+                                            }
+                                        }}
+                                        placeholder="환불·차감 건수(−)"
+                                        value={deduct}
+                                    />
+                                    <button
+                                        className="shrink-0 rounded-md bg-[#dc2626] px-3 py-2 text-sm font-bold text-white hover:bg-[#b91c1c] disabled:opacity-50"
+                                        disabled={saving || Number(onlyDigits(deduct)) <= 0 || (goalN - remainN) <= 0}
+                                        onClick={() => {
+                                            void commitWeek(-Number(onlyDigits(deduct)), false);
+                                            setDeduct('');
+                                        }}
+                                        type="button"
+                                    >
+                                        차감
+                                    </button>
+                                </div>
+                                {Number(onlyDigits(deduct)) > 0 && (evalNum(outUnitEdit) || contract.unit_outsource || 0) > 0 ? (
+                                    <div className="mt-1 text-right text-[11px] text-[#64748b]">
+                                        차감 외주비 ≈ <b className="text-[#059669]">−{fmtWon(Math.min(goalN - remainN, Number(onlyDigits(deduct))) * (evalNum(outUnitEdit) || contract.unit_outsource || 0))}원</b>
+                                    </div>
+                                ) : null}
                                 {Number(onlyDigits(bulk)) > 0 &&
                                 (evalNum(outUnitEdit) || contract.unit_outsource || 0) > 0 ? (
                                     <div className="mt-1 text-right text-[11px] text-[#64748b]">
