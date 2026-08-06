@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -17,7 +17,7 @@ export function CafeKeywordFinder({
     goalCount,
 }: {
     clientId: string | null;
-    mode: 'region' | 'keyword';
+    mode: 'region' | 'keyword' | 'related';
     onPick: (keywords: string[], productKeyword: string) => void;
     initialPicked?: PickSeed[];      // 접수 때 고른 키워드 — 최초 1회 선택칩으로 시딩
     extraUsed?: string[];            // 재조회 결과에서 추가로 제외할 키워드(접수 선택분 등)
@@ -47,6 +47,11 @@ export function CafeKeywordFinder({
     // 정보입력형(플레이스 없는 업체) — 위치 직접입력 + 붙여넣기 추출 결과를 체크박스로 확정.
     //   ★ 자동 채우기를 쓰지 않는 이유: GPT 추출엔 늘 군더더기가 섞이는데, 자동 확정하면
     //     그게 조용히 스캔 비용과 오탐이 된다. 고객이 '내 서비스가 맞는지' 고르는 게 가장 정확하다.
+    // 연관 인기글 찾기 — 씨앗어(보홀·하와이 등) → 연관 키워드 → 체크 확정 → 전국 인기탭 판정.
+    const [seed, setSeed] = useState('');
+    const [cands, setCands] = useState<RelatedCand[] | null>(null);
+    const [relPicked, setRelPicked] = useState<Set<string>>(new Set());
+    const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('near');   // 어디까지 보여줄지
     const [addr, setAddr] = useState('');
     const [extracted, setExtracted] = useState<ExtractedProduct[] | null>(null);
     const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -220,6 +225,40 @@ export function CafeKeywordFinder({
         setVol(top);                                  // 추출된 키워드+검색량 표시(기존 검색량 표 재사용)
         return top;
     };
+    // 연관 인기글 ① — 씨앗어에서 연관 키워드를 펼친다(검색광고 연관어, 최대 500).
+    const runExpand = async () => {
+        const s = seed.trim();
+        if (!s) { setKwErr('씨앗 키워드를 입력하세요(예: 보홀).'); return; }
+        setKwErr(''); setExtracting('연관어 조회 중…'); setCands(null); setKwResult(null);
+        try {
+            const list = await expandRelated(s);
+            if (!list.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
+            setCands(list);
+            // 씨앗어를 포함한 것만 기본 체크 — 확실히 관련 있는 것들. 나머지는 눈으로 고르게 한다.
+            //   (실측: '보홀'의 far 에는 팡라오·알로나비치 같은 진짜 관련어와 무관어가 섞여 있어
+            //    문자열 규칙으로 자동 판정하면 반드시 한쪽이 틀린다.)
+            setRelPicked(new Set(list.filter((x) => x.tier === 'seed' && x.total >= 100).slice(0, 40).map((x) => x.kw)));
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '연관어 조회 실패');
+        } finally { setExtracting(''); }
+    };
+    // 연관 인기글 ② — 체크한 키워드를 지역 없이(전국) 인기탭 판정.
+    const runRelatedScan = async () => {
+        const list = [...relPicked];
+        if (!list.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
+        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwHidden([]);
+        try {
+            const { id, error } = await enqueueListScan(list, Math.max(30, list.length));
+            if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+            const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (n) => setScanNote(n) });
+            if (!result.length) { setKwErr(`체크한 ${list.length}개 중 인기탭이 확인된 키워드가 없습니다.`); return; }
+            setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+            setKeyword(seed.trim());
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '조회 실패');
+        } finally { setKwLoading(false); setScanNote(''); }
+    };
+
     // 정보입력형 ① — 붙여넣은 소개/메뉴 → GPT 가 검색 가능한 제품·서비스 키워드로 정리.
     //   결과는 체크박스로만 보여준다(자동 확정 금지). 대표어(core)·메뉴(menu)는 기본 체크, 세부(niche)는 해제.
     const runExtract = async () => {
@@ -277,9 +316,66 @@ export function CafeKeywordFinder({
 
     return (
         <div className="rounded-xl border-2 border-[#0369a1] bg-[#f0f9ff] p-4">
-            <div className="mb-2 text-[13px] font-bold text-[#075985]">🔍 SEO 키워드 찾기 — {mode === 'region' ? '지역 × 제품키워드' : '플레이스 인기탭'}</div>
+            <div className="mb-2 text-[13px] font-bold text-[#075985]">🔍 SEO 키워드 찾기 — {mode === 'region' ? '지역 × 제품키워드' : mode === 'related' ? '연관 인기글 찾기' : '플레이스 인기탭'}</div>
 
-            {mode === 'region' ? (
+            {/* 연관 인기글 찾기 — 씨앗어 하나에서 연관 키워드를 펼쳐 인기탭을 찾는다.
+                기존 3모드는 '한국 행정지역 × 제품'이 전제라 보홀·하와이 같은 해외지명이나
+                취미어를 다루지 못했다. 여기선 지역 축 없이 연관어 자체를 판정한다. */}
+            {mode === 'related' ? (
+                <div className="grid gap-2">
+                    <div className="flex flex-wrap gap-2">
+                        <input className={`${inputCls} flex-1 min-w-[200px]`} value={seed}
+                            onChange={(e) => setSeed(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void runExpand(); } }}
+                            placeholder="씨앗 키워드 (예: 보홀 · 하와이 · 골프 · 캠핑)" />
+                        <button type="button" onClick={() => void runExpand()} disabled={!!extracting || kwLoading}
+                            className="h-10 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">
+                            {extracting ? '조회 중…' : '① 연관어 펼치기'}
+                        </button>
+                    </div>
+                    {cands ? (
+                        <div className="rounded-md border border-[#ddd6fe] bg-white p-2">
+                            <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
+                                <span>② 스캔할 키워드 확정 ({relPicked.size}/{cands.length})</span>
+                                <div className="inline-flex rounded-md border border-[#c4b5fd] p-0.5">
+                                    {([['seed', `"${seed.trim()}" 포함`], ['near', '연관 포함'], ['far', '전체']] as const).map(([t, lbl]) => (
+                                        <button key={t} type="button" onClick={() => setRelTier(t)}
+                                            className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
+                                    ))}
+                                </div>
+                                <span className="font-normal text-[#94a3b8]">검색량 높은 순 · 관련 없는 건 체크 해제하세요</span>
+                            </div>
+                            <div className="flex max-h-64 flex-wrap gap-1.5 overflow-y-auto">
+                                {cands
+                                    .filter((x) => (relTier === 'seed' ? x.tier === 'seed'
+                                        : relTier === 'near' ? x.tier !== 'far' : true))
+                                    .slice(0, 200)
+                                    .map((x) => (
+                                        <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${relPicked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>
+                                            <input type="checkbox" className="h-3 w-3 accent-[#6d28d9]" checked={relPicked.has(x.kw)}
+                                                onChange={() => { const n = new Set(relPicked); if (n.has(x.kw)) n.delete(x.kw); else n.add(x.kw); setRelPicked(n); }} />
+                                            {x.kw}
+                                            <span className="text-[10px] font-normal opacity-60">{x.total.toLocaleString()}</span>
+                                        </label>
+                                    ))}
+                            </div>
+                            <div className="mt-2 flex items-center gap-2">
+                                <button type="button" onClick={() => void runRelatedScan()} disabled={kwLoading || !relPicked.size}
+                                    className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">
+                                    {kwLoading ? '찾는 중…' : '③ 인기탭 찾기'}
+                                </button>
+                                <span className="text-[11px] text-[#64748b]">
+                                    {relPicked.size > 60
+                                        ? `⚠ ${relPicked.size}개는 시간이 오래 걸립니다 — 검색량 높은 것부터 40개 안쪽을 권합니다.`
+                                        : '지역을 붙이지 않고 키워드 자체로 인기글 섹션을 확인합니다.'}
+                                </span>
+                            </div>
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+
+            {mode === 'related' ? null : mode === 'region' ? (
                 <div className="grid gap-2">
                     <div className="flex flex-wrap gap-2">
                         {REGION_KEYS.map((r) => (

@@ -159,6 +159,45 @@ export async function enqueueListScan(keywords: string[], target = 50) {
     return { id: (data as { id: number }).id, error: null };
 }
 
+// ── 연관 인기글 찾기 ────────────────────────────────────────────────────────
+//   씨앗어 하나(보홀·하와이 등 자유 단어)에서 연관 키워드를 펼쳐 인기탭을 찾는다.
+//   기존 3모드는 '한국 행정지역 × 제품'이 전제라 해외지명·취미어 같은 씨앗을 다루지 못했다.
+export type RelatedCand = { kw: string; total: number; tier: 'seed' | 'near' | 'far' };
+
+// 씨앗어 → 연관 후보. 검색광고 연관어(최대 500)를 관련도 3단으로 나눈다.
+//   ★ 문자열 규칙만으로는 못 가른다(실측 2026-08-06): '보홀'의 far 에는 팡라오·알로나비치·
+//     두마게티 같은 실제 필리핀 지명(관련 O)과, '하와이'의 far 에는 디트로이트·볼티모어(무관)가
+//     같이 들어온다. 그래서 자동 확정하지 않고 tier 만 붙여 사용자가 체크하게 한다.
+export async function expandRelated(seed: string): Promise<RelatedCand[]> {
+    const q = seed.trim();
+    if (!q) return [];
+    const r = await fetch(`/api/naver-keywords?q=${encodeURIComponent(q)}`);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !Array.isArray((j as { keywords?: unknown }).keywords)) {
+        throw new Error((j as { message?: string }).message || `연관어 조회 실패(${r.status})`);
+    }
+    const nq = q.replace(/\s/g, '');
+    // near 판정용 조각 — 씨앗어를 포함한 키워드에서 씨앗을 뗀 나머지(여행·항공권·리조트…).
+    const rows = ((j as { keywords: { keyword?: string; total?: number }[] }).keywords)
+        .map((x) => ({ kw: String(x.keyword ?? '').trim(), total: Number(x.total ?? 0) }))
+        .filter((x) => x.kw);
+    const frags = new Set<string>();
+    for (const { kw } of rows) {
+        const n = kw.replace(/\s/g, '');
+        if (!n.includes(nq)) continue;
+        const rest = n.split(nq).join(' ').trim();
+        for (const w of rest.split(/\s+/)) if (w.length >= 2) frags.add(w);
+    }
+    const out: RelatedCand[] = rows.map(({ kw, total }) => {
+        const n = kw.replace(/\s/g, '');
+        const tier: RelatedCand['tier'] = n.includes(nq) ? 'seed'
+            : ([...frags].some((f) => n.includes(f)) ? 'near' : 'far');
+        return { kw, tier, total };
+    });
+    const order = { seed: 0, near: 1, far: 2 };
+    return out.sort((a, b) => (order[a.tier] - order[b.tier]) || (b.total - a.total));
+}
+
 export type ExtractedProduct = { kw: string; kind: string };
 
 // 업체 정보 붙여넣기 → 제품·서비스 키워드 추출(GPT). 플레이스가 없는 업체용.
