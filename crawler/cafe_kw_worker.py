@@ -513,6 +513,19 @@ def _topical(rows, product, region_core=None):
     return cafe >= 1 or blog >= 2
 
 
+def _budget_note(n):
+    """이번에 쓴 CF 콜 수를 전역 원장에 남긴다. 온디맨드는 '기록만' 하고 제한은 안 받는다
+       (고객이 항상 먼저다). 이걸 안 하면 배경 데몬이 남은 예산을 과대평가해 고객 조회와 경쟁한다.
+       실패해도 무시 — 원장 기록 때문에 고객 스캔이 멈추면 본말전도다."""
+    if n <= 0:
+        return
+    try:
+        requests.post(f"{SB}/rest/v1/rpc/scan_budget_take", headers=H,
+                      json={"want": int(n), "cap": 10 ** 9}, timeout=5)
+    except Exception:
+        pass
+
+
 def _title_has_token(rows, tok):
     """인기글 제목 중 이 지역토큰이 그대로 등장하는 게 하나라도 있나.
        ★ 모든 토큰에 요구하면 안 된다 — '전북 누수탐지'는 제목이 군산·익산·전주뿐이라
@@ -616,6 +629,7 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
                     aborted = True
             else:
                 dead_chunks = 0
+            _budget_note(len(results))      # 오류 포함 — 차단당한 콜도 CF 버킷은 똑같이 소모한다
             for kind, item in results:
                 if kind == "err":
                     errs += 1
@@ -800,6 +814,7 @@ def process_list(req, payload):
             capped = True                      # 상한으로 남은 키워드를 못 봄 — note 에 반드시 표기(조용한 절단 금지)
             break
         r = p.classify(kw)
+        _budget_note(1)                        # 전역 원장 — 배경 데몬이 남은 예산을 과대평가하지 않게
         if r.get("err"):                       # C1 — 차단/일시실패는 캐시하지 않음(영구 위음성 방지)
             errs += 1
             if errs >= 5 and scraped == 0:     # 처음부터 연속 실패 = 차단. '0건'으로 위장하지 않는다.
@@ -867,6 +882,7 @@ def process(req):
             continue  # 라이브 상한 도달 — 미수집분은 스캔 안 함(timeout·차단 방지, prescan 이 채움)
         else:
             r = p.classify(kw)  # 자기 IP 스캔(게이트 시 CF 자동전환)
+            _budget_note(1)               # 전역 원장 — 배경 데몬이 남은 예산을 과대평가하지 않게
             if r.get("err"):              # C1 — 차단/일시실패는 캐시 안 함(영구 위음성 방지)
                 errs += 1
                 if errs >= 5 and scraped == 0:   # 처음부터 연속 실패 = 차단 → '0건 발견'으로 위장 금지
@@ -908,6 +924,7 @@ def process(req):
                 break  # 라이브 상한 도달 — 보완 스크랩 중단(timeout·차단 방지, prescan 이 채움)
             else:
                 r = p.classify(kw)
+                _budget_note(1)               # 전역 원장 — 배경 데몬이 남은 예산을 과대평가하지 않게
                 if not r.get("err"):          # C1 — 차단/일시실패는 캐시 안 함(영구 위음성 방지)
                     _cache_put(kw, r, None)
                 scraped += 1
