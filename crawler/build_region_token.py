@@ -126,18 +126,29 @@ def harvest_stations(pairs):
 
     # ⚠️ openapi 도 QPS 제한이 있다 — 병렬 6으로 무스로틀 실행하니 767콜이 7초(110 req/s)에 끝나고
     #   역이 81개만 잡혔다(검증 때는 610개). 대부분 조용히 실패한 것. 청크 사이에 쉬어 준다.
-    fail = 0
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        for i in range(0, len(pairs), 30):
-            for res in ex.map(one, pairs[i:i + 30]):
-                if res is None:
-                    fail += 1
-                    continue
-                for t, addr in res:
-                    found.setdefault(t, addr)
-            time.sleep(1.0)
-    if fail:
-        _log(f"    (조회 실패 {fail}건)")
+    def sweep(todo, par, chunk, rest):
+        failed = []
+        with ThreadPoolExecutor(max_workers=par) as ex:
+            for i in range(0, len(todo), chunk):
+                part = todo[i:i + chunk]
+                for pair, res in zip(part, ex.map(one, part)):
+                    if res is None:
+                        failed.append(pair)
+                        continue
+                    for t, addr in res:
+                        found.setdefault(t, addr)
+                time.sleep(rest)
+        return failed
+
+    # 실패분은 더 느리게 재시도한다 — 1차(병렬3)에서도 절반이 QPS로 떨어졌다.
+    todo = list(pairs)
+    for par, chunk, rest in ((3, 30, 1.0), (2, 20, 1.5), (1, 10, 1.5)):
+        todo = sweep(todo, par, chunk, rest)
+        if not todo:
+            break
+        _log(f"    (실패 {len(todo)}건 → 재시도)")
+    if todo:
+        _log(f"    ⚠ 최종 조회 실패 {len(todo)}건")
     return found
 
 
