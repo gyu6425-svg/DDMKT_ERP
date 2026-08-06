@@ -29,10 +29,11 @@ export function balanceOf(rows: TokenLedger[], clientId?: string): number {
 }
 
 // 관리자: 토큰 충전(+건수).
+// 서비스 토큰(무상) — 노출 안 될 때 우리가 주는 것. kind='서비스' 로 저장해 금액(15,000)에 안 잡히게(유상 충전과 구분). 잔액엔 포함(사용 가능).
 export async function grantTokens(clientId: string, count: number, note?: string) {
     if (!Number.isFinite(count) || count <= 0) return { error: { message: '건수를 1 이상 입력하세요' } as { message: string } };
     const { error } = await supabase.from('cafe_tokens').insert({
-        client_id: clientId, delta: Math.floor(count), kind: '충전', note: note?.trim() || null,
+        client_id: clientId, delta: Math.floor(count), kind: '서비스', note: note?.trim() || null,
     });
     return { error };
 }

@@ -36,7 +36,9 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
     };
 
     const balance = balanceOf(rows);
-    const charged = rows.filter((r) => r.delta > 0).reduce((s, r) => s + r.delta, 0);
+    // 유상 충전(금액에 잡힘) vs 서비스(무상, 노출 안 될 때 지급 — 금액 미포함). 잔액엔 둘 다 포함(사용 가능).
+    const paidCharged = rows.filter((r) => r.delta > 0 && r.kind !== '서비스').reduce((s, r) => s + r.delta, 0);
+    const serviceGranted = rows.filter((r) => r.delta > 0 && r.kind === '서비스').reduce((s, r) => s + r.delta, 0);
     const used = rows.filter((r) => r.delta < 0).reduce((s, r) => s - r.delta, 0);
 
     return (
@@ -48,9 +50,9 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                     <div className="mt-0.5 text-[11px] text-[#94a3b8]">₩{tokenWon(balance)}</div>
                 </div>
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-                    <div className="text-[12px] text-[#64748b]">총 충전</div>
-                    <div className="text-2xl font-bold text-[#059669]">{charged}건</div>
-                    <div className="mt-0.5 text-[11px] text-[#94a3b8]">₩{tokenWon(charged)}</div>
+                    <div className="text-[12px] text-[#64748b]">총 충전 <span className="font-normal text-[#cbd5e1]">(유상)</span></div>
+                    <div className="text-2xl font-bold text-[#059669]">{paidCharged}건</div>
+                    <div className="mt-0.5 text-[11px] text-[#94a3b8]">₩{tokenWon(paidCharged)}{serviceGranted ? <span className="ml-1 text-[#b45309]">· 서비스 {serviceGranted}건(무상)</span> : null}</div>
                 </div>
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                     <div className="text-[12px] text-[#64748b]">총 사용(발행)</div>
@@ -124,10 +126,10 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                                     <tr key={r.id} className="border-b border-[#f1f5f9] text-[#334155]">
                                         <td className="whitespace-nowrap px-2 py-2">{new Date(r.created_at).toLocaleString('ko-KR')}</td>
                                         <td className="whitespace-nowrap px-2 py-2">
-                                            <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.kind === '충전' ? 'bg-[#dcfce7] text-[#166534]' : r.kind === '발행' ? 'bg-[#e0e7ff] text-[#4338ca]' : 'bg-[#f1f5f9] text-[#64748b]'}`}>{r.kind}</span>
+                                            <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.kind === '충전' ? 'bg-[#dcfce7] text-[#166534]' : r.kind === '발행' ? 'bg-[#e0e7ff] text-[#4338ca]' : r.kind === '서비스' ? 'bg-[#fef3c7] text-[#b45309]' : 'bg-[#f1f5f9] text-[#64748b]'}`}>{r.kind}</span>
                                         </td>
                                         <td className={`px-2 py-2 font-bold ${r.delta >= 0 ? 'text-[#059669]' : 'text-[#dc2626]'}`}>{r.delta > 0 ? `+${r.delta}` : r.delta}</td>
-                                        <td className={`whitespace-nowrap px-2 py-2 font-semibold ${r.delta > 0 ? 'text-[#059669]' : 'text-[#64748b]'}`}>{r.delta > 0 ? `₩${tokenWon(r.delta)}` : `₩${tokenWon(Math.abs(r.delta))}`}</td>
+                                        <td className={`whitespace-nowrap px-2 py-2 font-semibold ${r.kind === '서비스' ? 'text-[#b45309]' : r.delta > 0 ? 'text-[#059669]' : 'text-[#64748b]'}`}>{r.kind === '서비스' ? '무상' : (r.delta > 0 ? `₩${tokenWon(r.delta)}` : `₩${tokenWon(Math.abs(r.delta))}`)}</td>
                                         <td className="px-2 py-2 text-[#64748b]">{r.note ?? '-'}</td>
                                     </tr>
                                 ))}
