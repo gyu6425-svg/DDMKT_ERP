@@ -580,6 +580,42 @@ def _title_has_token(rows, tok):
     return any(t in _norm(x.get("title")) for x in (rows or []))
 
 
+def adjudicate(kw, r, tok, product, known, want_volume=True):
+    """인기탭 채택 최종 판정 — 네 경로(플레이스형·지역형·정보입력형·키워드형)가 전부 이 하나를 탄다.
+
+       ★ 왜 한 곳인가: 필터를 경로마다 따로 넣었더니 같은 계열 오탐이 반복해서 샜다.
+         2026-08-06 하루에만 두 번 — 지역형에 넣은 오타보정 필터가 플레이스형엔 없었고(8799e1b),
+         자기 상호 유입도 지역형만 막혀 있었다(2e6dc73). 경로가 셋이면 매번 세 곳을 확인해야 한다.
+         (SUB4 지적 2026-08-06.)
+
+       tok      = 지역 토큰(없으면 '')      product = 제품어(지역을 뗀 나머지)
+       known    = 그 지역의 행정 마스터 토큰 집합 — 여기 없는 토큰이면 '엄격 판정' 대상
+       반환 (r, 채택여부, 검색량). r 은 강등된 verdict 가 반영된 것 — 그대로 캐시에 넣으면 된다."""
+    if not _is_pop(r):
+        return r, False, None
+    rows = r.get("rows")
+    strict = bool(tok) and tok not in (known or set())
+
+    def _demote(why):
+        return {"has_section": r.get("has_section"), "verdict": f"비관련({why})",
+                "theme": r.get("theme"), "rows": rows}
+
+    # ① 오타보정 — 네이버가 '선유남'을 '선유도'로 고쳐 남의 동네 인기글을 준다. 마스터 밖 토큰만 확인
+    #    (마스터 안 토큰은 '전북 누수탐지'처럼 제목이 하위 지명으로만 채워지는 정상 케이스가 있다).
+    if strict and not _title_has_token(rows, tok):
+        return _demote("지역불일치"), False, None
+    # ② 제품 관련성 + 일반명사 지역(예산 인테리어)
+    if not _topical(rows, product, _region_core(tok) if tok else None):
+        return _demote("오탐"), False, None
+    if not want_volume:
+        return r, True, None
+    v = _real_volume(kw)
+    # ③ 마스터 밖 지역어인데 검색량이 최저값(10=측정값 0)이면 1위를 해도 유입이 0이다.
+    if strict and (v or 0) <= 10:
+        return _demote("검색량없음"), False, v
+    return r, True, v
+
+
 def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
     """지역축 × 제품 조합 스캔 공통 루프. kws = [(지역토큰, 키워드, 제품키워드[, strict])].
        strict=True 면 제목에 지역토큰이 실제로 등장해야 채택(오타보정 오탐 차단).
@@ -605,6 +641,7 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
 
     found, scraped, errs, capped = [], 0, 0, False
     dead_chunks, aborted = 0, False   # 차단 감지(청크 전멸)·중단 여부
+    lowyield = False                  # 저수익 조기 중단(이 업종은 지역형이 안 맞음)
     # ① 캐시 패스(네트워크 0) — 신뢰 캐시로 이미 결론난 건 즉시 채택/스킵하고, 남은 것만 라이브 대상으로.
     to_scan = []
     for tok, kw, prod, strict in kws:
@@ -628,26 +665,14 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
         r = p.classify(kw)
         if r.get("err"):                       # C1 — 차단/일시실패는 캐시하지 않음(영구 위음성 방지). 다음에 재시도.
             return ("err", None)
-        # 오타보정 오탐 차단(하위 토큰만) — 네이버가 '선유남'을 '선유동'으로 고쳐 검색해 주는 바람에
-        #   선유동 인기글이 '선유남 누수탐지'의 결과로 돌아왔다(실측 2026-08-06). 발행해도 못 들어간다.
-        if strict and _is_pop(r) and not _title_has_token(r.get("rows"), tok):
-            r = {"has_section": r.get("has_section"), "verdict": "비관련(지역불일치)",
-                 "theme": r.get("theme"), "rows": r.get("rows")}
-        # 오탐 필터: 인기글 섹션이 이 지역×제품과 무관(generic 채움)이면 '비관련'으로 강등 → 채택·캐시에서 탈락.
-        if _is_pop(r) and not _topical(r.get("rows"), product, _region_core(tok)):
-            r = {"has_section": r.get("has_section"), "verdict": "비관련(오탐)", "theme": r.get("theme"), "rows": r.get("rows")}
-        if _is_pop(r):
-            v = _real_volume(kw)               # 표시·정렬용 검색량 — 인기탭인 것만 1콜(스로틀 부담↓)
-            # 마스터 밖 지역어(strict)인데 검색량이 최저값(10=측정값 0)이면 팔 수 없다 — process 와 같은 규약.
-            if strict and (v or 0) <= 10:
-                _cache_put(kw, {"has_section": r.get("has_section"), "verdict": "비관련(검색량없음)",
-                                "theme": r.get("theme"), "rows": r.get("rows")}, v)
-                return ("neg", None)
-            _cache_put(kw, r, v)
-            return ("pop", {"keyword": kw, "volume": v, "theme": _disp_theme(r),
-                            "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
-        _cache_put(kw, r, None)                # 섹션없음·비관련도 캐시(재스캔 즉시) — 볼륨 불필요
-        return ("neg", None)
+        # 판정은 전부 adjudicate 한 곳에서 — 경로마다 따로 넣으면 반드시 한쪽이 샌다.
+        #   strict 는 '마스터 밖 토큰'이라는 뜻이므로 known 을 그렇게 흉내 낸다.
+        r, ok, v = adjudicate(kw, r, tok, product, set() if strict else {tok})
+        _cache_put(kw, r, v if ok else None)
+        if not ok:
+            return ("neg", None)
+        return ("pop", {"keyword": kw, "volume": v, "theme": _disp_theme(r),
+                        "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
 
     # ② 라이브 패스 — CF는 분산IP(요청이 CF 엣지에서 나감)라 병렬이 안전하다.
     #    실측(2026-08-04): 병렬x6 20건 2.1s·에러0 (직렬 무gap 13s 대비 6배). 사무실 직접 IP는 차단 보호로 직렬 유지.
@@ -687,6 +712,13 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
                 scraped += 1
                 if kind == "pop":
                     found.append(item)
+            # ★ 저수익 조기 중단 — 이 업종이 지역형과 안 맞으면 더 긁어도 안 나온다.
+            #   실측(2026-08-06) '창업' 6제품×수도권 780지역: 330콜 써서 2건, 둘 다 검색량 10(팔 수 없음).
+            #   온디맨드 한 건이 데몬 37분치 예산을 태웠다(SUB4 지적). 팔 수 있는 게 하나도 없으면 멈춘다.
+            #   ⚠️ 희소 업종(소방업체 서울 10건)을 죽이지 않게 임계를 넉넉히 둔다 — 150콜.
+            if scraped >= 150 and not any((f.get("volume") or 0) > 10 for f in found):
+                lowyield = True
+                break
             if aborted:
                 break
             time.sleep(gap)                    # 청크 사이만 쉼(병렬이면 건당 실효 gap = gap/PAR)
@@ -701,9 +733,11 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
                 note=f"⚠ 스캔 차단 — {unscanned}/{len(to_scan)}건 판정 못 함(오류 {errs}). "
                      f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
         return found
+    lownote = (f" · ⚠ {scraped}건을 봤지만 팔 만한 키워드가 없어 중단했습니다 — "
+               f"이 업종은 지역형이 안 맞습니다(일반 배포를 권합니다)") if lowyield else ""
     _finish(req["id"], "done", result=found, extra=extra,
             note=f"{len(found)}건 · 스캔 {scraped}{' · 오류 ' + str(errs) if errs else ''} · {scope}"
-                 f"{f' · 남은 조합 {left}개(＋더 찾기로 이어서)' if capped else ''}")
+                 f"{f' · 남은 조합 {left}개(＋더 찾기로 이어서)' if capped and not lowyield else ''}{lownote}")
     print(f"[{_ts()}][{req['id']}] {tag} {total}조합 {scope} → 인기탭 {len(found)}건 · 스크랩 {scraped} · err {errs}", flush=True)
     return found
 
@@ -871,14 +905,13 @@ def process_list(req, payload):
                 aborted = True
                 break
             continue
-        # 오탐 필터(키워드형=지역 없음) — 제목에 제품어(=키워드) 관련 글 없으면 비관련 강등.
-        if _is_pop(r) and not _topical(r.get("rows"), kw, None):
-            r = {"has_section": r.get("has_section"), "verdict": "비관련(오탐)", "theme": r.get("theme"), "rows": r.get("rows")}
-        v = _real_volume(kw)
+        # 키워드형은 지역이 없다(tok='') → adjudicate 안에서 오타보정·검색량 게이트는 자동으로 안 탄다.
+        r, ok, v = adjudicate(kw, r, "", kw, set())
+        v = v if v is not None else _real_volume(kw)
         _cache_put(kw, r, v)
         scraped += 1
         time.sleep(gap)
-        if _is_pop(r):
+        if ok:
             found.append({"keyword": kw, "volume": v, "theme": _disp_theme(r),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
     found.sort(key=lambda f: -(f.get("volume") or 0))
@@ -947,29 +980,15 @@ def process(req):
                     aborted = True
                     break
                 continue
-            if (tok0 and tok0 not in _known and _is_pop(r)
-                    and not _title_has_token(r.get("rows"), tok0)):
-                r = {"has_section": r.get("has_section"), "verdict": "비관련(지역불일치)",
-                     "theme": r.get("theme"), "rows": r.get("rows")}
-            # 제품 관련성 — 지역형·정보입력형과 같은 규약. 이게 없어서 '성수퓨어'(약국 브랜드)가
-            #   맛집 인기탭('성수 퓨전중식당')에 붙어 팔릴 뻔했다(실측 2026-08-06).
-            #   제품어 = 키워드에서 앞 지역토큰을 뗀 나머지. 지역이 없으면 키워드 전체.
-            _prod = kw[len(tok0):].strip() if tok0 else kw
-            if _is_pop(r) and not _topical(r.get("rows"), _prod, _region_core(tok0) if tok0 else None):
-                r = {"has_section": r.get("has_section"), "verdict": "비관련(오탐)",
-                     "theme": r.get("theme"), "rows": r.get("rows")}
-            _cache_put(kw, r, vol)
+            # 판정은 전부 adjudicate 한 곳에서 — 제품어 = 키워드에서 앞 지역토큰을 뗀 나머지.
+            r, _ok, _v = adjudicate(kw, r, tok0, kw[len(tok0):].strip() if tok0 else kw, _known)
+            _cache_put(kw, r, _v if _ok else vol)
             scraped += 1
             time.sleep(SCAN_GAP)
         if _is_pop(r):
             v = vol or _real_volume(kw)  # hier 생성어(volume 0)는 실제 검색량 백필
-            # ★ 행정 마스터에 없는 지역어 + 검색량 없음 = 팔 수 없는 키워드.
-            #   검색광고 API 는 어떤 문자열에도 최소 10을 준다 → 10은 '측정값 0'이라는 뜻이다.
-            #   실측(2026-08-06) '창훈 맛집'(10)의 인기글은 '제주 천지연폭포 창훈이네'였다 —
-            #   제목에 '창훈'이 우연히 있어 지역확인도 통과했다. 1위를 해도 유입이 0이다.
-            #   ⚠️ 마스터에 있는 지역(연무동 등)은 이 게이트를 안 탄다 — 저검색 니치를 죽이면 안 된다.
             if tok0 and tok0 not in _known and (v or 0) <= 10:
-                continue
+                continue                 # 캐시 히트 경로 — 마스터 밖 지역어 + 검색량 없음은 팔 수 없다
             found.append({"keyword": kw, "volume": v, "theme": _disp_theme(r),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
     found.sort(key=lambda f: -(f.get("volume") or 0))  # 고객 화면: 검색량 높은 순
