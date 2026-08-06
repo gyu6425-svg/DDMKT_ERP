@@ -132,6 +132,35 @@ def _is_kw_type(deploy_type, cats):
     return False
 
 
+def _own_brand_tokens(name, cats, region_toks):
+    """업체명에서 '이 업체만의 고유어'를 뽑는다. is_brandish 는 고정 블록리스트라 신규 업체 브랜드를 모른다.
+       실측(2026-08-06) '성수역 퓨어약국' → 플레이스 키워드 '성수퓨어'가 후보로 살아남아
+       엉뚱한 맛집 인기탭('성수 퓨전중식당')에 붙었다. 검색량도 10(=사실상 0)이라 팔 수 없는 키워드다.
+       ★ 지역명·업종어는 브랜드로 보지 않는다 — '광교횟집'의 '광교'는 실제 지역(신도시)이라
+         브랜드로 처리하면 멀쩡한 후보를 통째로 죽인다."""
+    toks = set()
+    cat_words = {c for c in (cats or []) if c}
+    for word in re.split(r"[\s()·,/]+", (name or "")):
+        word = re.sub(r"[^가-힣a-zA-Z0-9]", "", word)
+        if len(word) < 2:
+            continue
+        for c in cat_words:                       # 업종 접미 제거: 퓨어약국 → 퓨어
+            if len(c) >= 2 and word.endswith(c) and len(word) > len(c):
+                word = word[: -len(c)]
+                break
+        if len(word) < 2 or word in cat_words:
+            continue
+        if word in region_toks:                   # 지역명은 브랜드가 아니다
+            continue
+        # 행정/역 접미를 뗀 코어가 지역이면 그것도 지역이다. 역세권 마스터가 완전하지 않아도
+        #   ('성수역'이 서울 281역에 없었다) '성수'로 판별된다 — 데이터 구멍에 안 걸리는 판정.
+        core = re.sub(r"(역|동|구|시|군|읍|면|리|가)$", "", word)
+        if len(core) >= 2 and core in region_toks:
+            continue
+        toks.add(word)
+    return toks
+
+
 def _candidates(info, provinces, pid, deploy_type):
     cats = [x.strip() for cc in info["cats"][:2] for x in re.split(r"[,·/]", cc) if x.strip()]
     kw_type = _is_kw_type(deploy_type, cats)
@@ -146,6 +175,7 @@ def _candidates(info, provinces, pid, deploy_type):
             if x and len(x) >= 2 and x not in cores and not p.is_brandish(x):
                 cores.append(x)
 
+    known_master = set()          # 이 시도의 행정·역세권·신도시 토큰 — 브랜드 오판 방지에 쓴다
     if kw_type:
         # ── 키워드형: 지역 완전 배제. 제품/니치 키워드만(전국). 지역 계층·주소 조회 안 함. ──
         own, provinces, hier, narrow, city_seeds = set(), set(), [], [], []
@@ -156,6 +186,10 @@ def _candidates(info, provinces, pid, deploy_type):
         narrow = p.region_tokens(road, jibun)                  # 시·구·동(광역 제외, 시 우선) — 실질 타깃
         own = set(t for t in (narrow + rh) if t)
         place_sido = p._sido(road, jibun)                      # '전북','서울','경기'…
+        if place_sido:
+            # ★ 상호에 든 지역어를 브랜드로 오판하지 않게. '성수역 퓨어약국'의 '성수역'은
+            #   실제 역세권 토큰인데, 주소에서 안 나온다는 이유로 브랜드 취급하면 좋은 후보를 버린다.
+            known_master = set(_region_tokens_for([place_sido], True))
         food = any(any(h in c for h in p._FOOD_HINT) for c in cats)
         # 시 시드 = '{시} {업종}' (바 지역명은 연관어 거의 없음. '군산 맛집'이라야 500여개 반환).
         broad = "맛집" if food else (cats[0] if cats else "")
@@ -169,6 +203,10 @@ def _candidates(info, provinces, pid, deploy_type):
         for bt in bh:
             if bt != "맛집":                                   # '맛집' 단독(전국)은 너무 넓어 제외
                 hier.append(bt)
+            # 이미 지역어를 품은 업종어에 지역을 또 붙이지 않는다 — '성수 성수역약국' 같은
+            #   검색량 0짜리가 대량 생성돼 라이브 상한(28)을 먹고 진짜 후보를 밀어냈다(실측 2026-08-06).
+            if any(t and t in bt for t in own):
+                continue
             for rl in rh:
                 hier.append(f"{rl} {bt}")
                 if " " not in bt:
@@ -195,13 +233,20 @@ def _candidates(info, provinces, pid, deploy_type):
             rv = city_vol.get(k.replace(" ", ""), 0)
             if rv:
                 vol[k] = rv
-    # 후보 통합 + 필터(오프토픽·타지역 컷). 키워드형은 _region_ok가 지역형 키워드를 전부 컷.
+    # 후보 통합 + 필터(오프토픽·타지역·자기브랜드 컷). 키워드형은 _region_ok가 지역형 키워드를 전부 컷.
+    own_brand = _own_brand_tokens(info.get("name"), cats, own | set(narrow) | known_master)
+
+    def _keep(k):
+        return (k and not p.is_brandish(k) and not p.is_offtopic(k)
+                and not any(b in k for b in own_brand)      # 자기 상호는 남의 인기탭에 잘못 붙는다
+                and _region_ok(k, provinces, own))
+
     base = []
     for k in hier + cats + info["keywords"]:
-        if k and not p.is_brandish(k) and not p.is_offtopic(k) and _region_ok(k, provinces, own) and k not in base:
+        if _keep(k) and k not in base:
             base.append(k)
     for kw in sorted(vol, key=lambda k: -vol[k]):
-        if not p.is_offtopic(kw) and _region_ok(kw, provinces, own) and kw not in base:
+        if _keep(kw) and kw not in base:
             base.append(kw)
     # 지역형=로컬 우선. 그 안에서도 시·구·동(narrow)을 광역(도)보다 먼저 — 도 단위 헛스캔 축소.
     def _rank(k):
@@ -593,6 +638,11 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
             r = {"has_section": r.get("has_section"), "verdict": "비관련(오탐)", "theme": r.get("theme"), "rows": r.get("rows")}
         if _is_pop(r):
             v = _real_volume(kw)               # 표시·정렬용 검색량 — 인기탭인 것만 1콜(스로틀 부담↓)
+            # 마스터 밖 지역어(strict)인데 검색량이 최저값(10=측정값 0)이면 팔 수 없다 — process 와 같은 규약.
+            if strict and (v or 0) <= 10:
+                _cache_put(kw, {"has_section": r.get("has_section"), "verdict": "비관련(검색량없음)",
+                                "theme": r.get("theme"), "rows": r.get("rows")}, v)
+                return ("neg", None)
             _cache_put(kw, r, v)
             return ("pop", {"keyword": kw, "volume": v, "theme": _disp_theme(r),
                             "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
@@ -880,6 +930,7 @@ def process(req):
         if nk in seen:
             continue
         seen.add(nk)
+        tok0 = kw.split()[0] if " " in kw else ""
         cached = _cache_get(kw)
         if cached is not None and _cache_trust(cached):   # prescan 위음성은 불신 → 아래 라이브 재검증
             r = {"has_section": cached.get("has_section"), "theme": cached.get("theme"),
@@ -896,16 +947,29 @@ def process(req):
                     aborted = True
                     break
                 continue
-            tok0 = kw.split()[0] if " " in kw else ""
             if (tok0 and tok0 not in _known and _is_pop(r)
                     and not _title_has_token(r.get("rows"), tok0)):
                 r = {"has_section": r.get("has_section"), "verdict": "비관련(지역불일치)",
+                     "theme": r.get("theme"), "rows": r.get("rows")}
+            # 제품 관련성 — 지역형·정보입력형과 같은 규약. 이게 없어서 '성수퓨어'(약국 브랜드)가
+            #   맛집 인기탭('성수 퓨전중식당')에 붙어 팔릴 뻔했다(실측 2026-08-06).
+            #   제품어 = 키워드에서 앞 지역토큰을 뗀 나머지. 지역이 없으면 키워드 전체.
+            _prod = kw[len(tok0):].strip() if tok0 else kw
+            if _is_pop(r) and not _topical(r.get("rows"), _prod, _region_core(tok0) if tok0 else None):
+                r = {"has_section": r.get("has_section"), "verdict": "비관련(오탐)",
                      "theme": r.get("theme"), "rows": r.get("rows")}
             _cache_put(kw, r, vol)
             scraped += 1
             time.sleep(SCAN_GAP)
         if _is_pop(r):
             v = vol or _real_volume(kw)  # hier 생성어(volume 0)는 실제 검색량 백필
+            # ★ 행정 마스터에 없는 지역어 + 검색량 없음 = 팔 수 없는 키워드.
+            #   검색광고 API 는 어떤 문자열에도 최소 10을 준다 → 10은 '측정값 0'이라는 뜻이다.
+            #   실측(2026-08-06) '창훈 맛집'(10)의 인기글은 '제주 천지연폭포 창훈이네'였다 —
+            #   제목에 '창훈'이 우연히 있어 지역확인도 통과했다. 1위를 해도 유입이 0이다.
+            #   ⚠️ 마스터에 있는 지역(연무동 등)은 이 게이트를 안 탄다 — 저검색 니치를 죽이면 안 된다.
+            if tok0 and tok0 not in _known and (v or 0) <= 10:
+                continue
             found.append({"keyword": kw, "volume": v, "theme": _disp_theme(r),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
     found.sort(key=lambda f: -(f.get("volume") or 0))  # 고객 화면: 검색량 높은 순
