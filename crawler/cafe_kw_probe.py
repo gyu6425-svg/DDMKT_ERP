@@ -284,10 +284,19 @@ def region_tokens(road, jibun):
         push(m.group(1))
     for m in re.finditer(r"([가-힣]{1,3}동)(?=\s)", text):  # 지번의 법정동: 이동
         push(m.group(1))
+    # 읍·면 — 옥도면 같은 농어촌 소재지. 이게 없어서 '전북 군산시 옥도면 …' 에서 옥도면이 통째로 빠졌다.
+    #   접미 포함형(옥도면)과 기본형(옥도) 둘 다 — 실제 검색은 둘 다 쓰인다.
+    for m in re.finditer(r"([가-힣]{1,4})(?:읍|면)(?=\s)", text):
+        push(m.group(0).strip())
+        push(m.group(1))
+    # 리(里) → 기본형. 섬·상권명이 여기 들어있는 경우가 많다(선유도리 → 선유도).
+    for m in re.finditer(r"([가-힣]{2,4})리(?=\s)", text):
+        push(m.group(1))
     for m in re.finditer(r"([가-힣]{2,3})\d*(?:로|길)(?=\s)", text):  # 광덕1로→광덕
         t = m.group(1)
         if not t.endswith(("대", "소", "중", "번", "센", "타")):  # 대로/번길/센터·타워 도로명 파편 배제
             push(t)
+            push(m.group(0).strip())   # 원형(선유남길)도 — 도로명 그대로 검색되는 상권이 있다
     return out
 
 
