@@ -8,6 +8,7 @@
 """
 import sys
 import time
+import random
 import datetime
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import truststore
@@ -16,9 +17,15 @@ import blog_rank_crawler as c
 
 TODAY = c.TODAY
 # 차단 대응 — 이 크롤은 블로그 크롤(수백 콜) 직후에 돌아 누적 호출량이 이미 많다.
-COOLDOWN_SEC = 300      # 연속 실패 5건 = 차단 추정 → 이만큼 쉬고 재개
-MAX_COOLDOWNS = 3       # 쿨다운을 이만큼 했는데도 계속 막히면 중단(내일 재측정)
+COOLDOWN_SEC = 300      # 연속 실패 5건 = 차단 추정 → 이만큼(×횟수 점증) 쉬고 재개
+MAX_COOLDOWNS = 5       # 3→5: 01:00~09:00 시간 여유 충분 → 더 끈질기게 회복 시도(중단 대신)
 HARD_STOP = "09:00"     # 다음 크롤(Today 09:05 / Place 09:20)과 겹치지 않게 이 시각엔 멈춘다
+# ★ 차단 원천 예방(2026-08-06 118건 전멸 대응). 원인=블로그 635콜 직후 카페 240콜이 붙어 누적볼륨(≈875)에서 막힘.
+#   시간 예산이 크므로(01:00 시작·09:00 마감=7.5h) 아낌없이 느리게 돌려 차단 자체를 안 만든다.
+PRECOOL_SEC = 180                        # 시작 전 대기 — 블로그 크롤 직후 IP 레이트 윈도가 식게(예약 실행 때만)
+CAFE_DELAY = max(c.REQUEST_DELAY, 4.5)   # 요청 간격 소폭 상향(누적 부하가 커 블로그보다 더 느리게)
+REST_EVERY = max(1, c.BLOCK_REST_EVERY)  # N개 측정마다 긴 휴식(누적 레이트리밋 예방 — 블로그와 동일 방식)
+REST_SEC = c.BLOCK_REST_SEC
 # ★ 위 가드는 새벽 예약 실행(01:00 시작)용이다. 낮에 수동으로 돌릴 땐 시작하자마자 멈추면 안 되므로,
 #   시작 시각이 이미 HARD_STOP 을 넘었으면 가드를 끈다(수동 재측정 허용).
 _STARTED = datetime.datetime.now().strftime("%H:%M")
@@ -36,12 +43,18 @@ def main():
     if today_only:
         params["published_date"] = f"eq.{TODAY}"
     posts = c.sb_get("cafe_rank_posts", params)
+    # 마이클의 정보세상(ddmkt2) 카페는 순위 체크 제외(사용자 지정 2026-08-06).
+    #   실측상 실패 118건이 전부 이 카페의 오래된 글이었고, 제외하면 누적 콜/차단이 크게 준다.
+    _before = len(posts)
+    posts = [p for p in posts if (p.get("cafe_name") or "").strip() != "ddmkt2"]
+    _skipped_mk = _before - len(posts)
     try:
         account_rows = c.sb_get("cafe_accounts", {"select": "id,company_key,display_name", "active": "eq.true"})
     except Exception:
         account_rows = []  # SQL 적용 전 레거시 폴백: board를 업체 표시명으로 사용
     account_by_id = {a["id"]: a for a in account_rows}
-    print(f"=== 카페 순위 크롤 {TODAY} · 대상 {len(posts)}글{' (오늘분)' if today_only else ''} ===", flush=True)
+    print(f"=== 카페 순위 크롤 {TODAY} · 대상 {len(posts)}글{' (오늘분)' if today_only else ''}"
+          f"{f' · 마이클정보세상(ddmkt2) {_skipped_mk}글 제외' if _skipped_mk else ''} ===", flush=True)
     ok = fail = 0
 
     def measure_one(p):
@@ -73,6 +86,10 @@ def main():
 
     # 차단 대응 — 블로그 크롤 뒤라 누적 호출량이 이미 많다. 연속 실패가 쌓이면 계속 두들기지 말고 쉰다.
     #   실측(2026-08-06): 블로그 635 + 카페 240 = 875콜에서 122건 뒤부터 전멸(118 연속 실패).
+    # 프리쿨 — 블로그 크롤 직후(예약 01:00 실행) IP 레이트 윈도가 식도록 잠깐 대기. 차단 원천 예방.
+    if _GUARD_ON and PRECOOL_SEC and posts:
+        print(f"  ⏳ 프리쿨 {PRECOOL_SEC // 60}분 — 블로그 크롤 직후 누적 차단 예방(레이트 윈도 리셋)", flush=True)
+        time.sleep(PRECOOL_SEC)
     consec, cooldowns, retry = 0, 0, []
     for p in posts:
         if _past_stop():
@@ -90,13 +107,19 @@ def main():
                 if cooldowns > MAX_COOLDOWNS:
                     print(f"  ⛔ 차단 지속({cooldowns}회 쿨다운) — 남은 {len(posts) - ok - fail}글 중단. 내일 재측정.", flush=True)
                     break
-                print(f"  ⚠ 연속 실패 {consec}건 = 차단 추정 → {COOLDOWN_SEC // 60}분 쿨다운({cooldowns}/{MAX_COOLDOWNS})", flush=True)
-                time.sleep(COOLDOWN_SEC)
+                cd = COOLDOWN_SEC * cooldowns   # 점증 쿨다운(5/10/15…분) — 볼륨 차단은 짧은 휴식으론 안 풀린다
+                print(f"  ⚠ 연속 실패 {consec}건 = 차단 추정 → {cd // 60}분 쿨다운({cooldowns}/{MAX_COOLDOWNS})", flush=True)
+                time.sleep(cd)
                 consec = 0
             continue
         ok += 1
         consec = 0
-        c._pause(c.REQUEST_DELAY)   # 차단회피 + 즉시검색 양보
+        c._pause(CAFE_DELAY)   # 차단회피 + 즉시검색 양보(블로그보다 약간 느리게)
+        # N개마다 긴 휴식 — 누적 레이트리밋을 미리 흩어 차단을 안 만든다(블로그 크롤과 동일 방식).
+        if REST_EVERY > 0 and ok % REST_EVERY == 0:
+            rest = REST_SEC + random.uniform(0, REST_SEC * 0.5)
+            print(f"  ⏸ 누적 차단 예방 휴식 {rest:.0f}s (측정 {ok}건째)", flush=True)
+            time.sleep(rest)
     # 실패분 1회 재시도 — 쿨다운으로 회복됐으면 여기서 대부분 살아난다.
     if retry and cooldowns <= MAX_COOLDOWNS and not _past_stop():
         print(f"=== 실패 {len(retry)}글 재시도 ===", flush=True)
@@ -108,7 +131,7 @@ def main():
                 again += 1
                 ok += 1
                 fail -= 1
-            c._pause(c.REQUEST_DELAY)
+            c._pause(CAFE_DELAY)
         print(f"=== 재시도 완료: {again}/{len(retry)}글 회복 ===", flush=True)
     print(f"=== 완료: {len(posts)}글 측정 (ok {ok} / fail {fail}) ===", flush=True)
     try:

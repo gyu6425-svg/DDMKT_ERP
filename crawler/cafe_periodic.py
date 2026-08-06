@@ -80,6 +80,7 @@ def _measure_new():
     today = datetime.date.today().isoformat()
     # 최신 발행 우선 정렬 — 측정 창이 짧게 끊겨도 최근 등록 글이 뒤로 반복 밀리지 않게(독립검증 R3).
     posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*", "order": "published_date.desc.nullslast"})
+    posts = [p for p in posts if (p.get("cafe_name") or "").strip() != "ddmkt2"]  # 마이클정보세상(ddmkt2) 순위체크 제외(사용자 지정)
     # 대상 = ① 오늘 미측정 글 + ② 매 사이클(15분) 재측정: 현재 순위권(ok) OR 최근 발행 신규글.
     #   순위권 글은 순위 변동을 바로바로 반영, 최근 신규글은 아직 변동이 커 매번 추적(진입/이탈 즉시 포착).
     #   권외·측정불가 옛글은 매 사이클 안 돌고 하루 1회만(전체 재측정 시 ~22분=차단위험이라 순위권+신규로 한정).
@@ -123,6 +124,7 @@ def _measure_priority(cap=20):
     today = datetime.date.today().isoformat()
     posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*",
                                          "published_date": f"eq.{today}", "order": "created_at.desc"})
+    posts = [p for p in posts if (p.get("cafe_name") or "").strip() != "ddmkt2"]  # 마이클정보세상(ddmkt2) 순위체크 제외(사용자 지정)
     todo = [p for p in posts
             if not any((m.get("date") == today) for m in (p.get("measurements") or []))][:cap]
     if not todo:
