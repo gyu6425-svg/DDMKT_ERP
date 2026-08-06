@@ -25,6 +25,39 @@ export const DURBAN_BUSINESS = ['입주청소', '이사청소', '상가청소', 
 
 // finder 선택 키워드들 → 발행요청 적재. region = 키워드에서 제품키워드 떼기(개포동 입주청소→개포동).
 //   productKeyword: 지역형 제품키워드(입주청소/사설경호/소방업체/누수탐지). durban 은 이 값이 business.
+// 키워드에서 '지역'을 떼어낸다 — 원고 제목이 "{region} {업종} …" 으로 시작하므로 이게 틀리면 글이 깨진다.
+//   ⚠️ 옛 코드 결함(2026-08-06 QA): 제품어를 접미($)로 한 번만 치환하고, 안 맞으면 조용히
+//      region = 키워드 전체로 폴백했다. UI 가 권장하는 쉼표 다중입력("입주청소, 상가청소")이면
+//      접미가 영원히 안 맞아 모든 키워드의 region 이 통째가 되고
+//      제목이 "강남구 입주청소업체 입주청소 …" 처럼 나갔다.
+//   → 쉼표로 나눈 제품어를 각각 접미로 시도하고, 하나도 못 떼면 '조용한 폴백' 대신 오류로 알린다.
+function deriveRegions(keywords: string[], productKeyword: string):
+    { rows: { kw: string; region: string }[]; error?: string } {
+    const kws = keywords.filter(Boolean);
+    const pks = (productKeyword || '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (!pks.length) return { rows: kws.map((kw) => ({ kw, region: kw })) };   // 제품어 없음(키워드형) = 종전 동작
+    const rows: { kw: string; region: string }[] = [];
+    const bad: string[] = [];
+    for (const kw of kws) {
+        let region = '';
+        for (const pk of pks) {
+            const esc = pk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const cut = kw.replace(new RegExp(`\\s*${esc}\\s*$`), '').trim();
+            if (cut && cut !== kw) { region = cut; break; }   // 실제로 접미가 잘렸을 때만 인정
+        }
+        if (region) rows.push({ kw, region }); else bad.push(kw);
+    }
+    if (bad.length) {
+        return {
+            rows: [],
+            error: `제품키워드(${pks.join(' · ')})로 지역을 분리할 수 없는 키워드가 ${bad.length}건 있습니다: `
+                + `${bad.slice(0, 3).join(', ')}${bad.length > 3 ? ' 외' : ''}. `
+                + `키워드가 "지역 + 제품키워드" 형태인지 확인하세요(예: 강남 입주청소).`,
+        };
+    }
+    return { rows };
+}
+
 export async function enqueueGenRequests(companyKey: string, keywords: string[], productKeyword: string) {
     const t = PUBLISH_TARGET[companyKey];
     if (!t) return { error: { message: `발행 라우팅 매핑 없음: ${companyKey}` }, count: 0 };
@@ -33,15 +66,13 @@ export async function enqueueGenRequests(companyKey: string, keywords: string[],
     if (t.businessFromProduct && !DURBAN_BUSINESS.includes(pk)) {
         return { error: { message: `더반 업종은 [${DURBAN_BUSINESS.join(' · ')}] 중 하나여야 합니다. (제품키워드: ${pk || '없음'})` }, count: 0 };
     }
-    const esc = pk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const rows = keywords.filter(Boolean).map((kw) => {
-        const region = pk ? (kw.replace(new RegExp(`\\s*${esc}\\s*$`), '').trim() || kw) : kw;
-        return {
-            company: t.company, board: t.board,
-            business: t.businessFromProduct ? (pk || null) : null,
-            region, keyword: kw, popular_verified: true, status: 'pending',
-        };
-    });
+    const der = deriveRegions(keywords, pk);
+    if (der.error) return { error: { message: der.error }, count: 0 };
+    const rows = der.rows.map(({ kw, region }) => ({
+        company: t.company, board: t.board,
+        business: t.businessFromProduct ? (pk || null) : null,
+        region, keyword: kw, popular_verified: true, status: 'pending',
+    }));
     if (!rows.length) return { error: { message: '보낼 키워드가 없습니다.' }, count: 0 };
     const { error } = await supabase.from('cafe_gen_requests').insert(rows);
     return { error, count: rows.length };
@@ -144,15 +175,13 @@ export async function enqueueGenRequestsSelf(
 ) {
     // manual=true: 업체가 인기탭 없이 직접 넣은 키워드(popular_verified=false → SUB2가 manual 도어로 발행).
     const pk = (productKeyword || '').trim();
-    const esc = pk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const company = `dep_${style}_${clientId}`;
-    const rows = keywords.filter(Boolean).map((kw) => {
-        const region = pk ? (kw.replace(new RegExp(`\\s*${esc}\\s*$`), '').trim() || kw) : kw;
-        return {
-            company, client_id: clientId,
-            region, keyword: kw, popular_verified: !manual, status: 'pending',
-        };
-    });
+    const der = deriveRegions(keywords, pk);
+    if (der.error) return { error: { message: der.error }, count: 0 };
+    const rows = der.rows.map(({ kw, region }) => ({
+        company, client_id: clientId,
+        region, keyword: kw, popular_verified: !manual, status: 'pending',
+    }));
     if (!rows.length) return { error: { message: '보낼 키워드가 없습니다.' }, count: 0 };
     const { error } = await supabase.from('cafe_gen_requests').insert(rows);
     return { error, count: rows.length };

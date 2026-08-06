@@ -180,19 +180,33 @@ export function CafeKeywordFinder({
         const cands = [...cand].slice(0, 30);   // 검색량 조회 폭주 방지(상한)
         if (!cands.length) { setKwErr('추출된 후보가 없습니다 — 메뉴/서비스명을 줄 단위로 붙여넣어 주세요.'); setExtracting(''); return null; }
         // ② 각 후보 검색량 조회(공식 검색광고 API) → ③ 검색량 있는 것만.
+        // ⚠️ 조회 실패(429·5xx·네트워크)를 '검색량 0'과 구분한다. 옛 코드는 둘 다 0으로 만들어
+        //   실패한 후보가 조용히 목록에서 사라졌고, 같은 텍스트를 두 번 넣으면 결과가 달라졌다.
+        //   검색광고 API 는 어떤 문자열에도 최소 10을 돌려주므로 '진짜 0'은 사실상 없다 → 0이면 실패로 본다.
         const scored: { keyword: string; total: number }[] = [];
+        let failed = 0;
         for (let i = 0; i < cands.length; i++) {
-            setExtracting(`검색량 확인 ${i + 1}/${cands.length}`);
+            setExtracting(`검색량 확인 ${i + 1}/${cands.length}${failed ? ` (실패 ${failed})` : ''}`);
             const c = cands[i];
             try {
-                const d = await (await fetch(`https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(c)}`)).json();
+                const res = await fetch(`https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(c)}`);
+                const d = await res.json();
+                if (!res.ok || !Array.isArray(d.keywords)) { failed += 1; continue; }   // 429·오류 → 실패로 계수
                 const nk = c.replace(/\s/g, '');
-                const hit = (d.keywords || []).find((k: { keyword: string; total?: number }) => (k.keyword || '').replace(/\s/g, '') === nk);
+                const hit = (d.keywords as { keyword: string; total?: number }[])
+                    .find((k) => (k.keyword || '').replace(/\s/g, '') === nk);
                 const vol2 = hit?.total ?? 0;
                 if (vol2 > 0) scored.push({ keyword: c, total: vol2 });
-            } catch { /* 이 후보만 건너뜀 */ }
+            } catch { failed += 1; }
         }
         setExtracting('');
+        // 상당수가 실패했으면 결과가 불완전하다 — '검색량 없음'처럼 보이게 두지 않는다.
+        if (failed > Math.max(3, cands.length * 0.2)) {
+            setKwErr(`검색량 조회가 ${failed}/${cands.length}건 실패했습니다(일시 제한). `
+                + `결과가 불완전하니 잠시 후 다시 시도하세요.`);
+            return null;
+        }
+        if (failed) setKwErr(`참고: 검색량 조회 ${failed}건 실패 — 그만큼 후보에서 빠졌습니다.`);
         scored.sort((a, b) => b.total - a.total);
         let top = scored.filter((s) => s.total >= 30).slice(0, 15);
         if (!top.length) top = scored.slice(0, 8);   // 다 낮으면 상위 8개라도
