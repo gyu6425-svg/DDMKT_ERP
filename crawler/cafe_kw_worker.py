@@ -245,33 +245,66 @@ def _region_tokens_admin(gu):
     return toks
 
 
-def _region_tokens_for(sidos, include_dong=False):
-    """cafe_region_dong 에서 선택 시도들의 지역 토큰. 기본=구/시(밀도 높음)만 — 빠르게 인기탭 즉시.
-       include_dong=True('더 찾기') 일 때만 동(洞)까지 추가(검색량 게이트가 저검색 동은 자동 컷)."""
-    if not sidos:
-        return []
-    inlist = ",".join(f'"{s}"' for s in sidos)
-    # ★ PostgREST 는 limit 을 크게 줘도 1000행에서 자른다 → offset 페이지네이션 필수.
-    #   옛 코드는 limit=20000 이면 다 온다고 믿었다. 실측(2026-08-05): 17개 시도 선택 시
-    #   토큰 483개 중 204개만 잡히고 '강남'이 통째로 빠지는데 경고 없이 '완료'로 끝났다.
-    #   (수도권 3개만 쓰던 동안은 767행 < 1000 이라 우연히 안 터졌다.)
+def _sb_page(url):
+    """PostgREST 1000행 절단 방지 — offset 페이지네이션. 실패는 None(부분 결과로 진행 금지)."""
     rows, off = [], 0
     while True:
         try:
-            r = requests.get(f"{SB}/rest/v1/cafe_region_dong?sido=in.({inlist})&select=gu,dong"
-                             f"&order=gu.asc,dong.asc&limit=1000&offset={off}", headers=H, timeout=30).json()
+            r = requests.get(f"{url}&limit=1000&offset={off}", headers=H, timeout=30).json()
         except Exception:
-            return []                       # 부분 결과로 조용히 진행하지 않는다 — 호출부가 실패로 처리
+            return None
         if not isinstance(r, list) or not r:
             break
         rows += r
         if len(r) < 1000:
             break
         off += 1000
+    return rows
+
+
+# 지역 토큰 마스터의 종류 → 스캔 단계. '빠름'은 기본 스캔, '깊이'는 '더 찾기'에서만.
+#   왜 역세권·신도시가 빠름인가: 실측(2026-08-06) 네일 역세권 적중 57%·신도시 43%,
+#   입주청소 신도시 60% — 동(업종에 따라 0~74%)보다 안정적으로 높다.
+_KIND_FAST = ("sido", "sigungu", "newtown", "district", "station", "sigungu_suffix")
+_KIND_DEEP = ("dong", "eupmyeon")
+
+
+def _tokens_from_master(sidos):
+    """cafe_region_token(지역 토큰 마스터) 조회 → (빠름, 깊이, 커버된 시도).
+       마스터에 아직 안 채워진 시도는 커버에서 빠지고, 호출부가 행정동 테이블로 메운다(누락 0)."""
+    inlist = ",".join(f'"{s}"' for s in sidos)
+    rows = _sb_page(f"{SB}/rest/v1/cafe_region_token?sido=in.({inlist})&active=is.true"
+                    f"&select=token,kind,sido,prio&order=prio.asc,token.asc")
+    if not rows:
+        return [], [], set()                    # 테이블 없음/미적재 → 조용히 기존 경로로
+    fast = [r["token"] for r in rows if r.get("kind") in _KIND_FAST]
+    deep = [r["token"] for r in rows if r.get("kind") in _KIND_DEEP]
+    covered = {r.get("sido") for r in rows if r.get("sido")}
+    return fast, deep, covered
+
+
+def _region_tokens_for(sidos, include_dong=False):
+    """선택 시도들의 지역 토큰. 기본=시도·시군구·신도시·역세권 — 적중률 높은 축부터.
+       include_dong=True('더 찾기') 일 때만 동·읍면까지 추가.
+       1순위 출처는 지역 토큰 마스터(역세권·신도시 포함), 마스터에 없는 시도는 행정동 테이블로 보완."""
+    if not sidos:
+        return []
+    m_fast, m_deep, covered = _tokens_from_master(sidos)
+    rest = [s for s in sidos if s not in covered]
+    if not rest:
+        return m_fast + m_deep if include_dong else m_fast
+    inlist = ",".join(f'"{s}"' for s in rest)
+    # ★ PostgREST 는 limit 을 크게 줘도 1000행에서 자른다 → offset 페이지네이션 필수.
+    #   옛 코드는 limit=20000 이면 다 온다고 믿었다. 실측(2026-08-05): 17개 시도 선택 시
+    #   토큰 483개 중 204개만 잡히고 '강남'이 통째로 빠지는데 경고 없이 '완료'로 끝났다.
+    #   (수도권 3개만 쓰던 동안은 767행 < 1000 이라 우연히 안 터졌다.)
+    rows = _sb_page(f"{SB}/rest/v1/cafe_region_dong?sido=in.({inlist})&select=gu,dong&order=gu.asc,dong.asc")
+    if rows is None:
+        return []                           # 부분 결과로 조용히 진행하지 않는다 — 호출부가 실패로 처리
     # ★ 시도명 자체도 토큰 — 보통 그 제품의 최대 검색량 키워드다('서울 누수탐지' ≫ '강남 누수탐지').
     #   실측(2026-08-04): 광역시 8/8 전부 인기탭, 道도 강원·충북·전남·경북·경남·제주 등 다수 인기탭.
     #   접미형('서울시'·'강원도')은 전부 섹션없음이라 짧은 이름만 넣는다.
-    gu_toks = {s.strip() for s in sidos if s and s.strip()}
+    gu_toks = {s.strip() for s in rest if s and s.strip()}
     dong_toks = set()
     for r in (rows if isinstance(rows, list) else []):
         gu_toks |= _region_tokens_admin(r.get("gu") or "")
@@ -282,7 +315,7 @@ def _region_tokens_for(sidos, include_dong=False):
     #   실측 적중률(2026-08-06): 시도 16.2% · 시군구 기본형 12.3% · 시군구 접미형은 기본형 대비 5배 열세
     #   (같은 지역 2,316쌍 중 기본형 적중 489 vs 접미형 100) · 동은 업종 의존(네일 58%, 청소 0%).
     #   순서: 시도 → 시군구 기본형 → 시군구 접미형 → 동. 순서만 바꿀 뿐 전수 범위는 그대로다(누락 없음).
-    sido_set = {s.strip() for s in sidos if s and s.strip()}
+    sido_set = {s.strip() for s in rest if s and s.strip()}
     admin = gu_toks - sido_set
     suf = set()
     for t in admin:
@@ -290,9 +323,13 @@ def _region_tokens_for(sidos, include_dong=False):
         if b != t and len(b) >= 2 and b in admin:
             suf.add(t)                                      # '강남구'(기본형 '강남'도 있음) = 접미형 → 뒤로
     ordered = sorted(sido_set) + sorted(admin - suf) + sorted(suf)
+    deep = sorted(dong_toks - gu_toks)
+    # 마스터(역세권·신도시 포함) 먼저, 마스터에 없는 시도는 행정동 유래 토큰으로 이어 붙인다.
+    fast = m_fast + [t for t in ordered if t not in set(m_fast)]
     if not include_dong:
-        return ordered                                      # 기본: 구/시만(수초)
-    return ordered + sorted(dong_toks - gu_toks)            # 더 찾기: 구/시 먼저, 동은 그 뒤
+        return fast                                         # 기본: 시도·시군구·신도시·역세권
+    seen = set(fast)
+    return fast + [t for t in (m_deep + deep) if not (t in seen or seen.add(t))]
 
 
 def _cache_get_many(kws):

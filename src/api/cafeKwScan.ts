@@ -60,25 +60,52 @@ export async function getPopularFromCache(keywords: string[]): Promise<KwResult[
     return out.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
 }
 
-// 선택 시도(서울/경기/인천)의 행정구/시 토큰 목록. 지역형 '지역 키워드 생성'의 지역 축.
+// 지역 토큰 마스터의 '빠름' 축 — 시도·시군구·신도시·역세권. 동/읍면은 '더 찾기' 단계라 여기서 뺀다.
+//   실측(2026-08-06) 네일 역세권 57%·신도시 43%, 입주청소 신도시 60% — 동(0~74%, 업종 의존)보다 안정적.
+const FAST_KINDS = ['sido', 'sigungu', 'newtown', 'district', 'station', 'sigungu_suffix'];
+
+async function masterTokens(sidos: string[]): Promise<{ rows: { sido: string; token: string }[]; covered: Set<string> }> {
+    const rows: { sido: string; token: string }[] = [];
+    const covered = new Set<string>();
+    for (let off = 0; ; off += 1000) {
+        const { data, error } = await supabase.from('cafe_region_token')
+            .select('token,kind,sido').in('sido', sidos).eq('active', true)
+            .order('prio', { ascending: true }).order('token', { ascending: true }).range(off, off + 999);
+        if (error) return { rows: [], covered: new Set() };   // 테이블 미적재 등 → 기존 행정동 경로로
+        const page = (data ?? []) as { token: string; kind: string; sido: string }[];
+        for (const r of page) {
+            if (r.sido) covered.add(r.sido);
+            if (FAST_KINDS.includes(r.kind)) rows.push({ sido: r.sido, token: r.token });
+        }
+        if (page.length < 1000) break;
+    }
+    return { rows, covered };
+}
+
+// 선택 시도의 지역 토큰 목록. 지역형 '지역 키워드 생성'의 지역 축.
+//   1순위=지역 토큰 마스터(역세권·신도시 포함), 마스터에 없는 시도만 행정동 테이블로 보완(누락 0).
 export async function getRegionGuTokens(sidos: string[]): Promise<{ sido: string; token: string }[]> {
     if (!sidos.length) return [];
+    const master = await masterTokens(sidos);
+    const restSido = sidos.filter((s) => !master.covered.has(s));
+    if (!restSido.length) return master.rows;
     // ★ PostgREST 는 limit 을 크게 줘도 1000행에서 자른다 → range() 페이지네이션 필수.
     //   실측(2026-08-05): 17개 시도 선택 시 483개 토큰 중 204개만 잡히고 '강남'이 빠졌다.
     const rows: { sido: string; gu: string }[] = [];
     for (let off = 0; ; off += 1000) {
         const { data, error } = await supabase.from('cafe_region_dong')
-            .select('sido,gu').in('sido', sidos).order('gu', { ascending: true }).range(off, off + 999);
+            .select('sido,gu').in('sido', restSido).order('gu', { ascending: true }).range(off, off + 999);
         if (error) break;
         const page = (data ?? []) as { sido: string; gu: string }[];
         rows.push(...page);
         if (page.length < 1000) break;
     }
     const seen = new Set<string>();
-    const out: { sido: string; token: string }[] = [];
+    const out: { sido: string; token: string }[] = [...master.rows];
+    for (const r of master.rows) seen.add(`${r.sido}|${r.token}`);
     // ★ 시도명 자체도 토큰 — 보통 그 제품의 최대 검색량 키워드('서울 누수탐지' ≫ '강남 누수탐지').
     //   실측(2026-08-04): 광역시 8/8 인기탭, 道도 강원·충북·전남·경북·경남·제주 등 다수. 접미형(서울시·강원도)은 섹션없음이라 제외.
-    for (const s of sidos) {
+    for (const s of restSido) {
         const t = (s || '').trim();
         if (!t || seen.has(`${t}|${t}`)) continue;
         seen.add(`${t}|${t}`);
