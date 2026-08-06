@@ -89,11 +89,18 @@ def lease():
         return True
 
 
-def take(want):
-    """전역 예산에서 want 콜 예약. 반환=실제 허용치(0이면 지금은 긁지 마라)."""
+def take(want, share):
+    """전역 예산에서 want 콜 예약. 반환=실제 허용치(0이면 지금은 긁지 마라).
+
+       ★ cap 에 전역한도(240)가 아니라 '데몬 몫'(share)을 넘긴다.
+         원장은 온디맨드 콜까지 같이 기록하므로, 최근 10분 총 사용량이 share 를 넘으면 데몬은 0을 받는다.
+         → 데몬은 항상 총량 90 안에서만 움직이고 나머지 150은 온디맨드 몫으로 남는다.
+         버그였다(SUB4 실측 2026-08-06): 옛 코드는 cap=240 을 넘겨서, share=90 이 '계획 한 바퀴당'
+         상한으로만 작동했다. run_plan 이 90콜 쓰고 60초 쉰 뒤 다음 계획에서 또 90콜을 써
+         10분에 140콜이 나갔다(목표 90의 156%). share 는 '10분당'이어야 한다."""
     try:
         r = requests.post(f"{SB}/rest/v1/rpc/scan_budget_take", headers=H,
-                          json={"want": want, "cap": CAP}, timeout=15)
+                          json={"want": want, "cap": share}, timeout=15)
         if r.status_code != 200:
             log(f"⚠ 예산 RPC 실패 {r.status_code} {r.text[:120]} — docs/cafe-scan-budget.sql 실행 필요")
             return 0
@@ -185,9 +192,9 @@ def run_plan(plan, share):
         if busy():
             log("  온디맨드 요청 감지 — 양보하고 대기")
             break
-        n = take(min(CHUNK, share - used))
+        n = take(min(CHUNK, share), share)
         if n <= 0:
-            log("  전역 예산 소진 — 대기")
+            log(f"  10분 예산({share}콜) 소진 — 대기")
             break
         for _ in range(n):
             if not todo:
