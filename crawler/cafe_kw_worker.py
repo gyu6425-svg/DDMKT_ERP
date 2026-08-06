@@ -513,8 +513,18 @@ def _topical(rows, product, region_core=None):
     return cafe >= 1 or blog >= 2
 
 
+def _title_has_token(rows, tok):
+    """인기글 제목 중 이 지역토큰이 그대로 등장하는 게 하나라도 있나.
+       ★ 모든 토큰에 요구하면 안 된다 — '전북 누수탐지'는 제목이 군산·익산·전주뿐이라
+         '전북'이 0건인데 진짜 인기탭이다(실측 2026-08-06). 상위 행정단위는 하위 지명으로 채워진다.
+       그래서 '오타보정에 먹히는 하위 토큰'(도로명 코어·읍면리)에만 건다."""
+    t = _norm(tok)
+    return any(t in _norm(x.get("title")) for x in (rows or []))
+
+
 def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
-    """지역축 × 제품 조합 스캔 공통 루프. kws = [(지역토큰, 키워드, 제품키워드)].
+    """지역축 × 제품 조합 스캔 공통 루프. kws = [(지역토큰, 키워드, 제품키워드[, strict])].
+       strict=True 면 제목에 지역토큰이 실제로 등장해야 채택(오타보정 오탐 차단).
        지역형(process_region)과 정보입력형(process_menu)이 이 하나를 공유한다 —
        차단 감지·오탐 필터·캐시 규약·조기 종료가 두 경로에서 갈라지지 않게.
        max_live=이번 회차 라이브 스캔 상한(None=조합 전수). 캐시분은 상한에 안 걸린다."""
@@ -532,13 +542,14 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
     MAX_LIVE = max(total, 400) if cf else 120   # 전수 스캔 보장 — 상한이 토큰수보다 작아 뒷지역 누락되던 것 방지
     if max_live:
         MAX_LIVE = min(MAX_LIVE, max_live)      # 회차 상한(정보입력형) — 남은 건 '더 찾기'가 이어서 본다
-    cache = _cache_get_many([kw for _, kw, _ in kws])  # 배치 캐시(재스캔 즉시)
+    kws = [(k + (False,))[:4] for k in kws]            # (tok, kw, product[, strict]) 정규화
+    cache = _cache_get_many([kw for _, kw, _, _ in kws])  # 배치 캐시(재스캔 즉시)
 
     found, scraped, errs, capped = [], 0, 0, False
     dead_chunks, aborted = 0, False   # 차단 감지(청크 전멸)·중단 여부
     # ① 캐시 패스(네트워크 0) — 신뢰 캐시로 이미 결론난 건 즉시 채택/스킵하고, 남은 것만 라이브 대상으로.
     to_scan = []
-    for tok, kw, prod in kws:
+    for tok, kw, prod, strict in kws:
         c = cache.get(kw.replace(" ", ""))
         # 신뢰 캐시만 채택·건너뜀. prescan 위음성(섹션없음)은 불신 → 라이브 재검증. verdict 에 topicality 반영됨.
         if c is not None and _cache_trust(c):
@@ -546,7 +557,7 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
                 found.append({"keyword": kw, "volume": c.get("volume") or 0, "theme": _disp_theme(c),
                               "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
             continue
-        to_scan.append((tok, kw, prod))
+        to_scan.append((tok, kw, prod, strict))
     left = 0
     if len(to_scan) > MAX_LIVE:
         left = len(to_scan) - MAX_LIVE          # 이번 회차에 못 본 조합 수 — note 에 명시(조용한 절단 금지)
@@ -555,10 +566,15 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
 
     # 조합 1건 처리(스레드에서 실행) — classify → 오탐필터 → 캐시. 반환 ('pop'|'neg'|'err', 결과).
     def _scan_one(item):
-        tok, kw, product = item
+        tok, kw, product, strict = item
         r = p.classify(kw)
         if r.get("err"):                       # C1 — 차단/일시실패는 캐시하지 않음(영구 위음성 방지). 다음에 재시도.
             return ("err", None)
+        # 오타보정 오탐 차단(하위 토큰만) — 네이버가 '선유남'을 '선유동'으로 고쳐 검색해 주는 바람에
+        #   선유동 인기글이 '선유남 누수탐지'의 결과로 돌아왔다(실측 2026-08-06). 발행해도 못 들어간다.
+        if strict and _is_pop(r) and not _title_has_token(r.get("rows"), tok):
+            r = {"has_section": r.get("has_section"), "verdict": "비관련(지역불일치)",
+                 "theme": r.get("theme"), "rows": r.get("rows")}
         # 오탐 필터: 인기글 섹션이 이 지역×제품과 무관(generic 채움)이면 '비관련'으로 강등 → 채택·캐시에서 탈락.
         if _is_pop(r) and not _topical(r.get("rows"), product, _region_core(tok)):
             r = {"has_section": r.get("has_section"), "verdict": "비관련(오탐)", "theme": r.get("theme"), "rows": r.get("rows")}
@@ -649,7 +665,7 @@ def process_region(req, product):
         if nk in seen:
             continue
         seen.add(nk)
-        kws.append((tok, kw, product))
+        kws.append((tok, kw, product, False))   # 지역형 토큰은 전부 행정 마스터 유래 → strict 불필요
     _run_scan(req, kws, target, "동포함" if include_dong else "구시",
               extra={"biz_name": product}, tag=f"지역스캔 '{product}' {sidos}")
 
@@ -687,6 +703,8 @@ def normalize_region(addr):
     return out
 
 
+
+
 def process_menu(req, payload):
     """정보입력형 — 플레이스가 없는 업체. 위치(직접입력) × 제품키워드(붙여넣기→GPT 추출, 사용자 체크 확정).
        payload = JSON {"addr": "...", "products": ["누수탐지", ...], "name": "업체명"}
@@ -714,15 +732,21 @@ def process_menu(req, payload):
             tokens.append(t)
     # 제품 우선(첫 제품의 전 지역 → 다음 제품)이 아니라 지역 우선으로 섞는다 —
     #   조기 종료 때 특정 제품만 몰리지 않게.
+    # ★ 행정 마스터에 없는 토큰(도로명 코어 '선유남' 등)은 제목 확인을 강제한다.
+    #   네이버가 '선유남'을 '선유동'으로 오타보정해 남의 동네 인기글을 돌려줬다(실측 2026-08-06).
+    #   시도·시군구·동은 마스터에 있으므로 그대로 — '전북 누수탐지'는 제목이 군산·익산뿐이어도 진짜다.
+    sido_of = p._sido(addr, addr) if addr else ""
+    known = set(wide) | set(_region_tokens_for([sido_of], True) if sido_of else [])
     kws, seen = [], set()
     for tok in tokens:
+        strict = tok not in known
         for prod in products:
             kw = f"{tok} {prod}"
             nk = kw.replace(" ", "")
             if nk in seen:
                 continue
             seen.add(nk)
-            kws.append((tok, kw, prod))
+            kws.append((tok, kw, prod, strict))
     target = int(req.get("target") or 30)
     # ★ 회차 상한 — 제품 축이 곱해져 조합이 폭증한다(제품 11 × 서울 340 = 3,740).
     #   웹 폴링이 900초라 그 안에 못 끝내면 '결과 없음'처럼 보이고, CF 쿼터(300콜/10분)도 터진다.
