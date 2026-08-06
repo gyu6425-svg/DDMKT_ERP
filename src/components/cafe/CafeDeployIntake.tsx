@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueMenuScan, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -118,8 +118,12 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setForm((f) => ({ ...f, [k]: v }));
     // 접수 유형 — 지역형(지역+제품키워드) / 키워드형(플레이스 주소 기반) / 직접형(키워드 직접 입력)
     const isKw = form.deploy_type === '키워드형';
-    const isManual = form.deploy_type === '직접형';
-    const isRegion = !isKw && !isManual;
+    const isManual = form.deploy_type === '직접형';          // 일반 배포 — 인기탭 안 따짐
+    // 인기탭 배포 · 직접입력형 — 고객이 키워드를 직접 적되, 인기탭이 확인된 것만 채택한다.
+    //   일반 배포의 직접입력과 화면은 비슷하지만 판정을 거치므로 실적 집계가 인기탭 기준으로 잡힌다
+    //   (cafe_contract_sync 의 일반배포 판별은 deploy_type='직접형' 만 보므로 자동으로 갈린다).
+    const isPopManual = form.deploy_type === '인기직접형';
+    const isRegion = !isKw && !isManual && !isPopManual;
     const regionSel = form.region_sets || [];
     const toggleRegion = (r: string) => {
         const cur = new Set(regionSel);
@@ -167,6 +171,35 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setKwErr('');
         setKwPicked((prev) => (prev.some((p) => p.keyword === v) ? prev : [...prev, { keyword: v } as KwResult]));
         set('keyword', '');
+    };
+    // 인기탭 배포 · 직접입력형 — 적어 둔 키워드 목록(칩)을 워커가 전부 인기탭 판정하고, 통과분만 남긴다.
+    const [popManualKws, setPopManualKws] = useState<string[]>([]);
+    const addPopManualKw = () => {
+        const v = (form.keyword || '').trim().replace(/\s+/g, ' ');
+        if (!v) return;
+        if (popManualKws.length >= 50) { setKwErr('직접 입력은 최대 50개입니다.'); return; }
+        setKwErr('');
+        setPopManualKws((prev) => (prev.includes(v) ? prev : [...prev, v]));
+        set('keyword', '');
+    };
+    const checkPopManual = async () => {
+        const list = popManualKws.length ? popManualKws : [(form.keyword || '').trim()].filter(Boolean);
+        if (!list.length) { setKwErr('확인할 키워드를 입력하세요(입력 후 엔터/추가).'); return; }
+        setKwErr(''); setKwLoading(true); setScanNote('인기탭 확인 준비 중…');
+        setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
+        try {
+            const { id, error } = await enqueueListScan(list, 50);
+            if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+            const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (n) => setScanNote(n) });
+            if (!result.length) {
+                setKwErr(`입력한 ${list.length}개 중 인기탭이 확인된 키워드가 없습니다. `
+                    + `일반 배포로 접수하시면 인기탭 확인 없이 그대로 발행됩니다.`);
+                return;
+            }
+            setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '확인 실패');
+        } finally { setKwLoading(false); setScanNote(''); }
     };
     const addFiles = (g: Grp, list: FileList | null) => {
         if (!list?.length) return;
@@ -314,7 +347,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (error) return setMsg(`접수 실패: ${error.message}`);
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
         setForm({ ...empty, company_name: bizName }); setFiles({ main: [], real: [], banner: [] }); setPlaceDetail('');
-        setOwnAddr(''); setExtracted(null); setPicked(new Set());
+        setOwnAddr(''); setExtracted(null); setPicked(new Set()); setPopManualKws([]);
         setKwResult(null); setKwPicked([]); setKwHidden([]); setKwExpanded(false); setPickedOpen(false);
         reload();
     };
@@ -540,16 +573,51 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <div className="mt-3">
                             <label className={labelCls}>키워드 잡는 방식</label>
                             <div className="inline-flex rounded-lg border border-[#cbd5e1] p-0.5">
-                                {(['지역형', '키워드형'] as const).map((t) => (
-                                    <button key={t} type="button" onClick={() => set('deploy_type', t)}
-                                        className={`rounded-md px-4 py-1.5 text-sm font-bold ${form.deploy_type === t ? 'bg-[#4338ca] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}>
-                                        {t}
+                                {([['지역형', '지역형'], ['키워드형', '키워드형'], ['직접입력형', '인기직접형']] as const).map(([name, dt]) => (
+                                    <button key={dt} type="button" onClick={() => set('deploy_type', dt)}
+                                        className={`rounded-md px-4 py-1.5 text-sm font-bold ${form.deploy_type === dt ? 'bg-[#4338ca] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}>
+                                        {name}
                                     </button>
                                 ))}
                             </div>
                             <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">
                                 {isKw ? '키워드형 — 플레이스 주소 기반으로 키워드를 잡습니다(맛집 등).'
+                                    : isPopManual ? '직접입력형 — 원하시는 키워드를 직접 적으면, 인기탭이 확인된 것만 골라 드립니다.'
                                     : '지역형 — 지역 선택 + 제품키워드(예: 입주청소·상가청소)로 지역+키워드를 잡습니다.'}
+                            </p>
+                        </div>
+                    ) : null}
+
+                    {/* 인기탭 배포 · 직접입력형 — 키워드 칩으로 모아 두고 한 번에 인기탭 판정 */}
+                    {isPopManual ? (
+                        <div className="mt-3 rounded-md border border-dashed border-[#a5b4fc] bg-[#eef2ff] px-3 py-2">
+                            <div className="flex gap-2">
+                                <input className={inputCls} value={form.keyword}
+                                    onChange={(e) => set('keyword', e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPopManualKw(); } }}
+                                    placeholder="발행하고 싶은 키워드 (예: 강남 누수탐지 — 입력 후 엔터/추가 · 최대 50개)" />
+                                <button type="button" onClick={addPopManualKw}
+                                    className="h-10 shrink-0 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white hover:bg-[#3730a3]">추가</button>
+                                <button type="button" onClick={() => void checkPopManual()} disabled={kwLoading}
+                                    className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
+                                    {kwLoading ? '확인 중…' : '인기탭 확인'}
+                                </button>
+                            </div>
+                            {popManualKws.length ? (
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {popManualKws.map((k) => (
+                                        <span key={k} className="inline-flex items-center gap-1 rounded-full border border-[#c7d2fe] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#3730a3]">
+                                            {k}
+                                            <button type="button" onClick={() => setPopManualKws((prev) => prev.filter((x) => x !== k))}
+                                                className="text-[#94a3b8] hover:text-[#ef4444]" title="제외">×</button>
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : null}
+                            <p className="mb-0 mt-1.5 text-[11px] text-[#6366f1]">
+                                {popManualKws.length
+                                    ? `${popManualKws.length}개 입력됨 — '인기탭 확인'을 누르면 실제 인기글 섹션이 있는 것만 아래에 남습니다.`
+                                    : '인기탭이 없는 키워드는 결과에서 빠집니다. 인기탭 상관없이 그대로 발행하시려면 위에서 ‘일반 배포’를 고르세요.'}
                             </p>
                         </div>
                     ) : null}
@@ -636,7 +704,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             </details>
                         </div>
                     ) : null}
-                    <div className="md:col-span-2">
+                    {/* 인기탭·직접입력형은 위 전용 블록에서 키워드를 이미 받는다 — 같은 입력칸을 두 번 보이지 않게 숨긴다. */}
+                    <div className={`md:col-span-2 ${isPopManual ? 'hidden' : ''}`}>
                         <label className={labelCls}>{isKw ? '키워드' : isManual ? '발행 키워드 (직접 입력)' : '제품 키워드 (업종)'}</label>
                         <div className="flex gap-2">
                             <input className={inputCls} value={form.keyword}
@@ -812,7 +881,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                     {r.deploy_type === '직접형' ? '일반' : '인기탭'}
                                                 </span>
                                                 {r.deploy_type !== '직접형' ? (
-                                                    <span className="ml-1 rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-bold text-[#4338ca]">{r.deploy_type ?? '지역형'}</span>
+                                                    <span className="ml-1 rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-bold text-[#4338ca]">
+                                                        {r.deploy_type === '인기직접형' ? '직접입력형' : (r.deploy_type ?? '지역형')}
+                                                    </span>
                                                 ) : null}
                                                 {!r.deploy_type || r.deploy_type === '지역형' ? (r.region_sets?.length ? <div className="mt-0.5 text-[11px] text-[#64748b]">{r.region_sets.join('·')}</div> : null) : null}
                                             </td>
