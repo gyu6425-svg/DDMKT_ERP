@@ -901,7 +901,10 @@ def process_related(req, payload):
         return _finish(req["id"], "failed", note="후보 키워드 없음")
     cf = bool(p._USE_CF)
     gap = 2.5 if cf else SCAN_GAP
-    MAX_A = 45                      # 전국 판정 상한
+    # 전국 판정 상한 — 웹 폴링이 900초라 그 안에 끝나야 '결과 없음'처럼 안 보인다.
+    #   2.5초 간격 × 200 ≈ 8.5분, 찔러보기(6×8=48) 포함해도 10.5분이라 폴링 안쪽이다.
+    #   캐시 히트는 네트워크 0이라 상한과 무관하게 통과한다.
+    MAX_A = 200
     MAX_PROBE_PROD = 6              # 지역 찔러보기 대상 제품 수(× K = 콜 수)
     probes = _probe_regions(K)
     known = set(_region_tokens_for(["서울", "경기", "인천"], True))

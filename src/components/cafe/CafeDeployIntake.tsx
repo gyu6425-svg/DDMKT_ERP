@@ -186,6 +186,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         set('keyword', '');
     };
     // 연관형 ① — 씨앗어에서 연관 키워드 펼치기(검색광고, 스캔 아님)
+    //   REL_MAX = 한 번에 판정할 수 있는 최대 개수. 워커(process_related)의 MAX_A 와 같아야 한다 —
+    //   더 보내면 워커가 조용히 자른다. 2.5초 간격이라 200개면 약 8.5분(웹 폴링 900초 안쪽).
+    const REL_MAX = 200;
     const [seed, setSeed] = useState('');
     const [relCands, setRelCands] = useState<RelatedCand[] | null>(null);
     const [relPicked, setRelPicked] = useState<Set<string>>(new Set());
@@ -211,7 +214,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (!list.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwHidden([]); setKwPicked([]);
         try {
-            const { id, error } = await enqueueRelatedScan(seed, list.slice(0, 45));
+            const { id, error } = await enqueueRelatedScan(seed, list.slice(0, REL_MAX));
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
             const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (n) => setScanNote(n) });
             const reg = result.filter((r) => (r as KwResult & { kind?: string }).kind === 'regional');
@@ -667,6 +670,22 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                     className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
                                             ))}
                                         </div>
+                                        {/* 보이는 층(relTier) 안에서 전체 선택/해제 — 237개를 하나씩 누를 수 없다. */}
+                                        {(() => {
+                                            const shown = relCands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true)).slice(0, 200);
+                                            const allOn = shown.length > 0 && shown.every((x) => relPicked.has(x.kw));
+                                            return (
+                                                <button type="button"
+                                                    onClick={() => {
+                                                        const n = new Set(relPicked);
+                                                        shown.forEach((x) => (allOn ? n.delete(x.kw) : n.add(x.kw)));
+                                                        setRelPicked(n);
+                                                    }}
+                                                    className="rounded border border-[#c4b5fd] px-2 py-0.5 text-[11px] font-bold text-[#6d28d9]">
+                                                    {allOn ? `보이는 ${shown.length}개 해제` : `보이는 ${shown.length}개 전체 선택`}
+                                                </button>
+                                            );
+                                        })()}
                                         <span className="font-normal text-[#94a3b8]">◆ = 인기글 가능성 높음(자동 체크)</span>
                                     </div>
                                     <div className="flex max-h-56 flex-wrap gap-1.5 overflow-y-auto">
@@ -689,9 +708,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                             {kwLoading ? '찾는 중…' : '③ 인기탭 찾기'}
                                         </button>
                                         <span className="text-[11px] text-[#64748b]">
-                                            {relPicked.size > 45
-                                                ? `⚠ 한 번에 45개까지 확인됩니다 — ${relPicked.size - 45}개는 이번에 안 재집니다.`
-                                                : '지역을 붙여야 나오는 업종이면 그것도 알려 드립니다.'}
+                                            {relPicked.size > REL_MAX
+                                                ? `⚠ 한 번에 ${REL_MAX}개까지 확인됩니다 — ${relPicked.size - REL_MAX}개는 이번에 안 재집니다.`
+                                                : `${relPicked.size}개 확인 · 약 ${Math.max(1, Math.ceil(relPicked.size * 2.5 / 60))}분 소요. 지역을 붙여야 나오는 업종이면 그것도 알려 드립니다.`}
                                         </span>
                                     </div>
                                 </div>

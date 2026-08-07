@@ -251,7 +251,7 @@ export function CafeKeywordFinder({
     // 연관 인기글 ② — 체크한 키워드를 지역 없이(전국) 인기탭 판정.
     //   ★ 워커(process_list)의 라이브 상한은 60개다. 61번째부터는 '느려지는' 게 아니라
     //     아예 안 재진다(조용한 절단). 그래서 여기서 미리 자르고 그 사실을 화면에 남긴다.
-    const REL_MAX = 60;
+    const REL_MAX = 200;   // 워커 process_related 의 MAX_A 와 같아야 한다(더 보내면 조용히 잘린다)
     const runRelatedScan = async () => {
         const all = [...relPicked];
         if (!all.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
@@ -386,7 +386,19 @@ export function CafeKeywordFinder({
                                             className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
                                     ))}
                                 </div>
-                                <span className="font-normal text-[#94a3b8]">◆ = 인기글이 나올 가능성 높음(자동 체크) · 관련 없는 건 해제하세요</span>
+                                {/* 보이는 층 안에서 전체 선택/해제 — 후보가 수백 개라 하나씩 못 누른다. */}
+                                {(() => {
+                                    const shown = cands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true)).slice(0, 200);
+                                    const allOn = shown.length > 0 && shown.every((x) => relPicked.has(x.kw));
+                                    return (
+                                        <button type="button"
+                                            onClick={() => { const n = new Set(relPicked); shown.forEach((x) => (allOn ? n.delete(x.kw) : n.add(x.kw))); setRelPicked(n); }}
+                                            className="rounded border border-[#c4b5fd] px-2 py-0.5 text-[11px] font-bold text-[#6d28d9]">
+                                            {allOn ? `보이는 ${shown.length}개 해제` : `보이는 ${shown.length}개 전체 선택`}
+                                        </button>
+                                    );
+                                })()}
+                                <span className="font-normal text-[#94a3b8]">◆ = 인기글이 나올 가능성 높음(자동 체크)</span>
                             </div>
                             <div className="flex max-h-64 flex-wrap gap-1.5 overflow-y-auto">
                                 {cands
@@ -410,9 +422,9 @@ export function CafeKeywordFinder({
                                     {kwLoading ? '찾는 중…' : '③ 인기탭 찾기'}
                                 </button>
                                 <span className="text-[11px] text-[#64748b]">
-                                    {relPicked.size > 60
-                                        ? `⚠ 한 번에 60개까지만 확인됩니다 — ${relPicked.size - 60}개는 이번에 안 재집니다. 검색량 높은 순으로 잘립니다.`
-                                        : '지역을 붙이지 않고 키워드 자체로 인기글 섹션을 확인합니다.'}
+                                    {relPicked.size > REL_MAX
+                                        ? `⚠ 한 번에 ${REL_MAX}개까지 확인됩니다 — ${relPicked.size - REL_MAX}개는 이번에 안 재집니다.`
+                                        : `${relPicked.size}개 확인 · 약 ${Math.max(1, Math.ceil(relPicked.size * 2.5 / 60))}분 소요`}
                                 </span>
                             </div>
                         </div>
