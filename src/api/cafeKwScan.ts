@@ -162,7 +162,19 @@ export async function enqueueListScan(keywords: string[], target = 50) {
 // ── 연관 인기글 찾기 ────────────────────────────────────────────────────────
 //   씨앗어 하나(보홀·하와이 등 자유 단어)에서 연관 키워드를 펼쳐 인기탭을 찾는다.
 //   기존 3모드는 '한국 행정지역 × 제품'이 전제라 해외지명·취미어 같은 씨앗을 다루지 못했다.
-export type RelatedCand = { kw: string; total: number; tier: 'seed' | 'near' | 'far' };
+export type RelatedCand = { kw: string; total: number; tier: 'seed' | 'near' | 'far'; intent: boolean };
+
+// '의도어' — 이게 붙은 키워드에서 인기글 섹션이 나온다. 지명·상품명 단독은 거의 안 나온다.
+//   실측(2026-08-07, 보홀 70조합 전수 판정 · 인기탭 35건):
+//     검색량순 상위 40 규칙 → 정확도 60%(헛스캔 16)
+//     의도어 규칙          → 정확도 78%(헛스캔 8)
+//   ★ '항공권'은 뺐다 — 보홀항공권 32,190 인데 섹션이 없다(상거래성 키워드는 광고 영역으로 간다).
+const INTENT_WORDS = [
+    '여행', '숙소', '호텔', '리조트', '펜션', '민박', '게스트하우스',
+    '패키지', '투어', '호핑', '자유여행', '직항', '에어텔', '풀빌라', '휴양',
+    '맛집', '가볼만', '코스', '일정', '후기', '추천', '준비물', '경비', '비용',
+    '연습장', '아카데미', '레슨', '강습', '용품', '웨어',
+];
 
 // 씨앗어 → 연관 후보. 검색광고 연관어(최대 500)를 관련도 3단으로 나눈다.
 //   ★ 문자열 규칙만으로는 못 가른다(실측 2026-08-06): '보홀'의 far 에는 팡라오·알로나비치·
@@ -201,10 +213,12 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
         const n = kw.replace(/\s/g, '');
         const tier: RelatedCand['tier'] = n.includes(nq) ? 'seed'
             : ([...frags].some((f) => n.includes(f)) ? 'near' : 'far');
-        return { kw, tier, total };
+        return { intent: INTENT_WORDS.some((w) => n.includes(w)), kw, tier, total };
     });
+    // 의도어가 붙은 것을 먼저 — 실측상 인기글 섹션이 여기서 나온다. 그 안에서 검색량 순.
     const order = { seed: 0, near: 1, far: 2 };
-    return out.sort((a, b) => (order[a.tier] - order[b.tier]) || (b.total - a.total));
+    return out.sort((a, b) => (Number(b.intent) - Number(a.intent))
+        || (order[a.tier] - order[b.tier]) || (b.total - a.total));
 }
 
 export type ExtractedProduct = { kw: string; kind: string };

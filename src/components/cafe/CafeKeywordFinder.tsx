@@ -234,10 +234,14 @@ export function CafeKeywordFinder({
             const list = await expandRelated(s);
             if (!list.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
             setCands(list);
-            // 씨앗어를 포함한 것만 기본 체크 — 확실히 관련 있는 것들. 나머지는 눈으로 고르게 한다.
-            //   (실측: '보홀'의 far 에는 팡라오·알로나비치 같은 진짜 관련어와 무관어가 섞여 있어
-            //    문자열 규칙으로 자동 판정하면 반드시 한쪽이 틀린다.)
-            setRelPicked(new Set(list.filter((x) => x.tier === 'seed' && x.total >= 100).slice(0, 40).map((x) => x.kw)));
+            // ★ 기본 체크 = '의도어(여행·숙소·패키지·투어…)가 붙은 것'.
+            //   실측(2026-08-07, 보홀 70조합 전수): 옛 규칙(검색량순 상위 40)은 정확도 60%였는데
+            //   의도어 규칙은 78%다. 지명·상품명 단독은 검색량이 아무리 커도 섹션이 없다
+            //   (보홀 49,600 / 필리핀 56,500 / 보홀항공권 32,190 전부 없음).
+            //   far 는 무관어가 섞이므로(디트로이트) 자동 체크에서 제외한다.
+            setRelPicked(new Set(
+                list.filter((x) => x.intent && x.tier !== 'far').slice(0, 45).map((x) => x.kw),
+            ));
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '연관어 조회 실패');
         } finally { setExtracting(''); }
@@ -374,7 +378,7 @@ export function CafeKeywordFinder({
                                             className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
                                     ))}
                                 </div>
-                                <span className="font-normal text-[#94a3b8]">검색량 높은 순 · 관련 없는 건 체크 해제하세요</span>
+                                <span className="font-normal text-[#94a3b8]">◆ = 인기글이 나올 가능성 높음(자동 체크) · 관련 없는 건 해제하세요</span>
                             </div>
                             <div className="flex max-h-64 flex-wrap gap-1.5 overflow-y-auto">
                                 {cands
@@ -387,6 +391,8 @@ export function CafeKeywordFinder({
                                                 onChange={() => { const n = new Set(relPicked); if (n.has(x.kw)) n.delete(x.kw); else n.add(x.kw); setRelPicked(n); }} />
                                             {x.kw}
                                             <span className="text-[10px] font-normal opacity-60">{x.total.toLocaleString()}</span>
+                                            {/* 의도어가 붙은 것 = 인기글 섹션이 나오는 부류(실측 정확도 78%). */}
+                                            {x.intent ? <span className="text-[10px] text-[#16a34a]" title="여행·숙소·패키지 같은 의도어가 붙어 인기글이 나올 가능성이 높습니다">◆</span> : null}
                                         </label>
                                     ))}
                             </div>
