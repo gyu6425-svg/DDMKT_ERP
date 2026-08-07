@@ -555,7 +555,19 @@ export function CafeKeywordFinder({
             ) : null}
             {kwResult ? (
                 <div className="mt-2 rounded-lg border border-[#ddd6fe] bg-[#faf5ff] p-2">
-                    <div className="mb-1 text-[11px] font-semibold text-[#6d28d9]">발행할 키워드를 고르세요(복수 선택). 필요없는 건 × 로 제외.</div>
+                    <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-[#6d28d9]">
+                        <span>발행할 키워드를 고르세요(복수 선택). 필요없는 건 × 로 제외.</span>
+                        {/* 검색량 없는 건(=API 최저값 10) 몇 건인지 먼저 알려 준다 — 자동으로 거르진 않는다. */}
+                        {(() => {
+                            const zero = fresh.filter((k) => (k.volume ?? 0) <= 10).length;
+                            if (!fresh.length) return null;
+                            return zero
+                                ? <span className="rounded bg-[#fef2f2] px-2 py-0.5 text-[#dc2626]">
+                                    {fresh.length}건 중 <b>{zero}건은 검색량 없음</b> — 1위를 해도 유입이 없습니다
+                                </span>
+                                : <span className="rounded bg-[#f0fdf4] px-2 py-0.5 text-[#15803d]">{fresh.length}건 전부 검색량 있음</span>;
+                        })()}
+                    </div>
                     {fresh.length === 0 ? (
                         <div className="py-2 text-center text-[12px] text-[#94a3b8]">{used.length ? '새 키워드 없음(모두 이미 발행).' : '키워드가 없습니다.'}</div>
                     ) : (
@@ -569,7 +581,15 @@ export function CafeKeywordFinder({
                                                 <input type="checkbox" checked={picked} onChange={() => togglePick(k)} className="h-3.5 w-3.5 accent-[#4338ca]" />
                                                 {k.keyword}
                                             </label>
-                                            {k.volume != null ? <span className="text-[#64748b]">검색량 {k.volume.toLocaleString()}</span> : null}
+                                            {/* 검색량 10 = 검색광고 API 최저값 = '측정된 검색이 없음'.
+                                                인기탭이 있어도 1위를 해도 유입이 0이라 팔 때 주의해야 한다.
+                                                실측(2026-08-07) '창업' 지역형 112건이 전부 검색량 10이었다.
+                                                자동으로 거르지 않고(저검색 니치를 죽이지 않기 위해) 눈에 띄게만 표시한다. */}
+                                            {k.volume != null ? (
+                                                (k.volume ?? 0) <= 10
+                                                    ? <span className="rounded bg-[#fef2f2] px-1.5 py-0.5 font-semibold text-[#dc2626]" title="검색광고 API 최저값 — 실제로 검색되지 않는 키워드입니다. 1위를 해도 유입이 없습니다.">검색량 없음</span>
+                                                    : <span className={(k.volume ?? 0) < 100 ? 'text-[#d97706]' : 'text-[#64748b]'}>검색량 {k.volume.toLocaleString()}</span>
+                                            ) : null}
                                             {k.theme ? <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[10px] text-[#6d28d9]">{k.theme}</span> : null}
                                             <button type="button" onClick={() => hideKw(k.keyword)} className="ml-auto flex h-5 w-5 items-center justify-center rounded-full text-[13px] text-[#cbd5e1] hover:bg-[#fee2e2] hover:text-[#dc2626]">×</button>
                                         </div>
