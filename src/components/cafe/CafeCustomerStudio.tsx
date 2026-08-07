@@ -82,6 +82,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [scheduleAt, setScheduleAt] = useState('');   // datetime-local "YYYY-MM-DDTHH:mm"
     const [spreadTotal, setSpreadTotal] = useState(''); // 여러 날 분산 총 건수(빈값=미사용 전체)
     const [spreadStart, setSpreadStart] = useState(''); // 분산 시작일 "YYYY-MM-DD"(빈값=내일)
+    const [spreadPerDay, setSpreadPerDay] = useState<number | ''>(''); // 하루 발행건수(빈값=daily_cap). 설고처럼 하루 1건도 선택 가능
     // 단일 시각 예약값(지금=NULL / 내일10시 / 직접). 분산 모드는 여기 안 쓰고 chunk별로 따로 계산.
     const computeScheduledAt = (): string | null => {
         if (scheduleMode === 'now' || scheduleMode === 'spread') return null;
@@ -636,17 +637,19 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 // ── 여러 날 분산 예약 — 하루 최대(dailyCap)씩 연속일에 나눠 예약. 예) 14건·하루5 → 5/5/4(3일). ──
                 const spreadBase = selfPicked.size ? unused.filter((k) => selfPicked.has(k)) : unused;
                 const spreadN = spreadTotal ? Math.min(Math.max(1, Number(spreadTotal) || 0), spreadBase.length) : spreadBase.length;
-                const spreadPerDay = Math.max(1, dailyCap);
+                // 하루 발행건수 — 사용자가 고른 값(1~daily_cap). 빈값이면 daily_cap. SUB2 하루상한을 넘겨도 무의미하므로 cap으로 클램프.
+                const capMax = Math.max(1, dailyCap);
+                const perDay = spreadPerDay ? Math.min(Math.max(1, Number(spreadPerDay)), capMax) : capMax;
                 const spreadStartYmd = spreadStart || kstYmd(1);
                 const spreadChunks: number[] = [];
-                for (let i = 0; i < spreadN; i += spreadPerDay) spreadChunks.push(Math.min(spreadPerDay, spreadN - i));
+                for (let i = 0; i < spreadN; i += perDay) spreadChunks.push(Math.min(perDay, spreadN - i));
                 const sendSpread = async (style: 'info' | 'review') => {
                     const picks = spreadBase.slice(0, spreadN);
                     if (!picks.length) { setReqMsg('분산할 미사용 키워드가 없습니다.'); return; }
                     setReqBusy(true); setReqMsg('');
                     let total = 0, day = 0;
-                    for (let i = 0; i < picks.length; i += spreadPerDay) {
-                        const chunk = picks.slice(i, i + spreadPerDay);
+                    for (let i = 0; i < picks.length; i += perDay) {
+                        const chunk = picks.slice(i, i + perDay);
                         const at = `${addDaysYmd(spreadStartYmd, day)}T10:00:00`;
                         const { error, count } = await enqueueGenRequestsSelf(clientId!, chunk, productKw, style, false, at);
                         if (error) { setReqBusy(false); setReqMsg(`요청 실패(${day + 1}일차): ${error.message}`); await loadGenStatus(); return; }
@@ -654,7 +657,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     }
                     setReqBusy(false);
                     setSelfPicked(new Set());
-                    setReqMsg(`${total}건을 ${day}일에 나눠 예약 완료(하루 최대 ${spreadPerDay}건 · ${style === 'info' ? '정보성' : '후기성'}). ${spreadStartYmd} 10:00부터 · 하루 안 간격은 SUB2가 분산.`);
+                    setReqMsg(`${total}건을 ${day}일에 나눠 예약 완료(하루 ${perDay}건 · ${style === 'info' ? '정보성' : '후기성'}). ${spreadStartYmd} 10:00부터 · 하루 안 간격은 SUB2가 분산.`);
                     await loadGenStatus();
                 };
                 return (
@@ -725,7 +728,12 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                     <input type="number" min={1} max={spreadBase.length || 1} value={spreadTotal}
                                         onChange={(e) => setSpreadTotal(e.target.value)} placeholder={String(spreadBase.length)}
                                         className="h-8 w-20 rounded-md border border-[#cbd5e1] px-2 text-[12px]" />
-                                    <span className="text-[#64748b]">건 · 하루 최대 <b className="text-[#4338ca]">{spreadPerDay}</b>건(설정값) · 시작</span>
+                                    <span className="text-[#64748b]">건 · 하루</span>
+                                    {Array.from({ length: capMax }, (_, i) => i + 1).map((n) => (
+                                        <button key={n} type="button" onClick={() => setSpreadPerDay(n)}
+                                            className={`h-8 w-8 rounded-md text-[12px] font-bold ${perDay === n ? 'bg-[#7c3aed] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]'}`}>{n}</button>
+                                    ))}
+                                    <span className="text-[#64748b]">건 <span className="text-[#94a3b8]">(최대 {capMax}·설정값)</span> · 시작</span>
                                     <input type="date" value={spreadStart} onChange={(e) => setSpreadStart(e.target.value)}
                                         placeholder={spreadStartYmd} className="h-8 rounded-md border border-[#cbd5e1] px-2 text-[12px]" />
                                     <span className="text-[#64748b]">10:00부터</span>
@@ -738,7 +746,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                         ) : null}
                         <div className="flex flex-wrap items-center gap-2">
                             {scheduleMode === 'spread' ? (
-                                <span className="text-[12px] font-semibold text-[#7c3aed]">여러 날 분산 — 하루 최대 {spreadPerDay}건씩 {spreadChunks.length || 0}일</span>
+                                <span className="text-[12px] font-semibold text-[#7c3aed]">여러 날 분산 — 하루 {perDay}건씩 {spreadChunks.length || 0}일</span>
                             ) : (
                                 <>
                                     <span className="text-[12px] font-semibold text-[#475569]">건수</span>
