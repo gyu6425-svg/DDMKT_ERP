@@ -47,7 +47,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
 
     // 발행 요청(cafe_gen_requests) — finder 선택 키워드 → 발행PC(SUB1/SUB2) 대기열로.
     const [productKw, setProductKw] = useState(''); // finder 제품키워드(입주청소/사설경호/누수탐지…)
-    const [finderMode, setFinderMode] = useState<'keyword' | 'region' | 'related' | 'manual'>('keyword'); // 키워드 찾기 유형(직접 키워드 포함)
+    const [finderMode, setFinderMode] = useState<'keyword' | 'region' | 'related' | 'info' | 'manual'>('keyword'); // 키워드 찾기 유형(정보형·직접 키워드 포함)
     // 모델B 일별 발행 — 계약 키워드 풀 + 발행상태(칩 색상·미사용 판별) + 매일 건수.
     const [poolKw, setPoolKw] = useState<string[]>([]);
     const [selfPicked, setSelfPicked] = useState<Set<string>>(new Set());   // 칩 클릭 선택발행 대상(비어있으면 앞에서 dailyCount건)
@@ -546,7 +546,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             {/* 키워드 찾기 유형 — 키워드형(플레이스) / 지역형(지역×키워드) / 직접 키워드. 한 번에 하나만. */}
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[12px] font-semibold text-[#64748b]">키워드 찾기 유형</span>
-                {([['keyword', '키워드형 (플레이스 주소)'], ['region', '지역형 (지역 × 키워드)'], ['related', '🔗 연관 인기글 (보홀·하와이 등)'], ['manual', '✍️ 직접 키워드']] as const).map(([m, label]) => (
+                {([['keyword', '키워드형 (플레이스 주소)'], ['region', '지역형 (지역 × 키워드)'], ['related', '🔗 연관 인기글 (보홀·하와이 등)'], ['info', '🌐 정보형 (홈페이지·블로그 주소)'], ['manual', '✍️ 직접 키워드']] as const).map(([m, label]) => (
                     <button key={m} type="button" onClick={() => setFinderMode(m)}
                         className={`rounded-full px-4 py-1.5 text-[13px] font-bold ${finderMode === m ? 'bg-[#0369a1] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]'}`}>{label}</button>
                 ))}

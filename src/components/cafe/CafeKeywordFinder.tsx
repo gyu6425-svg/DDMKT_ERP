@@ -17,7 +17,7 @@ export function CafeKeywordFinder({
     goalCount,
 }: {
     clientId: string | null;
-    mode: 'region' | 'keyword' | 'related';
+    mode: 'region' | 'keyword' | 'related' | 'info';
     onPick: (keywords: string[], productKeyword: string) => void;
     initialPicked?: PickSeed[];      // 접수 때 고른 키워드 — 최초 1회 선택칩으로 시딩
     extraUsed?: string[];            // 재조회 결과에서 추가로 제외할 키워드(접수 선택분 등)
@@ -448,7 +448,7 @@ export function CafeKeywordFinder({
 
     return (
         <div className="rounded-xl border-2 border-[#0369a1] bg-[#f0f9ff] p-4">
-            <div className="mb-2 text-[13px] font-bold text-[#075985]">🔍 SEO 키워드 찾기 — {mode === 'region' ? '지역 × 제품키워드' : mode === 'related' ? '연관 인기글 찾기' : '플레이스 인기탭'}</div>
+            <div className="mb-2 text-[13px] font-bold text-[#075985]">🔍 SEO 키워드 찾기 — {mode === 'region' ? '지역 × 제품키워드' : mode === 'related' ? '연관 인기글 찾기' : mode === 'info' ? '정보형 (홈페이지·블로그 주소)' : '플레이스 인기탭'}</div>
 
             {/* 연관 인기글 찾기 — 씨앗어 하나에서 연관 키워드를 펼쳐 인기탭을 찾는다.
                 기존 3모드는 '한국 행정지역 × 제품'이 전제라 보홀·하와이 같은 해외지명이나
@@ -582,19 +582,21 @@ export function CafeKeywordFinder({
                 </div>
             ) : null}
 
-            {mode === 'related' ? null : mode === 'region' ? (
+            {mode === 'related' ? null : mode === 'info' ? (
+                /* 정보형 — 플레이스가 없는 업체. 홈페이지·블로그 주소(또는 붙여넣기)에서
+                   제품키워드를 만들고, 직접 적은 위치를 축으로 인기탭을 찾는다.
+                   ★ 지역형 안에 끼워 두면 '지역형인데 왜 주소를 넣지?'가 된다 — 별도 모드로 둔다. */
                 <div className="grid gap-2">
+                    {/* 시도 선택 — 없으면 자기 주소 주변만 본다. 고르면 그 시도 전체까지 넓힌다. */}
                     <div className="flex flex-wrap gap-2">
                         {REGION_KEYS.map((r) => (
                             <button key={r} type="button" onClick={() => toggleRegion(r)}
                                 className={`rounded-full border px-3 py-1 text-sm font-semibold ${regionSel.includes(r) ? 'border-[#4338ca] bg-[#4338ca] text-white' : 'border-[#cbd5e1] bg-white text-[#475569]'}`}>{r}</button>
                         ))}
+                        <span className="self-center text-[11px] text-[#64748b]">선택 안 하면 아래 위치 주변만 봅니다</span>
                     </div>
-                    {/* 플레이스가 없는 업체용 경로 — 위치를 직접 적고, 소개/메뉴를 붙여넣어 제품키워드를 만든다.
-                        추출 결과는 반드시 체크박스로 확정한다(자동 채우기 금지). */}
-                    {/* 기본 펼침 — 접어 두면 찾지를 못한다(주소 입력이 이제 이 화면의 주된 입력 경로다). */}
-                    <details open className="rounded-md border border-dashed border-[#c4b5fd] bg-white/60 px-3 py-2">
-                        <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">🌐 홈페이지·블로그 주소로 키워드 찾기 (플레이스가 없어도 됩니다)</summary>
+                    <div className="rounded-md border border-dashed border-[#c4b5fd] bg-white/60 px-3 py-2">
+                        <div className="text-[12px] font-bold text-[#6d28d9]">🌐 홈페이지·블로그 주소 → 키워드 → 인기탭</div>
                         <div className="mt-2 grid gap-2">
                             <input className={inputCls} value={addr} onChange={(e) => setAddr(e.target.value)}
                                 placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
@@ -661,7 +663,16 @@ export function CafeKeywordFinder({
                                 </div>
                             )}
                         </div>
-                    </details>
+                    </div>
+                </div>
+            ) : mode === 'region' ? (
+                <div className="grid gap-2">
+                    <div className="flex flex-wrap gap-2">
+                        {REGION_KEYS.map((r) => (
+                            <button key={r} type="button" onClick={() => toggleRegion(r)}
+                                className={`rounded-full border px-3 py-1 text-sm font-semibold ${regionSel.includes(r) ? 'border-[#4338ca] bg-[#4338ca] text-white' : 'border-[#cbd5e1] bg-white text-[#475569]'}`}>{r}</button>
+                        ))}
+                    </div>
                     <div className="flex flex-wrap gap-2">
                         <input className={`${inputCls} flex-1 min-w-[160px]`} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="제품 키워드 (예: 입주청소, 출장뷔페 — 여러 개는 쉼표)" />
                         <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading || dongLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '생성 중…' : '지역 키워드 생성'}</button>
@@ -686,20 +697,8 @@ export function CafeKeywordFinder({
                         <button type="button" onClick={() => void runPlaceScan()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '분석 중…' : '정확 인기탭 분석'}</button>
                     </div>
                     <details open className="rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
-                        <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">🌐 주소·정보로 전국 인기탭 분석 — 홈페이지/블로그 주소를 넣거나 직접 붙여넣기</summary>
+                        <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 정보/메뉴 붙여넣기 — 플레이스에 메뉴·정보가 없어 분석이 안 될 때 (여기 붙여넣고 아래 버튼)</summary>
                         <div className="mt-2 grid gap-2">
-                            {/* ★ 주소 입력은 지역형 전용이 아니다 — 추출은 지역과 무관하다.
-                                여기(키워드형)는 지역을 안 붙이고 전국으로 판정하는 경로라, 보홀·창업처럼
-                                지역을 붙이면 오히려 무너지는 업종은 이쪽이 정답이다(실측 2026-08-06). */}
-                            <div className="flex flex-wrap items-center gap-2">
-                                <textarea className="min-h-[38px] w-full min-w-[240px] flex-1 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={2}
-                                    value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)}
-                                    placeholder={'홈페이지·네이버 블로그 주소 — 여러 개면 줄바꿈으로\nblog.naver.com/gyeonggi22\ngyeongginurse.co.kr'} />
-                                <button type="button" onClick={() => void pullSite()} disabled={!!extracting || kwLoading}
-                                    className="h-9 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50">
-                                    ⬇ 주소로 가져오기
-                                </button>
-                            </div>
                             <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
                                 value={pasteText} onChange={(e) => setPasteText(e.target.value)}
                                 placeholder="플레이스 '정보'·'메뉴'·홈 소개글을 그대로 붙여넣으세요. 줄 단위로 넣으면 더 정확합니다.&#10;예)&#10;고체향수&#10;니치향수&#10;시향 클래스" />

@@ -888,17 +888,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             {isKw ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">정확 인기탭 분석=실제 인기글 섹션 확인(큐 처리, 수초~수십초).</p> : null}
                             {isKw ? (
                                 <details open className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
-                                    <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 상세 정보 입력 — 주소를 넣거나 직접 붙여넣기 (접수에 저장)</summary>
-                                    {/* 주소 입력은 지역형 전용이 아니다 — 추출은 지역과 무관하므로 키워드형에도 둔다. */}
-                                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                                        <textarea className="min-h-[38px] w-full min-w-[220px] flex-1 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={2}
-                                            value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)}
-                                            placeholder={'홈페이지·네이버 블로그 주소 — 여러 개면 줄바꿈으로\nblog.naver.com/내블로그\n우리회사.co.kr'} />
-                                        <button type="button" onClick={() => void pullSite()} disabled={extracting || kwLoading}
-                                            className="h-9 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50">
-                                            ⬇ 주소로 가져오기
-                                        </button>
-                                    </div>
+                                    <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 상세 정보 입력 — 플레이스에 메뉴·정보가 없을 때 (여기에 붙여넣으면 접수에 저장)</summary>
                                     <textarea className="mt-2 w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
                                         value={placeDetail} onChange={(e) => setPlaceDetail(e.target.value)}
                                         placeholder={'플레이스 정보·메뉴·홈 소개글, 취급 서비스/상품을 그대로 붙여넣으세요. 담당자가 키워드 선정에 활용합니다.\n예)\n입주청소\n이사청소\n준공청소'} />
