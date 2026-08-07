@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     submitCafeDeployRequest,
     listCafeDeployRequests,
@@ -148,33 +148,76 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [extracted, setExtracted] = useState<ExtractedProduct[] | null>(null);
     const [picked, setPicked] = useState<Set<string>>(new Set());
     const [extracting, setExtracting] = useState(false);
-    const [siteUrl, setSiteUrl] = useState('');   // 홈페이지·네이버 블로그 주소 — 붙여넣기를 대신하는 입력
-    // 주소 → 원문을 붙여넣기 칸에 채운다. 블로그가 홈페이지보다 정확하다(실측 2026-08-07 경기간호:
-    //   블로그 글 제목 51개가 "수원 의왕 뇌졸중 방문재활" 꼴 vs 홈페이지 2,041자는 대부분 메뉴·인사말).
+    const [siteUrl, setSiteUrl] = useState('');   // 홈페이지·네이버 블로그 주소(여러 개 가능)
+    // 주소 → 원문을 붙여넣기 칸에 채운다. 줄바꿈/쉼표로 여러 개를 한 번에.
+    //   ★ 사이트+블로그를 같이 넣는 게 가장 낫다(실측 2026-08-07 경기간호): 각각 28개인데 합치면 39개.
+    //   ★ 덮어쓰지 않는다 — 직전 자동수집분만 걷어내고 다시 붙인다(안 그러면 두 번째 주소가 첫 번째를 지운다).
+    const autoTextRef = useRef('');
+    const [srcParts, setSrcParts] = useState<{ label: string; text: string }[]>([]);  // 원천별 원문(따로 추출해 합치려고 보관)
     const pullSite = async () => {
-        const u = siteUrl.trim();
-        if (!u) { setKwErr('홈페이지 또는 네이버 블로그 주소를 입력하세요.'); return; }
+        const urls = [...new Set(siteUrl.split(/[\n,]/).map((s) => s.trim()).filter(Boolean))];
+        if (!urls.length) { setKwErr('홈페이지 또는 네이버 블로그 주소를 입력하세요.'); return; }
         setKwErr(''); setExtracting(true);
-        try {
-            const b = await fetchSiteText(u);
-            setPlaceDetail(b.text);
-            const what = b.source === 'naver_blog' ? `블로그 글 ${b.posts ?? 0}개` : `페이지 ${b.pages.length}개`;
-            setKwErr(`${b.title || u} · ${what} · ${b.chars.toLocaleString()}자를 가져왔습니다 — ‘① 키워드 뽑기’를 눌러 주세요.`);
-        } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '주소를 읽지 못했습니다');
-        } finally { setExtracting(false); }
+        const parts: string[] = [];
+        const srcs: { label: string; text: string }[] = [];
+        const notes: string[] = [];
+        const fails: string[] = [];
+        for (const u of urls) {
+            try {
+                const b = await fetchSiteText(u);
+                const what = b.source === 'naver_blog' ? `블로그 글 ${b.posts ?? 0}개` : `페이지 ${b.pages.length}장`;
+                parts.push(`[출처: ${u}]\n${b.text}`);
+                srcs.push({ label: b.source === 'naver_blog' ? '블로그' : '홈페이지', text: b.text });
+                notes.push(`${b.title || u}(${what}·${b.chars.toLocaleString()}자)`);
+            } catch (e) {
+                fails.push(`${u} — ${e instanceof Error ? e.message : '읽기 실패'}`);
+            }
+        }
+        setExtracting(false);
+        if (!parts.length) { setKwErr(fails.join(' / ') || '주소를 읽지 못했습니다'); return; }
+        setSrcParts(srcs);
+        const auto = parts.join('\n\n');
+        const manual = (autoTextRef.current ? placeDetail.split(autoTextRef.current).join('') : placeDetail).trim();
+        autoTextRef.current = auto;
+        setPlaceDetail(manual ? `${manual}\n\n${auto}` : auto);
+        setKwErr(`${notes.join(' + ')} 를 가져왔습니다 — ‘① 키워드 뽑기’를 눌러 주세요.`
+            + (fails.length ? ` ⚠️ 실패: ${fails.join(' / ')}` : ''));
     };
+    // ★ 원천마다 따로 추출해서 합친다(실측 2026-08-07 경기간호).
+    //   통째로 한 번에 넣으면 51개, 블로그·홈페이지를 각각 뽑아 합치면 68개.
+    //   원문이 길어질수록 GPT 가 조각당 상한 안에서 굵은 것 위주로 고르기 때문에,
+    //   합쳐 넣으면 '고관절골절재활→고관절골절'처럼 뭉뚱그려지며 세부가 떨어져 나간다.
+    //   비용은 호출 수만큼 는다(3원 남짓) — 키워드를 놓치는 쪽이 훨씬 비싸다.
     const runExtract = async () => {
         const raw = placeDetail.trim();
         if (!raw) { setKwErr('업체 소개·메뉴를 붙여넣으세요.'); return; }
         setKwErr(''); setExtracting(true); setExtracted(null);
         try {
-            const { products } = await extractMenuKeywords(raw, (form.keyword || '').trim());
+            const manual = (autoTextRef.current ? placeDetail.split(autoTextRef.current).join('') : placeDetail).trim();
+            const lots = [
+                ...(manual ? [{ label: '직접입력', text: manual }] : []),
+                ...srcParts,
+            ];
+            const hint = (form.keyword || '').trim();
+            const runs = lots.length
+                ? await Promise.all(lots.map((s) => extractMenuKeywords(s.text, hint).catch(() => ({ biz: '', products: [] as ExtractedProduct[] }))))
+                : [await extractMenuKeywords(raw, hint)];
+            const seen = new Set<string>();
+            const products: ExtractedProduct[] = [];
+            for (const r of runs) {
+                for (const p of r.products) {
+                    const n = p.kw.replace(/\s/g, '');
+                    if (seen.has(n)) continue;
+                    seen.add(n); products.push(p);
+                }
+            }
+            if (!products.length) { setKwErr('검색 가능한 제품·서비스 키워드를 찾지 못했습니다.'); return; }
             setExtracted(products);
             // ★ 세부(niche)까지 전부 기본 체크 — 쓸 만한지는 인기탭 스캔이 판정한다.
             //   미리 빼면 걸러질 일 없는 키워드까지 같이 사라진다(실측: 경기간호에서
             //   파킨슨병 47,080 · 뇌졸중 33,650 이 niche 로 분류돼 있었다).
             setPicked(new Set(products.map((x) => x.kw)));
+            if (lots.length > 1) setKwErr(`원천 ${lots.length}곳(${lots.map((s) => s.label).join(' · ')})에서 ${products.length}개를 뽑았습니다.`);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '키워드 추출 실패');
         } finally { setExtracting(false); }
@@ -874,17 +917,18 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
                                     {/* 주소 한 줄로 원문을 걷는 경로 — 고객에게 붙여넣기를 시키면 대부분 인사말만 넣는다. */}
                                     <div className="flex flex-wrap items-center gap-2">
-                                        <input className={`${inputCls} min-w-[220px] flex-1`} value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)}
-                                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void pullSite(); } }}
-                                            placeholder="홈페이지 또는 네이버 블로그 주소 (예: blog.naver.com/gyeonggi22)" />
+                                        <textarea className="min-h-[38px] w-full min-w-[220px] flex-1 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={2}
+                                            value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)}
+                                            placeholder={'홈페이지·네이버 블로그 주소 — 여러 개면 줄바꿈으로\nblog.naver.com/내블로그\n우리회사.co.kr'} />
                                         <button type="button" onClick={() => void pullSite()} disabled={extracting || kwLoading}
                                             className="h-9 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50"
-                                            title="블로그면 최근 글 제목 50개를, 홈페이지면 본문을 가져와 아래 칸에 채웁니다">
+                                            title="블로그면 글 제목 전량을, 홈페이지면 하위 페이지까지 가져와 아래 칸에 합쳐 넣습니다">
                                             ⬇ 주소로 가져오기
                                         </button>
                                     </div>
                                     <p className="mb-0 -mt-1 text-[11px] text-[#7c3aed]">
-                                        💡 <b>네이버 블로그가 가장 정확합니다</b> — 글 제목이 이미 ‘지역 + 키워드’ 형태라 그대로 씁니다.
+                                        💡 <b>블로그와 홈페이지를 같이 넣으세요</b> — 각각 넣을 때보다 키워드가 훨씬 많이 나옵니다.
+                                        하나만 있다면 블로그 쪽이 더 정확합니다.
                                     </p>
                                     <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
                                         value={placeDetail} onChange={(e) => setPlaceDetail(e.target.value)}
