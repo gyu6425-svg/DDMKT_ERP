@@ -1,5 +1,27 @@
 import { supabase } from '../lib/supabase';
 
+// ── 예약 발행(scheduled_at) 공용 ────────────────────────────────────────────
+//   sub2 는 scheduled_at 을 'KST 벽시계 숫자 그대로' 비교한다(타임존 변환 없음). 그래서 main 도
+//   UTC 로 바꾸지 않고 KST 벽시계 naive 문자열("YYYY-MM-DDTHH:mm:ss")로 넣는다. 컬럼 타입도 timestamp(WITHOUT tz).
+// 지금(KST) → "YYYY-MM-DDTHH:mm:ss". Date+9h 한 UTC 파트를 읽으면 KST 벽시계가 된다.
+export const kstNowNaive = (): string => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 19);
+// 오늘/내일…(KST) 날짜 "YYYY-MM-DD".
+export const kstYmd = (offsetDays = 0): string => {
+    const d = new Date(Date.now() + 9 * 3600 * 1000);
+    d.setUTCDate(d.getUTCDate() + offsetDays);
+    return d.toISOString().slice(0, 10);
+};
+// 타임존 라벨 제거(문자열 비교=시간 비교).
+export const stripTzNaive = (s: string): string => s.replace(/([+-]\d{2}:?\d{2}|Z)$/, '').slice(0, 19);
+// 예약 시각 표시 — "8/8 10:00".
+export const fmtScheduled = (naive: string): string => {
+    const m = naive.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    return m ? `${Number(m[2])}/${Number(m[3])} ${m[4]}:${m[5]}` : naive;
+};
+// insert 에러가 'scheduled_at 컬럼 없음'인지 — 마이그레이션 전 폴백 판별.
+const isMissingScheduledCol = (e: { code?: string; message?: string } | null) =>
+    !!e && (e.code === 'PGRST204' || e.code === '42703') && /scheduled_at/i.test(e.message ?? '');
+
 // 발행요청 큐(cafe_gen_requests) — main 웹이 finder 선택분을 적재 → 발행PC 폴러가 자기 양식으로 생성·발행.
 //   전제: docs/cafe-gen-requests.sql. 라우팅·게시판은 SUB1/SUB2 답신 기준 확정값.
 export type PublishTarget = { pc: 'SUB1' | 'SUB2'; company: string; board: string; businessFromProduct: boolean };
@@ -58,7 +80,7 @@ function deriveRegions(keywords: string[], productKeyword: string):
     return { rows };
 }
 
-export async function enqueueGenRequests(companyKey: string, keywords: string[], productKeyword: string) {
+export async function enqueueGenRequests(companyKey: string, keywords: string[], productKeyword: string, scheduledAt: string | null = null) {
     const t = PUBLISH_TARGET[companyKey];
     if (!t) return { error: { message: `발행 라우팅 매핑 없음: ${companyKey}` }, count: 0 };
     const pk = (productKeyword || '').trim();
@@ -72,9 +94,13 @@ export async function enqueueGenRequests(companyKey: string, keywords: string[],
         company: t.company, board: t.board,
         business: t.businessFromProduct ? (pk || null) : null,
         region, keyword: kw, popular_verified: true, status: 'pending',
+        ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
     }));
     if (!rows.length) return { error: { message: '보낼 키워드가 없습니다.' }, count: 0 };
-    const { error } = await supabase.from('cafe_gen_requests').insert(rows);
+    let { error } = await supabase.from('cafe_gen_requests').insert(rows);
+    if (scheduledAt && isMissingScheduledCol(error)) {
+        ({ error } = await supabase.from('cafe_gen_requests').insert(rows.map(({ scheduled_at: _d, ...r }) => r)));
+    }
     return { error, count: rows.length };
 }
 
@@ -106,31 +132,38 @@ export async function getGenRequestStatus(clientId: string): Promise<Record<stri
 //     done(+done_at) = 완료 / fail(+reason) = 실패
 export type GenQueueSummary = {
     publishing: { keyword: string; since: string | null }[];  // 지금 발행 중(claimed)
-    pending: number;                                          // 대기
+    pending: number;                                          // 대기(예약 아직 안 온 건 제외)
     doneToday: number;                                        // 오늘 완료
     failed: { keyword: string; reason: string | null }[];     // 실패(사유 포함)
+    scheduled: { keyword: string; at: string }[];             // 예약 대기(미래 scheduled_at) — "예약됨 (M/D HH:mm)"
 };
 
 export async function getGenQueueSummary(clientId: string): Promise<GenQueueSummary> {
-    const { data } = await supabase.from('cafe_gen_requests')
-        .select('keyword,status,claimed_at,done_at,reason')
-        .eq('client_id', clientId)
-        .neq('status', 'held');   // 중단분은 대기·발행중·완료·실패 어디에도 안 보인다(SUB2 규약)
-    const rows = (data ?? []) as { keyword: string | null; status: string; claimed_at: string | null; done_at: string | null; reason: string | null }[];
+    // scheduled_at 포함 조회 — 컬럼 없으면(마이그레이션 전) 그 컬럼만 빼고 재조회(기존 UI 안 깨지게).
+    let res = await supabase.from('cafe_gen_requests').select('keyword,status,claimed_at,done_at,reason,scheduled_at').eq('client_id', clientId).neq('status', 'held');
+    if (res.error && /scheduled_at/i.test(res.error.message)) {
+        res = await supabase.from('cafe_gen_requests').select('keyword,status,claimed_at,done_at,reason,scheduled_at:done_at').eq('client_id', clientId).neq('status', 'held');
+    }
+    const rows = (res.data ?? []) as { keyword: string | null; status: string; claimed_at: string | null; done_at: string | null; reason: string | null; scheduled_at?: string | null }[];
     const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
-    const out: GenQueueSummary = { publishing: [], pending: 0, doneToday: 0, failed: [] };
+    const nowN = kstNowNaive();
+    const out: GenQueueSummary = { publishing: [], pending: 0, doneToday: 0, failed: [], scheduled: [] };
     for (const r of rows) {
         const kw = r.keyword || '—';
         if (r.status === 'claimed' || r.status === 'processing' || r.status === 'posted') {
             out.publishing.push({ keyword: kw, since: r.claimed_at });
         } else if (r.status === 'pending') {
-            out.pending += 1;
+            // 예약 시각이 아직 미래면 '예약'으로 분리(대기 카운트에서 빼 오해 방지). 지났으면 일반 대기.
+            const at = r.scheduled_at ? stripTzNaive(r.scheduled_at) : '';
+            if (at && at > nowN) out.scheduled.push({ keyword: kw, at });
+            else out.pending += 1;
         } else if (r.status === 'done') {
             if (r.done_at && new Date(r.done_at) >= midnight) out.doneToday += 1;
         } else if (r.status === 'fail') {
             out.failed.push({ keyword: kw, reason: r.reason });
         }
     }
+    out.scheduled.sort((a, b) => a.at.localeCompare(b.at));
     return out;
 }
 
@@ -172,8 +205,10 @@ export async function getPendingGenRequests(): Promise<{ client_id: string | nul
 export type SelfStyle = 'info' | 'review';
 export async function enqueueGenRequestsSelf(
     clientId: string, keywords: string[], productKeyword: string, style: SelfStyle, manual = false,
+    scheduledAt: string | null = null,
 ) {
     // manual=true: 업체가 인기탭 없이 직접 넣은 키워드(popular_verified=false → SUB2가 manual 도어로 발행).
+    // scheduledAt: 예약 발행(KST 벽시계 naive). NULL=즉시. 컬럼 없으면 자동 폴백(즉시로 적재).
     const pk = (productKeyword || '').trim();
     const company = `dep_${style}_${clientId}`;
     const der = deriveRegions(keywords, pk);
@@ -181,8 +216,12 @@ export async function enqueueGenRequestsSelf(
     const rows = der.rows.map(({ kw, region }) => ({
         company, client_id: clientId,
         region, keyword: kw, popular_verified: !manual, status: 'pending',
+        ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
     }));
     if (!rows.length) return { error: { message: '보낼 키워드가 없습니다.' }, count: 0 };
-    const { error } = await supabase.from('cafe_gen_requests').insert(rows);
+    let { error } = await supabase.from('cafe_gen_requests').insert(rows);
+    if (scheduledAt && isMissingScheduledCol(error)) {
+        ({ error } = await supabase.from('cafe_gen_requests').insert(rows.map(({ scheduled_at: _d, ...r }) => r)));
+    }
     return { error, count: rows.length };
 }

@@ -5,7 +5,7 @@ import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudi
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
-import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, publishTargetFor, type GenQueueSummary } from '../../api/cafeGenRequests';
+import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, publishTargetFor, kstYmd, fmtScheduled, type GenQueueSummary } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { customerLogin } from '../../api/nusu2Bridge';
@@ -77,6 +77,23 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [heldN, setHeldN] = useState(0);        // 중단 보관분(재개 버튼용) — 메인 목록엔 안 넣는다
     const [holdBusy, setHoldBusy] = useState(false);
     const [dailyCount, setDailyCount] = useState(1);
+    // 예약 발행 — 발행 시점 선택(지금/내일10시/직접/여러 날 분산). scheduled_at(KST 벽시계 naive)로 sub2에 넘긴다.
+    const [scheduleMode, setScheduleMode] = useState<'now' | 'tomorrow' | 'custom' | 'spread'>('now');
+    const [scheduleAt, setScheduleAt] = useState('');   // datetime-local "YYYY-MM-DDTHH:mm"
+    const [spreadTotal, setSpreadTotal] = useState(''); // 여러 날 분산 총 건수(빈값=미사용 전체)
+    const [spreadStart, setSpreadStart] = useState(''); // 분산 시작일 "YYYY-MM-DD"(빈값=내일)
+    // 단일 시각 예약값(지금=NULL / 내일10시 / 직접). 분산 모드는 여기 안 쓰고 chunk별로 따로 계산.
+    const computeScheduledAt = (): string | null => {
+        if (scheduleMode === 'now' || scheduleMode === 'spread') return null;
+        if (scheduleMode === 'tomorrow') return `${kstYmd(1)}T10:00:00`;
+        if (!scheduleAt) return null;
+        return scheduleAt.length === 16 ? `${scheduleAt}:00` : scheduleAt.slice(0, 19);
+    };
+    // 임의 날짜(YYYY-MM-DD)에 n일 더하기.
+    const addDaysYmd = (ymd: string, n: number) => {
+        const [y, m, d] = ymd.split('-').map(Number);
+        return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+    };
     async function loadGenStatus() {
         if (!clientId) return;
         const [m, q, h] = await Promise.all([getGenRequestStatus(clientId), getGenQueueSummary(clientId), countHeldGenRequests(clientId)]);
@@ -567,11 +584,12 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     const n = selectedKw.size;
                     const sendFixed = async () => {
                         if (!n) { setReqMsg('finder에서 발행할 키워드를 고르세요.'); return; }
+                        const sched = computeScheduledAt();
                         setReqBusy(true); setReqMsg('');
-                        const { error, count } = await enqueueGenRequests(company!, [...selectedKw], productKw);
+                        const { error, count } = await enqueueGenRequests(company!, [...selectedKw], productKw, sched);
                         setReqBusy(false);
                         if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
-                        setReqMsg(`${count}건 발행 요청 전송 완료 — ${target.pc} 발행 대기열에 담겼습니다(그 PC가 순차 게시).`);
+                        setReqMsg(`${count}건 발행 요청 전송 완료 — ${sched ? `${fmtScheduled(sched)} 이후 예약` : `${target.pc} 발행 대기열에 담김`}(순차 게시).`);
                         setSelectedKw(new Set());
                     };
                     return (
@@ -605,12 +623,38 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 const sendSelf = async (style: 'info' | 'review') => {
                     const picks = chosen;
                     if (!picks.length) { setReqMsg('발행할 키워드가 없습니다 — 칩을 클릭해 고르거나 finder로 추가하세요.'); return; }
+                    const sched = computeScheduledAt();
                     setReqBusy(true); setReqMsg('');
-                    const { error, count } = await enqueueGenRequestsSelf(clientId!, picks, productKw, style);
+                    const { error, count } = await enqueueGenRequestsSelf(clientId!, picks, productKw, style, false, sched);
                     setReqBusy(false);
                     if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
                     setSelfPicked(new Set());
-                    setReqMsg(`${count}건 발행 요청 완료(${style === 'info' ? '정보성' : '후기성'}) — SUB2가 순차 게시. 미사용 ${Math.max(0, unused.length - count)}개 남음.`);
+                    const whenMsg = sched ? `${fmtScheduled(sched)} 이후 예약 발행` : 'SUB2가 순차 게시';
+                    setReqMsg(`${count}건 발행 요청 완료(${style === 'info' ? '정보성' : '후기성'}) — ${whenMsg}. 미사용 ${Math.max(0, unused.length - count)}개 남음.`);
+                    await loadGenStatus();
+                };
+                // ── 여러 날 분산 예약 — 하루 최대(dailyCap)씩 연속일에 나눠 예약. 예) 14건·하루5 → 5/5/4(3일). ──
+                const spreadBase = selfPicked.size ? unused.filter((k) => selfPicked.has(k)) : unused;
+                const spreadN = spreadTotal ? Math.min(Math.max(1, Number(spreadTotal) || 0), spreadBase.length) : spreadBase.length;
+                const spreadPerDay = Math.max(1, dailyCap);
+                const spreadStartYmd = spreadStart || kstYmd(1);
+                const spreadChunks: number[] = [];
+                for (let i = 0; i < spreadN; i += spreadPerDay) spreadChunks.push(Math.min(spreadPerDay, spreadN - i));
+                const sendSpread = async (style: 'info' | 'review') => {
+                    const picks = spreadBase.slice(0, spreadN);
+                    if (!picks.length) { setReqMsg('분산할 미사용 키워드가 없습니다.'); return; }
+                    setReqBusy(true); setReqMsg('');
+                    let total = 0, day = 0;
+                    for (let i = 0; i < picks.length; i += spreadPerDay) {
+                        const chunk = picks.slice(i, i + spreadPerDay);
+                        const at = `${addDaysYmd(spreadStartYmd, day)}T10:00:00`;
+                        const { error, count } = await enqueueGenRequestsSelf(clientId!, chunk, productKw, style, false, at);
+                        if (error) { setReqBusy(false); setReqMsg(`요청 실패(${day + 1}일차): ${error.message}`); await loadGenStatus(); return; }
+                        total += count; day += 1;
+                    }
+                    setReqBusy(false);
+                    setSelfPicked(new Set());
+                    setReqMsg(`${total}건을 ${day}일에 나눠 예약 완료(하루 최대 ${spreadPerDay}건 · ${style === 'info' ? '정보성' : '후기성'}). ${spreadStartYmd} 10:00부터 · 하루 안 간격은 SUB2가 분산.`);
                     await loadGenStatus();
                 };
                 return (
@@ -656,22 +700,77 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                         ) : (
                             <div className="text-[12px] text-[#94a3b8]">아래 finder로 키워드를 찾아 고르면 여기 풀에 쌓입니다. <b>'값 저장하기'로 풀을 저장</b>하세요(1회 세팅).</div>
                         )}
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[12px] font-semibold text-[#475569]">건수</span>
-                            {[1, 2, 3, 4, 5].map((c) => (
-                                <button key={c} type="button" onClick={() => setDailyCount(c)}
-                                    className={`h-8 w-8 rounded-md text-[13px] font-bold ${dailyCount === c ? 'bg-[#4338ca] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]'}`}>{c}</button>
+                        {/* 발행 시점 — 지금 / 내일10시 / 직접 지정 / 여러 날 분산. 주말·연휴 미리 예약해 큐 굶주림 방지. */}
+                        <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-[#c4b5fd] bg-white px-2.5 py-1.5">
+                            <span className="text-[12px] font-semibold text-[#475569]">발행 시점</span>
+                            {([['now', '지금'], ['tomorrow', '내일 오전 10시'], ['custom', '직접 지정'], ['spread', '여러 날 분산']] as const).map(([m, label]) => (
+                                <button key={m} type="button" onClick={() => setScheduleMode(m)}
+                                    className={`h-8 rounded-md px-3 text-[12px] font-bold ${scheduleMode === m ? 'bg-[#4338ca] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]'}`}>{label}</button>
                             ))}
-                            <div className="ml-auto flex gap-2">
-                                <button type="button" onClick={() => void sendSelf('info')} disabled={reqBusy || !chosen.length}
-                                    className="h-10 rounded-lg bg-[#2563eb] px-5 text-sm font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50">
-                                    {reqBusy ? '전송 중…' : `정보성 ${pick}건`}
-                                </button>
-                                <button type="button" onClick={() => void sendSelf('review')} disabled={reqBusy || !chosen.length}
-                                    className="h-10 rounded-lg bg-[#7c3aed] px-5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
-                                    {reqBusy ? '전송 중…' : `후기성 ${pick}건`}
-                                </button>
+                            {scheduleMode === 'custom' ? (
+                                <input type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)}
+                                    className="h-8 rounded-md border border-[#cbd5e1] px-2 text-[12px] text-[#334155]" />
+                            ) : null}
+                            {scheduleMode !== 'now' && scheduleMode !== 'spread' ? (
+                                <span className="text-[11px] font-semibold text-[#7c3aed]">
+                                    {computeScheduledAt() ? `→ ${fmtScheduled(computeScheduledAt()!)} 이후 발행` : '→ 시각을 지정하세요'}
+                                </span>
+                            ) : null}
+                        </div>
+                        {/* 여러 날 분산 — 하루 최대(daily_cap)씩 연속일에 나눠 예약. 예) 14건·하루5 → 5/5/4(3일). */}
+                        {scheduleMode === 'spread' ? (
+                            <div className="grid gap-1.5 rounded-md border border-[#c4b5fd] bg-[#faf5ff] px-2.5 py-2">
+                                <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                                    <span className="font-semibold text-[#475569]">총</span>
+                                    <input type="number" min={1} max={spreadBase.length || 1} value={spreadTotal}
+                                        onChange={(e) => setSpreadTotal(e.target.value)} placeholder={String(spreadBase.length)}
+                                        className="h-8 w-20 rounded-md border border-[#cbd5e1] px-2 text-[12px]" />
+                                    <span className="text-[#64748b]">건 · 하루 최대 <b className="text-[#4338ca]">{spreadPerDay}</b>건(설정값) · 시작</span>
+                                    <input type="date" value={spreadStart} onChange={(e) => setSpreadStart(e.target.value)}
+                                        placeholder={spreadStartYmd} className="h-8 rounded-md border border-[#cbd5e1] px-2 text-[12px]" />
+                                    <span className="text-[#64748b]">10:00부터</span>
+                                </div>
+                                <div className="text-[11px] font-semibold text-[#7c3aed]">
+                                    {spreadN ? `→ ${spreadChunks.join(' / ')} (${spreadChunks.length}일, ${spreadStartYmd}${spreadChunks.length > 1 ? `~${addDaysYmd(spreadStartYmd, spreadChunks.length - 1)}` : ''})` : '→ 분산할 미사용 키워드가 없습니다'}
+                                    <span className="ml-1 font-normal text-[#94a3b8]">· 하루 안 간격은 SUB2가 알아서 벌립니다</span>
+                                </div>
                             </div>
+                        ) : null}
+                        <div className="flex flex-wrap items-center gap-2">
+                            {scheduleMode === 'spread' ? (
+                                <span className="text-[12px] font-semibold text-[#7c3aed]">여러 날 분산 — 하루 최대 {spreadPerDay}건씩 {spreadChunks.length || 0}일</span>
+                            ) : (
+                                <>
+                                    <span className="text-[12px] font-semibold text-[#475569]">건수</span>
+                                    {[1, 2, 3, 4, 5].map((c) => (
+                                        <button key={c} type="button" onClick={() => setDailyCount(c)}
+                                            className={`h-8 w-8 rounded-md text-[13px] font-bold ${dailyCount === c ? 'bg-[#4338ca] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]'}`}>{c}</button>
+                                    ))}
+                                </>
+                            )}
+                            {scheduleMode === 'spread' ? (
+                                <div className="ml-auto flex gap-2">
+                                    <button type="button" onClick={() => void sendSpread('info')} disabled={reqBusy || !spreadN}
+                                        className="h-10 rounded-lg bg-[#2563eb] px-5 text-sm font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50">
+                                        {reqBusy ? '전송 중…' : `정보성 ${spreadN}건 분산`}
+                                    </button>
+                                    <button type="button" onClick={() => void sendSpread('review')} disabled={reqBusy || !spreadN}
+                                        className="h-10 rounded-lg bg-[#7c3aed] px-5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
+                                        {reqBusy ? '전송 중…' : `후기성 ${spreadN}건 분산`}
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="ml-auto flex gap-2">
+                                    <button type="button" onClick={() => void sendSelf('info')} disabled={reqBusy || !chosen.length}
+                                        className="h-10 rounded-lg bg-[#2563eb] px-5 text-sm font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50">
+                                        {reqBusy ? '전송 중…' : `정보성 ${pick}건`}
+                                    </button>
+                                    <button type="button" onClick={() => void sendSelf('review')} disabled={reqBusy || !chosen.length}
+                                        className="h-10 rounded-lg bg-[#7c3aed] px-5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
+                                        {reqBusy ? '전송 중…' : `후기성 ${pick}건`}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                         {reqMsg ? <span className="text-[12px] font-semibold text-[#166534]">{reqMsg}</span> : null}
                         {/* 발행 예정 큐 미리보기 — 다음 발행 시 이 순서로 올라갈 키워드 */}
@@ -690,7 +789,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                             ) : <div className="py-1 text-center text-[11px] text-[#94a3b8]">미사용 키워드 없음 — finder로 추가하세요.</div>}
                             {/* 발행 대기열 상태바 — SUB2 poller 가 쓰는 cafe_gen_requests 를 5초 폴링해 그대로 표시(읽기 전용).
                                 pending=대기(발행텀·하루상한 포함) / claimed=지금 게시 중 / done_at 오늘=오늘완료 / fail=사유 노출 */}
-                            {queue && (queue.publishing.length || queue.pending || queue.doneToday || queue.failed.length) ? (
+                            {queue && (queue.publishing.length || queue.pending || queue.doneToday || queue.failed.length || queue.scheduled.length) ? (
                                 <div className="mt-1.5 rounded-md border border-[#e9d5ff] bg-white px-2 py-1.5">
                                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
                                         {queue.publishing.length ? (
@@ -700,6 +799,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                             </span>
                                         ) : null}
                                         <span className="text-[#0369a1]">대기 {queue.pending}</span>
+                                        {queue.scheduled.length ? <span className="font-semibold text-[#7c3aed]">예약 {queue.scheduled.length}</span> : null}
                                         <span className="text-[#16a34a]">오늘완료 {queue.doneToday}</span>
                                         <span className={queue.failed.length ? 'font-semibold text-[#dc2626]' : 'text-[#94a3b8]'}>실패 {queue.failed.length}</span>
                                         {/* 발행 중단 — 대기건만 보류(진행 중 1건은 끝까지 게시). 중단분은 목록·카운트에서 사라진다. */}
@@ -714,6 +814,14 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                     {queue.publishing.map((x) => (
                                         <div key={x.keyword} className="mt-1 truncate text-[10px] text-[#7c3aed]">▶ {x.keyword} 게시 중…</div>
                                     ))}
+                                    {/* 예약 대기 — 발행 예정 시각(M/D HH:mm) 표시 */}
+                                    {queue.scheduled.slice(0, 6).map((x, i) => (
+                                        <div key={`s${i}`} className="mt-1 flex items-center gap-1 truncate text-[10px] text-[#7c3aed]">
+                                            <span className="rounded-full bg-[#ede9fe] px-1.5 py-0.5 font-bold">예약됨 {fmtScheduled(x.at)}</span>
+                                            <span className="truncate text-[#6d28d9]">{x.keyword}</span>
+                                        </div>
+                                    ))}
+                                    {queue.scheduled.length > 6 ? <div className="mt-0.5 text-[10px] text-[#94a3b8]">외 예약 {queue.scheduled.length - 6}건</div> : null}
                                     {queue.failed.slice(0, 3).map((x, i) => (
                                         <div key={i} className="mt-1 truncate text-[10px] text-[#dc2626]" title={x.reason || ''}>✖ {x.keyword} — {x.reason || '실패'}</div>
                                     ))}
