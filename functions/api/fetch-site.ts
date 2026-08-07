@@ -10,8 +10,11 @@
 //       홈페이지발 5/9  만 검색됨 · 제도명(노인장기요양보험)을 빼면 합계 360
 //         — 인지간호·통증간호·1대1맞춤케어·퇴원후관리는 검색량 0. 회사 카피지 검색어가 아니다.
 //     → 홈페이지도 받되, 화면에서는 블로그를 먼저 권해야 한다.
-//   ★ 정적 HTML 에 본문이 없는 SPA 가 있다(실측: 아임웹 ddnusu.imweb.me — HTML 1MB 인데
-//     본문 691자, 전부 로그인·알림 UI). 이때는 조용히 빈 결과를 주지 말고 붙여넣기로 안내한다.
+//   ★ SPA(아임웹 등)는 메인 HTML 에 본문이 없다(ddnusu.imweb.me: HTML 1MB 인데 본문 691자,
+//     전부 로그인·알림 UI). 다만 포기할 일은 아니다 — sitemap.xml 의 하위 페이지에는 본문이 있다.
+//     실측 2026-08-07: /main·/shop_view/1~9 를 걷어 1,257자 확보, 내용이
+//     "계양구 하수누수 · 부천 여월휴먼시아 직수누수" 처럼 지역×제품 형태의 진짜 자료였다.
+//     그래도 안 나올 때만 붙여넣기로 안내한다(조용히 빈손으로 돌려보내지 않는다).
 //   추출(GPT)은 기존 /api/extract-menu 가 그대로 이어받는다 — 여기선 원문만 만든다.
 type FunctionContext = { request: Request; env: Record<string, string | undefined> };
 
@@ -250,7 +253,18 @@ async function handle(raw: string) {
         return jsonResponse({ message: `네이버 블로그(${blogId})의 글을 가져오지 못했습니다. 블로그가 비공개이거나 글이 없을 수 있습니다.` }, 422);
     }
     if (!out) {
-        const w = await fromWebsite(u);
+        let w = await fromWebsite(u);
+        // ★ HTTPS 를 안 쓰는 사이트가 아직 많다. 스킴 없이 적어 넣으면 https 로 붙는데,
+        //   그게 실패하면 http 로 한 번 더 간다(실측 2026-08-07: gyeongginurse.co.kr 를
+        //   'gyeongginurse.co.kr' 로 넣으면 실패, 'http://…' 로 넣으면 8페이지 3,347자 성공.
+        //   고객은 스킴을 안 적는 쪽이 훨씬 흔하므로 이걸 막으면 대부분 못 읽는다).
+        const weak = (r: typeof w) => 'error' in r || r.text.replace(/\s/g, '').length < MIN_USEFUL;
+        if (weak(w) && !/^https?:\/\//i.test(raw.trim()) && u.protocol === 'https:') {
+            const alt = new URL(u.toString());
+            alt.protocol = 'http:';
+            const w2 = await fromWebsite(alt);
+            if (!weak(w2)) w = w2;
+        }
         if ('error' in w) return jsonResponse({ message: w.error }, 502);
         out = w as NonNullable<typeof out>;
     }
