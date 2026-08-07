@@ -5,7 +5,7 @@ import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudi
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
-import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, publishTargetFor, kstYmd, fmtScheduled, type GenQueueSummary } from '../../api/cafeGenRequests';
+import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, publishTargetFor, kstYmd, kstNowNaive, fmtScheduled, type GenQueueSummary } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { customerLogin } from '../../api/nusu2Bridge';
@@ -81,8 +81,14 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     const [scheduleMode, setScheduleMode] = useState<'now' | 'tomorrow' | 'custom' | 'spread'>('now');
     const [scheduleAt, setScheduleAt] = useState('');   // datetime-local "YYYY-MM-DDTHH:mm"
     const [spreadTotal, setSpreadTotal] = useState(''); // 여러 날 분산 총 건수(빈값=미사용 전체)
-    const [spreadStart, setSpreadStart] = useState(''); // 분산 시작일 "YYYY-MM-DD"(빈값=내일)
+    const [spreadStartAt, setSpreadStartAt] = useState(''); // 시작 datetime-local(빈값=지금부터 즉시)
+    const [spreadEnd, setSpreadEnd] = useState('');         // 끝 날짜 "YYYY-MM-DD"(빈값=자동=필요한 만큼)
     const [spreadPerDay, setSpreadPerDay] = useState<number | ''>(''); // 하루 발행건수(빈값=daily_cap). 설고처럼 하루 1건도 선택 가능
+    // 두 날짜(YYYY-MM-DD) 사이 일수(b-a).
+    const daysBetweenYmd = (a: string, b: string) => {
+        const [ay, am, ad] = a.split('-').map(Number); const [by, bm, bd] = b.split('-').map(Number);
+        return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
+    };
     // 단일 시각 예약값(지금=NULL / 내일10시 / 직접). 분산 모드는 여기 안 쓰고 chunk별로 따로 계산.
     const computeScheduledAt = (): string | null => {
         if (scheduleMode === 'now' || scheduleMode === 'spread') return null;
@@ -640,24 +646,35 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 // 하루 발행건수 — 사용자가 고른 값(1~daily_cap). 빈값이면 daily_cap. SUB2 하루상한을 넘겨도 무의미하므로 cap으로 클램프.
                 const capMax = Math.max(1, dailyCap);
                 const perDay = spreadPerDay ? Math.min(Math.max(1, Number(spreadPerDay)), capMax) : capMax;
-                const spreadStartYmd = spreadStart || kstYmd(1);
+                // 시작 = 지정 datetime 또는 지금(KST). day0가 시작 시각(비우면 지금 = 즉시 발행). 이후 매일 같은 시각.
+                const startNaive = spreadStartAt ? (spreadStartAt.length === 16 ? `${spreadStartAt}:00` : spreadStartAt.slice(0, 19)) : kstNowNaive();
+                const startYmd = startNaive.slice(0, 10);
+                const startTime = startNaive.slice(11, 19) || '10:00:00';
+                // 끝 날짜를 정하면 그 범위로 제한(범위가 짧으면 다 못 넣고 나머지는 제외). 안 정하면 필요한 만큼.
+                const neededDays = Math.max(1, Math.ceil(spreadN / perDay));
+                const maxDays = spreadEnd ? Math.max(1, daysBetweenYmd(startYmd, spreadEnd) + 1) : neededDays;
+                const spreadDays = Math.min(neededDays, maxDays);
+                const effTotal = Math.min(spreadN, spreadDays * perDay);
+                const spreadLeftover = spreadN - effTotal;
+                const spreadEndYmd = addDaysYmd(startYmd, spreadDays - 1);
                 const spreadChunks: number[] = [];
-                for (let i = 0; i < spreadN; i += perDay) spreadChunks.push(Math.min(perDay, spreadN - i));
+                for (let i = 0; i < effTotal; i += perDay) spreadChunks.push(Math.min(perDay, effTotal - i));
                 const sendSpread = async (style: 'info' | 'review') => {
-                    const picks = spreadBase.slice(0, spreadN);
+                    const picks = spreadBase.slice(0, effTotal);
                     if (!picks.length) { setReqMsg('분산할 미사용 키워드가 없습니다.'); return; }
                     setReqBusy(true); setReqMsg('');
                     let total = 0, day = 0;
                     for (let i = 0; i < picks.length; i += perDay) {
                         const chunk = picks.slice(i, i + perDay);
-                        const at = `${addDaysYmd(spreadStartYmd, day)}T10:00:00`;
+                        const at = `${addDaysYmd(startYmd, day)}T${startTime}`;
                         const { error, count } = await enqueueGenRequestsSelf(clientId!, chunk, productKw, style, false, at);
                         if (error) { setReqBusy(false); setReqMsg(`요청 실패(${day + 1}일차): ${error.message}`); await loadGenStatus(); return; }
                         total += count; day += 1;
                     }
                     setReqBusy(false);
                     setSelfPicked(new Set());
-                    setReqMsg(`${total}건을 ${day}일에 나눠 예약 완료(하루 ${perDay}건 · ${style === 'info' ? '정보성' : '후기성'}). ${spreadStartYmd} 10:00부터 · 하루 안 간격은 SUB2가 분산.`);
+                    const startLbl = spreadStartAt ? `${startYmd} ${startTime.slice(0, 5)}` : '지금';
+                    setReqMsg(`${total}건을 ${day}일에 나눠 예약 완료(하루 ${perDay}건 · ${style === 'info' ? '정보성' : '후기성'}). ${startLbl}부터 ~ ${spreadEndYmd}${spreadLeftover ? ` · 범위 밖 ${spreadLeftover}건 제외` : ''}. 하루 안 간격은 SUB2가 분산.`);
                     await loadGenStatus();
                 };
                 return (
@@ -733,14 +750,22 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                         <button key={n} type="button" onClick={() => setSpreadPerDay(n)}
                                             className={`h-8 w-8 rounded-md text-[12px] font-bold ${perDay === n ? 'bg-[#7c3aed] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]'}`}>{n}</button>
                                     ))}
-                                    <span className="text-[#64748b]">건 <span className="text-[#94a3b8]">(최대 {capMax}·설정값)</span> · 시작</span>
-                                    <input type="date" value={spreadStart} onChange={(e) => setSpreadStart(e.target.value)}
-                                        placeholder={spreadStartYmd} className="h-8 rounded-md border border-[#cbd5e1] px-2 text-[12px]" />
-                                    <span className="text-[#64748b]">10:00부터</span>
+                                    <span className="text-[#64748b]">건 <span className="text-[#94a3b8]">(최대 {capMax})</span></span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                                    <span className="font-semibold text-[#475569]">시작</span>
+                                    <input type="datetime-local" value={spreadStartAt} onChange={(e) => setSpreadStartAt(e.target.value)}
+                                        className="h-8 rounded-md border border-[#cbd5e1] px-2 text-[12px] text-[#334155]" />
+                                    <span className="text-[#94a3b8]">{spreadStartAt ? '' : '(비우면 지금부터 즉시)'}</span>
+                                    <span className="font-semibold text-[#475569]">끝</span>
+                                    <input type="date" value={spreadEnd} onChange={(e) => setSpreadEnd(e.target.value)}
+                                        className="h-8 rounded-md border border-[#cbd5e1] px-2 text-[12px] text-[#334155]" />
+                                    <span className="text-[#94a3b8]">{spreadEnd ? '' : '(비우면 필요한 만큼)'}</span>
                                 </div>
                                 <div className="text-[11px] font-semibold text-[#7c3aed]">
-                                    {spreadN ? `→ ${spreadChunks.join(' / ')} (${spreadChunks.length}일, ${spreadStartYmd}${spreadChunks.length > 1 ? `~${addDaysYmd(spreadStartYmd, spreadChunks.length - 1)}` : ''})` : '→ 분산할 미사용 키워드가 없습니다'}
-                                    <span className="ml-1 font-normal text-[#94a3b8]">· 하루 안 간격은 SUB2가 알아서 벌립니다</span>
+                                    {effTotal ? `→ ${spreadChunks.join(' / ')} (${spreadChunks.length}일, ${startYmd}~${spreadEndYmd})` : '→ 분산할 미사용 키워드가 없습니다'}
+                                    <span className="ml-1 font-normal text-[#94a3b8]">· {spreadStartAt ? `${startYmd} ${startTime.slice(0, 5)}` : '지금'}부터 · 하루 안 간격은 SUB2가 벌림</span>
+                                    {spreadLeftover ? <span className="ml-1 font-bold text-[#dc2626]">· 범위 밖 {spreadLeftover}건 제외(끝을 늘리거나 하루 건수↑)</span> : null}
                                 </div>
                             </div>
                         ) : null}
@@ -758,13 +783,13 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                             )}
                             {scheduleMode === 'spread' ? (
                                 <div className="ml-auto flex gap-2">
-                                    <button type="button" onClick={() => void sendSpread('info')} disabled={reqBusy || !spreadN}
+                                    <button type="button" onClick={() => void sendSpread('info')} disabled={reqBusy || !effTotal}
                                         className="h-10 rounded-lg bg-[#2563eb] px-5 text-sm font-bold text-white hover:bg-[#1d4ed8] disabled:opacity-50">
-                                        {reqBusy ? '전송 중…' : `정보성 ${spreadN}건 분산`}
+                                        {reqBusy ? '전송 중…' : `정보성 ${effTotal}건 분산`}
                                     </button>
-                                    <button type="button" onClick={() => void sendSpread('review')} disabled={reqBusy || !spreadN}
+                                    <button type="button" onClick={() => void sendSpread('review')} disabled={reqBusy || !effTotal}
                                         className="h-10 rounded-lg bg-[#7c3aed] px-5 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50">
-                                        {reqBusy ? '전송 중…' : `후기성 ${spreadN}건 분산`}
+                                        {reqBusy ? '전송 중…' : `후기성 ${effTotal}건 분산`}
                                     </button>
                                 </div>
                             ) : (
