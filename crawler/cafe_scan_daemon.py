@@ -57,13 +57,19 @@ def log(m):
 
 
 def busy():
-    """고객 온디맨드 요청이 대기·처리중인가. 있으면 데몬은 즉시 비켜 준다."""
+    """참고용 — 온디맨드 요청이 대기·처리중인가. 로그 표시에만 쓴다.
+
+       ★ 예전엔 이걸로 데몬을 전면 중단시켰다. 그런데 예산 게이트(cap=share)가 이미
+         '온디맨드 포함 최근 10분 총 90콜'을 강제하므로, 온디맨드가 바쁘면 데몬은
+         자동으로 0을 받는다. 그 위에 전면 중단을 덧씌우니 데몬이 굶었다 —
+         실측(SUB4 2026-08-07): 재기동 후 18시간 동안 유효 작업 0건
+         (양보 55회 + 공회전 703회). 이중 방어를 하나로 줄인다."""
     try:
         r = requests.get(f"{SB}/rest/v1/cafe_kw_requests?status=in.(queued,claimed)&select=id&limit=1",
                          headers=H, timeout=10)
         return r.status_code == 200 and bool(r.json())
     except Exception:
-        return True          # 확인 못 하면 긁지 않는다(안전 쪽으로)
+        return False
 
 
 def lease():
@@ -243,12 +249,10 @@ def run_plan(plan, todo, done, share):
     while todo and used < share:
         if not lease():        # 한 계획이 share=90콜 ≈ 4분이라 리스(180초)가 도중에 만료된다 → 청크마다 갱신
             break
-        if busy():
-            log("  온디맨드 요청 감지 — 양보하고 대기")
-            break
+        # 양보는 예산 게이트가 대신한다 — 온디맨드가 콜을 태우면 원장이 차서 아래 take() 가 0을 준다.
         n = take(min(CHUNK, share), share)
         if n <= 0:
-            log(f"  10분 예산({share}콜) 소진 — 대기")
+            log(f"  10분 예산({share}콜) 소진 — 대기{' (온디맨드 진행 중)' if busy() else ''}")
             break
         for _ in range(n):
             if not todo:
@@ -312,12 +316,8 @@ def main():
             except Exception:
                 pass
             prune_at = time.time()
-        if busy():
-            log("온디맨드 처리 중 — 양보")
-            if once:
-                return 0
-            time.sleep(YIELD_SEC)
-            continue
+        # 여기서 전면 중단하지 않는다 — 예산 게이트(cap=share)가 온디맨드 사용량까지 세므로
+        #   바쁘면 자동으로 0콜이 되고, 한가하면 남은 만큼만 채운다. 총량은 어차피 90 안이다.
         plan, todo, done = pick_ready_plan()
         if not plan:
             # 할 일이 없으면 길게 쉰다 — 옛 코드는 64초마다 703회를 헛돌았다(SUB4 실측).
