@@ -31,6 +31,7 @@ export default function CafeDeployAdminPanel() {
     const [delId, setDelId] = useState<string | null>(null); // 삭제 확인 대기 행
     const [kwOpen, setKwOpen] = useState<Record<string, boolean>>({}); // 키워드 칩 드롭다운 펼침
     const [credOpen, setCredOpen] = useState<Record<string, boolean>>({}); // 네이버 계정 자세히보기 펼침
+    const [photoOpen, setPhotoOpen] = useState<Record<string, boolean>>({}); // 사진 전체 펼침(기본은 처음 N장만 — 렉 방지)
     const [issueOpen, setIssueOpen] = useState<string | null>(null); // 토큰 발행 수 입력 중인 행
     const [issueCount, setIssueCount] = useState(''); // 발행할 토큰 수(편집)
     const [clubidEdit, setClubidEdit] = useState<Record<string, string>>({}); // 행별 clubid 입력값
@@ -157,15 +158,31 @@ export default function CafeDeployAdminPanel() {
                                         <td className="whitespace-nowrap px-2 py-2">{r.mission_start ?? '-'}</td>
                                         <td className="whitespace-nowrap px-2 py-2 text-center">{r.daily_count ?? '-'}/{r.total_count ?? '-'}</td>
                                         <td className="px-2 py-2">
-                                            {paths.length === 0 ? <span className="text-[#94a3b8]">-</span> : (
-                                                <div className="flex flex-wrap gap-1">
-                                                    {paths.map((p) => (
-                                                        <a key={p} href={urls[p] || '#'} target="_blank" rel="noreferrer" download title={p.split('/').pop() ?? ''}>
-                                                            {urls[p] ? <img src={urls[p]} alt="" className="h-9 w-9 rounded border border-[#e2e8f0] object-cover hover:opacity-80" /> : <span className="flex h-9 w-9 items-center justify-center rounded border border-[#e2e8f0] text-[9px] text-[#94a3b8]">…</span>}
-                                                        </a>
-                                                    ))}
-                                                </div>
-                                            )}
+                                            {paths.length === 0 ? <span className="text-[#94a3b8]">-</span> : (() => {
+                                                // 렉 방지 — 기본은 처음 8장만 렌더(+지연 로딩). 나머지는 '+N'로 펼침.
+                                                const open = photoOpen[r.id];
+                                                const LIMIT = 8;
+                                                const shown = open ? paths : paths.slice(0, LIMIT);
+                                                const rest = paths.length - shown.length;
+                                                return (
+                                                    <div className="flex max-w-[340px] flex-wrap items-center gap-1">
+                                                        {shown.map((p) => (
+                                                            <a key={p} href={urls[p] || '#'} target="_blank" rel="noreferrer" download title={p.split('/').pop() ?? ''}>
+                                                                {urls[p] ? <img src={urls[p]} alt="" loading="lazy" decoding="async" className="h-9 w-9 rounded border border-[#e2e8f0] object-cover hover:opacity-80" /> : <span className="flex h-9 w-9 items-center justify-center rounded border border-[#e2e8f0] text-[9px] text-[#94a3b8]">…</span>}
+                                                            </a>
+                                                        ))}
+                                                        {rest > 0 ? (
+                                                            <button type="button" onClick={() => setPhotoOpen((s) => ({ ...s, [r.id]: true }))}
+                                                                className="flex h-9 items-center justify-center rounded border border-[#cbd5e1] bg-[#f8fafc] px-2 text-[11px] font-bold text-[#475569] hover:bg-[#eef2f7]">+{rest}장</button>
+                                                        ) : null}
+                                                        {open && paths.length > LIMIT ? (
+                                                            <button type="button" onClick={() => setPhotoOpen((s) => ({ ...s, [r.id]: false }))}
+                                                                className="flex h-9 items-center justify-center rounded border border-[#cbd5e1] bg-[#f8fafc] px-2 text-[11px] font-semibold text-[#64748b] hover:bg-[#eef2f7]">접기</button>
+                                                        ) : null}
+                                                        <span className="ml-0.5 text-[10px] text-[#94a3b8]">총 {paths.length}장</span>
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                         <td className="whitespace-nowrap px-2 py-2 text-[12px]">
                                             {cd ? (
