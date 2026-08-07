@@ -592,8 +592,9 @@ export function CafeKeywordFinder({
                     </div>
                     {/* 플레이스가 없는 업체용 경로 — 위치를 직접 적고, 소개/메뉴를 붙여넣어 제품키워드를 만든다.
                         추출 결과는 반드시 체크박스로 확정한다(자동 채우기 금지). */}
-                    <details className="rounded-md border border-dashed border-[#c4b5fd] bg-white/60 px-3 py-2">
-                        <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 플레이스가 없나요? — 위치 + 업체 정보 붙여넣기로 키워드 찾기</summary>
+                    {/* 기본 펼침 — 접어 두면 찾지를 못한다(주소 입력이 이제 이 화면의 주된 입력 경로다). */}
+                    <details open className="rounded-md border border-dashed border-[#c4b5fd] bg-white/60 px-3 py-2">
+                        <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">🌐 홈페이지·블로그 주소로 키워드 찾기 (플레이스가 없어도 됩니다)</summary>
                         <div className="mt-2 grid gap-2">
                             <input className={inputCls} value={addr} onChange={(e) => setAddr(e.target.value)}
                                 placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />

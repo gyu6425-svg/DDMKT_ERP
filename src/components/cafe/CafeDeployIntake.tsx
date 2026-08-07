@@ -910,8 +910,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 ))}
                             </div>
                             {/* 플레이스가 없는 업체용 — 위치를 직접 적고 소개/메뉴를 붙여넣으면 제품키워드를 만들어 준다. */}
-                            <details className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
-                                <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 플레이스가 없나요? — 위치 + 업체 정보로 키워드 만들기</summary>
+                            {/* 기본 펼침 — 접어 두면 고객이 찾지를 못한다(주소 입력이 이제 주된 접수 경로다). */}
+                            <details open className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
+                                <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">🌐 홈페이지·블로그 주소로 키워드 만들기 (플레이스가 없어도 됩니다)</summary>
                                 <div className="mt-2 grid gap-2">
                                     <input className={inputCls} value={ownAddr} onChange={(e) => setOwnAddr(e.target.value)}
                                         placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
