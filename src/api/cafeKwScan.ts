@@ -135,7 +135,15 @@ export async function enqueuePlaceScan(placeUrl: string, target = 10, regions = 
 
 // 지역 인기탭 조회 — 제품키워드(출장부페 등) × 선택 시도의 구/시를 워커가 검색량 게이트 후 인기탭 스캔.
 //   place_url='region:<제품키워드>' 로 워커 process_region 라우팅. 결과·캐시는 place scan 과 동일(pollPlaceScan).
-export async function enqueueRegionScan(productKw: string, regions: string, target = 300, includeDong = false) {
+// 회차 정책 — 한 번에 30건 찾고 멈추고, 부족하면 ＋10 씩 이어서 본다.
+//   ★ 전수 스캔은 오래 걸리고 CF 차단 예산(300콜/10분)을 태운다. 워커가 target 을 채우면 즉시 끝낸다.
+//     실측 2026-08-07(경기간호 49개 키워드 × 경기 349토큰 = 17,091조합):
+//       30건 채우는 데 실측 115콜 · 5분 29초. 전수였다면 17,091콜(≈10시간·예산 57배 초과).
+//   ★ 두 화면이 같은 숫자를 쓰게 여기서만 정한다 — 예전엔 사무실 30 / 고객ERP 300 으로 갈려 있었다.
+export const FIRST_TARGET = 30;
+export const MORE_STEP = 10;
+
+export async function enqueueRegionScan(productKw: string, regions: string, target = FIRST_TARGET, includeDong = false) {
     const { data: u } = await supabase.auth.getUser();
     const uid = u.user?.id ?? null;
     // deploy_type='지역-동' 이면 워커가 동(洞)까지('더 찾기'). 기본은 구/시만(빠름).
@@ -384,7 +392,7 @@ export async function enqueueMenuScan(
             regions: opts?.regions ?? '',
             requested_by: uid,
             status: 'queued',
-            target: opts?.target ?? 30,
+            target: opts?.target ?? FIRST_TARGET,
         })
         .select('id').single();
     if (error || !data) return { id: null as number | null, error };

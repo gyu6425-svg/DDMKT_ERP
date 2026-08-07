@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -262,7 +262,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         const list = popManualKws.length ? popManualKws : [(form.keyword || '').trim()].filter(Boolean);
         if (!list.length) { setKwErr('확인할 키워드를 입력하세요(입력 후 엔터/추가).'); return; }
         setKwErr(''); setKwLoading(true); setScanNote('인기탭 확인 준비 중…');
-        setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
+        setKwResult(null); setKwHidden([]); setKwPicked([]);
         try {
             const { id, error } = await enqueueListScan(list, 50);
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
@@ -290,7 +290,6 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [scanNote, setScanNote] = useState('');   // 인기탭 스캔 진행상태(게이지바) — "진행 x/total" 형태면 % 표시
     const [kwResult, setKwResult] = useState<KwResult[] | null>(null);
     const [kwErr, setKwErr] = useState('');
-    const [kwExpanded, setKwExpanded] = useState(false); // '더 보기'로 전체(target 상향) 스캔 완료 여부
     const [kwHidden, setKwHidden] = useState<string[]>([]); // X로 제외한 키워드(화면에서만 숨김)
     const [kwPicked, setKwPicked] = useState<KwResult[]>([]); // 고객이 고른 키워드(발행 대상 → 접수에 전달)
     const [pickedOpen, setPickedOpen] = useState(false); // 선택 키워드 드롭다운 펼침(기본 접힘 · 우측 N개)
@@ -307,20 +306,29 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   재스캔 시 중복 제외. 공백만 정규화(다른 키워드는 구분 유지).
     const [usedKw, setUsedKw] = useState<Set<string>>(new Set());
     const normKw = (s: string) => (s || '').trim().replace(/\s+/g, ' ');
-    // target=10 기본(빠름). '더 보기'로 50까지 올려 후보 풀 전체를 훑는다(수 분 소요).
-    //   실제 개수는 그 플레이스의 인기글 진입 키워드 수가 상한(지역형=많음, 맛집 니치=적음).
-    const runPlaceScan = async (target = 10) => {
+    // 회차 정책 — 30건 찾고 멈추고, 부족하면 ＋10 씩 이어서 본다(사무실 화면과 같은 숫자·같은 동작).
+    //   숫자는 cafeKwScan 에서만 정한다. 예전엔 이 화면이 플레이스형 10→50, 지역형 300 이라
+    //   같은 기능인데 화면마다 결과 개수가 달랐다.
+    const [scanTarget, setScanTarget] = useState(FIRST_TARGET);
+    const runPlaceScan = async (target = FIRST_TARGET) => {
         const u = (form.url || '').trim();
         if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
-        setKwErr(''); setKwLoading(true); setScanNote('인기탭 분석 준비 중…');
-        if (target <= 10) { setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]); }
+        setKwErr(''); setKwLoading(true); setScanNote('인기탭 분석 준비 중…'); setScanTarget(target);
+        // 첫 회차만 초기화 — '＋더 찾기'는 기존 결과에 이어붙인다(이미 판정된 건 캐시라 즉시 통과).
+        const prev = target > FIRST_TARGET ? (kwResult ?? []) : [];
+        if (target <= FIRST_TARGET) { setKwResult(null); setKwHidden([]); setKwPicked([]); }
         try {
             const { id, error } = await enqueuePlaceScan(u, target, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
             if (error || !id) throw new Error(error?.message || '요청 실패');
-            // 대량(50개) 스캔은 수 분 걸릴 수 있어 폴링 타임아웃을 넉넉히(10분).
-            const { result } = await pollPlaceScan(id, { timeoutSec: target > 10 ? 600 : 180, onProgress: (note) => setScanNote(note) });
-            setKwResult(result);
-            if (target > 10) setKwExpanded(true);
+            const { result } = await pollPlaceScan(id, { timeoutSec: target > FIRST_TARGET ? 900 : 300, onProgress: (note) => setScanNote(note) });
+            // 회차를 이어붙인다 — 워커가 target 만큼만 채우고 끝내므로 이전 회차 결과를 잃으면 안 된다.
+            const seenPl = new Set<string>();
+            const mergedPl: KwResult[] = [];
+            for (const r of [...prev, ...result]) {
+                const n = r.keyword.replace(/\s/g, '');
+                if (!seenPl.has(n)) { seenPl.add(n); mergedPl.push(r); }
+            }
+            setKwResult(mergedPl);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '분석 실패');
         } finally {
@@ -331,21 +339,30 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   결과를 kwResult 에 넣어 키워드형과 같은 선택 UI(복수선택·×제외·중복제외)로 다룬다. 스캔 없음(동×키워드가 발행 대상).
     // 지역형 키워드 생성 — 고객 제품키워드 칩 × 선택 지역의 '행정구/시'. (동 아님 — 실측상 동 인기탭 0)
     //   예: 칩[누수탐지,누수] × 서울·경기 → '강남 누수탐지','강남 누수','수원 누수탐지'…
-    const genRegionKeywords = async () => {
+    const genRegionKeywords = async (target = FIRST_TARGET) => {
         const kws = (productKws.length ? productKws : [(form.keyword || '').trim()]).filter(Boolean);
         if (!kws.length) { setKwErr('제품 키워드를 추가하세요(입력 후 엔터/추가). 예: 누수탐지'); return; }
         const sidos = form.region_sets || [];
         if (!sidos.length && !ownAddr.trim()) { setKwErr('지역을 선택하거나 위치를 직접 입력하세요.'); return; }
-        setKwErr(''); setKwLoading(true); setScanNote('지역 인기탭 조회 준비 중…'); setKwResult(null); setKwExpanded(false); setKwHidden([]); setKwPicked([]);
+        setKwErr(''); setKwLoading(true); setScanNote('지역 인기탭 조회 준비 중…'); setScanTarget(target);
+        // 첫 회차만 초기화 — '＋더 찾기'는 기존 결과 위에 이어붙인다.
+        const prev = target > FIRST_TARGET ? (kwResult ?? []) : [];
+        if (target <= FIRST_TARGET) { setKwResult(null); setKwHidden([]); setKwPicked([]); }
         try {
             // 위치를 직접 적었으면 그 주소에서 지역 축을 뽑아 '가까운 곳부터' 본다(플레이스 없는 업체).
             //   시도까지 골랐으면 자기 지역을 채운 뒤 그 시도 전체로 확장한다.
             if (ownAddr.trim()) {
-                const { id, error } = await enqueueMenuScan(ownAddr, kws, { name: form.company_name, regions: sidos.join(',') });
+                const { id, error } = await enqueueMenuScan(ownAddr, kws, { name: form.company_name, regions: sidos.join(','), target });
                 if (error || !id) throw new Error(error?.message || '분석 등록 실패');
                 const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(note) });
-                if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${ownAddr.trim()} × [${kws.join(', ')}]`); return; }
-                setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+                const seenOwn = new Set<string>();
+                const mergedOwn: KwResult[] = [];
+                for (const r of [...prev, ...result]) {
+                    const n = r.keyword.replace(/\s/g, '');
+                    if (!seenOwn.has(n)) { seenOwn.add(n); mergedOwn.push(r); }
+                }
+                if (!mergedOwn.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${ownAddr.trim()} × [${kws.join(', ')}]`); return; }
+                setKwResult(mergedOwn.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
                 return;
             }
             // ① 캐시 양성 즉시 표시(UX) — 하지만 여기서 멈추지 않고 ②에서 전수 재검증한다.
@@ -355,12 +372,12 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             const cached = await getPopularFromCache([...combos]);
             const seen = new Set<string>();
             const merged: KwResult[] = [];
-            for (const r of cached) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
+            for (const r of [...prev, ...cached]) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
             if (merged.length) setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));   // 캐시분 먼저
             // ② 항상 라이브 지역 스캔 — 캐시 양성만 믿고 멈추면 prescan 음성·미스캔분 누락(워커 내부 배치캐시로 판정된 건 즉시).
             for (let i = 0; i < kws.length; i++) {
                 const pk = kws[i];
-                const { id, error } = await enqueueRegionScan(pk, sidos.join(','));
+                const { id, error } = await enqueueRegionScan(pk, sidos.join(','), target);
                 if (error || !id) continue;
                 const tag = kws.length > 1 ? ` (${i + 1}/${kws.length})` : '';
                 const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
@@ -425,7 +442,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setForm({ ...empty, company_name: bizName }); setFiles({ main: [], real: [], banner: [] }); setPlaceDetail('');
         setOwnAddr(''); setExtracted(null); setPicked(new Set()); setPopManualKws([]);
         setSeed(''); setRelCands(null); setRelPicked(new Set()); setRelRegional([]); setCachedHits(null);
-        setKwResult(null); setKwPicked([]); setKwHidden([]); setKwExpanded(false); setPickedOpen(false);
+        setKwResult(null); setKwPicked([]); setKwHidden([]); setPickedOpen(false);
         reload();
     };
 
@@ -535,17 +552,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             </div>
                         </div>
                     ) : null}
-                    {/* 더 찾기 — 옛 조건은 '결과 10개 이상'이었다. 그런데 결과가 적을수록 더 필요하다
-                        (3건만 나왔을 때 더 찾고 싶지, 10건 나왔을 때만 찾고 싶은 게 아니다).
-                        결과가 있고 아직 깊이 안 판 상태면 항상 보여준다. */}
-                    {isKw && !kwExpanded ? (
-                        <button type="button" onClick={() => void runPlaceScan(50)} disabled={kwLoading}
-                            className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50"
-                            title="후보 키워드를 더 깊이 스캔합니다(최대 50개, 수 분 소요)">
-                            {kwLoading ? '전체 스캔 중… (수 분 소요)' : `＋ 더 찾기 — 최대 50개까지 깊이 스캔 (지금 ${kwResult.length}개)`}
-                        </button>
-                    ) : null}
-                    {isKw && kwExpanded ? <div className="mt-1 text-center text-[11px] text-[#94a3b8]">전체 {kwResult.length}개 · 후보 풀 상한까지 스캔됨</div> : null}
+                    {/* ＋더 찾기 — 회차당 30건에서 멈추므로 부족하면 ＋10 씩 이어서 본다(사무실 화면과 동일).
+                        결과가 적을수록 더 필요하다 — 3건만 나왔을 때 더 찾고 싶지, 30건 나왔을 때만이 아니다.
+                        이미 판정된 조합은 캐시 히트라 즉시 통과하므로 이어찾기는 처음보다 빠르다. */}
+                    <button type="button" onClick={() => void (isKw ? runPlaceScan(scanTarget + MORE_STEP) : genRegionKeywords(scanTarget + MORE_STEP))}
+                        disabled={kwLoading}
+                        className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50"
+                        title="이번 회차는 30건에서 멈춥니다. 부족하면 10건씩 이어서 찾습니다(이미 본 조합은 건너뜁니다).">
+                        {kwLoading ? '이어서 찾는 중…' : `＋${MORE_STEP} 더 찾기 (지금 ${kwResult.length}개 · 목표 ${scanTarget + MORE_STEP}개)`}
+                    </button>
                 </div>
                 );
             })()}

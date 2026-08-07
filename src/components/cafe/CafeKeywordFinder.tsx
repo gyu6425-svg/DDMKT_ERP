@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -114,8 +114,7 @@ export function CafeKeywordFinder({
     // 한 번에 목표 건수만 찾고 멈춘다 — 전수 스캔은 오래 걸리고 차단 예산(CF 300콜/10분)을 태운다.
     //   워커가 target 을 채우면 즉시 종료하므로, 실측상 입주청소 10건은 20콜(전수 265콜 대비 -92%).
     //   부족하면 '+10 더 찾기'로 target 을 올려 이어서 스캔한다(이미 판정된 건 캐시 히트라 즉시 통과).
-    const FIRST_TARGET = 30;
-    const MORE_STEP = 10;
+    //   숫자는 cafeKwScan(FIRST_TARGET/MORE_STEP)에서만 정한다 — 두 화면이 갈리지 않게.
     const [regionTarget, setRegionTarget] = useState(FIRST_TARGET);
     const runRegion = async (includeDong: boolean, target = FIRST_TARGET) => {
         // 칩이 있으면 칩 전부, 없으면 입력칸(쉼표/줄바꿈)으로. → 여러 키워드 한 번에 조회.
