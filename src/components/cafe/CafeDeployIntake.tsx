@@ -659,10 +659,6 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     {extracting ? '조회 중…' : '① 연관어 펼치기'}
                                 </button>
                             </div>
-                            <p className="mb-0 mt-1.5 text-[11px] text-[#7c3aed]">
-                                💡 <b>지명·상품명 단독은 인기글이 거의 없습니다</b>(보홀 49,600 · 골프채 15,230 모두 없음).
-                                <b>대표단어 + 의도어</b>(여행·숙소·패키지·간병인 …) 조합에서 나옵니다.
-                            </p>
                             {relCands ? (
                                 <div className="mt-2 rounded-md border border-[#ddd6fe] bg-white p-2">
                                     <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
