@@ -3836,6 +3836,32 @@ export function ClientDetail({
                 ).map(renderFieldCard)}
             </div>
 
+            {/* 히스토리 — 고객사 관리에서 남긴 상담·문의 기록(같은 고객 레코드, 계약 관리에서도 조회). */}
+            {(() => {
+                const hist = Array.isArray(client.history) ? client.history : [];
+                return (
+                    <>
+                        <h3 className="m-0 mt-2 text-base font-bold text-[#0f172a]">
+                            히스토리 <span className="text-xs font-normal text-[#94a3b8]">— 고객사 관리 기록 ({hist.length})</span>
+                        </h3>
+                        {hist.length ? (
+                            <div className="grid gap-1.5">
+                                {hist.map((h, i) => (
+                                    <div key={i} className="flex gap-3 rounded-lg border border-[#e2e8f0] bg-white px-3 py-2">
+                                        <span className="shrink-0 text-xs font-semibold text-[#94a3b8]">{h.date || '-'}</span>
+                                        <span className="min-w-0 whitespace-pre-wrap break-words text-sm text-[#334155]">{h.text || ''}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="rounded-lg border border-dashed border-[#e2e8f0] bg-white px-3 py-4 text-center text-sm text-[#94a3b8]">
+                                기록된 히스토리가 없습니다.
+                            </div>
+                        )}
+                    </>
+                );
+            })()}
+
             {addOpen ? (
                 <ContractAddModal
                     clientId={client.id}
