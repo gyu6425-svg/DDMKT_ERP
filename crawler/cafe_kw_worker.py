@@ -855,6 +855,132 @@ def process_menu(req, payload):
               max_live=330)
 
 
+# ── 연관 인기글: 씨앗어 하나로 '전국형'과 '지역형'을 한 번에 훑는다 ────────────────
+#   왜: 같은 씨앗이라도 업종에 따라 정답이 갈린다(실측 2026-08-07).
+#     보홀·창업 → 지역을 붙이면 검색량이 1.7%로 무너지고 섹션도 3분의 2가 사라진다.
+#     간병인·입주청소 → 반대로 지역을 붙여야만 나온다(간병인 46/104, 지역 없이는 0).
+#   그래서 씨앗어를 넣으면 둘 다 시도해 '어느 쪽이 되는 업종인지'까지 알려 준다.
+# 찔러볼 지역 — 카페 활동이 많은 곳을 손으로 고른다. 종류도 섞는다.
+#   ★ 마스터에서 기계적으로 뽑으면(prio·가나다순) '419민주묘지역'·'가능역' 같은 변두리가 나와,
+#     지역형인데도 못 찾는다(위음성). 찔러보기는 표본이 K개뿐이라 대표성이 전부다.
+#   순서 근거(실측 2026-08-07): 신도시 74% > 시군구 21% > 시도 18% — 잘 나오는 종류를 앞에.
+#   ★ 유명 역(강남역·홍대입구역)을 넣으면 오히려 나빠진다 — 전수 36제품 대조에서
+#     역 없음 30/36 > 역 2개 29 > 역 4개 25. 창업의 역세권 적중(101/554)은 변두리 역에 흩어져 있어
+#     대표 역 몇 개로는 못 잡는다.
+#   ★ 한계: 찔러보기가 0이어도 '지역형 아님'이 아니다. 적중밀도가 낮은 제품
+#     (소자본창업 4/205=2%, 소방시설 4/146=3%)은 8번 찔러도 22% 확률로만 걸린다.
+#     그래서 결과는 '미확인'으로 표시하고 전수 지역 스캔을 따로 돌릴 수 있게 한다.
+_PROBE_SEED = [
+    "동탄", "강남", "수원", "서울",          # 신도시·시군구·시도
+    "판교", "부천", "성남", "경기",
+    "위례", "고양", "인천", "미사",
+    "강남역", "홍대입구역", "잠실", "안양",
+]
+
+
+def _probe_regions(k=8):
+    """지역형인지 찔러볼 지역 K개. 마스터에 실제로 있는 것만(없는 건 스캔해도 무의미)."""
+    rows = _sb_page(f"{SB}/rest/v1/cafe_region_token?select=token&active=is.true") or []
+    have = {r["token"] for r in rows}
+    out = [t for t in _PROBE_SEED if t in have][:k]
+    return out or _PROBE_SEED[:k]
+
+
+def process_related(req, payload):
+    """연관 인기글 — payload = JSON {"seed": "장기요양", "kws": [...], "probe": 8}
+       ① kws 를 지역 없이 판정(전국형)  ② 안 되는 것만 지역 K개로 찔러 지역형인지 본다.
+       결과 result = 전국형 히트. extra.regional = 지역형으로 판명된 제품키워드(전수는 지역형 스캔으로)."""
+    try:
+        d = json.loads(payload or "{}")
+    except Exception:
+        return _finish(req["id"], "failed", note="연관 payload 파싱 실패")
+    seed = (d.get("seed") or "").strip()
+    kws = [str(x).strip() for x in (d.get("kws") or []) if str(x).strip()]
+    K = int(d.get("probe") or 8)
+    if not kws:
+        return _finish(req["id"], "failed", note="후보 키워드 없음")
+    cf = bool(p._USE_CF)
+    gap = 2.5 if cf else SCAN_GAP
+    MAX_A = 45                      # 전국 판정 상한
+    MAX_PROBE_PROD = 6              # 지역 찔러보기 대상 제품 수(× K = 콜 수)
+    probes = _probe_regions(K)
+    known = set(_region_tokens_for(["서울", "경기", "인천"], True))
+
+    national, miss, errs = [], [], 0
+    cache = _cache_get_many(kws[:MAX_A])
+    for i, kw in enumerate(kws[:MAX_A], 1):
+        if i % 5 == 1:
+            try:
+                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                               json={"note": f"전국 판정 {i}/{min(len(kws), MAX_A)} · 발견 {len(national)}"}, timeout=10)
+            except Exception:
+                pass
+        c = cache.get(kw.replace(" ", ""))
+        if c is not None and _cache_trust(c):
+            (national if _is_pop(c) else miss).append(
+                {"keyword": kw, "volume": c.get("volume") or 0, "theme": _disp_theme(c),
+                 "cafes": [x for x in (c.get("cafes") or []) if x.get("kind") == "카페"][:5]})
+            continue
+        r = p.classify(kw)
+        _budget_note(1)
+        if r.get("err"):
+            errs += 1
+            if errs >= 5 and not national and not miss:
+                return _finish(req["id"], "failed", note="⚠ 스캔 차단 — 잠시 후 다시 시도하세요")
+            continue
+        r, ok, v = adjudicate(kw, r, "", kw, set())
+        v = v if v is not None else _real_volume(kw)
+        _cache_put(kw, r, v)
+        time.sleep(gap)
+        row = {"keyword": kw, "volume": v or 0, "theme": _disp_theme(r),
+               "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]}
+        (national if ok else miss).append(row)
+
+    # ② 전국에서 안 나온 것 중 검색량 높은 것부터 지역으로 찔러본다.
+    #    실측(전수 판정 36개 제품으로 시뮬레이션): K=8 이면 36개 중 33개를 맞히고 위양성은 0이다.
+    #    즉 '찔러서 나오면 진짜 지역형'이고, 놓치는 쪽(위음성)만 K 로 줄인다.
+    regional = []
+    todo = sorted(miss, key=lambda x: -(x.get("volume") or 0))[:MAX_PROBE_PROD]
+    for j, row in enumerate(todo, 1):
+        prod = row["keyword"]
+        hits = []
+        for tok in probes:
+            try:
+                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                               json={"note": f"지역형 확인 {j}/{len(todo)} · {prod}"}, timeout=10)
+            except Exception:
+                pass
+            kw2 = f"{tok} {prod}"
+            r2 = p.classify(kw2)
+            _budget_note(1)
+            time.sleep(gap)
+            if r2.get("err"):
+                continue
+            r2, ok2, v2 = adjudicate(kw2, r2, tok, prod, known)
+            _cache_put(kw2, r2, v2)
+            if ok2:
+                hits.append({"keyword": kw2, "volume": v2 or 0, "theme": _disp_theme(r2)})
+        if hits:
+            # 지역형 후보는 '제품키워드' 자체가 결과다 — 그대로 발행하는 게 아니라
+            #   이걸로 지역형 스캔을 한 번 더 돌려야 전수 키워드가 나온다. kind 로 구분해 둔다.
+            regional.append({
+                "kind": "regional", "keyword": prod, "volume": row.get("volume") or 0,
+                "theme": f"지역형 · {len(hits)}/{len(probes)} 지역에서 발견",
+                "cafes": [], "sample": [h["keyword"] for h in hits[:3]],
+            })
+
+    national.sort(key=lambda f: -(f.get("volume") or 0))
+    for n in national:
+        n["kind"] = "national"
+    regional.sort(key=lambda f: -(f.get("volume") or 0))
+    note = (f"전국형 {len(national)}건 · 지역형 후보 {len(regional)}건"
+            f"{' · 오류 ' + str(errs) if errs else ''}"
+            + (f" · 판정 {min(len(kws), MAX_A)}/{len(kws)}(상한)" if len(kws) > MAX_A else ""))
+    # 결과 배열 하나에 담고 kind 로 가른다 — cafe_kw_requests 에 별도 컬럼이 없다(extra 는 컬럼 업데이트라 실패한다).
+    _finish(req["id"], "done", result=national + regional, note=note, extra={"biz_name": seed})
+    print(f"[{_ts()}][{req['id']}] 연관 '{seed}' → 전국 {len(national)} · 지역형후보 {len(regional)}", flush=True)
+
+
 def process_list(req, payload):
     """키워드형 — 붙여넣기(정보/메뉴)에서 추출된 키워드 리스트를 '지역 없이(전국)' 인기탭 판정.
        플레이스에 메뉴·정보가 없어 후보를 못 뽑는 경우 대체 경로. 프론트에서 검색량 선별된 리스트가 '|' 로 옴."""
@@ -933,6 +1059,8 @@ def process(req):
         return process_list(req, pu[len("list:"):])
     if pu.startswith("menu:"):          # 정보입력형 — 플레이스 없는 업체(위치 직접입력 × 추출 제품키워드)
         return process_menu(req, pu[len("menu:"):])
+    if pu.startswith("related:"):       # 연관 인기글 — 씨앗어에서 전국형·지역형을 한 번에
+        return process_related(req, pu[len("related:"):])
     pid = p.parse_place_id(pu)
     info = p.place_info(pid) if pid else None
     if not info:

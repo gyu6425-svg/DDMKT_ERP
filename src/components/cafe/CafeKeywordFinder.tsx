@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -52,6 +52,8 @@ export function CafeKeywordFinder({
     const [cands, setCands] = useState<RelatedCand[] | null>(null);
     const [relPicked, setRelPicked] = useState<Set<string>>(new Set());
     const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('near');   // 어디까지 보여줄지
+    // 지역형으로 판명된 제품키워드 — 지역을 붙여야 나오는 업종(간병인·입주청소 등).
+    const [regionalCands, setRegionalCands] = useState<(KwResult & { sample?: string[] })[]>([]);
     const [addr, setAddr] = useState('');
     const [extracted, setExtracted] = useState<ExtractedProduct[] | null>(null);
     const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -261,7 +263,8 @@ export function CafeKeywordFinder({
         setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwHidden([]);
         let lastNote = '';
         try {
-            const { id, error } = await enqueueListScan(list, Math.max(30, list.length));
+            // 전국 판정 + 지역형 찔러보기를 한 번에(process_related). 결과는 kind 로 갈라 온다.
+            const { id, error } = await enqueueRelatedScan(seed, list);
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
             const { result } = await pollPlaceScan(id, {
                 timeoutSec: 900, onProgress: (n) => { lastNote = n; setScanNote(n); },
@@ -279,8 +282,13 @@ export function CafeKeywordFinder({
                 setKwErr([`체크한 ${list.length}개 중 인기탭이 확인된 키워드가 없습니다.`, ...notes].join(' '));
                 return;
             }
+            // 지역형 후보(kind='regional')는 그대로 발행할 키워드가 아니라 '지역 스캔을 돌릴 제품키워드'다.
+            //   따로 빼서 아래에 버튼으로 보여준다.
+            const reg = result.filter((r) => (r as KwResult & { kind?: string }).kind === 'regional');
+            const nat = result.filter((r) => (r as KwResult & { kind?: string }).kind !== 'regional');
+            setRegionalCands(reg as (KwResult & { sample?: string[] })[]);
             if (notes.length) setKwErr(notes.join(' '));
-            setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+            setKwResult([...nat].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
             setKeyword(seed.trim());
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '조회 실패');
@@ -407,6 +415,40 @@ export function CafeKeywordFinder({
                                         : '지역을 붙이지 않고 키워드 자체로 인기글 섹션을 확인합니다.'}
                                 </span>
                             </div>
+                        </div>
+                    ) : null}
+
+                    {/* 지역형으로 판명된 제품키워드 — 그대로 발행하는 게 아니라 지역을 붙여야 나온다.
+                        실측(2026-08-07): 간병인은 지역 없이 0건, 지역을 붙이면 46건. 반대로 창업은 그 반대다.
+                        찔러보기가 0이어도 '아님'이 아니라 '미확인'이다(저밀도 업종은 8번으로 안 걸린다). */}
+                    {regionalCands.length ? (
+                        <div className="rounded-md border border-[#f59e0b] bg-[#fffbeb] p-2">
+                            <div className="mb-1 text-[12px] font-bold text-[#b45309]">
+                                📍 지역을 붙여야 나오는 키워드 {regionalCands.length}건 — 지역 스캔을 돌리면 전수로 찾습니다
+                            </div>
+                            {/* 지역 스캔에는 시도 선택이 필요하다 — 연관 모드엔 없으므로 여기서 고르게 한다. */}
+                            <div className="mb-1.5 flex flex-wrap items-center gap-1">
+                                <span className="mr-1 text-[11px] font-semibold text-[#a16207]">지역 범위</span>
+                                {REGION_KEYS.map((r) => (
+                                    <button key={r} type="button" onClick={() => toggleRegion(r)}
+                                        className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${regionSel.includes(r) ? 'border-[#b45309] bg-[#b45309] text-white' : 'border-[#fde68a] bg-white text-[#a16207]'}`}>{r}</button>
+                                ))}
+                            </div>
+                            <div className="grid gap-1">
+                                {regionalCands.map((r) => (
+                                    <div key={r.keyword} className="flex flex-wrap items-center gap-2 rounded border border-[#fde68a] bg-white px-2 py-1 text-[12px]">
+                                        <b className="text-[#b45309]">{r.keyword}</b>
+                                        <span className="text-[#94a3b8]">{r.theme}</span>
+                                        {r.sample?.length ? <span className="text-[11px] text-[#64748b]">예: {r.sample.join(' · ')}</span> : null}
+                                        <button type="button" disabled={kwLoading || dongLoading}
+                                            onClick={() => { setKeyword(r.keyword); void runRegion(false, FIRST_TARGET); }}
+                                            className="ml-auto shrink-0 rounded bg-[#b45309] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+                                            지역 스캔 →
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                            <p className="mb-0 mt-1 text-[11px] text-[#a16207]">‘지역 스캔’을 누르면 위에서 고른 시도의 전 지역 × 이 키워드로 전수 확인합니다.</p>
                         </div>
                     ) : null}
                 </div>

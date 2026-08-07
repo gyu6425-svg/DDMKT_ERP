@@ -221,6 +221,25 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
         || (order[a.tier] - order[b.tier]) || (b.total - a.total));
 }
 
+// 연관 인기글 스캔 — 씨앗어 후보들을 ① 지역 없이(전국) 판정하고 ② 안 되는 건 지역 몇 곳을 찔러
+//   '지역형 업종'인지까지 알아낸다. 결과는 result 배열 하나에 kind='national'|'regional' 로 섞여 온다.
+//   place_url='related:{JSON}' → 워커 process_related.
+export async function enqueueRelatedScan(seed: string, keywords: string[], probe = 8) {
+    const { data: u } = await supabase.auth.getUser();
+    const uid = u.user?.id ?? null;
+    const kws = keywords.map((k) => k.trim()).filter(Boolean);
+    if (!kws.length) return { id: null as number | null, error: { message: '키워드 없음' } };
+    const payload = JSON.stringify({ kws, probe, seed: seed.trim() });
+    const { data, error } = await supabase.from('cafe_kw_requests')
+        .insert({
+            deploy_type: '키워드', place_url: `related:${payload}`, regions: '',
+            requested_by: uid, status: 'queued', target: kws.length,
+        })
+        .select('id').single();
+    if (error || !data) return { id: null as number | null, error };
+    return { id: (data as { id: number }).id, error: null };
+}
+
 export type ExtractedProduct = { kw: string; kind: string };
 
 // 업체 정보 붙여넣기 → 제품·서비스 키워드 추출(GPT). 플레이스가 없는 업체용.
