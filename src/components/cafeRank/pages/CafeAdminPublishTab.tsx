@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react';
 import { getCafeAccounts, type CafeAccount } from '../../../api/cafeAccounts';
 import { listTokens, balanceOf } from '../../../api/cafeTokens';
 import { getPendingGenRequests } from '../../../api/cafeGenRequests';
+import { getClients } from '../../../api/erp';
 import { CafeCustomerStudio } from '../../cafe/CafeCustomerStudio';
 
 // 카페 자동화 발행(관리자) — 접수 승인 후 토큰이 발행된 고객사를 골라 '우리가' 대신 발행한다.
 //   고객사 목록 = publish_enabled 된 카페 계정. 각 업체의 잔여 토큰 표시. 선택 시 그 업체 발행 스튜디오 노출.
 export function CafeAdminPublishTab() {
     const [accts, setAccts] = useState<CafeAccount[]>([]);
+    // client_id → { company, parent } — 그룹(부모: 더업스) + 업체명 표시용.
+    const [clientInfo, setClientInfo] = useState<Record<string, { company: string; parent: string | null }>>({});
     const [balById, setBalById] = useState<Record<string, number>>({}); // client_id → 잔여 토큰(원장)
     const [reservedById, setReservedById] = useState<Record<string, number>>({}); // client_id → 예약(발행요청 미완료) 건수 = 즉시 차감분
     // 선택 고객 client_id — 세팅해두면 유지(새로고침·재방문에도). localStorage 지속.
@@ -47,6 +50,12 @@ export function CafeAdminPublishTab() {
             setReservedById(reserved);
             setLoading(false);
         });
+        // 클라이언트 회사명·상위그룹(parent_company) — 발행 선택에 "더업스 › 방문요양" 표시용.
+        void getClients().then(({ data }) => {
+            const m: Record<string, { company: string; parent: string | null }> = {};
+            for (const c of data) m[c.id] = { company: c.company || '', parent: (c as { parent_company?: string | null }).parent_company ?? null };
+            setClientInfo(m);
+        });
     };
     useEffect(() => {
         reload();
@@ -83,20 +92,44 @@ export function CafeAdminPublishTab() {
                     <div className="text-[14px] font-bold text-[#0f172a]">발행할 고객사 선택</div>
                     <button type="button" onClick={reload} className="ml-auto rounded-md border border-[#cbd5e1] px-2.5 py-1 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9]">새로고침</button>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                    {accts.map((a) => {
+                {(() => {
+                    // 상위 그룹(parent_company: 더업스)으로 묶어 표시 — "더업스 › 방문요양 / 순댓국 …"으로 카페 구별.
+                    const byParent = new Map<string, CafeAccount[]>();
+                    for (const a of accts) {
+                        const parent = clientInfo[a.client_id!]?.parent || '';
+                        (byParent.get(parent) ?? byParent.set(parent, []).get(parent)!).push(a);
+                    }
+                    // 그룹 있는 것 먼저(이름순), 단독(그룹 없음)은 마지막.
+                    const groups = [...byParent.entries()].sort((x, y) => (x[0] ? 0 : 1) - (y[0] ? 0 : 1) || x[0].localeCompare(y[0]));
+                    const btn = (a: CafeAccount, showBiz: boolean) => {
                         const reserved = reservedById[a.client_id!] ?? 0;   // 발행요청 미완료 = 즉시 차감
                         const bal = Math.max(0, (balById[a.client_id!] ?? 0) - reserved);
                         const active = sel === a.client_id;
+                        const bizName = clientInfo[a.client_id!]?.company || a.display_name || a.company_key;
                         return (
                             <button key={a.id} type="button" onClick={() => setSel(a.client_id!)}
-                                className={`rounded-lg border px-3 py-2 text-left text-sm ${active ? 'border-[#7c3aed] bg-[#f5f3ff]' : 'border-[#e2e8f0] bg-white hover:bg-[#f8fafc]'}`}>
-                                <div className={`font-bold ${active ? 'text-[#6d28d9]' : 'text-[#334155]'}`}>{a.display_name || a.company_key}</div>
+                                className={`min-w-[160px] rounded-lg border px-3 py-2 text-left text-sm ${active ? 'border-[#7c3aed] bg-[#f5f3ff]' : 'border-[#e2e8f0] bg-white hover:bg-[#f8fafc]'}`}>
+                                <div className={`font-bold ${active ? 'text-[#6d28d9]' : 'text-[#334155]'}`}>{showBiz ? bizName : (a.display_name || bizName)}</div>
+                                {a.display_name && a.display_name !== bizName ? <div className="truncate text-[11px] text-[#94a3b8]" title={a.display_name}>{a.display_name}</div> : null}
                                 <div className={`text-[12px] ${bal > 0 ? 'text-[#059669]' : 'text-[#dc2626]'}`}>잔여 토큰 {bal}건{reserved ? <span className="text-[#b45309]"> · 발행중 {reserved}</span> : null}</div>
                             </button>
                         );
-                    })}
-                </div>
+                    };
+                    return (
+                        <div className="grid gap-3">
+                            {groups.map(([parent, list]) => (
+                                <div key={parent || '_none'}>
+                                    {parent ? (
+                                        <div className="mb-1.5 text-[12px] font-bold text-[#6d28d9]">🏢 {parent} <span className="font-normal text-[#94a3b8]">— 카페 {list.length}개</span></div>
+                                    ) : null}
+                                    <div className="flex flex-wrap gap-2">
+                                        {list.map((a) => btn(a, !!parent))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })()}
             </div>
 
             {/* 선택 고객사 발행 스튜디오 — key=client 로 업체 전환 시 전체 remount(이전 업체 값·키워드·계정 누출 방지) */}
