@@ -16,8 +16,10 @@
 type FunctionContext = { request: Request; env: Record<string, string | undefined> };
 
 const MAX_BYTES = 3_000_000;   // 응답 상한 — 쇼핑몰 메인은 쉽게 1MB 를 넘는다
-const MAX_TEXT = 12_000;       // 반환 상한(추출기 입력은 6,000자라 여유만 둔다)
+const MAX_TEXT = 16_000;       // 반환 상한(추출기 입력 상한과 맞춘다)
 const MIN_USEFUL = 300;        // 이 아래면 'JS 렌더라 본문이 없다'고 본다
+const BLOG_PAGES = 12;         // 글목록 페이지 상한(30개씩 → 최대 360개)
+const SITE_PAGES = 10;         // 서브페이지 상한
 const UA_PC = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 function jsonResponse(body: unknown, status = 200) {
@@ -107,23 +109,96 @@ function naverBlogId(u: URL): string {
     return first;
 }
 
+// 글목록 API — RSS 는 최신 50개뿐이라 전체 글을 못 본다(실측: gyeonggi22 전체 166개 중 50개 = 30%).
+//   제목이 이 경로의 핵심 산출물이라 여기서 전량을 걷는다. 30개씩 페이징.
+async function blogAllTitles(id: string): Promise<{ titles: string[]; total: number }> {
+    const out: string[] = [];
+    let total = 0;
+    for (let page = 1; page <= BLOG_PAGES; page++) {
+        const r = await grab(`https://blog.naver.com/PostTitleListAsync.naver?blogId=${encodeURIComponent(id)}`
+            + `&currentPage=${page}&countPerPage=30&categoryNo=0&viewdate=&parentCategoryNo=`);
+        if (!r.ok) break;
+        if (!total) total = Number((/"totalCount"\s*:\s*"?(\d+)"?/.exec(r.body) || [, '0'])[1]);
+        // 응답이 표준 JSON 이 아니다(따옴표 이스케이프가 깨져 있다) → 필드만 정규식으로 뽑는다.
+        const got = [...r.body.matchAll(/"title"\s*:\s*"([^"]*)"/g)].map((m) => {
+            try {
+                return decodeURIComponent(m[1].replace(/\+/g, ' '));
+            } catch {
+                return m[1].replace(/\+/g, ' ');
+            }
+        }).filter(Boolean);
+        if (!got.length) break;
+        out.push(...got);
+        if (total && out.length >= total) break;
+    }
+    return { titles: [...new Set(out)], total: total || out.length };
+}
+
 async function fromNaverBlog(id: string) {
     const r = await grab(`https://rss.blog.naver.com/${encodeURIComponent(id)}.xml`);
-    if (!r.ok) return null;
-    const titles = [...r.body.matchAll(/<title>([\s\S]*?)<\/title>/g)].map((m) => cdata(m[1]));
-    if (titles.length < 2) return null;
-    const descs = [...r.body.matchAll(/<description>([\s\S]*?)<\/description>/g)].map((m) => cdata(m[1]));
-    const posts = titles.slice(1);
+    const rssTitles = r.ok ? [...r.body.matchAll(/<title>([\s\S]*?)<\/title>/g)].map((m) => cdata(m[1])) : [];
+    const blogName = rssTitles[0] || '';
+    const { titles: all, total } = await blogAllTitles(id);
+    // 글목록 API 가 막히면 RSS 50개로라도 간다.
+    const posts = all.length ? all : rssTitles.slice(1);
+    if (!posts.length) return null;
+    const descs = r.ok ? [...r.body.matchAll(/<description>([\s\S]*?)<\/description>/g)].map((m) => cdata(m[1])) : [];
     // ★ 제목을 먼저·따로 넣는다. 블로그 글 제목은 업체가 이미 노리고 있는 검색어 그 자체라
     //   본문(수식어·인사말이 섞임)보다 키워드 밀도가 훨씬 높다.
     const text = [
-        `[${titles[0]} — 네이버 블로그 최근 글 제목 ${posts.length}개]`,
+        `[${blogName || id} — 네이버 블로그 글 제목 ${posts.length}개${total > posts.length ? ` (전체 ${total}개 중)` : ' (전체)'}]`,
         ...posts,
         '',
-        '[본문 발췌]',
+        '[최근 글 본문 발췌]',
         htmlToText(descs.slice(1).join('\n')),
     ].join('\n');
-    return { chars: 0, pages: [`rss.blog.naver.com/${id}.xml`], source: 'naver_blog', text, title: titles[0], posts: posts.length };
+    return {
+        chars: 0, pages: [`blog.naver.com/${id} · 글 ${posts.length}/${total}`],
+        posts: posts.length, source: 'naver_blog', text, title: blogName || id, total,
+    };
+}
+
+const SKIP_LINK = /(login|join|member|cart|order|privacy|terms|agree|sitemap|admin|adm\/|bbs\/write|logout)/i;
+const SKIP_EXT = /\.(jpg|jpeg|png|gif|webp|css|js|ico|svg|zip|pdf|hwp|xls|doc)(\?|$)/i;
+
+// 같은 사이트의 다른 페이지를 찾는다.
+//   ★ href="../sub0101.php" 같은 상대경로와 홑따옴표를 놓치면 사이트 대부분을 못 본다
+//     (실측 2026-08-07 gyeongginurse.co.kr: 서브 7장을 통째로 놓쳐 본문의 1/7 만 봤다).
+function siteLinks(html: string, base: URL): string[] {
+    const out = new Set<string>();
+    for (const m of html.matchAll(/(?:href|location(?:\.href)?)\s*=\s*["']([^"'#>]{2,120})["']/gi)) {
+        const raw = m[1].trim();
+        if (!raw || /^(javascript|mailto|tel):/i.test(raw) || SKIP_EXT.test(raw) || SKIP_LINK.test(raw)) continue;
+        try {
+            const abs = new URL(raw, base);
+            if (abs.hostname !== base.hostname || !/^https?:$/.test(abs.protocol)) continue;
+            abs.hash = '';
+            out.add(abs.toString());
+        } catch { /* 깨진 링크는 버린다 */ }
+    }
+    return [...out];
+}
+
+// 페이지마다 반복되는 전역 메뉴(기관소개·인사말·오시는길…)를 걷어낸다.
+//   ★ 안 걷어내면 8장을 모아도 같은 네비게이션이 8번 들어가 추출기 입력 상한만 잡아먹는다.
+function dedupeLines(chunks: string[]): string {
+    const seen = new Map<string, number>();
+    const lines = chunks.flatMap((c) => c.split('\n'));
+    for (const l of lines) {
+        const k = l.trim();
+        if (k) seen.set(k, (seen.get(k) || 0) + 1);
+    }
+    const used = new Set<string>();
+    const out: string[] = [];
+    for (const l of lines) {
+        const k = l.trim();
+        if (!k || k.length < 2) continue;
+        // 여러 장에 걸쳐 반복되는 줄은 한 번만 남긴다.
+        if ((seen.get(k) || 0) > 1 && used.has(k)) continue;
+        used.add(k);
+        out.push(k);
+    }
+    return out.join('\n');
 }
 
 async function fromWebsite(u: URL) {
@@ -132,26 +207,37 @@ async function fromWebsite(u: URL) {
         return { error: `사이트에 연결하지 못했습니다(HTTP ${first.status || '연결실패'}).` };
     }
     const title = cdata((/<title[^>]*>([\s\S]*?)<\/title>/i.exec(first.body) || [, ''])[1] || '').trim();
-    let text = htmlToText(first.body);
+    const chunks = [htmlToText(first.body)];
     const pages = [u.pathname || '/'];
+    const done = new Set([u.toString().replace(/#.*$/, '')]);
 
-    // 본문이 빈약하면 sitemap.xml 의 앞쪽 페이지를 몇 개 더 걷는다(회사소개·서비스가 거기 있다).
-    if (text.length < 2000) {
+    // ★ 서브페이지를 항상 걷는다(예전엔 메인이 빈약할 때만 걸어서, 메인만 두툼한 사이트는
+    //   회사소개·서비스안내를 통째로 놓쳤다). 링크 → 없으면 sitemap.xml 순.
+    let cands = siteLinks(first.body, u);
+    if (cands.length < 3) {
         const sm = await grab(new URL('/sitemap.xml', u).toString());
-        const locs = [...sm.body.matchAll(/<loc>([\s\S]*?)<\/loc>/g)]
-            .map((m) => cdata(m[1]))
-            .filter((l) => { try { return new URL(l).hostname === u.hostname; } catch { return false; } })
-            .filter((l) => !/(login|join|member|cart|order|privacy|terms)/i.test(l));
-        for (const l of locs.slice(0, 4)) {
-            if (text.length >= 6000) break;
-            if (new URL(l).pathname === (u.pathname || '/')) continue;
-            const p = await grab(l);
-            if (!p.body) continue;
-            const t = htmlToText(p.body);
-            if (t.length > 200) { text += '\n' + t; pages.push(new URL(l).pathname); }
+        for (const m of sm.body.matchAll(/<loc>([\s\S]*?)<\/loc>/g)) {
+            const l = cdata(m[1]);
+            if (SKIP_LINK.test(l) || SKIP_EXT.test(l)) continue;
+            try {
+                if (new URL(l).hostname === u.hostname) cands.push(l);
+            } catch { /* 무시 */ }
         }
+        cands = [...new Set(cands)];
     }
-    return { chars: 0, pages, source: 'website', text, title };
+    for (const l of cands) {
+        if (pages.length > SITE_PAGES) break;
+        if (done.has(l)) continue;
+        done.add(l);
+        const p = await grab(l);
+        if (!p.body) continue;
+        const t = htmlToText(p.body);
+        // 한글이 거의 없는 페이지(본문이 이미지인 곳)는 넣어봐야 추출에 방해만 된다.
+        if ((t.match(/[가-힣]/g) || []).length < 40) continue;
+        chunks.push(t);
+        pages.push(new URL(l).pathname);
+    }
+    return { chars: 0, pages, source: 'website', text: dedupeLines(chunks), title };
 }
 
 async function handle(raw: string) {

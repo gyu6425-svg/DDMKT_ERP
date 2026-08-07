@@ -7,7 +7,9 @@
 type FunctionContext = { request: Request; env: Record<string, string | undefined> };
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
-const MAX_INPUT = 6000;      // 붙여넣기 상한 — 홈페이지 통째로 넣어도 토큰 폭주 안 하게
+// 입력 상한. 6,000자였을 때 블로그 글 제목 166개(19,144자)의 31% 만 들어가 뒤쪽 글이 통째로 잘렸다.
+//   gpt-5-mini 입력은 싸다(16,000자 ≈ 11k 토큰 ≈ 4원) — 잘라서 키워드를 놓치는 쪽이 훨씬 비싸다.
+const MAX_INPUT = 16000;
 
 function jsonResponse(body: unknown, status = 200) {
     return new Response(JSON.stringify(body), {
@@ -64,7 +66,7 @@ const PROMPT = (text: string, hint: string) => `너는 네이버 카페 인기�
 2. 업체 고유 브랜드명·상호·사람 이름은 제외한다. 일반명사구만.
 3. 검색되는 형태로 정규화한다. "저희만의 특별한 속눈썹 연장술" → "속눈썹연장".
 4. 너무 일반적인 말(서비스, 상담, 문의, 안내, 소개, 오시는길)은 제외한다.
-5. 2~20자, 최대 20개. 중요한 것부터.
+5. 2~20자, 최대 30개. 중요한 것부터. 원문에 근거가 있으면 최대한 많이 뽑아라(누락이 더 나쁘다).
 6. 원문에 근거 없는 키워드를 지어내지 마라.
 
 각 키워드에 kind 를 붙여라: "core"(업종 대표어) | "menu"(개별 시술/메뉴/품목) | "niche"(세부 상황·문제).
@@ -130,7 +132,7 @@ export async function onRequestPost({ request, env }: FunctionContext) {
         seen.add(key);
         const kind = String(r.kind ?? 'menu');
         products.push({ kw, kind: ['core', 'menu', 'niche'].includes(kind) ? kind : 'menu' });
-        if (products.length >= 20) break;
+        if (products.length >= 30) break;
     }
     if (!products.length) {
         return jsonResponse({ message: '검색 가능한 제품·서비스 키워드를 찾지 못했습니다. 메뉴나 시술명이 담긴 문구를 붙여넣어 주세요.' }, 422);
