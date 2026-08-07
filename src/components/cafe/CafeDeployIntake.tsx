@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -123,7 +123,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   일반 배포의 직접입력과 화면은 비슷하지만 판정을 거치므로 실적 집계가 인기탭 기준으로 잡힌다
     //   (cafe_contract_sync 의 일반배포 판별은 deploy_type='직접형' 만 보므로 자동으로 갈린다).
     const isPopManual = form.deploy_type === '인기직접형';
-    const isRegion = !isKw && !isManual && !isPopManual;
+    // 연관형 — 씨앗어 하나(보홀·장기요양 등)에서 연관 키워드를 펼쳐 인기탭을 찾는다.
+    //   지역·플레이스가 없어도 되고, 전국형/지역형 중 어느 쪽인지도 알려 준다.
+    const isRelated = form.deploy_type === '연관형';
+    const isRegion = !isKw && !isManual && !isPopManual && !isRelated;
     const regionSel = form.region_sets || [];
     const toggleRegion = (r: string) => {
         const cur = new Set(regionSel);
@@ -182,6 +185,50 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setPopManualKws((prev) => (prev.includes(v) ? prev : [...prev, v]));
         set('keyword', '');
     };
+    // 연관형 ① — 씨앗어에서 연관 키워드 펼치기(검색광고, 스캔 아님)
+    const [seed, setSeed] = useState('');
+    const [relCands, setRelCands] = useState<RelatedCand[] | null>(null);
+    const [relPicked, setRelPicked] = useState<Set<string>>(new Set());
+    const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('near');
+    const [relRegional, setRelRegional] = useState<(KwResult & { sample?: string[] })[]>([]);
+    const runExpandSeed = async () => {
+        const s = seed.trim();
+        if (!s) { setKwErr('씨앗 키워드를 입력하세요(예: 보홀 · 장기요양).'); return; }
+        setKwErr(''); setExtracting(true); setRelCands(null); setKwResult(null); setRelRegional([]);
+        try {
+            const list = await expandRelated(s);
+            if (!list.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
+            setRelCands(list);
+            // 기본 체크 = 의도어(여행·숙소·패키지…)가 붙은 것. 실측상 여기서 인기글이 나온다(정확도 76%).
+            setRelPicked(new Set(list.filter((x) => x.intent && x.tier !== 'far').slice(0, 45).map((x) => x.kw)));
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '연관어 조회 실패');
+        } finally { setExtracting(false); }
+    };
+    // 연관형 ② — 전국 판정 + 지역형 찔러보기를 한 번에(process_related)
+    const runRelatedScan = async () => {
+        const list = [...relPicked];
+        if (!list.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
+        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwHidden([]); setKwPicked([]);
+        try {
+            const { id, error } = await enqueueRelatedScan(seed, list.slice(0, 45));
+            if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+            const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (n) => setScanNote(n) });
+            const reg = result.filter((r) => (r as KwResult & { kind?: string }).kind === 'regional');
+            const nat = result.filter((r) => (r as KwResult & { kind?: string }).kind !== 'regional');
+            setRelRegional(reg as (KwResult & { sample?: string[] })[]);
+            if (!nat.length && !reg.length) {
+                setKwErr(`체크한 ${list.length}개 중 인기탭이 확인된 키워드가 없습니다. `
+                    + `일반 배포로 접수하시면 인기탭 확인 없이 그대로 발행됩니다.`);
+                return;
+            }
+            setKwResult([...nat].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+            if (!form.keyword) set('keyword', seed.trim());
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '조회 실패');
+        } finally { setKwLoading(false); setScanNote(''); }
+    };
+
     const checkPopManual = async () => {
         const list = popManualKws.length ? popManualKws : [(form.keyword || '').trim()].filter(Boolean);
         if (!list.length) { setKwErr('확인할 키워드를 입력하세요(입력 후 엔터/추가).'); return; }
@@ -348,6 +395,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
         setForm({ ...empty, company_name: bizName }); setFiles({ main: [], real: [], banner: [] }); setPlaceDetail('');
         setOwnAddr(''); setExtracted(null); setPicked(new Set()); setPopManualKws([]);
+        setSeed(''); setRelCands(null); setRelPicked(new Set()); setRelRegional([]);
         setKwResult(null); setKwPicked([]); setKwHidden([]); setKwExpanded(false); setPickedOpen(false);
         reload();
     };
@@ -573,7 +621,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <div className="mt-3">
                             <label className={labelCls}>키워드 잡는 방식</label>
                             <div className="inline-flex rounded-lg border border-[#cbd5e1] p-0.5">
-                                {([['지역형', '지역형'], ['키워드형', '키워드형'], ['직접입력형', '인기직접형']] as const).map(([name, dt]) => (
+                                {([['지역형', '지역형'], ['키워드형', '키워드형'], ['직접입력형', '인기직접형'], ['연관형', '연관형']] as const).map(([name, dt]) => (
                                     <button key={dt} type="button" onClick={() => set('deploy_type', dt)}
                                         className={`rounded-md px-4 py-1.5 text-sm font-bold ${form.deploy_type === dt ? 'bg-[#4338ca] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}>
                                         {name}
@@ -582,6 +630,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             </div>
                             <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">
                                 {isKw ? '키워드형 — 플레이스 주소 기반으로 키워드를 잡습니다(맛집 등).'
+                                    : isRelated ? '연관형 — 대표 단어 하나(예: 보홀 · 장기요양)만 넣으면 연관 키워드를 펼쳐 인기탭을 찾습니다. 플레이스·지역 없이도 됩니다.'
                                     : isPopManual ? '직접입력형 — 원하시는 키워드를 직접 적으면, 인기탭이 확인된 것만 골라 드립니다.'
                                     : '지역형 — 지역 선택 + 제품키워드(예: 입주청소·상가청소)로 지역+키워드를 잡습니다.'}
                             </p>
@@ -589,6 +638,84 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     ) : null}
 
                     {/* 인기탭 배포 · 직접입력형 — 키워드 칩으로 모아 두고 한 번에 인기탭 판정 */}
+                    {/* 연관형 — 씨앗어 하나로 전국형·지역형 인기탭을 한 번에 훑는다.
+                        실측(2026-08-07): 보홀 35건(154,370) · 창업 20건(311,780) · 장기요양은
+                        전국형 간병인업체 + 지역형 간병인(지역 붙이면 46건). 업종에 따라 정답이 갈려
+                        둘 다 시도한다. */}
+                    {isRelated ? (
+                        <div className="mt-3 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
+                            <div className="flex gap-2">
+                                <input className={inputCls} value={seed} onChange={(e) => setSeed(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void runExpandSeed(); } }}
+                                    placeholder="대표 단어 하나 (예: 보홀 · 장기요양 · 골프 · 창업)" />
+                                <button type="button" onClick={() => void runExpandSeed()} disabled={extracting || kwLoading}
+                                    className="h-10 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">
+                                    {extracting ? '조회 중…' : '① 연관어 펼치기'}
+                                </button>
+                            </div>
+                            <p className="mb-0 mt-1.5 text-[11px] text-[#7c3aed]">
+                                💡 <b>지명·상품명 단독은 인기글이 거의 없습니다</b>(보홀 49,600 · 골프채 15,230 모두 없음).
+                                <b>대표단어 + 의도어</b>(여행·숙소·패키지·간병인 …) 조합에서 나옵니다.
+                            </p>
+                            {relCands ? (
+                                <div className="mt-2 rounded-md border border-[#ddd6fe] bg-white p-2">
+                                    <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
+                                        <span>② 확인할 키워드 ({relPicked.size}/{relCands.length})</span>
+                                        <div className="inline-flex rounded-md border border-[#c4b5fd] p-0.5">
+                                            {([['seed', `"${seed.trim()}" 포함 · 확실`], ['near', '연관어 · 확인 필요'], ['far', '전체 · 무관 섞임']] as const).map(([t, lbl]) => (
+                                                <button key={t} type="button" onClick={() => setRelTier(t)}
+                                                    className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
+                                            ))}
+                                        </div>
+                                        <span className="font-normal text-[#94a3b8]">◆ = 인기글 가능성 높음(자동 체크)</span>
+                                    </div>
+                                    <div className="flex max-h-56 flex-wrap gap-1.5 overflow-y-auto">
+                                        {relCands
+                                            .filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
+                                            .slice(0, 200)
+                                            .map((x) => (
+                                                <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${relPicked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>
+                                                    <input type="checkbox" className="h-3 w-3 accent-[#6d28d9]" checked={relPicked.has(x.kw)}
+                                                        onChange={() => { const n = new Set(relPicked); if (n.has(x.kw)) n.delete(x.kw); else n.add(x.kw); setRelPicked(n); }} />
+                                                    {x.kw}
+                                                    <span className="text-[10px] font-normal opacity-60">{x.total.toLocaleString()}</span>
+                                                    {x.intent ? <span className="text-[10px] text-[#16a34a]">◆</span> : null}
+                                                </label>
+                                            ))}
+                                    </div>
+                                    <div className="mt-2 flex items-center gap-2">
+                                        <button type="button" onClick={() => void runRelatedScan()} disabled={kwLoading || !relPicked.size}
+                                            className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">
+                                            {kwLoading ? '찾는 중…' : '③ 인기탭 찾기'}
+                                        </button>
+                                        <span className="text-[11px] text-[#64748b]">
+                                            {relPicked.size > 45
+                                                ? `⚠ 한 번에 45개까지 확인됩니다 — ${relPicked.size - 45}개는 이번에 안 재집니다.`
+                                                : '지역을 붙여야 나오는 업종이면 그것도 알려 드립니다.'}
+                                        </span>
+                                    </div>
+                                </div>
+                            ) : null}
+                            {relRegional.length ? (
+                                <div className="mt-2 rounded-md border border-[#f59e0b] bg-[#fffbeb] p-2">
+                                    <div className="mb-1 text-[12px] font-bold text-[#b45309]">
+                                        📍 지역을 붙여야 나오는 키워드 {relRegional.length}건
+                                    </div>
+                                    {relRegional.map((r) => (
+                                        <div key={r.keyword} className="flex flex-wrap items-center gap-2 rounded border border-[#fde68a] bg-white px-2 py-1 text-[12px]">
+                                            <b className="text-[#b45309]">{r.keyword}</b>
+                                            <span className="text-[#94a3b8]">{r.theme}</span>
+                                            {r.sample?.length ? <span className="text-[11px] text-[#64748b]">예: {r.sample.join(' · ')}</span> : null}
+                                        </div>
+                                    ))}
+                                    <p className="mb-0 mt-1 text-[11px] text-[#a16207]">
+                                        이 키워드는 <b>지역형</b>으로 접수하시면 지역별 전수로 찾아 드립니다(위에서 ‘지역형’ 선택 후 제품키워드로 입력).
+                                    </p>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
+
                     {isPopManual ? (
                         <div className="mt-3 rounded-md border border-dashed border-[#a5b4fc] bg-[#eef2ff] px-3 py-2">
                             <div className="flex gap-2">
@@ -705,7 +832,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         </div>
                     ) : null}
                     {/* 인기탭·직접입력형은 위 전용 블록에서 키워드를 이미 받는다 — 같은 입력칸을 두 번 보이지 않게 숨긴다. */}
-                    <div className={`md:col-span-2 ${isPopManual ? 'hidden' : ''}`}>
+                    <div className={`md:col-span-2 ${isPopManual || isRelated ? 'hidden' : ''}`}>
                         <label className={labelCls}>{isKw ? '키워드' : isManual ? '발행 키워드 (직접 입력)' : '제품 키워드 (업종)'}</label>
                         <div className="flex gap-2">
                             <input className={inputCls} value={form.keyword}
@@ -882,7 +1009,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                 </span>
                                                 {r.deploy_type !== '직접형' ? (
                                                     <span className="ml-1 rounded-full bg-[#e0e7ff] px-2 py-0.5 text-[11px] font-bold text-[#4338ca]">
-                                                        {r.deploy_type === '인기직접형' ? '직접입력형' : (r.deploy_type ?? '지역형')}
+                                                        {r.deploy_type === '인기직접형' ? '직접입력형' : r.deploy_type === '연관형' ? '연관형' : (r.deploy_type ?? '지역형')}
                                                     </span>
                                                 ) : null}
                                                 {!r.deploy_type || r.deploy_type === '지역형' ? (r.region_sets?.length ? <div className="mt-0.5 text-[11px] text-[#64748b]">{r.region_sets.join('·')}</div> : null) : null}
