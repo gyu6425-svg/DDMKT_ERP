@@ -862,8 +862,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         ) : null}
                         {isRegion ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">제품키워드를 여러 개 추가하면, 아래 선택한 지역의 행정구마다 각 키워드로 인기탭을 찾습니다. 예: [누수탐지·누수] × 서울·경기 → 강남 누수탐지, 수원 누수 …</p> : null}
                         {isManual ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">입력한 키워드가 아래 '선택한 발행 키워드'에 그대로 담깁니다 — 인기탭 확인 없이 접수됩니다(최대 50개).</p> : null}
-                        {!isKw ? kwPanel : null}
+                        {/* ⚠️ 이 블록은 직접입력형·연관형일 때 hidden 이다(입력칸 중복 방지).
+                            결과 패널까지 같이 숨으면 '인기탭 확인'을 눌러도 아무 반응이 없어 보인다
+                            (실제 증상 2026-08-07). 그 두 모드의 결과는 아래 별도 위치에서 그린다. */}
+                        {!isKw && !isPopManual && !isRelated ? kwPanel : null}
                     </div>
+                    {/* 직접입력형·연관형 결과 — 위 블록이 숨겨져 있으므로 여기서 따로 보여준다. */}
+                    {isPopManual || isRelated ? <div className="md:col-span-2">{kwPanel}</div> : null}
                     <div>
                         <label className={labelCls}>미션 시작일</label>
                         <input className={inputCls} type="date" value={form.mission_start} onChange={(e) => set('mission_start', e.target.value)} />
