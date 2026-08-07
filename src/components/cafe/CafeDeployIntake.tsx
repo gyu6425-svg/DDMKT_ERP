@@ -126,7 +126,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     // 연관형 — 씨앗어 하나(보홀·장기요양 등)에서 연관 키워드를 펼쳐 인기탭을 찾는다.
     //   지역·플레이스가 없어도 되고, 전국형/지역형 중 어느 쪽인지도 알려 준다.
     const isRelated = form.deploy_type === '연관형';
-    const isRegion = !isKw && !isManual && !isPopManual && !isRelated;
+    // 정보형 — 플레이스가 없는 업체. 홈페이지·블로그 주소(또는 붙여넣기)에서 제품키워드를 만든다.
+    //   지역축·발행 흐름은 지역형과 같아서 UI 대부분을 공유하되(isRegionLike),
+    //   주소/정보 입력 블록만 이쪽 전용이다. deploy_type 은 순수 text 라 값 추가에 DB 변경이 없고,
+    //   cafe_contract_sync 는 '직접형'만 일반배포로 보므로 정보형은 인기탭 배포로 잡힌다.
+    const isInfo = form.deploy_type === '정보형';
+    const isRegion = !isKw && !isManual && !isPopManual && !isRelated && !isInfo;
+    const isRegionLike = isRegion || isInfo;
     const regionSel = form.region_sets || [];
     const toggleRegion = (r: string) => {
         const cur = new Set(regionSel);
@@ -711,7 +717,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <div className="mt-3">
                             <label className={labelCls}>키워드 잡는 방식</label>
                             <div className="inline-flex rounded-lg border border-[#cbd5e1] p-0.5">
-                                {([['지역형', '지역형'], ['키워드형', '키워드형'], ['직접입력형', '인기직접형'], ['연관형', '연관형']] as const).map(([name, dt]) => (
+                                {([['지역형', '지역형'], ['키워드형', '키워드형'], ['직접입력형', '인기직접형'], ['연관형', '연관형'], ['🌐 정보형', '정보형']] as const).map(([name, dt]) => (
                                     <button key={dt} type="button" onClick={() => set('deploy_type', dt)}
                                         className={`rounded-md px-4 py-1.5 text-sm font-bold ${form.deploy_type === dt ? 'bg-[#4338ca] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}>
                                         {name}
@@ -719,7 +725,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 ))}
                             </div>
                             <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">
-                                {isKw ? '키워드형 — 플레이스 주소 기반으로 키워드를 잡습니다(맛집 등).'
+                                {isInfo ? '정보형 — 홈페이지·네이버 블로그 주소만 넣으면 글에서 제품키워드를 뽑아 인기탭을 찾습니다. 플레이스가 없어도 됩니다.'
+                                    : isKw ? '키워드형 — 플레이스 주소 기반으로 키워드를 잡습니다(맛집 등).'
                                     : isRelated ? '연관형 — 대표 단어 하나(예: 보홀 · 장기요양)만 넣으면 연관 키워드를 펼쳐 인기탭을 찾습니다. 플레이스·지역 없이도 됩니다.'
                                     : isPopManual ? '직접입력형 — 원하시는 키워드를 직접 적으면, 인기탭이 확인된 것만 골라 드립니다.'
                                     : '지역형 — 지역 선택 + 제품키워드(예: 입주청소·상가청소)로 지역+키워드를 잡습니다.'}
@@ -898,7 +905,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             {isKw ? kwPanel : null}
                         </div>
                     ) : null}
-                    {isRegion ? (
+                    {isRegionLike ? (
                         <div className="md:col-span-2">
                             <label className={labelCls}>지역 선택 (복수)</label>
                             <div className="flex flex-wrap gap-2">
@@ -911,8 +918,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             </div>
                             {/* 플레이스가 없는 업체용 — 위치를 직접 적고 소개/메뉴를 붙여넣으면 제품키워드를 만들어 준다. */}
                             {/* 기본 펼침 — 접어 두면 고객이 찾지를 못한다(주소 입력이 이제 주된 접수 경로다). */}
-                            <details open className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
-                                <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">🌐 홈페이지·블로그 주소로 키워드 만들기 (플레이스가 없어도 됩니다)</summary>
+                            {isInfo ? (
+                            <div className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
+                                <div className="text-[12px] font-bold text-[#6d28d9]">🌐 홈페이지·블로그 주소 → 키워드 → 인기탭</div>
                                 <div className="mt-2 grid gap-2">
                                     <input className={inputCls} value={ownAddr} onChange={(e) => setOwnAddr(e.target.value)}
                                         placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
@@ -963,7 +971,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         </div>
                                     ) : null}
                                 </div>
-                            </details>
+                            </div>
+                            ) : null}
                         </div>
                     ) : null}
                     {/* 인기탭·직접입력형은 위 전용 블록에서 키워드를 이미 받는다 — 같은 입력칸을 두 번 보이지 않게 숨긴다. */}
@@ -972,11 +981,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <div className="flex gap-2">
                             <input className={inputCls} value={form.keyword}
                                 onChange={(e) => set('keyword', e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter' && (isRegion || isManual)) { e.preventDefault(); if (isManual) addManualKw(); else addProductKw(); } }}
+                                onKeyDown={(e) => { if (e.key === 'Enter' && (isRegionLike || isManual)) { e.preventDefault(); if (isManual) addManualKw(); else addProductKw(); } }}
                                 placeholder={isKw ? '예: 광교 횟집' : isManual ? '예: 강남 누수탐지 (입력 후 엔터/추가 · 최대 50개)' : '예: 입주청소 (입력 후 엔터/추가)'} />
                             {isManual ? (
                                 <button type="button" onClick={addManualKw} className="h-10 shrink-0 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white hover:bg-[#3730a3]">추가</button>
-                            ) : isRegion ? (
+                            ) : isRegionLike ? (
                                 <>
                                     <button type="button" onClick={addProductKw} className="h-10 shrink-0 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white hover:bg-[#3730a3]">추가</button>
                                     <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50" title="선택 지역(서울/경기/인천)의 행정구 × 제품키워드 칩으로 발행 대상 키워드 생성">
@@ -985,7 +994,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 </>
                             ) : null}
                         </div>
-                        {isRegion && productKws.length ? (
+                        {isRegionLike && productKws.length ? (
                             <div className="mt-2 flex flex-wrap gap-1.5">
                                 {productKws.map((kw) => (
                                     <span key={kw} className="inline-flex items-center gap-1 rounded-full bg-[#eef2ff] px-2.5 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
@@ -995,7 +1004,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 ))}
                             </div>
                         ) : null}
-                        {isRegion ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">제품키워드를 여러 개 추가하면, 아래 선택한 지역의 행정구마다 각 키워드로 인기탭을 찾습니다. 예: [누수탐지·누수] × 서울·경기 → 강남 누수탐지, 수원 누수 …</p> : null}
+                        {isRegionLike ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">제품키워드를 여러 개 추가하면, 아래 선택한 지역의 행정구마다 각 키워드로 인기탭을 찾습니다. 예: [누수탐지·누수] × 서울·경기 → 강남 누수탐지, 수원 누수 …</p> : null}
                         {isManual ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">입력한 키워드가 아래 '선택한 발행 키워드'에 그대로 담깁니다 — 인기탭 확인 없이 접수됩니다(최대 50개).</p> : null}
                         {/* ⚠️ 이 블록은 직접입력형·연관형일 때 hidden 이다(입력칸 중복 방지).
                             결과 패널까지 같이 숨으면 '인기탭 확인'을 눌러도 아무 반응이 없어 보인다
