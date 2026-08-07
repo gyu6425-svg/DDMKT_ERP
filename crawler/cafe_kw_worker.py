@@ -886,6 +886,42 @@ def _probe_regions(k=8):
     return out or _PROBE_SEED[:k]
 
 
+def process_reviews(req, payload):
+    """리뷰 수집 — payload = 플레이스 URL/ID. 리뷰 텍스트와 부가 정보를 모아 돌려준다.
+
+       왜 워커인가: m.place 는 브라우저 UA·한국 IP 경로로 받아야 안정적이라 CF 함수에서 못 긁는다.
+         이미 place_info/place_menu 를 이 경로로 받고 있으므로 같은 자리에 붙인다.
+       추출(GPT)은 프론트가 기존 /api/extract-menu 로 한다 — 여기선 텍스트만 준다.
+       ⚠️ 네이버 검색(m.search)을 안 쓰므로 CF 예산과 무관하다."""
+    pid = p.parse_place_id((payload or "").strip())
+    if not pid:
+        return _finish(req["id"], "failed", note="플레이스 주소를 해석하지 못했습니다")
+    info = p.place_info(pid) or {}
+    road, jibun = p.place_address(pid)
+    try:
+        blob, rmenus = p.place_reviews(pid)
+    except Exception as e:
+        return _finish(req["id"], "failed", note=f"리뷰 수집 실패: {str(e)[:80]}")
+    menu = []
+    try:
+        menu = p.place_menu(pid) or []
+    except Exception:
+        pass
+    # 결과는 result 배열에 한 건으로 담는다(cafe_kw_requests 에 별도 컬럼이 없다).
+    row = {
+        "kind": "reviews", "keyword": info.get("name") or str(pid),
+        "addr": road or jibun or "",
+        "cats": info.get("cats") or [], "place_kws": info.get("keywords") or [],
+        "menu": menu, "review_menus": rmenus, "text": blob,
+        "chars": len(blob),
+    }
+    note = (f"리뷰 {len(blob):,}자 · 메뉴 {len(menu)}개 · 플레이스키워드 {len(row['place_kws'])}개"
+            + (f" · 리뷰메뉴 {len(rmenus)}개" if rmenus else "")
+            + ("" if blob else " · ⚠ 리뷰 없음"))
+    _finish(req["id"], "done", result=[row], note=note, extra={"biz_name": info.get("name")})
+    print(f"[{_ts()}][{req['id']}] 리뷰수집 {info.get('name')} — {len(blob)}자", flush=True)
+
+
 def process_related(req, payload):
     """연관 인기글 — payload = JSON {"seed": "장기요양", "kws": [...], "probe": 8}
        ① kws 를 지역 없이 판정(전국형)  ② 안 되는 것만 지역 K개로 찔러 지역형인지 본다.
@@ -1064,6 +1100,8 @@ def process(req):
         return process_menu(req, pu[len("menu:"):])
     if pu.startswith("related:"):       # 연관 인기글 — 씨앗어에서 전국형·지역형을 한 번에
         return process_related(req, pu[len("related:"):])
+    if pu.startswith("reviews:"):       # 리뷰 수집 — 메뉴판 없는 업체의 제품키워드 원천
+        return process_reviews(req, pu[len("reviews:"):])
     pid = p.parse_place_id(pu)
     info = p.place_info(pid) if pid else None
     if not info:

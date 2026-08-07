@@ -240,6 +240,37 @@ export async function enqueueRelatedScan(seed: string, keywords: string[], probe
     return { id: (data as { id: number }).id, error: null };
 }
 
+// 리뷰 수집 — 플레이스 주소만 주면 워커가 m.place 리뷰를 긁어 텍스트로 돌려준다.
+//   메뉴판이 없는 업종(약국·학원·병의원)은 플레이스에서 제품 키워드가 안 나오는데 리뷰엔 있다.
+//   추출(GPT)은 기존 extractMenuKeywords 로 이어서 한다 — 여기선 원문만 가져온다.
+export type PlaceReviewBundle = {
+    name: string; addr: string; cats: string[]; placeKws: string[];
+    menu: string[]; reviewMenus: string[]; text: string; chars: number;
+};
+
+export async function fetchPlaceReviews(placeUrl: string, onProgress?: (n: string) => void): Promise<PlaceReviewBundle> {
+    const { data: u } = await supabase.auth.getUser();
+    const { data, error } = await supabase.from('cafe_kw_requests')
+        .insert({
+            deploy_type: '키워드', place_url: `reviews:${placeUrl.trim()}`, regions: '',
+            requested_by: u.user?.id ?? null, status: 'queued', target: 1,
+        })
+        .select('id').single();
+    if (error || !data) throw new Error(error?.message || '리뷰 수집 등록 실패');
+    const { result } = await pollPlaceScan((data as { id: number }).id, { onProgress, timeoutSec: 240 });
+    const r = (result?.[0] ?? {}) as Record<string, unknown>;
+    return {
+        addr: String(r.addr ?? ''),
+        cats: (r.cats as string[]) ?? [],
+        chars: Number(r.chars ?? 0),
+        menu: (r.menu as string[]) ?? [],
+        name: String(r.keyword ?? ''),
+        placeKws: (r.place_kws as string[]) ?? [],
+        reviewMenus: (r.review_menus as string[]) ?? [],
+        text: String(r.text ?? ''),
+    };
+}
+
 export type ExtractedProduct = { kw: string; kind: string };
 
 // 업체 정보 붙여넣기 → 제품·서비스 키워드 추출(GPT). 플레이스가 없는 업체용.

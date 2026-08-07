@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -295,6 +295,30 @@ export function CafeKeywordFinder({
         } finally { setKwLoading(false); setScanNote(''); }
     };
 
+    // 플레이스 리뷰 가져오기 — 메뉴판이 없는 업체(약국·학원)는 리뷰가 유일한 제품키워드 원천이다.
+    //   실측(2026-08-07): 미미식당 리뷰에서 '가정식 백반'(검색량 2,860·인기탭 O)이 나왔는데 메뉴판엔 없다.
+    //   가져온 텍스트는 붙여넣기 칸에 채워 넣고, 이후 흐름(추출 → 체크 → 스캔)은 기존과 동일하다.
+    const pullReviews = async () => {
+        const u = url.trim() || addr.trim();
+        if (!u.includes('naver')) { setKwErr('플레이스 주소를 입력하세요(https://naver.me/… 또는 place.naver.com/…).'); return; }
+        setKwErr(''); setExtracting('리뷰 가져오는 중…');
+        try {
+            const b = await fetchPlaceReviews(u, (n) => setExtracting(n || '리뷰 가져오는 중…'));
+            if (!b.text) {
+                setKwErr(`${b.name || '이 업체'}는 리뷰가 없습니다 — 소개글을 직접 붙여넣어 주세요.`);
+                return;
+            }
+            setPasteText(b.text);
+            if (!addr.trim() && b.addr) setAddr(b.addr);
+            const extra = [...b.menu, ...b.reviewMenus].filter(Boolean);
+            setKwErr(`${b.name} · 리뷰 ${b.chars.toLocaleString()}자를 가져왔습니다`
+                + (extra.length ? ` (메뉴 ${extra.slice(0, 6).join('·')}${extra.length > 6 ? ' 외' : ''})` : '')
+                + ` — ‘① 키워드 뽑기’를 눌러 주세요.`);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '리뷰 수집 실패');
+        } finally { setExtracting(''); }
+    };
+
     // 정보입력형 ① — 붙여넣은 소개/메뉴 → GPT 가 검색 가능한 제품·서비스 키워드로 정리.
     //   결과는 체크박스로만 보여준다(자동 확정 금지). 대표어(core)·메뉴(menu)는 기본 체크, 세부(niche)는 해제.
     const runExtract = async () => {
@@ -484,9 +508,15 @@ export function CafeKeywordFinder({
                             <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
                                 value={pasteText} onChange={(e) => setPasteText(e.target.value)}
                                 placeholder="업체 소개글·메뉴·서비스 설명을 그대로 붙여넣으세요(홈페이지 통째로 넣어도 됩니다).&#10;예)&#10;저희는 20년 경력의 누수탐지 전문업체로 아파트 배관 누수, 바닥 난방배관 누수를 정밀 장비로 찾아드립니다." />
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                                {/* 플레이스가 있으면 리뷰를 자동으로 긁어 위 칸을 채운다 — 메뉴판 없는 업종의 유일한 원천. */}
+                                <button type="button" onClick={() => void pullReviews()} disabled={!!extracting || kwLoading}
+                                    className="h-9 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50"
+                                    title="플레이스 주소를 넣으면 방문자·블로그 리뷰를 가져와 위 칸에 채웁니다">
+                                    ⬇ 플레이스 리뷰 가져오기
+                                </button>
                                 <button type="button" onClick={() => void runExtract()} disabled={!!extracting || kwLoading} className="h-9 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">{extracting ? '추출 중…' : '① 키워드 뽑기'}</button>
-                                <span className="text-[12px] text-[#6d28d9]">{extracting || '뽑힌 키워드를 확인·수정한 뒤 ②를 누르세요.'}</span>
+                                <span className="text-[12px] text-[#6d28d9]">{extracting || '리뷰를 가져오거나 직접 붙여넣은 뒤 ①을 누르세요.'}</span>
                             </div>
                             {extracted && (
                                 <div className="rounded-md border border-[#ddd6fe] bg-white p-2">

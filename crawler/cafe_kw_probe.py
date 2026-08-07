@@ -331,6 +331,84 @@ def region_tokens(road, jibun):
 
 
 # ── 플레이스 메뉴 → 보완 키워드(계약건수만큼 못 채울 때 메뉴 기반으로 생성) ──────
+def _apollo_state(html):
+    """m.place HTML 안의 window.__APOLLO_STATE__ 를 통째로 떼어낸다.
+       ★ 정규식으로는 못 자른다 — 중첩 객체·이스케이프된 따옴표가 많아 중괄호 균형으로 세야 한다."""
+    i = html.find("__APOLLO_STATE__")
+    if i < 0:
+        return {}
+    b = html.find("{", i)
+    if b < 0:
+        return {}
+    depth = 0
+    instr = esc = False
+    for j in range(b, len(html)):
+        c = html[j]
+        if instr:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                instr = False
+            continue
+        if c == '"':
+            instr = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(html[b:j + 1])
+                except Exception:
+                    return {}
+    return {}
+
+
+def place_reviews(pid, max_chars=6000):
+    """placeId → (리뷰 텍스트, 네이버가 리뷰에서 뽑아둔 메뉴).
+
+       왜: 메뉴판이 없는 업종(약국·학원·병의원)은 플레이스에서 제품 키워드가 안 나온다.
+         실측(2026-08-07): 퓨어약국·국어학원은 기존 소스로 제품키워드 0개인데 리뷰에서 12~17개.
+         메뉴가 있는 업체도 '등록 안 한 메뉴'를 리뷰가 잡는다 — 미미식당 '가정식 백반'(검색량 2,860,
+         인기탭 O)은 메뉴판에 없다.
+       비용: 리뷰 페이지 HTML 에 PlaceDetailBase·Menu 가 같이 실려 있어 요청이 늘지 않는다.
+       ⚠️ 리뷰엔 광고·무관 글이 섞인다(원고료 지원 포스팅, 타 업체 비교글) → 추출 결과는
+         반드시 사용자 체크로 확정해야 한다. 자동 채택 금지."""
+    texts, menus = [], []
+    for path in ("visitor", "ugc"):
+        u = f"https://m.place.naver.com/place/{pid}/review/{path}"
+        try:
+            r = requests.get(u, headers={"User-Agent": _PLACE_UA, "Accept-Language": "ko",
+                                         "Referer": "https://m.place.naver.com/"}, timeout=25)
+            r.encoding = "utf-8"          # ★ 지정 안 하면 mojibake 가 된다(실측)
+            body = r.text
+        except Exception:
+            continue
+        if r.status_code != 200:
+            continue
+        st = _apollo_state(body)
+        for k, v in st.items():
+            if not isinstance(v, dict):
+                continue
+            if k.startswith("VisitorReview") and v.get("body"):
+                texts.append(str(v["body"]))
+            elif k.startswith("FsasReview"):          # 블로그 리뷰
+                t = " ".join(str(v.get(f) or "") for f in ("title", "contents")).strip()
+                if t:
+                    texts.append(t)
+            an = v.get("analysis")
+            if isinstance(an, dict):                  # 네이버가 이미 뽑아둔 메뉴(음식점 전용·무료)
+                for m in (an.get("menus") or []):
+                    nm = (m.get("name") if isinstance(m, dict) else str(m)) or ""
+                    nm = nm.strip()
+                    if nm and nm not in menus:
+                        menus.append(nm)
+    blob = "\n".join(texts)
+    return blob[:max_chars], menus
+
+
 def place_menu(pid):
     """placeId → 메뉴/서비스 항목명. m.place 메뉴탭 HTML 파싱.
     __typename:Menu 로 가격 유무 무관 추출 — 인테리어처럼 '변동'·빈가격 서비스 목록도 포함."""
