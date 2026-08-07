@@ -71,7 +71,9 @@ export default function CafeDeployAdminPanel() {
         setIssuing(r.id); setMsg('');
         const { error } = await grantTokens(r.client_id, count, `카페 배포 결제확인 · ${r.company_name} [req:${r.id}]`);
         if (error) { setIssuing(null); return setMsg('토큰 발행 실패: ' + error.message); }
-        await enablePublishByClient(r.client_id, r.company_name); // 자동화 발행 탭 활성화
+        // 자동화 발행 탭 활성화(publish_enabled=true) — 실패하면 '발행할 고객사 선택'에 안 떠서 반드시 확인·경고.
+        const enable = await enablePublishByClient(r.client_id, r.company_name);
+        if (enable.error) { setIssuing(null); return setMsg(`발행 활성화 실패: ${enable.error.message} — '발행할 고객사 선택'에 안 뜹니다. 관리시트에서 이 업체 '발행 세팅'으로 승인하세요.`); }
         await setCafeDeployStatus(r.id, '세팅중');
         // 계약관리 자동 반영 — '카페 배포' 계약 없으면 건수×15,000원으로 생성(기존 계약 있으면 유지).
         const { created } = await ensureCafeDeployContract(r.client_id, count);
