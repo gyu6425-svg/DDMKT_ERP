@@ -110,20 +110,23 @@ def take(want, share):
         return 0
 
 
-def pick_plan():
-    """가장 오래 안 돈 계획 1건. prio 작은 것 우선, 같으면 오래된 것."""
+def pick_plans():
+    """돌 만한 계획들을 prio 순으로. 실제로 할 일이 있는지는 호출부가 확인한다.
+
+       ★ 옛 코드는 limit=1 로 '가장 앞 계획' 하나만 가져왔다. 그래서 prio 10 두 계획이 전수 완주해
+         남은 0이 된 뒤에도 계속 그 둘만 뽑혀, 64초 주기로 703회를 헛돌고 prio 20 으로 넘어가지
+         못했다(SUB4 실측 2026-08-07, 20:47~09:40). 남은 0인 계획을 후보에서 빼야 한다."""
     try:
         r = requests.get(f"{SB}/rest/v1/cafe_scan_plan?active=is.true"
                          f"&select=id,product,sidos,include_dong,prio,done_count"
-                         f"&order=prio.asc,last_run_at.asc.nullsfirst&limit=1", headers=H, timeout=15)
+                         f"&order=prio.asc,last_run_at.asc.nullsfirst&limit=30", headers=H, timeout=15)
         if r.status_code != 200:
             log(f"⚠ 계획 조회 실패 {r.status_code} — docs/cafe-scan-budget.sql 실행 필요")
-            return None
-        rows = r.json()
-        return rows[0] if rows else None
+            return []
+        return r.json() or []
     except Exception as e:
         log(f"⚠ 계획 조회 실패: {e}")
-        return None
+        return []
 
 
 def mark_plan(pid, done):
@@ -215,9 +218,22 @@ def scan_one(tok, kw, product):
     return "neg"
 
 
-def run_plan(plan, share):
+def pick_ready_plan():
+    """할 일이 실제로 남은 첫 계획. 전수 완주한 계획은 건너뛰고 다음 prio 로 넘어간다."""
+    empty = 0
+    for plan in pick_plans():
+        todo, done = pending_combos(plan)
+        if todo:
+            return plan, todo, done
+        mark_plan(plan["id"], done)        # 완주 표시 — 다음 순번이 앞으로 오게
+        empty += 1
+    if empty:
+        log(f"모든 계획 전수 완주({empty}건) — 새 계획을 넣거나 include_dong 을 켜세요")
+    return None, [], 0
+
+
+def run_plan(plan, todo, done, share):
     product = (plan.get("product") or "").strip()
-    todo, done = pending_combos(plan)
     log(f"계획 #{plan['id']} '{product}' [{plan.get('sidos')}]"
         f"{' +동' if plan.get('include_dong') else ''} — 판정완료 {done} · 남은 {len(todo)}")
     if not todo:
@@ -302,14 +318,14 @@ def main():
                 return 0
             time.sleep(YIELD_SEC)
             continue
-        plan = pick_plan()
+        plan, todo, done = pick_ready_plan()
         if not plan:
-            log("할 계획 없음 — cafe_scan_plan 에 제품키워드를 넣어 주세요")
+            # 할 일이 없으면 길게 쉰다 — 옛 코드는 64초마다 703회를 헛돌았다(SUB4 실측).
             if once:
                 return 0
-            time.sleep(IDLE_SEC * 5)
+            time.sleep(IDLE_SEC * 10)
             continue
-        run_plan(plan, share)
+        run_plan(plan, todo, done, share)
         if once:
             return 0
         time.sleep(IDLE_SEC)
