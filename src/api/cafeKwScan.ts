@@ -275,6 +275,61 @@ export async function fetchPlaceReviews(placeUrl: string, onProgress?: (n: strin
     };
 }
 
+// ── 캐시 우선 조회 ──────────────────────────────────────────────────────────
+//   왜: 지금은 씨앗어를 받으면 연관어 200~237개를 전부 새로 긁는다(10분·CF 200콜).
+//     그런데 이미 판정된 인기탭이 1,000건 넘게 쌓여 있어, 상당수는 스캔 없이 즉답할 수 있다.
+//     실측(2026-08-07) '방문요양' 하나로 캐시에서 53건이 바로 나왔다(간병인업체 6,420 · 서울 간병인 200 …).
+//     데몬이 계속 채우므로 시간이 갈수록 이 경로의 적중이 커진다.
+//   ⚠️ 인기글 '제목'으로 뒤지는 방법은 쓰지 않는다 — 실측 7건이 전부 오탐이었다
+//     ('성북 소방점검' 섹션에 성신노인요양원 소방훈련 글이 우연히 있는 식). 키워드로만 찾는다.
+export type CachedHit = { keyword: string; volume: number | null; theme: string | null; cafes: KwCafe[] };
+
+// 연관어에서 '핵심 어간'만 뽑는다 — 캐시는 부분일치로 뒤지므로 검색어가 짧아야 걸린다.
+//   실측(2026-08-07): '간병인보험'으로는 '수원 간병인'을 못 찾는다. 접미(보험·자격증·비용…)를
+//   떼고 접두(방문·재가·노인·장기…)도 떼어 2~4자 코어로 만들면 '방문요양' → 요양·간병인·요양원·간병·돌봄
+//   → 캐시 49건이 바로 나온다. GPT 없이 기계적으로 된다.
+const _STEM_SUFFIX = ['보험', '자격증', '시험', '비용', '가격', '등급', '신청', '기준', '혜택',
+    '추천', '순위', '방법', '조건', '종류', '후기', '센터', '기관', '서비스', '업체', '전문', '교육', '과정'];
+const _STEM_PREFIX = /^(방문|재가|노인|장기|긴급|주야간|셀프|무인)/;
+
+export function relatedStems(seed: string, related: { kw: string }[], n = 8): string[] {
+    const freq = new Map<string, number>();
+    for (const { kw } of related) {
+        let s = kw.replace(/\s/g, '');
+        for (const suf of _STEM_SUFFIX) {
+            if (s.endsWith(suf) && s.length - suf.length >= 2) { s = s.slice(0, -suf.length); break; }
+        }
+        s = s.replace(_STEM_PREFIX, '');
+        if (s.length >= 2 && s.length <= 4 && /^[가-힣]+$/.test(s)) freq.set(s, (freq.get(s) ?? 0) + 1);
+    }
+    const top = [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k]) => k);
+    return [seed.trim(), ...top];
+}
+
+export async function searchCachedPopular(terms: string[], limit = 200): Promise<CachedHit[]> {
+    const words = [...new Set(terms.map((t) => t.trim().replace(/\s+/g, '')).filter((t) => t.length >= 2))];
+    if (!words.length) return [];
+    const out = new Map<string, CachedHit>();
+    // 용어별로 부분일치 조회. PostgREST or() 로 한 번에 묶으면 URL 이 길어져 잘리므로 나눠 부른다.
+    for (const w of words.slice(0, 12)) {
+        const { data } = await supabase.from('cafe_kw_targets')
+            .select('keyword,has_section,theme,verdict,volume,cafes')
+            .like('keyword', `%${w}%`)
+            .eq('has_section', true)
+            .limit(limit);
+        for (const r of (data ?? []) as { keyword: string; verdict: string | null; theme: string | null; volume: number | null; cafes: unknown }[]) {
+            // 워커의 _is_pop 과 같은 규약 — 카페분산·블로그섹션만 채택, 레시피 테마 제외.
+            const v = r.verdict ?? '';
+            if (!(v.startsWith('카페분산') || v.startsWith('블로그섹션'))) continue;
+            if ((r.theme ?? '').includes('레시피')) continue;
+            const key = r.keyword.replace(/\s/g, '');
+            if (out.has(key)) continue;
+            out.set(key, { cafes: (r.cafes ?? []) as KwCafe[], keyword: r.keyword, theme: r.theme, volume: r.volume });
+        }
+    }
+    return [...out.values()].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+}
+
 export type ExtractedProduct = { kw: string; kind: string };
 
 // 업체 정보 붙여넣기 → 제품·서비스 키워드 추출(GPT). 플레이스가 없는 업체용.

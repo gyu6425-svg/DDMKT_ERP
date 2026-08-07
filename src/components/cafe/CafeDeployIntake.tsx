@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -194,6 +194,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [relPicked, setRelPicked] = useState<Set<string>>(new Set());
     const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('near');
     const [relRegional, setRelRegional] = useState<(KwResult & { sample?: string[] })[]>([]);
+    // 캐시 우선 — 이미 판정된 인기탭. 스캔 0회로 즉시 나온다.
+    const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
     const runExpandSeed = async () => {
         const s = seed.trim();
         if (!s) { setKwErr('씨앗 키워드를 입력하세요(예: 보홀 · 장기요양).'); return; }
@@ -204,6 +206,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setRelCands(list);
             // 기본 체크 = 의도어(여행·숙소·패키지…)가 붙은 것. 실측상 여기서 인기글이 나온다(정확도 76%).
             setRelPicked(new Set(list.filter((x) => x.intent && x.tier !== 'far').slice(0, 45).map((x) => x.kw)));
+            // ★ 스캔 전에 캐시부터 — 이미 판정된 게 1,000건 넘어 상당수는 긁지 않고 바로 준다.
+            const hits = await searchCachedPopular(relatedStems(s, list));
+            setCachedHits(hits.map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined })));
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '연관어 조회 실패');
         } finally { setExtracting(false); }
@@ -398,7 +403,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
         setForm({ ...empty, company_name: bizName }); setFiles({ main: [], real: [], banner: [] }); setPlaceDetail('');
         setOwnAddr(''); setExtracted(null); setPicked(new Set()); setPopManualKws([]);
-        setSeed(''); setRelCands(null); setRelPicked(new Set()); setRelRegional([]);
+        setSeed(''); setRelCands(null); setRelPicked(new Set()); setRelRegional([]); setCachedHits(null);
         setKwResult(null); setKwPicked([]); setKwHidden([]); setKwExpanded(false); setPickedOpen(false);
         reload();
     };
@@ -659,6 +664,23 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     {extracting ? '조회 중…' : '① 연관어 펼치기'}
                                 </button>
                             </div>
+                            {/* 캐시 우선 — 스캔 없이 이미 확인된 것. 여기서 충분하면 스캔이 필요 없다. */}
+                            {cachedHits && cachedHits.length ? (
+                                <div className="mt-2 rounded-md border border-[#16a34a] bg-[#f0fdf4] p-2">
+                                    <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#15803d]">
+                                        <span>✅ 이미 확인된 인기탭 {cachedHits.length}건 — 스캔 없이 바로 쓸 수 있습니다</span>
+                                        <button type="button" onClick={() => { setKwResult(cachedHits); setKwErr(''); }}
+                                            className="rounded bg-[#16a34a] px-2.5 py-0.5 text-[11px] font-bold text-white">아래 목록으로 가져오기</button>
+                                    </div>
+                                    <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
+                                        {cachedHits.slice(0, 40).map((h) => (
+                                            <span key={h.keyword} className="rounded-full border border-[#86efac] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#15803d]">
+                                                {h.keyword}<span className="ml-1 font-normal opacity-60">{(h.volume ?? 0).toLocaleString()}</span>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null}
                             {relCands ? (
                                 <div className="mt-2 rounded-md border border-[#ddd6fe] bg-white p-2">
                                     <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#6d28d9]">

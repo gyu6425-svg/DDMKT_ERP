@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -54,6 +54,8 @@ export function CafeKeywordFinder({
     const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('near');   // 어디까지 보여줄지
     // 지역형으로 판명된 제품키워드 — 지역을 붙여야 나오는 업종(간병인·입주청소 등).
     const [regionalCands, setRegionalCands] = useState<(KwResult & { sample?: string[] })[]>([]);
+    // 캐시 우선 조회 결과 — 스캔 0회로 즉시 나오는 것들.
+    const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
     const [addr, setAddr] = useState('');
     const [extracted, setExtracted] = useState<ExtractedProduct[] | null>(null);
     const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -236,6 +238,13 @@ export function CafeKeywordFinder({
             const list = await expandRelated(s);
             if (!list.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
             setCands(list);
+            // ★ 스캔 전에 캐시부터 본다 — 이미 판정된 인기탭이 1,000건 넘게 쌓여 있어
+            //   상당수는 긁지 않고 바로 줄 수 있다(실측: '방문요양' → 53건 즉시).
+            //   검색어는 씨앗어 + 연관어 상위 몇 개(부분일치라 '간병인'으로 '수원 간병인'도 잡힌다).
+            setExtracting('이미 찾아둔 것 조회 중…');
+            const terms = relatedStems(s, list);
+            const hits = await searchCachedPopular(terms);
+            setCachedHits(hits.map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined })));
             // ★ 기본 체크 = '의도어(여행·숙소·패키지·투어…)가 붙은 것'.
             //   실측(2026-08-07, 보홀 70조합 전수): 옛 규칙(검색량순 상위 40)은 정확도 60%였는데
             //   의도어 규칙은 78%다. 지명·상품명 단독은 검색량이 아무리 커도 섹션이 없다
@@ -398,6 +407,26 @@ export function CafeKeywordFinder({
                         💡 <b>지명·상품명 단독은 인기글이 거의 없습니다</b>(보홀 49,600 · 필리핀 56,500 · 골프채 15,230 모두 없음).
                         <b>씨앗어 + 의도어</b>(여행·숙소·투어·패키지·맛집·연습장 …) 조합에서 나옵니다.
                     </p>
+                    {/* 캐시 우선 — 스캔 없이 이미 확인된 인기탭. 여기서 충분하면 스캔을 안 해도 된다. */}
+                    {cachedHits && cachedHits.length ? (
+                        <div className="rounded-md border border-[#16a34a] bg-[#f0fdf4] p-2">
+                            <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#15803d]">
+                                <span>✅ 이미 확인된 인기탭 {cachedHits.length}건 — 스캔 없이 바로 쓸 수 있습니다</span>
+                                <button type="button" onClick={() => setKwResult(cachedHits)}
+                                    className="rounded bg-[#16a34a] px-2.5 py-0.5 text-[11px] font-bold text-white">
+                                    아래 목록으로 가져오기
+                                </button>
+                            </div>
+                            <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                                {cachedHits.slice(0, 40).map((h) => (
+                                    <span key={h.keyword} className="rounded-full border border-[#86efac] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#15803d]">
+                                        {h.keyword}<span className="ml-1 font-normal opacity-60">{(h.volume ?? 0).toLocaleString()}</span>
+                                    </span>
+                                ))}
+                            </div>
+                            <p className="mb-0 mt-1 text-[11px] text-[#16a34a]">아래 ‘③ 인기탭 찾기’는 <b>아직 안 본 키워드</b>를 새로 확인할 때만 누르세요.</p>
+                        </div>
+                    ) : null}
                     {cands ? (
                         <div className="rounded-md border border-[#ddd6fe] bg-white p-2">
                             <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
