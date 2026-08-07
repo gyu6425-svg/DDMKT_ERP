@@ -200,10 +200,10 @@ export function CafeTrackerTab({
         for (const p of scoped) cnt.set(boardKey(p), (cnt.get(boardKey(p)) || 0) + 1);
         // 마이클의 정보 세상(ddmkt2)에서는 '누수' 게시판 탭을 숨긴다(글은 보존 · 표시만 제외).
         if (cafeFilter === 'ddmkt2') cnt.delete('누수');
-        // 고객 뷰(lockCompany)에선 경쟁사 게시판 0건 탭을 깔지 않는다 — 본인 게시판만.
-        if (cafeFilter === '전체' && !lockCompany) for (const b of BOARD_ORDER) if (!cnt.has(b)) cnt.set(b, 0);
+        // 고객 뷰(lockCompany)·스코프 뷰(누수 ERP 등)에선 경쟁사 게시판 0건 탭을 깔지 않는다 — 스코프 안 게시판만.
+        if (cafeFilter === '전체' && !lockCompany && !scopeClientId) for (const b of BOARD_ORDER) if (!cnt.has(b)) cnt.set(b, 0);
         return [...cnt.entries()].sort((a, b) => boardRank(a[0]) - boardRank(b[0]) || a[0].localeCompare(b[0]));
-    }, [posts, cafeFilter, lockCompany]);
+    }, [posts, cafeFilter, lockCompany, scopeClientId]);
 
     // 게시판별 그룹 — 검색/필터 적용 후 게시판 순서대로 묶는다. '다 구분되어서' 보기 위함.
     const groups = useMemo(() => {
