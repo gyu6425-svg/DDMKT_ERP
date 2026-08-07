@@ -675,9 +675,10 @@ export function CafeKeywordFinder({
                             <div className="flex flex-wrap gap-1">{used.map((k) => <span key={k.keyword} className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[10px] text-[#94a3b8] line-through">{k.keyword}</span>)}</div>
                         </div>
                     ) : null}
-                    {mode === 'keyword' && kwResult.length >= 10 && !kwExpanded ? (
+                    {/* 결과가 적을수록 더 필요하다 — '10개 이상' 조건을 없앤다(고객ERP 와 동일). */}
+                    {mode === 'keyword' && !kwExpanded ? (
                         <button type="button" onClick={() => void runPlaceScan(50)} disabled={kwLoading} className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50">
-                            {kwLoading ? '전체 스캔 중… (수 분)' : '더 보기 — 인기탭 최대 50개 스캔'}
+                            {kwLoading ? '전체 스캔 중… (수 분)' : `＋ 더 찾기 — 최대 50개까지 깊이 스캔 (지금 ${kwResult.length}개)`}
                         </button>
                     ) : null}
                 </div>

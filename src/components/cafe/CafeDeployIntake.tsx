@@ -509,11 +509,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             </div>
                         </div>
                     ) : null}
-                    {isKw && kwResult.length >= 10 && !kwExpanded ? (
+                    {/* 더 찾기 — 옛 조건은 '결과 10개 이상'이었다. 그런데 결과가 적을수록 더 필요하다
+                        (3건만 나왔을 때 더 찾고 싶지, 10건 나왔을 때만 찾고 싶은 게 아니다).
+                        결과가 있고 아직 깊이 안 판 상태면 항상 보여준다. */}
+                    {isKw && !kwExpanded ? (
                         <button type="button" onClick={() => void runPlaceScan(50)} disabled={kwLoading}
                             className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50"
                             title="후보 키워드를 더 깊이 스캔합니다(최대 50개, 수 분 소요)">
-                            {kwLoading ? '전체 스캔 중… (수 분 소요)' : '더 보기 — 인기탭 진입 키워드 최대 50개 스캔'}
+                            {kwLoading ? '전체 스캔 중… (수 분 소요)' : `＋ 더 찾기 — 최대 50개까지 깊이 스캔 (지금 ${kwResult.length}개)`}
                         </button>
                     ) : null}
                     {isKw && kwExpanded ? <div className="mt-1 text-center text-[11px] text-[#94a3b8]">전체 {kwResult.length}개 · 후보 풀 상한까지 스캔됨</div> : null}
