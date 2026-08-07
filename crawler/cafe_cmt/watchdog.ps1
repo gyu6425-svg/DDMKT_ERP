@@ -103,7 +103,35 @@ if (Test-Path $acctFile) {
     }
 }
 
-# --- 3. keep the log from growing forever ------------------------------------
+# --- 3. nightly chrome recycle: 하루 1회 새벽에 전 계정 크롬을 새로 띄운다 --------
+#   여러 날 무인 운영하면(주말 등) 크롬 CDP 가 서서히 열화돼 좀비가 잦아진다.
+#   매일 새벽 04시대(정지시간 안 = 게시 없음)에 한 번 전부 kill+relaunch 해 신선하게.
+#   .last_recycle 에 날짜를 남겨 하루 한 번만 실행(5분 워치독이 여러 번 도는 것 방지).
+$recMark = Join-Path $HERE '.last_recycle'
+$hourNow = [int](Get-Date -Format 'HH')
+$today   = Get-Date -Format 'yyyy-MM-dd'
+$lastRec = if (Test-Path $recMark) { (Get-Content $recMark -Raw).Trim() } else { '' }
+if ($hourNow -eq 4 -and $lastRec -ne $today -and (Test-Path $acctFile)) {
+    Write-Log "nightly chrome recycle start ($today)"
+    foreach ($l in (Get-Content $acctFile)) {
+        $line = $l.Trim()
+        if ($line -eq '' -or $line.StartsWith('#')) { continue }
+        $p = ($line -split '\s*,\s*')
+        if ($p.Count -lt 2) { continue }
+        $name = $p[0].Trim(); $port = $p[1].Trim()
+        if ($port -eq '9222' -or $port -eq '9223') { continue }
+        Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
+            Where-Object { $_.CommandLine -match "remote-debugging-port=$port(\D|$)" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Milliseconds 600
+        Start-Process -FilePath (Join-Path $HERE 'run_chrome.bat') -ArgumentList $name -WorkingDirectory $HERE -WindowStyle Hidden
+        Start-Sleep -Seconds 4
+    }
+    Set-Content -Path $recMark -Value $today -Encoding ASCII
+    Write-Log "nightly chrome recycle done"
+}
+
+# --- 4. keep the log from growing forever ------------------------------------
 if ((Test-Path $LOG) -and ((Get-Item $LOG).Length -gt 1MB)) {
     $tail = Get-Content $LOG -Tail 500
     Set-Content -Path $LOG -Value $tail -Encoding UTF8
