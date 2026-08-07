@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -38,6 +38,7 @@ export function CafeKeywordFinder({
     const [dongLoading, setDongLoading] = useState(false);  // '더 찾기(동까지)' 진행
     const [dongDone, setDongDone] = useState(false);        // 이번 결과에 동 스캔까지 마쳤는지
     const [pasteText, setPasteText] = useState('');         // 플레이스에 메뉴/정보 없을 때 직접 붙여넣는 정보·메뉴
+    const [siteUrl, setSiteUrl] = useState('');             // 홈페이지·네이버 블로그 주소 — 붙여넣기를 대신하는 입력
     const [extracting, setExtracting] = useState('');       // 붙여넣기→키워드 추출 진행상태
     const [kwExpanded, setKwExpanded] = useState(false);
     const [kwErr, setKwErr] = useState('');
@@ -330,6 +331,24 @@ export function CafeKeywordFinder({
         } finally { setExtracting(''); }
     };
 
+    // 홈페이지·블로그 주소 → 원문을 붙여넣기 칸에 채운다.
+    //   ★ 블로그를 먼저 권한다(실측 2026-08-07 경기간호): 블로그 글 제목 51개가
+    //     "수원 의왕 뇌졸중 방문재활"처럼 이미 '지역 × 제품키워드' 꼴이라 우리 스캔 축과 같다.
+    //     같은 업체 홈페이지는 2,041자였지만 대부분 메뉴·인사말이었다.
+    const pullSite = async () => {
+        const u = siteUrl.trim();
+        if (!u) { setKwErr('홈페이지 또는 네이버 블로그 주소를 입력하세요.'); return; }
+        setKwErr(''); setExtracting('주소에서 글 가져오는 중…');
+        try {
+            const b = await fetchSiteText(u);
+            setPasteText(b.text);
+            const what = b.source === 'naver_blog' ? `블로그 글 ${b.posts ?? 0}개` : `페이지 ${b.pages.length}개`;
+            setKwErr(`${b.title || u} · ${what} · ${b.chars.toLocaleString()}자를 가져왔습니다 — ‘① 키워드 뽑기’를 눌러 주세요.`);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '주소를 읽지 못했습니다');
+        } finally { setExtracting(''); }
+    };
+
     // 정보입력형 ① — 붙여넣은 소개/메뉴 → GPT 가 검색 가능한 제품·서비스 키워드로 정리.
     //   결과는 체크박스로만 보여준다(자동 확정 금지). 대표어(core)·메뉴(menu)는 기본 체크, 세부(niche)는 해제.
     const runExtract = async () => {
@@ -536,6 +555,21 @@ export function CafeKeywordFinder({
                         <div className="mt-2 grid gap-2">
                             <input className={inputCls} value={addr} onChange={(e) => setAddr(e.target.value)}
                                 placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
+                            {/* 주소 한 줄로 원문을 걷는 경로 — 고객에게 "소개글을 붙여넣으세요"라고 하면 대부분 인사말만 넣는다. */}
+                            <div className="flex flex-wrap items-center gap-2">
+                                <input className={`${inputCls} min-w-[240px] flex-1`} value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void pullSite(); } }}
+                                    placeholder="홈페이지 또는 네이버 블로그 주소 (예: blog.naver.com/gyeonggi22)" />
+                                <button type="button" onClick={() => void pullSite()} disabled={!!extracting || kwLoading}
+                                    className="h-9 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50"
+                                    title="블로그면 최근 글 제목 50개를, 홈페이지면 본문을 가져와 아래 칸에 채웁니다">
+                                    ⬇ 주소로 가져오기
+                                </button>
+                            </div>
+                            <p className="mb-0 -mt-1 text-[11px] text-[#7c3aed]">
+                                💡 <b>네이버 블로그가 가장 정확합니다</b> — 글 제목이 이미 ‘지역 + 키워드’ 형태라 그대로 씁니다.
+                                홈페이지만 있으면 그 주소를 넣으세요(본문이 이미지·JS로만 된 사이트는 못 읽습니다).
+                            </p>
                             <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
                                 value={pasteText} onChange={(e) => setPasteText(e.target.value)}
                                 placeholder="업체 소개글·메뉴·서비스 설명을 그대로 붙여넣으세요(홈페이지 통째로 넣어도 됩니다).&#10;예)&#10;저희는 20년 경력의 누수탐지 전문업체로 아파트 배관 누수, 바닥 난방배관 누수를 정밀 장비로 찾아드립니다." />

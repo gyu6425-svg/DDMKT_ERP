@@ -332,6 +332,25 @@ export async function searchCachedPopular(terms: string[], limit = 200): Promise
     return [...out.values()].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
 }
 
+export type SiteBundle = { source: string; title: string; text: string; chars: number; pages: string[]; posts?: number };
+
+// 홈페이지·네이버 블로그 주소 → 키워드 추출용 원문. 붙여넣기를 대신하는 입력 경로다.
+//   ★ 네이버 블로그를 먼저 권해야 한다(실측 2026-08-07 경기간호):
+//     blog.naver.com/gyeonggi22 → 글 51개 제목이 "수원 의왕 뇌졸중 방문재활" 처럼
+//     이미 '지역 × 제품키워드' 꼴이라 우리 스캔 축과 모양이 같다.
+//     같은 업체 홈페이지(gyeongginurse.co.kr)는 2,041자였지만 대부분 메뉴·인사말이었다.
+//   추출은 이어서 extractMenuKeywords 가 한다 — 여기선 원문만 가져온다.
+export async function fetchSiteText(url: string): Promise<SiteBundle> {
+    const r = await fetch('/api/fetch-site', {
+        body: JSON.stringify({ url }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((j as { message?: string }).message || `주소를 읽지 못했습니다(${r.status})`);
+    return j as SiteBundle;
+}
+
 export type ExtractedProduct = { kw: string; kind: string };
 
 // 업체 정보 붙여넣기 → 제품·서비스 키워드 추출(GPT). 플레이스가 없는 업체용.

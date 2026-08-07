@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -148,6 +148,22 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [extracted, setExtracted] = useState<ExtractedProduct[] | null>(null);
     const [picked, setPicked] = useState<Set<string>>(new Set());
     const [extracting, setExtracting] = useState(false);
+    const [siteUrl, setSiteUrl] = useState('');   // 홈페이지·네이버 블로그 주소 — 붙여넣기를 대신하는 입력
+    // 주소 → 원문을 붙여넣기 칸에 채운다. 블로그가 홈페이지보다 정확하다(실측 2026-08-07 경기간호:
+    //   블로그 글 제목 51개가 "수원 의왕 뇌졸중 방문재활" 꼴 vs 홈페이지 2,041자는 대부분 메뉴·인사말).
+    const pullSite = async () => {
+        const u = siteUrl.trim();
+        if (!u) { setKwErr('홈페이지 또는 네이버 블로그 주소를 입력하세요.'); return; }
+        setKwErr(''); setExtracting(true);
+        try {
+            const b = await fetchSiteText(u);
+            setPlaceDetail(b.text);
+            const what = b.source === 'naver_blog' ? `블로그 글 ${b.posts ?? 0}개` : `페이지 ${b.pages.length}개`;
+            setKwErr(`${b.title || u} · ${what} · ${b.chars.toLocaleString()}자를 가져왔습니다 — ‘① 키워드 뽑기’를 눌러 주세요.`);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '주소를 읽지 못했습니다');
+        } finally { setExtracting(false); }
+    };
     const runExtract = async () => {
         const raw = placeDetail.trim();
         if (!raw) { setKwErr('업체 소개·메뉴를 붙여넣으세요.'); return; }
@@ -838,6 +854,20 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 <div className="mt-2 grid gap-2">
                                     <input className={inputCls} value={ownAddr} onChange={(e) => setOwnAddr(e.target.value)}
                                         placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
+                                    {/* 주소 한 줄로 원문을 걷는 경로 — 고객에게 붙여넣기를 시키면 대부분 인사말만 넣는다. */}
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <input className={`${inputCls} min-w-[220px] flex-1`} value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void pullSite(); } }}
+                                            placeholder="홈페이지 또는 네이버 블로그 주소 (예: blog.naver.com/gyeonggi22)" />
+                                        <button type="button" onClick={() => void pullSite()} disabled={extracting || kwLoading}
+                                            className="h-9 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50"
+                                            title="블로그면 최근 글 제목 50개를, 홈페이지면 본문을 가져와 아래 칸에 채웁니다">
+                                            ⬇ 주소로 가져오기
+                                        </button>
+                                    </div>
+                                    <p className="mb-0 -mt-1 text-[11px] text-[#7c3aed]">
+                                        💡 <b>네이버 블로그가 가장 정확합니다</b> — 글 제목이 이미 ‘지역 + 키워드’ 형태라 그대로 씁니다.
+                                    </p>
                                     <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
                                         value={placeDetail} onChange={(e) => setPlaceDetail(e.target.value)}
                                         placeholder={'업체 소개글·메뉴·서비스 설명을 그대로 붙여넣으세요(홈페이지 통째로 넣어도 됩니다).\n예)\n저희는 20년 경력의 누수탐지 전문업체로 아파트 배관 누수, 바닥 난방배관 누수를 정밀 장비로 찾아드립니다.'} />
