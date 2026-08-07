@@ -16,7 +16,7 @@
 type FunctionContext = { request: Request; env: Record<string, string | undefined> };
 
 const MAX_BYTES = 3_000_000;   // 응답 상한 — 쇼핑몰 메인은 쉽게 1MB 를 넘는다
-const MAX_TEXT = 16_000;       // 반환 상한(추출기 입력 상한과 맞춘다)
+const MAX_TEXT = 55_000;       // 반환 상한(추출기가 조각내 병렬 처리하므로 통째로 넘긴다)
 const MIN_USEFUL = 300;        // 이 아래면 'JS 렌더라 본문이 없다'고 본다
 const BLOG_PAGES = 12;         // 글목록 페이지 상한(30개씩 → 최대 360개)
 const SITE_PAGES = 10;         // 서브페이지 상한

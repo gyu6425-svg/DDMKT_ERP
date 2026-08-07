@@ -7,9 +7,13 @@
 type FunctionContext = { request: Request; env: Record<string, string | undefined> };
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
-// 입력 상한. 6,000자였을 때 블로그 글 제목 166개(19,144자)의 31% 만 들어가 뒤쪽 글이 통째로 잘렸다.
-//   gpt-5-mini 입력은 싸다(16,000자 ≈ 11k 토큰 ≈ 4원) — 잘라서 키워드를 놓치는 쪽이 훨씬 비싸다.
-const MAX_INPUT = 16000;
+// 방침: 추출은 최대로 하고, 쓸 만한지는 인기탭 스캔이 판정한다.
+//   한 번에 다 넣으면 뒤쪽이 잘리므로(6,000자 시절 블로그 166개 글의 31%만 들어갔다)
+//   긴 원문은 조각으로 나눠 병렬 호출하고 합친다. gpt-5-mini 입력은 싸다 — 조각당 약 6원.
+const MAX_INPUT = 60000;     // 전체 입력 상한(블로그 전 글 제목 + 사이트 전 페이지)
+const CHUNK = 14000;         // 조각 하나의 크기
+const MAX_CHUNKS = 4;        // 조각 수 상한 → 최대 약 24원
+const MAX_KEYWORDS = 80;     // 반환 상한. 판정은 스캔이 하므로 넉넉히 남긴다
 
 function jsonResponse(body: unknown, status = 200) {
     return new Response(JSON.stringify(body), {
@@ -80,6 +84,51 @@ ${text}
 
 JSON 만 출력: {"products":[{"kw":"속눈썹연장","kind":"menu"}],"biz":"업종 한 줄 요약"}`;
 
+// 긴 원문을 조각으로 자른다 — 줄 경계에서만 자른다(블로그 글 제목이 한 줄이라 중간을 끊으면 망가진다).
+function chunkText(text: string): string[] {
+    if (text.length <= CHUNK) return [text];
+    const out: string[] = [];
+    let cur = '';
+    for (const line of text.split('\n')) {
+        if (cur.length + line.length + 1 > CHUNK && cur) { out.push(cur); cur = ''; }
+        cur += (cur ? '\n' : '') + line.slice(0, CHUNK);
+        if (out.length >= MAX_CHUNKS - 1 && cur.length >= CHUNK) break;
+    }
+    if (cur) out.push(cur);
+    return out.slice(0, MAX_CHUNKS);
+}
+
+async function extractOnce(chunk: string, hint: string, apiKey: string, model: string) {
+    let response: Response;
+    try {
+        response = await fetch(OPENAI_API_URL, {
+            body: JSON.stringify({
+                input: PROMPT(chunk, hint),
+                model,
+                reasoning: { effort: 'low' },
+                text: { format: { type: 'json_object' } },
+            }),
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            method: 'POST',
+        });
+    } catch {
+        return { error: '추출 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', status: 502 };
+    }
+    const raw = await response.text();
+    let result: Record<string, unknown> = {};
+    try {
+        result = raw ? JSON.parse(raw) : {};
+    } catch {
+        return { error: '추출 응답을 해석하지 못했습니다.', status: 502 };
+    }
+    if (!response.ok) {
+        return { error: (result.error as { message?: string } | undefined)?.message || '키워드 추출에 실패했습니다.', status: response.status };
+    }
+    const parsed = parseJsonLoose(extractOutputText(result as Parameters<typeof extractOutputText>[0]));
+    if (!parsed) return { error: '추출 결과(JSON)를 해석하지 못했습니다.', status: 502 };
+    return { parsed, usage: (result as { usage?: { input_tokens?: number; output_tokens?: number } }).usage };
+}
+
 export async function onRequestPost({ request, env }: FunctionContext) {
     const apiKey = env.OPENAI_API_KEY;
     if (!apiKey) return jsonResponse({ message: 'Cloudflare 환경변수 OPENAI_API_KEY가 필요합니다.' }, 500);
@@ -94,50 +143,43 @@ export async function onRequestPost({ request, env }: FunctionContext) {
     if (text.length < 10) return jsonResponse({ message: '업체 정보를 붙여넣어 주세요(10자 이상).' }, 400);
 
     const model = env.OPENAI_CAFE_TEXT_MODEL || 'gpt-5-mini';
-    let response: Response;
-    try {
-        response = await fetch(OPENAI_API_URL, {
-            body: JSON.stringify({
-                input: PROMPT(text, (payload.hint || '').trim()),
-                model,
-                reasoning: { effort: 'low' },
-                text: { format: { type: 'json_object' } },
-            }),
-            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-            method: 'POST',
-        });
-    } catch {
-        return jsonResponse({ message: '추출 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.' }, 502);
+    const hint = (payload.hint || '').trim();
+    const chunks = chunkText(text);
+    const runs = await Promise.all(chunks.map((c) => extractOnce(c, hint, apiKey, model)));
+
+    // 조각이 하나라도 성공했으면 진행한다 — 전부 실패했을 때만 에러로 돌린다.
+    const okRuns = runs.filter((r): r is { parsed: Record<string, unknown>; usage?: { input_tokens?: number; output_tokens?: number } } => 'parsed' in r);
+    if (!okRuns.length) {
+        const first = runs[0] as { error?: string; status?: number };
+        return jsonResponse({ message: first?.error || '키워드 추출에 실패했습니다.' }, first?.status || 502);
     }
-    const raw = await response.text();
-    let result: Record<string, unknown> = {};
-    try {
-        result = raw ? JSON.parse(raw) : {};
-    } catch {
-        return jsonResponse({ message: '추출 응답을 해석하지 못했습니다.' }, 502);
-    }
-    if (!response.ok) {
-        return jsonResponse({ message: (result.error as { message?: string } | undefined)?.message || '키워드 추출에 실패했습니다.' }, response.status);
-    }
-    const parsed = parseJsonLoose(extractOutputText(result as Parameters<typeof extractOutputText>[0]));
-    if (!parsed) return jsonResponse({ message: '추출 결과(JSON)를 해석하지 못했습니다. 정보를 조금 더 붙여넣어 보세요.' }, 502);
 
     const seen = new Set<string>();
     const products: { kw: string; kind: string }[] = [];
-    for (const row of (parsed.products as unknown[]) || []) {
-        const r = row as { kw?: unknown; kind?: unknown };
-        const kw = cleanProduct(typeof row === 'string' ? row : r.kw);
-        const key = kw.replace(/\s/g, '');
-        if (!kw || seen.has(key)) continue;
-        seen.add(key);
-        const kind = String(r.kind ?? 'menu');
-        products.push({ kw, kind: ['core', 'menu', 'niche'].includes(kind) ? kind : 'menu' });
-        if (products.length >= 30) break;
+    for (const run of okRuns) {
+        for (const row of (run.parsed.products as unknown[]) || []) {
+            const r = row as { kw?: unknown; kind?: unknown };
+            const kw = cleanProduct(typeof row === 'string' ? row : r.kw);
+            const key = kw.replace(/\s/g, '');
+            if (!kw || seen.has(key)) continue;
+            seen.add(key);
+            const kind = String(r.kind ?? 'menu');
+            products.push({ kw, kind: ['core', 'menu', 'niche'].includes(kind) ? kind : 'menu' });
+            if (products.length >= MAX_KEYWORDS) break;
+        }
+        if (products.length >= MAX_KEYWORDS) break;
     }
     if (!products.length) {
         return jsonResponse({ message: '검색 가능한 제품·서비스 키워드를 찾지 못했습니다. 메뉴나 시술명이 담긴 문구를 붙여넣어 주세요.' }, 422);
     }
-    return jsonResponse({ products, biz: String(parsed.biz ?? ''), model, usage: (result as { usage?: unknown }).usage ?? null });
+    const usage = okRuns.reduce((a, r) => ({
+        input_tokens: a.input_tokens + (r.usage?.input_tokens || 0),
+        output_tokens: a.output_tokens + (r.usage?.output_tokens || 0),
+    }), { input_tokens: 0, output_tokens: 0 });
+    return jsonResponse({
+        biz: String(okRuns[0].parsed.biz ?? ''), chars: text.length, chunks: chunks.length,
+        model, products, usage,
+    });
 }
 
 export function onRequestOptions() {

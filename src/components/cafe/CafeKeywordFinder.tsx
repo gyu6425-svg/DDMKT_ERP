@@ -350,7 +350,10 @@ export function CafeKeywordFinder({
     };
 
     // 정보입력형 ① — 붙여넣은 소개/메뉴 → GPT 가 검색 가능한 제품·서비스 키워드로 정리.
-    //   결과는 체크박스로만 보여준다(자동 확정 금지). 대표어(core)·메뉴(menu)는 기본 체크, 세부(niche)는 해제.
+    //   ★ 방침: 뽑을 수 있는 건 최대로 뽑고, 쓸 만한지는 인기탭 스캔이 판정한다.
+    //     그래서 세부(niche)까지 전부 기본 체크한다. 스캔이 지역불일치·오탐·검색량없음을 걸러내므로
+    //     여기서 미리 빼면 걸러질 일 없는 키워드까지 같이 사라진다(실측: 경기간호 39개 중
+    //     파킨슨병 47,080 · 뇌졸중 33,650 이 전부 niche 로 분류돼 있었다).
     const runExtract = async () => {
         const raw = pasteText.trim();
         if (!raw) { setKwErr('업체 정보(소개·메뉴)를 붙여넣으세요.'); return; }
@@ -358,8 +361,8 @@ export function CafeKeywordFinder({
         try {
             const { products, biz } = await extractMenuKeywords(raw, keyword.trim());
             setExtracted(products);
-            setPicked(new Set(products.filter((x) => x.kind !== 'niche').map((x) => x.kw)));
-            if (biz) setKwErr(`업종 인식: ${biz} — 아래에서 스캔할 키워드를 골라 주세요.`);
+            setPicked(new Set(products.map((x) => x.kw)));
+            if (biz) setKwErr(`업종 인식: ${biz} — 키워드 ${products.length}개를 모두 골라 뒀습니다. 뺄 것만 해제하고 ③을 누르세요.`);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '키워드 추출 실패');
         } finally { setExtracting(''); }

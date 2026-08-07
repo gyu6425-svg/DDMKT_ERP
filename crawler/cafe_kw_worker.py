@@ -815,6 +815,21 @@ def process_menu(req, payload):
     products = [str(x).strip() for x in (d.get("products") or []) if str(x).strip()]
     if not products:
         return _finish(req["id"], "failed", note="제품키워드 없음 — 추출 결과에서 1개 이상 선택하세요")
+    # ★ 제품을 검색량 내림차순으로 세운다(2026-08-07).
+    #   추출을 최대로 하는 방침으로 바뀌면서 제품이 70개 넘게 들어온다. 회차 상한(max_live=330)이
+    #   지역 우선 순회를 자르므로, 제품 순서가 나쁘면 앞쪽 지역에서 '활력징후측정 0' 같은 것만
+    #   돌다가 회차가 끝난다. 어차피 한 번에 다 못 돌 바엔 수요 큰 것부터 본다.
+    #   (searchad 호출이라 CF egress 예산과 무관하다. 나머지는 '＋더 찾기'가 이어서 본다.)
+    if len(products) > 12:
+        vol = {}
+        for pr in products:
+            try:
+                vol[pr] = _real_volume(pr) or 0
+            except Exception:
+                vol[pr] = 0
+        products.sort(key=lambda x: -vol.get(x, 0))
+        print(f"[{_ts()}][{req['id']}] 제품 {len(products)}개 검색량순 정렬 — 상위: "
+              + ", ".join(f"{p}({vol.get(p, 0):,})" for p in products[:5]), flush=True)
     own = normalize_region(addr)
     sidos = [s for s in (req.get("regions") or "").replace(" ", "").split(",") if s]
     dt = (req.get("deploy_type") or "")

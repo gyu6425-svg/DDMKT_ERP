@@ -171,7 +171,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { products } = await extractMenuKeywords(raw, (form.keyword || '').trim());
             setExtracted(products);
-            setPicked(new Set(products.filter((x) => x.kind !== 'niche').map((x) => x.kw)));
+            // ★ 세부(niche)까지 전부 기본 체크 — 쓸 만한지는 인기탭 스캔이 판정한다.
+            //   미리 빼면 걸러질 일 없는 키워드까지 같이 사라진다(실측: 경기간호에서
+            //   파킨슨병 47,080 · 뇌졸중 33,650 이 niche 로 분류돼 있었다).
+            setPicked(new Set(products.map((x) => x.kw)));
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '키워드 추출 실패');
         } finally { setExtracting(false); }
