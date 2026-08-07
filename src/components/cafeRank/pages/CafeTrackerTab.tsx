@@ -39,16 +39,29 @@ const boardRank = (b: string) => {
 };
 const boardStyle = (b: string) => BOARD_STYLE[b] || { bg: '#f1f5f9', fg: '#475569' };
 
+// 순위 확인 링크 — 반드시 모바일(m.search).
+//   ★ 인기글 섹션은 PC 와 모바일이 다르다. 실측(2026-08-07) '광진 소방업체'는
+//     모바일엔 인기글 헤더가 있고 PC엔 없다(플레이스·뉴스만). CF 경유든 사무실 IP든 동일했다.
+//     우리 측정(measure_cafe_rank)이 m.search 전용이므로 확인도 모바일로 통일해야
+//     "화면엔 없는데 왜 있다고 하냐"는 어긋남이 안 생긴다.
+const cafeSearchUrl = (kw: string) => `https://m.search.naver.com/search.naver?query=${encodeURIComponent(kw)}`;
+
 // 순위 셀 — 인기글 테마 섹션 내 순위. 측정없음=측정대기, fail=실패, no_section=측정불가(섹션없음), out=권외.
 //   인기글 섹션은 보통 5~10개 → ≤3 초록(상위), ≤7 파랑, 그외 회색.
-function RankCell({ ms }: { ms: CafeMeasurement[] }) {
-    if (!ms || !ms.length) return <span className="text-[12px] font-semibold text-[#d97706]">측정 대기</span>;
+function RankCell({ ms, keyword }: { ms: CafeMeasurement[]; keyword?: string | null }) {
+    const kw = (keyword || '').trim();
+    // 순위(또는 상태)를 누르면 그 키워드의 모바일 검색결과가 새 탭으로 열린다.
+    const wrap = (node: React.ReactNode) => (kw
+        ? <a href={cafeSearchUrl(kw)} target="_blank" rel="noreferrer"
+            title={`모바일 검색결과 열기 — ${kw}`} className="hover:underline">{node}</a>
+        : node);
+    if (!ms || !ms.length) return wrap(<span className="text-[12px] font-semibold text-[#d97706]">측정 대기</span>);
     const cur = ms[ms.length - 1];
     const prev = ms.length > 1 ? ms[ms.length - 2] : null;
-    if (cur.ti_status === 'fail') return <span className="text-[13px] font-bold text-[#dc2626]">실패</span>;
+    if (cur.ti_status === 'fail') return wrap(<span className="text-[13px] font-bold text-[#dc2626]">실패</span>);
     if (cur.ti_status === 'no_section')
-        return <span className="text-[12px] font-semibold text-[#94a3b8]" title="이 키워드엔 인기글 섹션이 없어 측정 대상이 아닙니다">측정불가</span>;
-    if (cur.ti_status === 'out') return <span className="text-[13px] font-semibold text-[#64748b]">권외</span>;
+        return wrap(<span className="text-[12px] font-semibold text-[#94a3b8]" title="모바일 기준 인기글 섹션이 없어 측정 대상이 아닙니다(눌러서 확인)">측정불가</span>);
+    if (cur.ti_status === 'out') return wrap(<span className="text-[13px] font-semibold text-[#64748b]">권외</span>);
     const color = cur.ti <= 3 ? '#059669' : cur.ti <= 7 ? '#2563eb' : '#64748b';
     let delta = null as null | { s: string; c: string };
     if (prev && prev.ti_status === 'ok') {
@@ -57,11 +70,11 @@ function RankCell({ ms }: { ms: CafeMeasurement[] }) {
         else if (d < 0) delta = { s: `▼${-d}`, c: '#2563eb' };
         else delta = { s: '—', c: '#94a3b8' };
     }
-    return (
+    return wrap(
         <span className="inline-flex items-center gap-1">
             <b style={{ color }} className="text-[14px]">{cur.ti}위</b>
             {delta ? <span className="text-[11px] font-bold" style={{ color: delta.c }}>{delta.s}</span> : null}
-        </span>
+        </span>,
     );
 }
 
@@ -470,7 +483,7 @@ export function CafeTrackerTab({
                                                 );
                                             })()}
                                         </td>
-                                        <td className="px-3 py-2 text-center"><RankCell ms={p.measurements} /></td>
+                                        <td className="px-3 py-2 text-center"><RankCell ms={p.measurements} keyword={p.keyword_manual || p.keyword} /></td>
                                         <td className="px-3 py-2 text-center text-[11px] text-[#94a3b8]">{last?.date?.slice(5) || '—'}</td>
                                         {!external ? (
                                             <td className="px-2 py-2 text-center">

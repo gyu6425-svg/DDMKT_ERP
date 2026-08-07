@@ -587,6 +587,12 @@ export function CafeKeywordFinder({
                                                 <input type="checkbox" checked={picked} onChange={() => togglePick(k)} className="h-3.5 w-3.5 accent-[#4338ca]" />
                                                 {k.keyword}
                                             </label>
+                                            {/* ★ 반드시 모바일(m.search). 인기글 섹션은 PC 와 모바일이 다르다
+                                                (실측 2026-08-07 '광진 소방업체' 모바일 O · PC X, CF/사무실 IP 동일).
+                                                우리 판정·측정이 전부 m.search 기준이라 확인도 모바일이어야 어긋나지 않는다. */}
+                                            <a href={`https://m.search.naver.com/search.naver?query=${encodeURIComponent(k.keyword)}`}
+                                                target="_blank" rel="noreferrer" title="모바일 검색결과에서 인기글 확인"
+                                                className="text-[11px] text-[#0369a1] hover:underline">확인↗</a>
                                             {/* 검색량 10 = 검색광고 API 최저값 = '측정된 검색이 없음'.
                                                 인기탭이 있어도 1위를 해도 유입이 0이라 팔 때 주의해야 한다.
                                                 실측(2026-08-07) '창업' 지역형 112건이 전부 검색량 10이었다.

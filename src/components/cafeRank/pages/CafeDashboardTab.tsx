@@ -206,7 +206,15 @@ export function CafeDashboardTab() {
                                                             <td className="whitespace-nowrap px-2 py-1.5 font-semibold">{kw(p)}</td>
                                                             <td className="max-w-[280px] truncate px-2 py-1.5" title={p.title ?? ''}>{p.title ?? '—'}</td>
                                                             <td className="whitespace-nowrap px-2 py-1.5 text-[12px] text-[#64748b]">{p.cafe_accounts?.display_name || p.cafe_name || '—'}</td>
-                                                            <td className={`whitespace-nowrap px-2 py-1.5 ${rankCls}`}>{rankText}</td>
+                                                            {/* 순위를 누르면 모바일 검색결과가 열린다 — 인기글 섹션은 PC 와 모바일이 달라
+                                                                (실측 2026-08-07 '광진 소방업체' 모바일 O / PC X) 반드시 m.search 로 확인해야 한다. */}
+                                                            <td className={`whitespace-nowrap px-2 py-1.5 ${rankCls}`}>
+                                                                {kw(p) ? (
+                                                                    <a href={`https://m.search.naver.com/search.naver?query=${encodeURIComponent(kw(p))}`}
+                                                                        target="_blank" rel="noreferrer" className="hover:underline"
+                                                                        title={`모바일 검색결과 열기 — ${kw(p)}`}>{rankText}</a>
+                                                                ) : rankText}
+                                                            </td>
                                                             <td className="whitespace-nowrap px-2 py-1.5">
                                                                 {achieved ? <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#166534]">✓ 실적</span>
                                                                     : p.top5_seeded ? <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#94a3b8]">기준</span>
