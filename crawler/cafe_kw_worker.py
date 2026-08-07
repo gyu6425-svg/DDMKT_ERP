@@ -886,6 +886,27 @@ def _probe_regions(k=8):
     return out or _PROBE_SEED[:k]
 
 
+# 씨앗어가 '지명(목적지)'인지 — 지명이면 지역 축을 붙이지 않는다.
+#   왜(SUB4 제안 2026-08-07): '판교 보홀투어'·'하와이→디트로이트'처럼 씨앗과 지리적으로 무관한
+#     지명이 붙어 팔 수 없는 키워드가 결과에 올라왔다. '제주 제외' 같은 개별 예외로 잡으면
+#     보홀·괌·다낭이 나올 때마다 두더지 잡기가 된다. 씨앗이 목적지면 {지역}{목적지} 조합 자체가
+#     성립하지 않는다("판교 보홀투어"를 검색하는 사람은 없다).
+#   판별: ① 국내 지명은 지역 토큰 마스터에 있다 ② 해외 지명은 '{씨앗}여행/항공권/숙소…'가 크게 잡힌다.
+#   실측 16개(보홀·하와이·괌·다낭·제주·강릉·코타키나발루 vs 입주청소·누수탐지·창업·골프·네일·간병인·필라테스):
+#     신호 6종 + 임계 3,000 → 오판 0. 임계 1,000 이면 '골프'가 골프여행 2,770 때문에 지명으로 오판된다.
+_DEST_SIGNALS = ("여행", "항공권", "숙소", "맛집", "가볼만한곳", "호텔")
+_DEST_MIN_VOL = 3000
+
+
+def _is_place_seed(seed, vol_by_kw, known_tokens):
+    s = (seed or "").replace(" ", "")
+    if not s:
+        return False
+    if s in known_tokens:
+        return True
+    return any((vol_by_kw.get(s + g) or 0) >= _DEST_MIN_VOL for g in _DEST_SIGNALS)
+
+
 def process_reviews(req, payload):
     """리뷰 수집 — payload = 플레이스 URL/ID. 리뷰 텍스트와 부가 정보를 모아 돌려준다.
 
@@ -979,6 +1000,23 @@ def process_related(req, payload):
     #    실측(전수 판정 36개 제품으로 시뮬레이션): K=8 이면 36개 중 33개를 맞히고 위양성은 0이다.
     #    즉 '찔러서 나오면 진짜 지역형'이고, 놓치는 쪽(위음성)만 K 로 줄인다.
     regional = []
+    # ★ 씨앗이 지명(보홀·하와이·제주)이면 지역 축을 아예 붙이지 않는다 — 위 _is_place_seed 참고.
+    #   연관어 검색량을 그대로 재활용하므로 추가 조회가 없다.
+    vol_by_kw = {}
+    for x in (p.searchad_keywords(seed) or []):
+        k = str(x.get("keyword") or "").replace(" ", "")
+        if k:
+            vol_by_kw[k] = max(vol_by_kw.get(k, 0), x.get("total") or 0)
+    if _is_place_seed(seed, vol_by_kw, known):
+        print(f"[{_ts()}][{req['id']}] '{seed}' 는 지명 — 지역 축 생략", flush=True)
+        national.sort(key=lambda f: -(f.get("volume") or 0))
+        for n in national:
+            n["kind"] = "national"
+        _finish(req["id"], "done", result=national, extra={"biz_name": seed},
+                note=f"전국형 {len(national)}건 · 씨앗이 지명이라 지역 조합은 건너뜀"
+                     f"{' · 오류 ' + str(errs) if errs else ''}"
+                     + (f" · 판정 {min(len(kws), MAX_A)}/{len(kws)}(상한)" if len(kws) > MAX_A else ""))
+        return
     todo = sorted(miss, key=lambda x: -(x.get("volume") or 0))[:MAX_PROBE_PROD]
     for j, row in enumerate(todo, 1):
         prod = row["keyword"]
