@@ -151,14 +151,52 @@ def pending_combos(plan):
             seen.add(nk)
             kws.append((tok, kw))
     cache = w._cache_get_many([kw for _, kw in kws])
+    kind_of = _token_kinds()
     todo, done = [], 0
+    hit = {}          # 종류별 [적중, 판정] — 이 제품에서 실제로 뭐가 먹히는지
     for tok, kw in kws:
         c = cache.get(kw.replace(" ", ""))
         if c is not None and w._cache_trust(c):
             done += 1
+            st = hit.setdefault(kind_of.get(tok, "?"), [0, 0])
+            st[1] += 1
+            if w._is_pop(c):
+                st[0] += 1
             continue
         todo.append((tok, kw))
-    return todo, done
+    return _reorder(todo, kind_of, hit, product), done
+
+
+_KINDS_CACHE = {}
+
+
+def _token_kinds():
+    """토큰 → 종류. 한 번만 읽어 캐싱(데몬은 오래 살아 있다)."""
+    if not _KINDS_CACHE:
+        for r in (w._sb_page(f"{SB}/rest/v1/cafe_region_token?select=token,kind&active=is.true") or []):
+            _KINDS_CACHE[r["token"]] = r["kind"]
+    return _KINDS_CACHE
+
+
+def _reorder(todo, kind_of, hit, product):
+    """이 제품에서 실제로 먹힌 종류를 앞으로 — 자기가 본 결과로 순서를 스스로 고친다.
+
+       ★ 왜 필요한가(실측 2026-08-07, 전수 완료분):
+         역세권이 누수탐지 0/597 · 입주청소 0/597 인데 창업은 101/554(18.2%)다.
+         '창업' 이 찾은 112건 중 101건이 역세권이었다. 반대로 신도시는 청소 84%·창업 24%.
+         고정 우선순위(prio)를 어떻게 잡아도 한쪽 업종은 확실히 손해를 본다.
+       판정이 20건 미만인 종류는 표본이 없어 못 믿으므로 기존 prio 순서를 그대로 둔다."""
+    MIN_N = 20
+    rate = {k: (v[0] / v[1]) for k, v in hit.items() if v[1] >= MIN_N}
+    if not rate:
+        return todo
+    seen_rank = {k: i for i, k in enumerate(sorted(rate, key=lambda k: -rate[k]))}
+    # 실측된 종류는 적중률 순으로 앞에, 표본 없는 종류는 그 뒤에 원래 순서대로.
+    ordered = sorted(range(len(todo)),
+                     key=lambda i: (seen_rank.get(kind_of.get(todo[i][0], "?"), 99), i))
+    top = ", ".join(f"{k} {rate[k]*100:.0f}%" for k in sorted(rate, key=lambda k: -rate[k])[:4])
+    log(f"  '{product}' 실측 적중률로 재정렬 — {top}")
+    return [todo[i] for i in ordered]
 
 
 def scan_one(tok, kw, product):
