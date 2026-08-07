@@ -275,6 +275,12 @@ const CAFE_BUY_KEY = '__cafebuy__';
 const CAFE_BUY_LABEL = '카페 구매';
 const CAFE_BUY_CAT = { key: CAFE_BUY_KEY, label: CAFE_BUY_LABEL, path: '', ready: false, subs: [] as string[] };
 
+// 기타(외주비) — 아이디 구매/카페 구매와 동일 방식(상품명 자유입력·수량·금액, 전액 외주비, 매출 0).
+//   ※ 위 ETC_CAT('__etc__')는 종합광고 2차 '매출' 전용이라 별개 키로 둔다(라벨만 같음).
+const ETC_OUT_KEY = '__etcout__';
+const ETC_OUT_LABEL = '기타';
+const ETC_OUT_CAT = { key: ETC_OUT_KEY, label: ETC_OUT_LABEL, path: '', ready: false, subs: [] as string[] };
+
 // 체험단 — 아이디 구매/랜딩페이지처럼 매출 0·전액 외주비(부가세 없음). 입력 금액은 체험단원에게
 //   지급하는 총액이고, 개인 지급이라 원천징수 3.3%를 뺀 '실지급액'을 함께 표시한다(참고).
 const EXP_KEY = '__exp__';
@@ -321,10 +327,11 @@ function ContractAddModal({
     const isLand = catKey === LAND_KEY; // 랜딩페이지 = 아이디 구매와 동일 방식
     const isExp = catKey === EXP_KEY; // 체험단 = 아이디 구매 방식 + 3.3% 실지급액 표시
     const isCafeBuy = catKey === CAFE_BUY_KEY; // 카페 구매 = 아이디 구매와 동일(우리가 카페 구매)
-    const isOutOnly = isBuy || isLand || isExp || isCafeBuy; // 외주비 전용 항목(매출 0)
+    const isEtcOut = catKey === ETC_OUT_KEY; // 기타(외주비) = 아이디 구매와 동일 + 상품명 자유입력
+    const isOutOnly = isBuy || isLand || isExp || isCafeBuy || isEtcOut; // 외주비 전용 항목(매출 0)
     const cat =
         PRODUCT_CATEGORIES.find((c) => c.key === catKey) ??
-        (isFee ? FEE_CAT : isBuy ? BUY_CAT : isLand ? LAND_CAT : isExp ? EXP_CAT : isCafeBuy ? CAFE_BUY_CAT : isEtc ? ETC_CAT : PRODUCT_CATEGORIES[0]);
+        (isFee ? FEE_CAT : isBuy ? BUY_CAT : isLand ? LAND_CAT : isExp ? EXP_CAT : isCafeBuy ? CAFE_BUY_CAT : isEtcOut ? ETC_OUT_CAT : isEtc ? ETC_CAT : PRODUCT_CATEGORIES[0]);
     // 2차 등록에선 컨테이너형(상위노출 보장형·종합광고) 자기 자신은 하위로 못 넣게 제외.
     const subOptions = boostPrefix ? cat.subs.filter((s) => !CONTAINER_SUBS.includes(s)) : cat.subs;
     // 카테고리 칩 표시: 일반 등록 또는 종합광고 2차(picking)에서. 종합광고 2차에서만 자기(종합광고)를 칩에서 제외.
@@ -335,7 +342,7 @@ function ContractAddModal({
         ? [...PRODUCT_CATEGORIES.filter((c) => c.label !== '종합광고'), ETC_CAT]
         : boostPrefix
           ? PRODUCT_CATEGORIES
-          : [...PRODUCT_CATEGORIES, FEE_CAT, BUY_CAT, LAND_CAT, EXP_CAT, CAFE_BUY_CAT];
+          : [...PRODUCT_CATEGORIES, FEE_CAT, BUY_CAT, LAND_CAT, EXP_CAT, CAFE_BUY_CAT, ETC_OUT_CAT];
     const [subtype, setSubtype] = useState(subOptions[0]);
     const [count, setCount] = useState('');
     const [perDay, setPerDay] = useState('');
@@ -397,8 +404,8 @@ function ContractAddModal({
             setSubtype(FEE_LABEL); // 대행수수료 = 세부유형 고정
             return;
         }
-        if (key === BUY_KEY || key === LAND_KEY || key === EXP_KEY || key === CAFE_BUY_KEY) {
-            setSubtype(''); // 아이디 구매·랜딩페이지·체험단·카페 구매 = 이름 직접 입력
+        if (key === BUY_KEY || key === LAND_KEY || key === EXP_KEY || key === CAFE_BUY_KEY || key === ETC_OUT_KEY) {
+            setSubtype(''); // 아이디 구매·랜딩페이지·체험단·카페 구매·기타 = 이름 직접 입력
             return;
         }
         const c = PRODUCT_CATEGORIES.find((x) => x.key === key);
@@ -598,7 +605,7 @@ function ContractAddModal({
                                     className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
                                     onChange={(e) => setSubtype(e.target.value)}
                                     placeholder={
-                                        isExp ? '예: 인스타 체험단 A' : isLand ? '예: 상세 랜딩페이지 제작' : isCafeBuy ? '예: 네이버 카페(누수탐지 상담소)' : '예: 네이버 아이디'
+                                        isExp ? '예: 인스타 체험단 A' : isLand ? '예: 상세 랜딩페이지 제작' : isCafeBuy ? '예: 네이버 카페(누수탐지 상담소)' : isEtcOut ? '예: 기타 상품명' : '예: 네이버 아이디'
                                     }
                                     type="text"
                                     value={subtype}
@@ -2963,6 +2970,7 @@ export function ClientDetail({
         ...(contracts.some((ct) => ct.category === LAND_LABEL) ? [LAND_CAT] : []),
         ...(contracts.some((ct) => ct.category === EXP_LABEL) ? [EXP_CAT] : []),
         ...(contracts.some((ct) => ct.category === CAFE_BUY_LABEL) ? [CAFE_BUY_CAT] : []),
+        ...(contracts.some((ct) => ct.category === ETC_OUT_LABEL) ? [ETC_OUT_CAT] : []),
     ];
 
     return (
