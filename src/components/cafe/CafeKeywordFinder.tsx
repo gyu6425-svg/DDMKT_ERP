@@ -56,6 +56,7 @@ export function CafeKeywordFinder({
     const [regionalCands, setRegionalCands] = useState<(KwResult & { sample?: string[] })[]>([]);
     // 캐시 우선 조회 결과 — 스캔 0회로 즉시 나오는 것들.
     const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
+    const [cachedVia, setCachedVia] = useState<string[]>([]);   // 이 결과를 찾아낸 어간(씨앗어와 다를 수 있다)
     const [addr, setAddr] = useState('');
     const [extracted, setExtracted] = useState<ExtractedProduct[] | null>(null);
     const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -244,6 +245,7 @@ export function CafeKeywordFinder({
             setExtracting('이미 찾아둔 것 조회 중…');
             const terms = relatedStems(s, list);
             const hits = await searchCachedPopular(terms);
+            setCachedVia([...new Set(hits.map((h) => h.via))]);
             setCachedHits(hits.map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined })));
             // ★ 기본 체크 = '의도어(여행·숙소·패키지·투어…)가 붙은 것'.
             //   실측(2026-08-07, 보홀 70조합 전수): 옛 규칙(검색량순 상위 40)은 정확도 60%였는데
@@ -411,7 +413,7 @@ export function CafeKeywordFinder({
                     {cachedHits && cachedHits.length ? (
                         <div className="rounded-md border border-[#16a34a] bg-[#f0fdf4] p-2">
                             <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#15803d]">
-                                <span>✅ 이미 확인된 인기탭 {cachedHits.length}건 — 스캔 없이 바로 쓸 수 있습니다</span>
+                                <span>✅ 이미 확인된 인기탭 {cachedHits.length}건 <span className="font-normal">— <b>{cachedVia.join(' · ')}</b> 로 찾은 것입니다</span></span>
                                 <button type="button" onClick={() => setKwResult(cachedHits)}
                                     className="rounded bg-[#16a34a] px-2.5 py-0.5 text-[11px] font-bold text-white">
                                     아래 목록으로 가져오기

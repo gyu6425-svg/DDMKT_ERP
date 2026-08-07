@@ -196,6 +196,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [relRegional, setRelRegional] = useState<(KwResult & { sample?: string[] })[]>([]);
     // 캐시 우선 — 이미 판정된 인기탭. 스캔 0회로 즉시 나온다.
     const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
+    const [cachedVia, setCachedVia] = useState<string[]>([]);   // 이 결과를 찾아낸 어간(씨앗어와 다를 수 있다)
     const runExpandSeed = async () => {
         const s = seed.trim();
         if (!s) { setKwErr('씨앗 키워드를 입력하세요(예: 보홀 · 장기요양).'); return; }
@@ -208,6 +209,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setRelPicked(new Set(list.filter((x) => x.intent && x.tier !== 'far').slice(0, 45).map((x) => x.kw)));
             // ★ 스캔 전에 캐시부터 — 이미 판정된 게 1,000건 넘어 상당수는 긁지 않고 바로 준다.
             const hits = await searchCachedPopular(relatedStems(s, list));
+            setCachedVia([...new Set(hits.map((h) => h.via))]);
             setCachedHits(hits.map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined })));
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '연관어 조회 실패');
@@ -668,7 +670,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             {cachedHits && cachedHits.length ? (
                                 <div className="mt-2 rounded-md border border-[#16a34a] bg-[#f0fdf4] p-2">
                                     <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#15803d]">
-                                        <span>✅ 이미 확인된 인기탭 {cachedHits.length}건 — 스캔 없이 바로 쓸 수 있습니다</span>
+                                        <span>✅ 이미 확인된 인기탭 {cachedHits.length}건 <span className="font-normal">— <b>{cachedVia.join(' · ')}</b> 로 찾은 것입니다</span></span>
                                         <button type="button" onClick={() => { setKwResult(cachedHits); setKwErr(''); }}
                                             className="rounded bg-[#16a34a] px-2.5 py-0.5 text-[11px] font-bold text-white">아래 목록으로 가져오기</button>
                                     </div>

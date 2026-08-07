@@ -282,7 +282,7 @@ export async function fetchPlaceReviews(placeUrl: string, onProgress?: (n: strin
 //     데몬이 계속 채우므로 시간이 갈수록 이 경로의 적중이 커진다.
 //   ⚠️ 인기글 '제목'으로 뒤지는 방법은 쓰지 않는다 — 실측 7건이 전부 오탐이었다
 //     ('성북 소방점검' 섹션에 성신노인요양원 소방훈련 글이 우연히 있는 식). 키워드로만 찾는다.
-export type CachedHit = { keyword: string; volume: number | null; theme: string | null; cafes: KwCafe[] };
+export type CachedHit = { keyword: string; volume: number | null; theme: string | null; cafes: KwCafe[]; via: string };
 
 // 연관어에서 '핵심 어간'만 뽑는다 — 캐시는 부분일치로 뒤지므로 검색어가 짧아야 걸린다.
 //   실측(2026-08-07): '간병인보험'으로는 '수원 간병인'을 못 찾는다. 접미(보험·자격증·비용…)를
@@ -324,7 +324,9 @@ export async function searchCachedPopular(terms: string[], limit = 200): Promise
             if ((r.theme ?? '').includes('레시피')) continue;
             const key = r.keyword.replace(/\s/g, '');
             if (out.has(key)) continue;
-            out.set(key, { cafes: (r.cafes ?? []) as KwCafe[], keyword: r.keyword, theme: r.theme, volume: r.volume });
+            // via = 이 결과를 찾아낸 어간. 씨앗어와 다를 수 있으므로 화면에 반드시 보여야 한다
+            //   (실측: '방문요양' 조회 49건이 전부 '간병인' 계열이었다 — 방문요양 자체는 0건).
+            out.set(key, { cafes: (r.cafes ?? []) as KwCafe[], keyword: r.keyword, theme: r.theme, via: w, volume: r.volume });
         }
     }
     return [...out.values()].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
