@@ -75,14 +75,16 @@ export default function CafeDeployAdminPanel() {
         const enable = await enablePublishByClient(r.client_id, r.company_name);
         if (enable.error) { setIssuing(null); return setMsg(`발행 활성화 실패: ${enable.error.message} — '발행할 고객사 선택'에 안 뜹니다. 관리시트에서 이 업체 '발행 세팅'으로 승인하세요.`); }
         await setCafeDeployStatus(r.id, '세팅중');
-        // 계약관리 자동 반영 — '카페 배포' 계약 없으면 건수×15,000원으로 생성(기존 계약 있으면 유지).
-        const { created } = await ensureCafeDeployContract(r.client_id, count);
+        // 계약관리 자동 반영 — '카페 배포' 계약 없으면 건수×단가로 생성(기존 계약 있으면 유지). 실패 시 경고(누락 방지).
+        const { created, error: contractErr } = await ensureCafeDeployContract(r.client_id, count);
         // 이 고객의 대기 충전요청을 완료 처리(중복 방지)
         const { data: reqs } = await listChargeRequests(r.client_id);
         await Promise.all((reqs || []).filter((q) => q.status === 'pending').map((q) => setChargeRequestStatus(q.id, 'done')));
         setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, status: '세팅중' } : x)));
         setIssuing(null); setIssueOpen(null);
-        setMsg(`${r.company_name} +${count}건(토큰) 발행 완료 → 세팅중${created ? ` · 계약관리 자동 등록(₩${(count * 15000).toLocaleString('ko-KR')})` : ''}`);
+        setMsg(`${r.company_name} +${count}건(토큰) 발행 완료 → 세팅중`
+            + (created ? ' · 계약관리 자동 등록' : '')
+            + (contractErr ? ` · ⚠ 계약관리 자동등록 실패: ${contractErr.message} (계약 관리에서 '카페 배포' 수동 추가 필요)` : ''));
     };
 
     // 접수내역 삭제 — ①발행했던 토큰 회수(고객 충전내역에 '조정 -N' 기록) ②사진·자격증명 정리 후 행 삭제(2단계 확인).
