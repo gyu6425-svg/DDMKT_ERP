@@ -686,8 +686,20 @@ export function CafeKeywordFinder({
                         <button type="button" onClick={() => void runPlaceScan()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '분석 중…' : '정확 인기탭 분석'}</button>
                     </div>
                     <details open className="rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
-                        <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">📋 정보/메뉴 붙여넣기 — 플레이스에 메뉴·정보가 없어 분석이 안 될 때 (여기 붙여넣고 아래 버튼)</summary>
+                        <summary className="cursor-pointer text-[12px] font-bold text-[#6d28d9]">🌐 주소·정보로 전국 인기탭 분석 — 홈페이지/블로그 주소를 넣거나 직접 붙여넣기</summary>
                         <div className="mt-2 grid gap-2">
+                            {/* ★ 주소 입력은 지역형 전용이 아니다 — 추출은 지역과 무관하다.
+                                여기(키워드형)는 지역을 안 붙이고 전국으로 판정하는 경로라, 보홀·창업처럼
+                                지역을 붙이면 오히려 무너지는 업종은 이쪽이 정답이다(실측 2026-08-06). */}
+                            <div className="flex flex-wrap items-center gap-2">
+                                <textarea className="min-h-[38px] w-full min-w-[240px] flex-1 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={2}
+                                    value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)}
+                                    placeholder={'홈페이지·네이버 블로그 주소 — 여러 개면 줄바꿈으로\nblog.naver.com/gyeonggi22\ngyeongginurse.co.kr'} />
+                                <button type="button" onClick={() => void pullSite()} disabled={!!extracting || kwLoading}
+                                    className="h-9 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50">
+                                    ⬇ 주소로 가져오기
+                                </button>
+                            </div>
                             <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
                                 value={pasteText} onChange={(e) => setPasteText(e.target.value)}
                                 placeholder="플레이스 '정보'·'메뉴'·홈 소개글을 그대로 붙여넣으세요. 줄 단위로 넣으면 더 정확합니다.&#10;예)&#10;고체향수&#10;니치향수&#10;시향 클래스" />
