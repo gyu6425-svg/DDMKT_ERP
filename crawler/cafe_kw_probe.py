@@ -245,10 +245,26 @@ def place_info(pid):
     kws = []
     for blk in re.findall(r'"keywordList"\s*:\s*\[([^\]]{2,400})\]', body):
         kws += re.findall(r'"([^"]{2,20})"', blk)
-    if not kws:
-        for blk in re.findall(r'"keyword[s]?"\s*:\s*\[([^\]]{2,400})\]', body):
-            kws += re.findall(r'"([^"]{2,20})"', blk)
-    return {"pid": pid, "name": name, "cats": cats, "keywords": list(dict.fromkeys(kws))}
+    # ★ keywordList 가 없는 업체에서 옛 폴백('keyword'/'keywords' 배열)이 엉뚱한 걸 긁었다.
+    #   실측(2026-08-07, 미미식당 1722553625): keywordList 0개 → 폴백이 VisitCategoryKeyword
+    #   (방문 성향 태그)를 잡아 ['__typename','VisitCategoryKeyword','code','예약 없이 이용',
+    #   'name','바로 입장','데이트','연인・배우자'] 가 제품 키워드로 들어갔다.
+    #   JSON 필드명까지 섞여 후보 생성이 통째로 오염된다 → 폴백을 걷어내고, 남는 것도 걸러낸다.
+    #   (광교횟집·퓨어약국처럼 keywordList 가 있는 업체는 종전과 동일하게 동작한다.)
+    _JUNK = {"__typename", "code", "name", "id", "type", "title", "value", "count", "index"}
+    _TAGISH = ("예약", "입장", "데이트", "주차", "포장", "배달", "단체", "혼밥", "반려", "무료",
+               "가족", "연인", "친구", "회식", "웨이팅", "화장실", "wifi", "와이파이")
+    out = []
+    for k in dict.fromkeys(kws):
+        s = (k or "").strip()
+        if not s or s in _JUNK:
+            continue
+        if s.endswith("Keyword") or s.endswith("Type"):      # GraphQL 타입명
+            continue
+        if any(t in s for t in _TAGISH):                     # 방문 성향 태그(제품 아님)
+            continue
+        out.append(s)
+    return {"pid": pid, "name": name, "cats": cats, "keywords": out}
 
 
 _SIDO = {"경기", "서울", "부산", "인천", "대구", "광주", "대전", "울산", "세종",
