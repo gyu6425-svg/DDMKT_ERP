@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { listTokens, balanceOf, requestCharge, listChargeRequests, TOKEN_PRICE_KRW, tokenWon, type TokenLedger, type TokenRequest } from '../../api/cafeTokens';
+// ★ 고객 화면에는 금액을 노출하지 않는다(건수만) — 사장님 지시 2026-08-10.
+//   단가·환산금액은 내부 관리자(TokenChargePanel)에서만 본다. tokenWon/TOKEN_PRICE_KRW 는 그래서 여기서 안 쓴다.
+import { listTokens, balanceOf, requestCharge, listChargeRequests, type TokenLedger, type TokenRequest } from '../../api/cafeTokens';
 
 // 고객 '충전내역' — 발행 토큰 잔액 + 충전/사용 히스토리(본인, RLS 스코프).
 export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
@@ -47,32 +49,27 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                     <div className="text-[12px] text-[#64748b]">잔여 발행</div>
                     <div className="text-2xl font-bold text-[#1e40af]">{balance}건</div>
-                    <div className="mt-0.5 text-[11px] text-[#94a3b8]">₩{tokenWon(balance)}</div>
                 </div>
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                     <div className="text-[12px] text-[#64748b]">총 충전 <span className="font-normal text-[#cbd5e1]">(유상)</span></div>
                     <div className="text-2xl font-bold text-[#059669]">{paidCharged}건</div>
-                    <div className="mt-0.5 text-[11px] text-[#94a3b8]">₩{tokenWon(paidCharged)}{serviceGranted ? <span className="ml-1 text-[#b45309]">· 서비스 {serviceGranted}건(무상)</span> : null}</div>
+                    {serviceGranted ? <div className="mt-0.5 text-[11px] text-[#b45309]">서비스 {serviceGranted}건(무상)</div> : null}
                 </div>
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                     <div className="text-[12px] text-[#64748b]">총 사용(발행)</div>
                     <div className="text-2xl font-bold text-[#475569]">{used}건</div>
-                    <div className="mt-0.5 text-[11px] text-[#94a3b8]">₩{tokenWon(used)}</div>
                 </div>
             </div>
 
             {/* 충전 요청 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
                 <div className="mb-1 text-[15px] font-bold text-[#0f172a]">충전 요청</div>
-                <p className="mb-3 mt-0 text-[12px] text-[#64748b]">입금 후 충전을 요청하시면 담당자가 확인하고 충전해 드립니다. <b className="text-[#4338ca]">발행 1건 = 1토큰 = {TOKEN_PRICE_KRW.toLocaleString('ko-KR')}원</b></p>
+                <p className="mb-3 mt-0 text-[12px] text-[#64748b]">입금 후 충전을 요청하시면 담당자가 확인하고 충전해 드립니다. <b className="text-[#4338ca]">발행 1건 = 1토큰</b></p>
                 <div className="flex flex-wrap items-end gap-2">
                     <div>
                         <div className="mb-1 text-[12px] font-semibold text-[#64748b]">희망 건수</div>
                         <input className="h-9 w-28 rounded border border-[#cbd5e1] px-2 text-sm" type="number" min={1} placeholder="예: 30" value={reqCount} onChange={(e) => setReqCount(e.target.value)} />
                     </div>
-                    {reqCount && Number(reqCount) > 0 ? (
-                        <div className="pb-1.5 text-[13px] font-semibold text-[#1e40af]">= ₩{tokenWon(Number(reqCount))} <span className="text-[11px] font-normal text-[#94a3b8]">입금</span></div>
-                    ) : null}
                     <div className="min-w-[160px] flex-1">
                         <div className="mb-1 text-[12px] font-semibold text-[#64748b]">메모 (입금자명/일자)</div>
                         <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" placeholder="예: 홍길동 7/30 입금" value={reqNote} onChange={(e) => setReqNote(e.target.value)} />
@@ -86,7 +83,6 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                             <div key={q.id} className="flex items-center gap-2 rounded border border-[#f1f5f9] px-2 py-1 text-[12px]">
                                 <span className="text-[#64748b]">{new Date(q.created_at).toLocaleDateString('ko-KR')}</span>
                                 <span className="font-semibold">{q.requested_count ? `${q.requested_count}건` : '건수 미지정'}</span>
-                                {q.requested_count ? <span className="text-[11px] text-[#94a3b8]">₩{tokenWon(q.requested_count)}</span> : null}
                                 <span className="text-[#94a3b8]">{q.note ?? ''}</span>
                                 <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold ${q.status === 'done' ? 'bg-[#dcfce7] text-[#166534]' : q.status === 'rejected' ? 'bg-[#fee2e2] text-[#b91c1c]' : 'bg-[#fef9c3] text-[#854d0e]'}`}>{q.status === 'done' ? '충전완료' : q.status === 'rejected' ? '반려' : '대기'}</span>
                             </div>
@@ -118,7 +114,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                         <table className="w-full min-w-[520px] border-collapse text-[13px]">
                             <thead>
                                 <tr className="border-b border-[#e2e8f0] text-left text-[#64748b]">
-                                    {['일시', '구분', '건수', '금액', '메모'].map((h) => <th key={h} className="px-2 py-2 font-semibold">{h}</th>)}
+                                    {['일시', '구분', '건수', '메모'].map((h) => <th key={h} className="px-2 py-2 font-semibold">{h}</th>)}
                                 </tr>
                             </thead>
                             <tbody>
@@ -129,7 +125,6 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                                             <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.kind === '충전' ? 'bg-[#dcfce7] text-[#166534]' : r.kind === '발행' ? 'bg-[#e0e7ff] text-[#4338ca]' : r.kind === '서비스' ? 'bg-[#fef3c7] text-[#b45309]' : 'bg-[#f1f5f9] text-[#64748b]'}`}>{r.kind}</span>
                                         </td>
                                         <td className={`px-2 py-2 font-bold ${r.delta >= 0 ? 'text-[#059669]' : 'text-[#dc2626]'}`}>{r.delta > 0 ? `+${r.delta}` : r.delta}</td>
-                                        <td className={`whitespace-nowrap px-2 py-2 font-semibold ${r.kind === '서비스' ? 'text-[#b45309]' : r.delta > 0 ? 'text-[#059669]' : 'text-[#64748b]'}`}>{r.kind === '서비스' ? '무상' : (r.delta > 0 ? `₩${tokenWon(r.delta)}` : `₩${tokenWon(Math.abs(r.delta))}`)}</td>
                                         <td className="px-2 py-2 text-[#64748b]">{r.note ?? '-'}</td>
                                     </tr>
                                 ))}
