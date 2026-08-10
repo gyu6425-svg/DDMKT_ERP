@@ -4,7 +4,7 @@
 이 스크립트는 **아무것도 입력하지 않고 아무 버튼도 누르지 않는다.** 구조를 보기만 한다.
 
 [준비] SUB1 에서
-  1) run_chrome_blog.bat  → 크롬(포트 9225, 전용 프로필) 기동
+  1) run_chrome_blog.bat  → 크롬(포트 9235, 전용 프로필) 기동
   2) 그 창에서 대상 블로그 계정으로 1회 수동 로그인
   3) blog_pub/.env 에 BLOG_WRITE_URL 설정
 
@@ -31,7 +31,7 @@ import blog_selectors as sel      # noqa: E402
 from playwright.sync_api import sync_playwright   # noqa: E402
 
 bc.load_env()
-CDP = os.environ.get("BLOG_CDP", "http://127.0.0.1:9225")
+CDP = os.environ.get("BLOG_CDP", "http://127.0.0.1:9235")
 WRITE_URL = os.environ.get("BLOG_WRITE_URL", "")
 
 DUMP_JS = """() => {

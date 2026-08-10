@@ -35,7 +35,7 @@ import blog_selectors as sel      # noqa: E402
 from playwright.sync_api import sync_playwright   # noqa: E402
 
 bc.load_env()
-DEFAULT_CDP = os.environ.get("BLOG_CDP", "http://127.0.0.1:9225")
+DEFAULT_CDP = os.environ.get("BLOG_CDP", "http://127.0.0.1:9235")
 BLOG_WRITE_URL = os.environ.get("BLOG_WRITE_URL", "")
 BLOG_ID = os.environ.get("BLOG_ID", "")          # 이 워커가 담당하는 블로그 아이디(계정 오배치 방지)
 BLOG_CONFIRM_SEC = int(os.environ.get("BLOG_CONFIRM_SEC", "30"))
