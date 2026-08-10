@@ -12,10 +12,9 @@ import {
 } from '../../api/leakErp';
 import LeakJobForm from './LeakJobForm';
 import { Btn, Card, Chip, Empty, INPUT_CLS, Kpi, Td, Th } from './ui';
+import { inLeakMonth, useLeakMonth } from './leakMonth';
 
 type JobTab = 'all' | 'unsettled' | 'settled' | 'noinvoice' | 'exception';
-
-const ymOf = (r: LeakJob) => (r.worked_on || r.created_at).slice(0, 7);
 
 export default function LeakJobsTab({ notify }: { notify: (m: string) => void }) {
     const [rows, setRows] = useState<LeakJob[]>([]);
@@ -23,7 +22,7 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
     const [loading, setLoading] = useState(true);
     const [q, setQ] = useState('');
     const [tab, setTab] = useState<JobTab>('all');
-    const [ym, setYm] = useState(''); // '' = 전체
+    const month = useLeakMonth(); // 사이드바 공용 월(''=전체)
     const [modal, setModal] = useState<{ edit: LeakJob | null } | null>(null);
 
     const load = async () => {
@@ -46,10 +45,7 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
         void load();
     };
 
-    // 월 옵션 — 데이터에 존재하는 연월(내림차순).
-    const months = useMemo(() => [...new Set(rows.map(ymOf))].sort().reverse(), [rows]);
-
-    const inMonth = useMemo(() => (ym ? rows.filter((r) => ymOf(r) === ym) : rows), [rows, ym]);
+    const inMonth = useMemo(() => (month ? rows.filter((r) => inLeakMonth(r.worked_on || r.created_at, month)) : rows), [rows, month]);
 
     const counts = useMemo(
         () => ({
@@ -97,7 +93,7 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
     return (
         <div className="flex min-w-0 flex-col gap-4">
             <div className="flex flex-wrap gap-3">
-                <Kpi label={ym ? `${ym} 작업` : '전체 작업'} sub="건" value={`${counts.all}`} />
+                <Kpi label={month ? `${Number(month)}월 작업` : '전체 작업'} sub="건" value={`${counts.all}`} />
                 <Kpi label="결제금액 합계" tone="amber" value={`${won(inMonth.reduce((a, r) => a + r.gross_amount, 0))}원`} />
                 <Kpi label="든든 수취" tone="green" value={`${won(inMonth.reduce((a, r) => a + r.our_share, 0))}원`} />
                 <Kpi label="정산 대기" sub="정산일 미입력" value={`${counts.unsettled}`} />
@@ -108,10 +104,6 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
                 title={`작업 목록 (${filtered.length}건 · 결제 ${won(sum.gross)}원 · 든든 ${won(sum.our)}원 · 백준 ${won(sum.partner)}원)`}
                 right={
                     <>
-                        <select className={`${INPUT_CLS} w-32 shrink-0`} onChange={(e) => setYm(e.target.value)} value={ym}>
-                            <option value="">전체 기간</option>
-                            {months.map((m) => <option key={m} value={m}>{m}</option>)}
-                        </select>
                         <input className={`${INPUT_CLS} w-52 shrink-0`} onChange={(e) => setQ(e.target.value)} placeholder="지역·현장·업체 검색" value={q} />
                         <Btn onClick={() => setModal({ edit: null })}>+ 작업 추가</Btn>
                     </>

@@ -13,6 +13,7 @@ import {
 import LeakInquiryForm from './LeakInquiryForm';
 import LeakJobForm from './LeakJobForm';
 import { Btn, Card, Chip, Empty, INPUT_CLS, Kpi, Td, Th } from './ui';
+import { inLeakMonth, useLeakMonth } from './leakMonth';
 
 // 고객 = 연락처(숫자만) 단위. 고객명을 받지 않으므로 번호가 유일한 식별자다.
 type Customer = {
@@ -58,6 +59,8 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
         void load();
     }, []);
 
+    // 월 필터(사이드바 공용) — 상담은 문의일, 작업은 진행일 기준.
+    const month = useLeakMonth();
     // 연락처로 묶기. 번호 없는 건은 고객으로 묶을 수 없어 별도 그룹('(연락처 없음)')으로 남긴다.
     const customers = useMemo(() => {
         const m = new Map<string, Customer>();
@@ -70,7 +73,7 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
             if (!c.phone && raw) c.phone = raw;
             return c;
         };
-        inquiries.forEach((i) => {
+        inquiries.filter((i) => inLeakMonth(i.inquired_on || i.created_at.slice(0, 10), month)).forEach((i) => {
             const c = touch(i.phone_norm || '', i.phone);
             c.inquiries.push(i);
             const at = i.inquired_on || i.created_at.slice(0, 10);
@@ -79,7 +82,7 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
             c.region = c.region ?? i.region;
             c.site = c.site ?? i.site_name;
         });
-        jobs.forEach((j) => {
+        jobs.filter((j) => inLeakMonth(j.worked_on || j.created_at.slice(0, 10), month)).forEach((j) => {
             const c = touch(j.phone_norm || '', j.phone);
             c.jobs.push(j);
             const at = j.worked_on || j.created_at.slice(0, 10);
@@ -91,7 +94,7 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
             c.site = c.site ?? j.site_name;
         });
         return [...m.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
-    }, [inquiries, jobs]);
+    }, [inquiries, jobs, month]);
 
     const filtered = useMemo(() => {
         const s = q.trim().toLowerCase();

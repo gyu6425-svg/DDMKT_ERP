@@ -10,6 +10,7 @@ import {
     type OutsourcingInput,
 } from '../../api/leakErp';
 import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Modal, Td, Th } from './ui';
+import { inLeakMonth, useLeakMonth } from './leakMonth';
 
 const blank: OutsourcingInput = {
     amount: 0, amount_vat: 0, ended_on: '', entry_kind: 'order', item_name: '', marketing_type: '',
@@ -66,11 +67,13 @@ export default function LeakOutsourcingTab({ notify }: { notify: (m: string) => 
         void load();
     };
 
+    const month = useLeakMonth();   // 사이드바 공용 월 — 발주 시작일 기준.
     const filtered = useMemo(() => {
         const s = q.trim().toLowerCase();
-        if (!s) return rows;
-        return rows.filter((r) => [r.item_name, r.vendor, r.marketing_type, r.note].some((v) => (v || '').toLowerCase().includes(s)));
-    }, [rows, q]);
+        return rows.filter((r) =>
+            inLeakMonth(r.started_on || r.created_at, month)
+            && (!s || [r.item_name, r.vendor, r.marketing_type, r.note].some((v) => (v || '').toLowerCase().includes(s))));
+    }, [rows, q, month]);
 
     // 환불(음수)은 건수 집계에서 분리 — 시트에서 발주 건수가 왜곡되던 부분.
     const stat = useMemo(() => {

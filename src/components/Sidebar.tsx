@@ -5,6 +5,7 @@ import { getClientContracts, type ClientContract } from '../api/clientContracts'
 import { CONTAINER_SUBS, PRODUCT_CATEGORIES } from '../lib/products';
 import { canSeeAdminPage, canManagePermissions } from '../lib/permissions';
 import { SIGNUP_ENABLED } from '../lib/authConfig';
+import { LeakMonthPicker } from './leak/LeakMonthPicker';
 
 const navigationItems = [
     // 대시보드는 좌측 상단 'DDMKT ERP' 로고 클릭으로 이동(아래 참고).
@@ -151,6 +152,8 @@ function Sidebar() {
             <nav className="grid gap-[18px] max-[800px]:grid-cols-2">
                 {isLeakView ? (
                     <>
+                        {/* 월 필터 — 모든 탭 공용(고객관리·작업정산·통장원장·외주발주). 연도는 2027 넘어갈 때 확장. */}
+                        <LeakMonthPicker />
                         {renderNavItem({ path: '/leak', label: '고객 관리' })}
                         {renderNavItem({ path: '/leak/jobs', label: '작업 · 정산' })}
                         {renderNavItem({ path: '/leak/ledger', label: '통장 원장' })}

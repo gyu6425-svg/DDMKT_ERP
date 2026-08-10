@@ -12,6 +12,7 @@ import {
     type LedgerInput,
 } from '../../api/leakErp';
 import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Modal, Td, Th } from './ui';
+import { inLeakMonth, useLeakMonth } from './leakMonth';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const blank = (): LedgerInput => ({
@@ -70,21 +71,32 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
     };
 
     // 잔액은 저장하지 않고 매번 누적 계산한다(시트의 월합계 손입력 오류를 반복하지 않기 위해).
-    const withBal = useMemo(() => withRunningBalance(rows, opening), [rows, opening]);
-    const total = useMemo(
-        () => rows.reduce((a, r) => ({ in: a.in + r.inflow, out: a.out + r.outflow }), { in: 0, out: 0 }),
-        [rows],
+    //   ★ 러닝밸런스는 '전체'로 계산(잔액 정확) → 화면엔 선택 월만 보여준다. 월 입금·출금은 그 달만 합산,
+    //     잔액은 선택 월(포함) 이하 가장 최근 행의 누적 잔액(=월말 잔액).
+    const month = useLeakMonth();
+    const allWithBal = useMemo(() => withRunningBalance(rows, opening), [rows, opening]);
+    const withBal = useMemo(
+        () => (month ? allWithBal.filter((r) => inLeakMonth(r.entry_date, month)) : allWithBal),
+        [allWithBal, month],
     );
-    // 출금 종류별 합계 — 시트에서 '외주비' 한 칸에 섞여 있던 걸 분리해 본다.
+    const total = useMemo(
+        () => withBal.reduce((a, r) => ({ in: a.in + r.inflow, out: a.out + r.outflow }), { in: 0, out: 0 }),
+        [withBal],
+    );
+    // 화면 잔액 — 전체면 opening+총증감, 월이면 그 달(포함) 이하 최근 행의 누적 잔액(없으면 opening).
+    const shownBalance = month
+        ? (allWithBal.find((r) => (r.entry_date || '').slice(5, 7) <= month)?.balance ?? opening)
+        : opening + total.in - total.out;
+    // 출금 종류별 합계 — 화면(선택 월) 기준.
     const byKind = useMemo(() => {
         const m = new Map<string, number>();
-        rows.forEach((r) => {
+        withBal.forEach((r) => {
             if (!r.outflow) return;
             const k = r.outflow_kind || '미분류';
             m.set(k, (m.get(k) ?? 0) + r.outflow);
         });
         return [...m.entries()].sort((a, b) => b[1] - a[1]);
-    }, [rows]);
+    }, [withBal]);
 
     const saveOpening = (v: number) => {
         setOpening(v);
@@ -125,7 +137,7 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
     return (
         <div className="flex min-w-0 flex-col gap-4">
             <Card
-                title={`통장 원장 (입금 ${won(total.in)}원 · 출금 ${won(total.out)}원 · 잔액 ${won(opening + total.in - total.out)}원)`}
+                title={`통장 원장${month ? ` · ${Number(month)}월` : ''} (입금 ${won(total.in)}원 · 출금 ${won(total.out)}원 · 잔액 ${won(shownBalance)}원)`}
                 right={
                     <>
                         <Field label="시작 잔액(이월)">
