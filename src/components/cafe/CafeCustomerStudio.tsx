@@ -857,6 +857,16 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                     {queue.publishing.map((x) => (
                                         <div key={x.keyword} className="mt-1 truncate text-[10px] text-[#7c3aed]">▶ {x.keyword} 게시 중…</div>
                                     ))}
+                                    {/* 즉시 발행 대기 — X로 그 발행 취소(삭제). 예약 아닌 지금부터 발행 건. */}
+                                    {queue.pendingItems.slice(0, 30).map((x) => (
+                                        <div key={x.id} className="mt-1 flex items-center gap-1 text-[10px] text-[#0369a1]">
+                                            <span className="shrink-0 rounded-full bg-[#e0f2fe] px-1.5 py-0.5 font-bold">대기</span>
+                                            <span className="min-w-0 flex-1 truncate">{x.keyword}</span>
+                                            <button type="button" onClick={() => void cancelQueueItem(x.id)} title="이 발행 취소(삭제)"
+                                                className="shrink-0 rounded px-1 font-bold text-[#7dd3fc] hover:bg-[#fef2f2] hover:text-[#dc2626]">✕</button>
+                                        </div>
+                                    ))}
+                                    {queue.pendingItems.length > 30 ? <div className="mt-0.5 text-[10px] text-[#94a3b8]">외 대기 {queue.pendingItems.length - 30}건</div> : null}
                                     {/* 예약 대기 — 발행 예정 시각(M/D HH:mm) · X로 그 예약 발행 취소 */}
                                     {queue.scheduled.slice(0, 30).map((x) => (
                                         <div key={x.id} className="mt-1 flex items-center gap-1 text-[10px] text-[#7c3aed]">

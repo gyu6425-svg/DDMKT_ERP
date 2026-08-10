@@ -133,7 +133,8 @@ export async function getGenRequestStatus(clientId: string): Promise<Record<stri
 //     done(+done_at) = 완료 / fail(+reason) = 실패
 export type GenQueueSummary = {
     publishing: { id: string; keyword: string; since: string | null }[];  // 지금 발행 중(claimed)
-    pending: number;                                          // 대기(예약 아직 안 온 건 제외)
+    pending: number;                                          // 대기 수(예약 아직 안 온 건 제외)
+    pendingItems: { id: string; keyword: string }[];          // 즉시 발행 대기 개별(X로 취소) — 예약 아닌 것
     doneToday: number;                                        // 오늘 완료
     failed: { id: string; keyword: string; reason: string | null }[];     // 실패(사유 포함)
     scheduled: { id: string; keyword: string; at: string }[];             // 예약 대기(미래 scheduled_at) — "예약됨 (M/D HH:mm)"
@@ -148,16 +149,16 @@ export async function getGenQueueSummary(clientId: string): Promise<GenQueueSumm
     const rows = (res.data ?? []) as { id: string; keyword: string | null; status: string; claimed_at: string | null; done_at: string | null; reason: string | null; scheduled_at?: string | null }[];
     const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
     const nowN = kstNowNaive();
-    const out: GenQueueSummary = { publishing: [], pending: 0, doneToday: 0, failed: [], scheduled: [] };
+    const out: GenQueueSummary = { publishing: [], pending: 0, pendingItems: [], doneToday: 0, failed: [], scheduled: [] };
     for (const r of rows) {
         const kw = r.keyword || '—';
         if (r.status === 'claimed' || r.status === 'processing' || r.status === 'posted') {
             out.publishing.push({ id: r.id, keyword: kw, since: r.claimed_at });
         } else if (r.status === 'pending') {
-            // 예약 시각이 아직 미래면 '예약'으로 분리(대기 카운트에서 빼 오해 방지). 지났으면 일반 대기.
+            // 예약 시각이 아직 미래면 '예약'으로 분리(대기 카운트에서 빼 오해 방지). 지났으면 일반 대기(즉시 발행 대상).
             const at = r.scheduled_at ? stripTzNaive(r.scheduled_at) : '';
             if (at && at > nowN) out.scheduled.push({ id: r.id, keyword: kw, at });
-            else out.pending += 1;
+            else { out.pending += 1; out.pendingItems.push({ id: r.id, keyword: kw }); }
         } else if (r.status === 'done') {
             if (r.done_at && new Date(r.done_at) >= midnight) out.doneToday += 1;
         } else if (r.status === 'fail') {
