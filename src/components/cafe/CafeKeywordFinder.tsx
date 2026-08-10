@@ -463,7 +463,7 @@ export function CafeKeywordFinder({
                         <input className={`${inputCls} flex-1 min-w-[200px]`} value={seed}
                             onChange={(e) => setSeed(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void runExpand(); } }}
-                            placeholder="씨앗 키워드 — 여러 개면 쉼표로 (예: 자동차수리, 타이어판매, 자동차부품)" />
+                            placeholder="씨앗 키워드 (예: 보홀 · 하와이 · 골프 · 캠핑)" />
                         <button type="button" onClick={() => void runExpand()} disabled={!!extracting || kwLoading}
                             className="h-10 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">
                             {extracting ? '조회 중…' : '① 연관어 펼치기'}
