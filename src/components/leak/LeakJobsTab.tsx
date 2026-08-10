@@ -12,7 +12,7 @@ import {
 } from '../../api/leakErp';
 import LeakJobForm from './LeakJobForm';
 import { Btn, Card, Chip, Empty, INPUT_CLS, Kpi, Td, Th } from './ui';
-import { inLeakMonth, useLeakMonth } from './leakMonth';
+import { inLeakMonth } from './leakMonth';
 import { LeakMonthPicker } from './LeakMonthPicker';
 
 type JobTab = 'all' | 'unsettled' | 'settled' | 'noinvoice' | 'exception';
@@ -23,7 +23,7 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
     const [loading, setLoading] = useState(true);
     const [q, setQ] = useState('');
     const [tab, setTab] = useState<JobTab>('all');
-    const month = useLeakMonth(); // 사이드바 공용 월(''=전체)
+    const [month, setMonth] = useState(''); // 이 탭 전용 월(''=전체)
     const [modal, setModal] = useState<{ edit: LeakJob | null } | null>(null);
 
     const load = async () => {
@@ -105,7 +105,7 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
                 title={`작업 목록 (${filtered.length}건 · 결제 ${won(sum.gross)}원 · 든든 ${won(sum.our)}원 · 백준 ${won(sum.partner)}원)`}
                 right={
                     <>
-                        <LeakMonthPicker />
+                        <LeakMonthPicker value={month} onChange={setMonth} />
                         <input className={`${INPUT_CLS} w-52 shrink-0`} onChange={(e) => setQ(e.target.value)} placeholder="지역·현장·업체 검색" value={q} />
                         <Btn onClick={() => setModal({ edit: null })}>+ 작업 추가</Btn>
                     </>

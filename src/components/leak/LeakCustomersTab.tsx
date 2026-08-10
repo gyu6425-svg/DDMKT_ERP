@@ -13,7 +13,7 @@ import {
 import LeakInquiryForm from './LeakInquiryForm';
 import LeakJobForm from './LeakJobForm';
 import { Btn, Card, Chip, Empty, INPUT_CLS, Kpi, Td, Th } from './ui';
-import { inLeakMonth, useLeakMonth } from './leakMonth';
+import { inLeakMonth } from './leakMonth';
 import { LeakMonthPicker } from './LeakMonthPicker';
 
 // 고객 = 연락처(숫자만) 단위. 고객명을 받지 않으므로 번호가 유일한 식별자다.
@@ -60,8 +60,8 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
         void load();
     }, []);
 
-    // 월 필터(사이드바 공용) — 상담은 문의일, 작업은 진행일 기준.
-    const month = useLeakMonth();
+    // 월 필터(이 탭 전용) — 상담은 문의일, 작업은 진행일 기준.
+    const [month, setMonth] = useState('');
     // 연락처로 묶기. 번호 없는 건은 고객으로 묶을 수 없어 별도 그룹('(연락처 없음)')으로 남긴다.
     const customers = useMemo(() => {
         const m = new Map<string, Customer>();
@@ -298,7 +298,7 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
                 title={`고객 목록 (${filtered.length}명)`}
                 right={
                     <>
-                        <LeakMonthPicker />
+                        <LeakMonthPicker value={month} onChange={setMonth} />
                         <input className={`${INPUT_CLS} w-52 shrink-0`} onChange={(e) => setQ(e.target.value)} placeholder="연락처·지역·현장 검색" value={q} />
                         <Btn kind="ghost" onClick={() => setInqModal({ edit: null })}>+ 상담 추가</Btn>
                         <Btn onClick={() => setJobModal({ edit: null })}>+ 작업 추가</Btn>

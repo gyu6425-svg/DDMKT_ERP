@@ -12,7 +12,7 @@ import {
     type LedgerInput,
 } from '../../api/leakErp';
 import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Modal, Td, Th } from './ui';
-import { inLeakMonth, useLeakMonth } from './leakMonth';
+import { inLeakMonth } from './leakMonth';
 import { LeakMonthPicker } from './LeakMonthPicker';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -74,7 +74,7 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
     // 잔액은 저장하지 않고 매번 누적 계산한다(시트의 월합계 손입력 오류를 반복하지 않기 위해).
     //   ★ 러닝밸런스는 '전체'로 계산(잔액 정확) → 화면엔 선택 월만 보여준다. 월 입금·출금은 그 달만 합산,
     //     잔액은 선택 월(포함) 이하 가장 최근 행의 누적 잔액(=월말 잔액).
-    const month = useLeakMonth();
+    const [month, setMonth] = useState('');
     const allWithBal = useMemo(() => withRunningBalance(rows, opening), [rows, opening]);
     const withBal = useMemo(
         () => (month ? allWithBal.filter((r) => inLeakMonth(r.entry_date, month)) : allWithBal),
@@ -141,7 +141,7 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
                 title={`통장 원장${month ? ` · ${Number(month)}월` : ''} (입금 ${won(total.in)}원 · 출금 ${won(total.out)}원 · 잔액 ${won(shownBalance)}원)`}
                 right={
                     <>
-                        <LeakMonthPicker />
+                        <LeakMonthPicker value={month} onChange={setMonth} />
                         <Field label="시작 잔액(이월)">
                             <input className={`${INPUT_CLS} w-36`} onChange={(e) => saveOpening(parseWon(e.target.value))} value={won(opening)} />
                         </Field>
