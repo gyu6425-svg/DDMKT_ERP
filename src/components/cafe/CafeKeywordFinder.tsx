@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, loadPendingScan, clearPendingScan, peekScan, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -125,7 +125,8 @@ export function CafeKeywordFinder({
         if (!regionSel.length) { setKwErr('지역을 선택하세요.'); return; }
         const setLoading = includeDong ? setDongLoading : setKwLoading;
         setKwErr(''); setLoading(true); setScanNote('');
-        if (!includeDong && target === FIRST_TARGET) { setKwResult(null); setKwExpanded(false); setKwHidden([]); setDongDone(false); if (!initialPicked?.length) setKwPicked([]); }
+        // 새 스캔이면 저장해 둔 직전 결과도 버린다 — 안 그러면 옛 결과가 새 조건에 섞인다.
+        if (!includeDong && target === FIRST_TARGET) { clearPendingScan(); setKwResult(null); setKwExpanded(false); setKwHidden([]); setDongDone(false); if (!initialPicked?.length) setKwPicked([]); }
         setRegionTarget(target);
         const dedup = (arr: KwResult[]) => {
             const seen = new Set<string>(); const out: KwResult[] = [];
@@ -164,12 +165,14 @@ export function CafeKeywordFinder({
                 savePendingScan(id, 'region', `${regionSel.join('·')} × ${kw}`);
                 try {
                     const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(`${kw} · ${note}${tag}`) });
-                    clearPendingScan();
                     merged.push(...result);
                     setKwResult(dedup(merged));                 // 끝나는 대로 누적
+                    // 여기까지 모은 결과를 남긴다 — 새로고침해도 되살아난다(아직 안 돈 요청 id 도 같이).
+                    savePendingProgress(jobs.slice(i + 1).map((j) => j.id), dedup(merged));
                 } catch { /* 이 키워드만 실패 — 나머지 계속. 기록은 남겨 이어보기가 줍는다 */ }
             }
             const final = dedup(merged);
+            savePendingProgress([], final);
             if (!final.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${regionSel.join('·')} × "${kws.join(', ')}"`); return; }
             setKwResult(final);
             if (includeDong) setDongDone(true);
@@ -425,12 +428,13 @@ export function CafeKeywordFinder({
         //   이때는 지역을 곱하지 않고 키워드 그대로 전국 판정한다(list: 라우트 = process_list).
         if (noRegion) {
             setKwErr(''); setKwLoading(true); setScanNote(''); setRegionTarget(target);
+            if (target <= FIRST_TARGET) clearPendingScan();   // 새 스캔 — 직전 저장분 버림
             try {
                 const { id, error } = await enqueueListScan(list, Math.max(target, list.length));
                 if (error || !id) throw new Error(error?.message || '분석 등록 실패');
                 savePendingScan(id, 'list', `전국(지역없음) × ${list.join(', ')}`);
                 const { result } = await pollPlaceScan(id, { timeoutSec: 600, onProgress: (note) => setScanNote(note) });
-                clearPendingScan();
+                savePendingProgress([], result);
                 if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — 전국 기준 "${list.join(', ')}"`); return; }
                 setKwResult(result);
                 setKeyword(list.join(', '));
@@ -441,13 +445,14 @@ export function CafeKeywordFinder({
         }
         if (!addr.trim() && !regionSel.length) { setKwErr('위치를 입력하거나 시도를 고르세요. 지역이 없는 업체면 위의 ‘지역 없음’을 체크하세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote(''); setRegionTarget(target);
+        if (target <= FIRST_TARGET) clearPendingScan();   // 새 스캔 — 직전 저장분 버림
         try {
             const { id, error } = await enqueueMenuScan(addr, list, { regions: regionSel.join(','), target });
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
             // 새로고침·이탈해도 이 요청에 다시 붙을 수 있게 남긴다.
             savePendingScan(id, 'menu', `${addr.trim() || regionSel.join('·')} × ${list.join(', ')}`);
             const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(note) });
-            clearPendingScan();
+            savePendingProgress([], result);   // 결과 보관 — 새로고침해도 되살아난다
             if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${addr.trim() || regionSel.join('·')} × "${list.join(', ')}"`); return; }
             setKwResult(result);
             setKeyword(list.join(', '));   // 아래 발행 단계가 쓰는 제품키워드(지역 분리 기준)
@@ -457,28 +462,41 @@ export function CafeKeywordFinder({
         } finally { setKwLoading(false); setScanNote(''); }
     };
 
-    // 새로고침/이탈 후 복귀 — 저장해 둔 요청에 다시 붙는다. 화면을 막지 않는다(다른 작업 가능).
+    // 새로고침/이탈 후 복귀 — 저장해 둔 결과를 먼저 되살리고, 아직 도는 요청에 다시 붙는다.
+    //   ★ 결과부터 복원한다: 예전엔 요청 id 만 남겨서 화면에 쌓여 있던 결과가 새로고침에 그대로 사라졌다.
+    //     지역형은 요청이 키워드마다 따로라 마지막 1건만 남는 문제도 같이 있었다(이제 ids 전부).
+    //   화면을 막지 않는다: 이게 도는 동안 다른 작업을 계속할 수 있다.
     const [pending, setPending] = useState<PendingScan | null>(null);
     const [pendNote, setPendNote] = useState('');
     useEffect(() => {
         const p = loadPendingScan();
         if (!p) return;
+        const sortDedup = (arr: KwResult[]) => {
+            const seen = new Set<string>(); const out: KwResult[] = [];
+            for (const r of arr) { const nk = (r.keyword || '').replace(/\s/g, ''); if (seen.has(nk)) continue; seen.add(nk); out.push(r); }
+            return out.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+        };
+        let acc = sortDedup(p.result);
+        if (acc.length) { setKwResult(acc); setKwErr(`직전 스캔 결과 ${acc.length}건을 되살렸습니다${p.label ? ` — ${p.label}` : ''}.`); }
+        if (!p.ids.length) return;   // 도는 건 없음 — 결과만 복원하고 끝
         setPending(p);
         let alive = true;
         void (async () => {
-            // 완료됐으면 즉시 결과를 꺼내고, 아직이면 30초마다 진행상황만 갱신한다.
-            for (let i = 0; alive && i < 120; i++) {
-                const s = await peekScan(p.id);
-                if (!alive || !s) return;
+            let ids = p.ids;
+            // 끝난 요청 결과는 그때그때 걷어 오고, 남은 게 없을 때까지 20초마다 확인한다.
+            for (let i = 0; alive && i < 240; i++) {
+                const s = await peekScans(ids);
+                if (!alive) return;
                 setPendNote(s.note);
-                if (s.status === 'done') {
-                    if (s.result.length) setKwResult(s.result);
-                    setKwErr(`이전 스캔(#${p.id}) 결과 ${s.result.length}건을 불러왔습니다 — ${p.label}`);
-                    clearPendingScan(); setPending(null);
-                    return;
+                if (s.result.length) { acc = sortDedup([...acc, ...s.result]); setKwResult(acc); }
+                ids = s.live;
+                savePendingProgress(ids, acc);
+                if (!ids.length) {
+                    setKwErr(`이전 스캔 결과 ${acc.length}건을 불러왔습니다${p.label ? ` — ${p.label}` : ''}.`);
+                    setPending(null); return;
                 }
-                if (['failed', 'fail', 'error'].includes(s.status)) { clearPendingScan(); setPending(null); return; }
-                await new Promise((r) => setTimeout(r, 30000));
+                setPending((cur) => (cur ? { ...cur, id: ids[0], ids } : cur));
+                await new Promise((r) => setTimeout(r, 20000));
             }
         })();
         return () => { alive = false; };

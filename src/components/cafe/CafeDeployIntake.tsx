@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, clearPendingScan, loadPendingScan, peekScan, cancelScans, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -170,27 +170,39 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setScanNote(`중단 중… 대기 ${n}건 취소`);
     };
 
-    // 새로고침·이탈 후 복귀 — 저장해 둔 요청에 다시 붙는다. 화면을 막지 않는다(다른 작업 가능).
+    // 새로고침·이탈 후 복귀 — 저장해 둔 결과를 먼저 되살리고, 아직 도는 요청에 다시 붙는다.
+    //   ★ 결과부터 복원한다: 예전엔 요청 id 만 남겨서 화면에 쌓여 있던 결과가 새로고침에 그대로 사라졌다.
+    //     지역형은 요청이 키워드마다 따로라 마지막 1건만 남는 문제도 같이 있었다(이제 ids 전부).
     const [pending, setPending] = useState<PendingScan | null>(null);
     const [pendNote, setPendNote] = useState('');
     useEffect(() => {
         const p = loadPendingScan();
         if (!p) return;
+        const sortDedup = (arr: KwResult[]) => {
+            const seen = new Set<string>(); const out: KwResult[] = [];
+            for (const r of arr) { const nk = (r.keyword || '').replace(/\s/g, ''); if (seen.has(nk)) continue; seen.add(nk); out.push(r); }
+            return out.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+        };
+        let acc = sortDedup(p.result);
+        if (acc.length) { setKwResult(acc); setKwErr(`직전 스캔 결과 ${acc.length}건을 되살렸습니다${p.label ? ` — ${p.label}` : ''}.`); }
+        if (!p.ids.length) return;   // 도는 건 없음 — 결과만 복원하고 끝
         setPending(p);
         let alive = true;
         void (async () => {
-            for (let i = 0; alive && i < 120; i++) {
-                const st = await peekScan(p.id);
-                if (!alive || !st) return;
-                setPendNote(st.note);
-                if (st.status === 'done') {
-                    if (st.result.length) setKwResult([...st.result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
-                    setKwErr(`이전 스캔(#${p.id}) 결과 ${st.result.length}건을 불러왔습니다 — ${p.label}`);
-                    clearPendingScan(); setPending(null);
-                    return;
+            let ids = p.ids;
+            for (let i = 0; alive && i < 240; i++) {
+                const s = await peekScans(ids);
+                if (!alive) return;
+                setPendNote(s.note);
+                if (s.result.length) { acc = sortDedup([...acc, ...s.result]); setKwResult(acc); }
+                ids = s.live;
+                savePendingProgress(ids, acc);
+                if (!ids.length) {
+                    setKwErr(`이전 스캔 결과 ${acc.length}건을 불러왔습니다${p.label ? ` — ${p.label}` : ''}.`);
+                    setPending(null); return;
                 }
-                if (['failed', 'fail', 'error'].includes(st.status)) { clearPendingScan(); setPending(null); return; }
-                await new Promise((r) => setTimeout(r, 30000));
+                setPending((cur) => (cur ? { ...cur, id: ids[0], ids } : cur));
+                await new Promise((r) => setTimeout(r, 20000));
             }
         })();
         return () => { alive = false; };
@@ -438,10 +450,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         // ★ 지역이 없는 업체(보홀 다이빙투어 등)는 지역을 곱하지 않고 키워드 그대로 전국 판정한다.
         if (noRegion) {
             setKwErr(''); setKwLoading(true); setScanNote('전국 인기탭 조회 중…'); setScanTarget(target);
+            if (target <= FIRST_TARGET) clearPendingScan();   // 새 스캔 — 직전 저장분 버림
             try {
                 const { id, error } = await enqueueListScan(kws, Math.max(target, kws.length));
                 if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+                savePendingScan(id, 'list', `전국(지역없음) × ${kws.join(', ')}`);
                 const { result } = await pollPlaceScan(id, { timeoutSec: 600, onProgress: (note) => setScanNote(note) });
+                savePendingProgress([], result);
                 if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — 전국 기준 [${kws.join(', ')}]`); return; }
                 setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
             } catch (e) {
@@ -452,8 +467,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (!sidos.length && !ownAddr.trim()) { setKwErr('지역을 선택하거나 위치를 직접 입력하세요. 지역이 없는 업체면 아래 ‘지역 없음’을 체크하세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote('지역 인기탭 조회 준비 중…'); setScanTarget(target);
         // 첫 회차만 초기화 — '＋더 찾기'는 기존 결과 위에 이어붙인다.
+        //   저장해 둔 직전 결과도 같이 버린다(안 그러면 옛 결과가 새 조건에 섞인다).
         const prev = target > FIRST_TARGET ? (kwResult ?? []) : [];
-        if (target <= FIRST_TARGET) { setKwResult(null); setKwHidden([]); setKwPicked([]); }
+        if (target <= FIRST_TARGET) { clearPendingScan(); setKwResult(null); setKwHidden([]); setKwPicked([]); }
         try {
             // 위치를 직접 적었으면 그 주소에서 지역 축을 뽑아 '가까운 곳부터' 본다(플레이스 없는 업체).
             //   시도까지 골랐으면 자기 지역을 채운 뒤 그 시도 전체로 확장한다.
@@ -463,13 +479,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 // 새로고침·이탈해도 다시 붙을 수 있게 남긴다(폴링이 끊겨도 워커는 계속 돈다).
                 savePendingScan(id, 'menu', `${ownAddr.trim()} × ${kws.join(', ')}`);
                 const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(note) });
-                clearPendingScan();
                 const seenOwn = new Set<string>();
                 const mergedOwn: KwResult[] = [];
                 for (const r of [...prev, ...result]) {
                     const n = r.keyword.replace(/\s/g, '');
                     if (!seenOwn.has(n)) { seenOwn.add(n); mergedOwn.push(r); }
                 }
+                savePendingProgress([], mergedOwn);   // 결과 보관 — 새로고침해도 되살아난다
                 if (!mergedOwn.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${ownAddr.trim()} × [${kws.join(', ')}]`); return; }
                 setKwResult(mergedOwn.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
                 return;
@@ -482,7 +498,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             const seen = new Set<string>();
             const merged: KwResult[] = [];
             for (const r of [...prev, ...cached]) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
-            if (merged.length) setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));   // 캐시분 먼저
+            if (merged.length) {
+                setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));   // 캐시분 먼저
+                savePendingProgress([], merged);   // 캐시분도 남긴다 — 새로고침에 안 날아가게
+            }
             // ② 항상 라이브 지역 스캔 — 캐시 양성만 믿고 멈추면 prescan 음성·미스캔분 누락(워커 내부 배치캐시로 판정된 건 즉시).
             // 남은 키워드를 미리 등록해 둔다 — 중단 시 '아직 안 돈 것'을 한 번에 끌 수 있어야 한다.
             for (let i = 0; i < kws.length; i++) {
@@ -497,8 +516,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 const tag = kws.length > 1 ? ` (${i + 1}/${kws.length})` : '';
                 savePendingScan(id, 'region', `${sidos.join('·')} × ${pk}`);
                 const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
-                clearPendingScan();
                 for (const r of result) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
+                // 키워드 하나 끝날 때마다 저장 — 25개 중 3개째에서 새로고침해도 앞 2개 결과가 남는다.
+                setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+                savePendingProgress([], merged);
             }
             if (!merged.length) {
                 setKwErr(`인기탭 확인된 키워드가 없습니다 — ${sidos.join('·')} × [${kws.join(', ')}] (인기탭 없음)`);

@@ -408,26 +408,63 @@ export async function enqueueMenuScan(
 //     실측 2026-08-10: #175 가 21건을 찾고 정상 완료됐는데 사장님은 못 보고 3번 다시 눌렀다
 //     (#176·#177·#178 이 같은 걸 또 돌았다).
 //   그래서 요청 id 를 localStorage 에 남기고, 돌아오면 그 id 에 다시 붙는다.
+//   ★ 2026-08-10 보강: 요청 id 하나만으로는 부족했다. 두 가지로 결과가 날아갔다.
+//     ① 지역형은 제품키워드마다 요청을 따로 만든다(25개 = 25건) → 저장이 매번 덮여 마지막 1건만 남았다.
+//     ② 이미 화면에 쌓인 결과(캐시분 + 먼저 끝난 키워드분)는 아무 데도 안 남아 새로고침에 그대로 사라졌다.
+//     그래서 살아있는 요청 id 전부(ids) 와 지금까지 모은 결과(result)를 같이 저장한다.
 const PENDING_KEY = 'ddmkt.cafeScan.pending';
-export type PendingScan = { id: number; kind: string; label: string; at: number };
+export type PendingScan = { id: number; ids: number[]; kind: string; label: string; at: number; result: KwResult[] };
 
-export function savePendingScan(id: number, kind: string, label: string): void {
-    try {
-        localStorage.setItem(PENDING_KEY, JSON.stringify({ at: Date.now(), id, kind, label }));
-    } catch { /* 사파리 프라이빗 등 — 저장 못 해도 스캔 자체는 돌아간다 */ }
-}
-
-export function loadPendingScan(): PendingScan | null {
+function readPending(): PendingScan | null {
     try {
         const raw = localStorage.getItem(PENDING_KEY);
         if (!raw) return null;
-        const p = JSON.parse(raw) as PendingScan;
+        const p = JSON.parse(raw) as Partial<PendingScan>;
+        if (!p) return null;
         // 하루 지난 건 버린다 — 그 사이 워커가 죽었거나 사장님이 잊은 것이다.
-        if (!p?.id || Date.now() - (p.at || 0) > 24 * 3600 * 1000) { localStorage.removeItem(PENDING_KEY); return null; }
-        return p;
+        if (Date.now() - (p.at || 0) > 24 * 3600 * 1000) { localStorage.removeItem(PENDING_KEY); return null; }
+        const ids = [...new Set([...(p.ids || []), ...(p.id ? [p.id] : [])])].filter((n) => Number.isFinite(n) && n > 0);
+        const result = p.result || [];
+        if (!ids.length && !result.length) return null;
+        return { at: p.at || 0, id: ids[0] || 0, ids, kind: p.kind || '', label: p.label || '', result };
     } catch {
         return null;
     }
+}
+
+function writePending(p: PendingScan): void {
+    try {
+        localStorage.setItem(PENDING_KEY, JSON.stringify(p));
+    } catch { /* 사파리 프라이빗 등 — 저장 못 해도 스캔 자체는 돌아간다 */ }
+}
+
+// 요청 하나를 시작했다 — 기존 기록 위에 이어 붙인다(여러 건이면 전부 남아야 한다).
+export function savePendingScan(id: number, kind: string, label: string): void {
+    const cur = readPending();
+    writePending({
+        at: Date.now(), id,
+        ids: [...new Set([...(cur?.ids || []), id])],
+        kind, label,
+        result: cur?.result || [],
+    });
+}
+
+// 지금까지 모은 결과 + 아직 도는 요청을 갱신 — 새로고침해도 여기까지는 화면에 되살아난다.
+//   liveIds 가 비면 '다 끝났고 결과만 남은' 상태로 보관한다(배너는 안 뜨고 결과만 복원).
+export function savePendingProgress(liveIds: number[], result: KwResult[]): void {
+    const cur = readPending();
+    if (!cur && !result.length) return;
+    writePending({
+        at: Date.now(),
+        id: liveIds[0] || 0,
+        ids: liveIds.filter((n) => Number.isFinite(n) && n > 0),
+        kind: cur?.kind || '', label: cur?.label || '',
+        result,
+    });
+}
+
+export function loadPendingScan(): PendingScan | null {
+    return readPending();
 }
 
 export function clearPendingScan(): void {
@@ -455,6 +492,25 @@ export async function peekScan(id: number): Promise<{ status: string; note: stri
     if (!data) return null;
     const row = data as { status: string; result: KwResult[] | null; note: string | null };
     return { note: row.note || '', result: row.result || [], status: row.status };
+}
+
+// 여러 요청을 한 번에 확인 — 지역형은 키워드마다 요청이 따로라 이어보기도 여러 건을 봐야 한다.
+//   끝난 것(done/failed)의 결과는 걷어 오고, 아직 도는 것만 live 로 돌려준다.
+//   조회 자체가 안 되는 id(삭제 등)는 죽은 것으로 본다 — 영원히 기다리지 않게.
+export async function peekScans(ids: number[]): Promise<{ live: number[]; note: string; result: KwResult[] }> {
+    const want = ids.filter((n) => Number.isFinite(n) && n > 0);
+    if (!want.length) return { live: [], note: '', result: [] };
+    const { data } = await supabase.from('cafe_kw_requests').select('id,status,result,note').in('id', want);
+    const rows = (data || []) as { id: number; status: string; result: KwResult[] | null; note: string | null }[];
+    const live: number[] = [];
+    const out: KwResult[] = [];
+    const notes: string[] = [];
+    for (const r of rows) {
+        if (['done', 'failed', 'fail', 'error'].includes(r.status)) { out.push(...(r.result || [])); continue; }
+        live.push(r.id);
+        if (r.note) notes.push(r.note);
+    }
+    return { live, note: notes[0] || '', result: out };
 }
 
 // 폴링 — done 까지. result 반환. onProgress(note) 로 워커 진행상태(note "진행 x/total · 인기탭 n") 전달.
