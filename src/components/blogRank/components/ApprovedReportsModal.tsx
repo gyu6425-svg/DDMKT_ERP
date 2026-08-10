@@ -21,6 +21,24 @@ function kstTime(iso: string | null | undefined): string {
     return new Date(t + 9 * 3600 * 1000).toISOString().slice(11, 16);
 }
 
+// ── 정산 주차 — 일요일 시작 ~ 토요일 끝. 8/2~8/8 = 8월 1주차, 8/9~8/15 = 8월 2주차(사장님 기준). ──
+function weekSunday(ymd: string): string {
+    const [y, m, d] = ymd.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    dt.setUTCDate(dt.getUTCDate() - dt.getUTCDay());
+    return dt.toISOString().slice(0, 10);
+}
+function addDaysYmd(ymd: string, n: number): string {
+    const [y, m, d] = ymd.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+// 그 달의 몇 번째 일요일인가 = 몇 주차. (2일→1주차, 9일→2주차, 16일→3주차 …)
+function weekLabel(sunday: string): string {
+    const [, m, d] = sunday.split('-').map(Number);
+    return `${m}월 ${Math.floor((d - 1) / 7) + 1}주차`;
+}
+const mdOf = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
+
 // 사업소득 원천징수 3.3% — 소득세 3%(원단위 절사) + 지방소득세 0.3%(원단위 절사). 실지급 = 공급가 - 세액.
 function withhold(gross: number): { incomeTax: number; localTax: number; tax: number; net: number } {
     const incomeTax = Math.floor((gross * 0.03) / 10) * 10;
@@ -186,6 +204,26 @@ export function ApprovedReportsModal({
         return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
     }, [paidScoped, blogNameOf]);
 
+    // 주차별 정산 — 입금일(입금 버튼 누른 날) 기준으로 일~토 한 주씩 쌓는다.
+    //   데이터가 있는 주 + 이번 주는 항상 노출(이번 주에 아직 입금이 없어도 자리를 만들어 둔다).
+    const weeks = useMemo(() => {
+        const byWeek = new Map<string, { count: number; gross: number }>();
+        for (const r of paidScoped) {
+            const d = payDay(r);
+            if (!d) continue;
+            const s = weekSunday(d);
+            const cur = byWeek.get(s) ?? { count: 0, gross: 0 };
+            cur.count += 1;
+            cur.gross += reportOutUnit(r, blogNameOf(r.blog_account_id));
+            byWeek.set(s, cur);
+        }
+        const thisWeek = weekSunday(kstDay(new Date().toISOString()));
+        if (!byWeek.has(thisWeek)) byWeek.set(thisWeek, { count: 0, gross: 0 });
+        return [...byWeek.entries()]
+            .map(([sun, v]) => ({ sun, end: addDaysYmd(sun, 6), label: weekLabel(sun), ...v }))
+            .sort((a, b) => b.sun.localeCompare(a.sun));
+    }, [paidScoped, blogNameOf]);
+
     const settleTotal = useMemo(() => {
         const gross = settleRows.reduce((s, r) => s + r.gross, 0);
         return { count: settleRows.reduce((s, r) => s + r.count, 0), gross, ...withhold(gross) };
@@ -331,7 +369,31 @@ export function ApprovedReportsModal({
                 </div>
 
                 {typeTab === 'settle' ? (
-                    loading ? (
+                    <>
+                    {/* 주차 칩은 결과가 0건이어도 항상 보여야 한다 — 다른 주로 갈아탈 손잡이가 사라지면 안 된다. */}
+                    <div className="mb-4 rounded-xl border border-[#ddd6fe] bg-[#faf5ff] p-3">
+                        <div className="mb-1.5 text-[11px] font-bold text-[#6d28d9]">
+                            정산 주차 <span className="font-normal text-[#a78bfa]">— 일~토 · 입금 버튼 누른 날 기준으로 쌓입니다</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                            <button type="button" onClick={() => { setDateFrom(''); setDateTo(''); }}
+                                className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${!dateFrom && !dateTo ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#cbd5e1] bg-white text-[#475569] hover:border-[#6d28d9]'}`}>
+                                전체 기간
+                            </button>
+                            {weeks.map((w) => {
+                                const on = dateFrom === w.sun && dateTo === w.end;
+                                return (
+                                    <button key={w.sun} type="button" onClick={() => { setDateFrom(w.sun); setDateTo(w.end); }}
+                                        title={`${w.sun} ~ ${w.end} 에 입금 처리한 건`}
+                                        className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${on ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#cbd5e1] bg-white text-[#475569] hover:border-[#6d28d9]'}`}>
+                                        {w.label} <span className={`font-normal ${on ? 'text-[#ddd6fe]' : 'text-[#94a3b8]'}`}>{mdOf(w.sun)}~{mdOf(w.end)}</span>
+                                        {' · '}{w.count}건{w.count ? ` · ₩${won(w.gross)}` : ''}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                    {loading ? (
                         <div className="py-12 text-center text-sm text-[#94a3b8]">불러오는 중...</div>
                     ) : settleRows.length === 0 ? (
                         <div className="py-12 text-center text-sm text-[#94a3b8]">
@@ -450,7 +512,8 @@ export function ApprovedReportsModal({
                                 <p className="m-0 text-center text-[12px] text-[#94a3b8]">기자단을 선택하면 해당 기자단의 입금 건 상세가 표시됩니다.</p>
                             )}
                         </div>
-                    )
+                    )}
+                    </>
                 ) : loading ? (
                     <div className="py-12 text-center text-sm text-[#94a3b8]">불러오는 중...</div>
                 ) : filtered.length === 0 ? (
