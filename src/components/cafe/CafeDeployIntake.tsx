@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, clearPendingScan, loadPendingScan, peekScan, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, clearPendingScan, loadPendingScan, peekScan, cancelScans, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -157,6 +157,18 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [siteUrl, setSiteUrl] = useState('');   // 홈페이지·네이버 블로그 주소(여러 개 가능)
     // 지역이 없는 업체(보홀 다이빙투어·유학원 등) — 국내 지역축을 붙이지 않고 전국으로 판정한다.
     const [noRegion, setNoRegion] = useState(false);
+    // 스캔 중단 — 사용자가 멈추면 다음 키워드로 안 넘어가고, 아직 대기 중인 요청은 취소한다.
+    //   ★ 지역형은 제품키워드마다 요청을 따로 만든다(제품 25개 = 요청 25건). 그래서 '지금 도는 1건'만
+    //     끝나고 나머지는 안 돈다. 진행 중(claimed)인 1건은 워커 루프라 중간에 못 끊는다.
+    const stopRef = useRef(false);
+    const liveIdsRef = useRef<number[]>([]);
+    const [stopping, setStopping] = useState(false);
+    const stopScan = async () => {
+        stopRef.current = true;
+        setStopping(true);
+        const n = await cancelScans(liveIdsRef.current);
+        setScanNote(`중단 중… 대기 ${n}건 취소`);
+    };
 
     // 새로고침·이탈 후 복귀 — 저장해 둔 요청에 다시 붙는다. 화면을 막지 않는다(다른 작업 가능).
     const [pending, setPending] = useState<PendingScan | null>(null);
@@ -472,10 +484,16 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             for (const r of [...prev, ...cached]) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
             if (merged.length) setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));   // 캐시분 먼저
             // ② 항상 라이브 지역 스캔 — 캐시 양성만 믿고 멈추면 prescan 음성·미스캔분 누락(워커 내부 배치캐시로 판정된 건 즉시).
+            // 남은 키워드를 미리 등록해 둔다 — 중단 시 '아직 안 돈 것'을 한 번에 끌 수 있어야 한다.
             for (let i = 0; i < kws.length; i++) {
                 const pk = kws[i];
+                if (stopRef.current) break;                       // 중단 눌림
+                // ★ 화면에서 X 로 뺀 제품키워드는 건너뛴다 — 스캔이 실제로 줄어든다.
+                const stillWanted = (productKws.length ? productKws : kws).includes(pk);
+                if (!stillWanted) { setScanNote(`${pk} 건너뜀(제외됨)`); continue; }
                 const { id, error } = await enqueueRegionScan(pk, sidos.join(','), target);
                 if (error || !id) continue;
+                liveIdsRef.current = [...liveIdsRef.current, id];
                 const tag = kws.length > 1 ? ` (${i + 1}/${kws.length})` : '';
                 savePendingScan(id, 'region', `${sidos.join('·')} × ${pk}`);
                 const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
@@ -490,7 +508,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '조회 실패');
         } finally {
-            setKwLoading(false); setScanNote('');
+            setKwLoading(false); setScanNote(''); setStopping(false);
+            stopRef.current = false; liveIdsRef.current = [];
         }
     };
 
@@ -570,9 +589,17 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 const pct = m ? Math.min(100, Math.round((Number(m[1]) / Math.max(1, Number(m[2]))) * 100)) : null;
                 return (
                     <div className="mt-2 rounded-lg border border-[#c4b5fd] bg-[#f5f3ff] p-3">
-                        <div className="mb-1.5 flex items-center justify-between text-[12px] font-bold text-[#6d28d9]">
+                        <div className="mb-1.5 flex items-center justify-between gap-2 text-[12px] font-bold text-[#6d28d9]">
                             <span>🔍 인기탭 스캔 중… <span className="font-normal text-[#64748b]">{scanNote || '준비 중…'}</span></span>
-                            {pct !== null ? <span>{pct}%</span> : null}
+                            <span className="flex shrink-0 items-center gap-2">
+                                {pct !== null ? <span>{pct}%</span> : null}
+                                {/* 중단 — 지금 도는 1건은 끝나지만(워커 루프라 중간에 못 끊는다) 대기분은 즉시 취소된다. */}
+                                <button type="button" onClick={() => void stopScan()} disabled={stopping}
+                                    className="rounded border border-[#fca5a5] bg-white px-2 py-0.5 text-[11px] font-bold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
+                                    title="대기 중인 키워드를 취소합니다. 지금 처리 중인 1건은 끝까지 갑니다.">
+                                    {stopping ? '중단 중…' : '⏹ 중단'}
+                                </button>
+                            </span>
                         </div>
                         <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#e9d5ff]">
                             <div className={`h-full rounded-full bg-[#7c3aed] ${pct === null ? 'animate-pulse' : 'transition-all duration-500'}`} style={{ width: `${pct ?? 25}%` }} />

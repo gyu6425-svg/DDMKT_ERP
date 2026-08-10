@@ -436,6 +436,19 @@ export function clearPendingScan(): void {
     } catch { /* 무시 */ }
 }
 
+// 스캔 취소 — 아직 워커가 집지 않은(queued) 요청만 끈다.
+//   ★ 왜 queued 만인가: 이미 claimed 면 워커 루프가 돌고 있어 상태만 바꿔도 안 멈춘다.
+//     대신 지역형은 키워드마다 요청을 따로 만들므로(제품 25개 = 요청 25건), 뒤쪽 대기분을
+//     끄는 것만으로도 대부분 줄일 수 있다(실측 2026-08-10: 3/25 진행 중 = 22건이 대기).
+export async function cancelScans(ids: number[], why = '사용자 중단'): Promise<number> {
+    const live = ids.filter((n) => Number.isFinite(n));
+    if (!live.length) return 0;
+    const { data } = await supabase.from('cafe_kw_requests')
+        .update({ note: why, status: 'failed' })
+        .in('id', live).eq('status', 'queued').select('id');
+    return (data ?? []).length;
+}
+
 // 저장해 둔 요청의 현재 상태 — 새로고침 후 '이어보기'용. 폴링 없이 한 번만 읽는다.
 export async function peekScan(id: number): Promise<{ status: string; note: string; result: KwResult[] } | null> {
     const { data } = await supabase.from('cafe_kw_requests').select('status,result,note').eq('id', id).single();
