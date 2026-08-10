@@ -189,6 +189,7 @@ export function CafeKeywordFinder({
                 if (id) jobs.push({ kw, id });
             }
             liveIdsRef.current = jobs.map((j) => j.id);   // ⏹ 중단이 한 번에 끌 대상
+            const failedKws: string[] = [];              // 실패분 — 루프가 끝나면 한 번 더 돌린다
             for (let i = 0; i < jobs.length; i++) {
                 if (stopRef.current) break;               // 중단 눌림 — 다음 키워드로 안 넘어간다
                 const { kw, id } = jobs[i];
@@ -203,7 +204,26 @@ export function CafeKeywordFinder({
                     setKwResult(dedup(merged));                 // 끝나는 대로 누적
                     // 여기까지 모은 결과를 남긴다 — 새로고침해도 되살아난다(아직 안 돈 요청 id 도 같이).
                     savePendingProgress(jobs.slice(i + 1).map((j) => j.id), dedup(merged));
-                } catch { /* 이 키워드만 실패 — 나머지 계속. 기록은 남겨 이어보기가 줍는다 */ }
+                } catch {
+                    failedKws.push(kw);   // 이 키워드만 실패 — 나머지 계속, 끝나고 한 번 더 돌린다
+                }
+            }
+            // 실패분만 한 번 더 — 일시 오류였다면 여기서 붙는다(판정된 조합은 캐시라 금방 지나간다).
+            for (let i = 0; i < failedKws.length; i++) {
+                if (stopRef.current) break;
+                const kw = failedKws[i];
+                const { id } = await enqueueRegionScan(kw, regionSel.join(','), target, includeDong);
+                if (!id) continue;
+                liveIdsRef.current = [...liveIdsRef.current, id];
+                try {
+                    const { result } = await pollPlaceScan(id, {
+                        timeoutSec: 1500, onPartial: pushLive,
+                        onProgress: (note) => setScanNote(`${kw} · ${note} 재시도 (${i + 1}/${failedKws.length})`),
+                    });
+                    merged.push(...result);
+                    setKwResult(dedup(merged));
+                    savePendingProgress([], dedup(merged));
+                } catch { /* 두 번 다 실패 — 아래 안내로 알린다 */ }
             }
             // ★ 실시간으로 이미 화면에 쌓인 것(kwResultRef)을 반드시 포함한다 — 폴링이 시간초과로
             //   빠지면 merged 에는 안 들어가 있어서, 여기서 덮어쓰면 찾아 놓은 게 도로 사라진다.
