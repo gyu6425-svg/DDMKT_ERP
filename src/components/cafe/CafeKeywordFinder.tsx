@@ -159,11 +159,15 @@ export function CafeKeywordFinder({
                 const { kw, id } = jobs[i];
                 const tag = jobs.length > 1 ? ` (${i + 1}/${jobs.length})` : '';
                 setScanNote(`${kw}${includeDong ? ' 동' : ''} 스캔 시작…${tag}`);
+                // 새로고침·이탈해도 이 요청에 다시 붙는다. 지역형도 정보형과 똑같이 오래 걸린다
+                //   (실측 2026-08-10 '세무사': 30건을 찾아 정상 종료했는데 화면이 못 주워왔다).
+                savePendingScan(id, 'region', `${regionSel.join('·')} × ${kw}`);
                 try {
                     const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(`${kw} · ${note}${tag}`) });
+                    clearPendingScan();
                     merged.push(...result);
                     setKwResult(dedup(merged));                 // 끝나는 대로 누적
-                } catch { /* 이 키워드만 실패 — 나머지 계속 */ }
+                } catch { /* 이 키워드만 실패 — 나머지 계속. 기록은 남겨 이어보기가 줍는다 */ }
             }
             const final = dedup(merged);
             if (!final.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${regionSel.join('·')} × "${kws.join(', ')}"`); return; }

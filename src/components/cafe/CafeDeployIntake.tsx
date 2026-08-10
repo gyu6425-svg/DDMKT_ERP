@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, clearPendingScan, loadPendingScan, peekScan, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -157,6 +157,32 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [siteUrl, setSiteUrl] = useState('');   // 홈페이지·네이버 블로그 주소(여러 개 가능)
     // 지역이 없는 업체(보홀 다이빙투어·유학원 등) — 국내 지역축을 붙이지 않고 전국으로 판정한다.
     const [noRegion, setNoRegion] = useState(false);
+
+    // 새로고침·이탈 후 복귀 — 저장해 둔 요청에 다시 붙는다. 화면을 막지 않는다(다른 작업 가능).
+    const [pending, setPending] = useState<PendingScan | null>(null);
+    const [pendNote, setPendNote] = useState('');
+    useEffect(() => {
+        const p = loadPendingScan();
+        if (!p) return;
+        setPending(p);
+        let alive = true;
+        void (async () => {
+            for (let i = 0; alive && i < 120; i++) {
+                const st = await peekScan(p.id);
+                if (!alive || !st) return;
+                setPendNote(st.note);
+                if (st.status === 'done') {
+                    if (st.result.length) setKwResult([...st.result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+                    setKwErr(`이전 스캔(#${p.id}) 결과 ${st.result.length}건을 불러왔습니다 — ${p.label}`);
+                    clearPendingScan(); setPending(null);
+                    return;
+                }
+                if (['failed', 'fail', 'error'].includes(st.status)) { clearPendingScan(); setPending(null); return; }
+                await new Promise((r) => setTimeout(r, 30000));
+            }
+        })();
+        return () => { alive = false; };
+    }, []);
     // 주소 → 원문을 붙여넣기 칸에 채운다. 줄바꿈/쉼표로 여러 개를 한 번에.
     //   ★ 사이트+블로그를 같이 넣는 게 가장 낫다(실측 2026-08-07 경기간호): 각각 28개인데 합치면 39개.
     //   ★ 덮어쓰지 않는다 — 직전 자동수집분만 걷어내고 다시 붙인다(안 그러면 두 번째 주소가 첫 번째를 지운다).
@@ -422,7 +448,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             if (ownAddr.trim()) {
                 const { id, error } = await enqueueMenuScan(ownAddr, kws, { name: form.company_name, regions: sidos.join(','), target });
                 if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+                // 새로고침·이탈해도 다시 붙을 수 있게 남긴다(폴링이 끊겨도 워커는 계속 돈다).
+                savePendingScan(id, 'menu', `${ownAddr.trim()} × ${kws.join(', ')}`);
                 const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(note) });
+                clearPendingScan();
                 const seenOwn = new Set<string>();
                 const mergedOwn: KwResult[] = [];
                 for (const r of [...prev, ...result]) {
@@ -448,7 +477,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 const { id, error } = await enqueueRegionScan(pk, sidos.join(','), target);
                 if (error || !id) continue;
                 const tag = kws.length > 1 ? ` (${i + 1}/${kws.length})` : '';
+                savePendingScan(id, 'region', `${sidos.join('·')} × ${pk}`);
                 const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
+                clearPendingScan();
                 for (const r of result) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
             }
             if (!merged.length) {
@@ -520,6 +551,19 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     // 선택 UI(선택칩 + 결과 리스트) — 키워드형(인기탭 결과)·지역형(동 키워드) 공용. kwResult 에 따라 렌더.
     const kwPanel = (
         <>
+            {/* 이어보기 배너 — 새로고침·이탈 후 돌아오면 진행 중인 스캔에 다시 붙는다.
+                화면을 막지 않는다: 이 배너가 도는 동안 다른 작업을 계속할 수 있다. */}
+            {pending ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[#93c5fd] bg-[#eff6ff] px-3 py-2 text-[12px] text-[#1e40af]">
+                    <span className="animate-pulse">⏳</span>
+                    <b>이전 스캔이 계속 돌고 있습니다</b>
+                    <span className="text-[#3b82f6]">#{pending.id} · {pending.label}</span>
+                    {pendNote ? <span className="font-semibold">{pendNote}</span> : null}
+                    <span className="text-[11px] text-[#60a5fa]">끝나면 결과가 자동으로 채워집니다 — 그동안 다른 작업 하셔도 됩니다.</span>
+                    <button type="button" onClick={() => { clearPendingScan(); setPending(null); }}
+                        className="ml-auto rounded border border-[#bfdbfe] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#3b82f6]">그만 보기</button>
+                </div>
+            ) : null}
             {/* 인기탭 스캔 진행 게이지 — 스캔 중 표시(우리ERP finder와 동일). "x/total" 형태면 %, 아니면 pulse. */}
             {kwLoading || scanNote ? (() => {
                 const m = scanNote.match(/(\d+)\/(\d+)/);
