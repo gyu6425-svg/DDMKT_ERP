@@ -5,6 +5,15 @@ import { getReporters } from '../../../api/blogRank';
 
 const won = (n: number) => n.toLocaleString('ko-KR');
 
+// 저장된 시각(UTC ISO) → KST 날짜(YYYY-MM-DD). 그냥 slice(0,10) 하면 새벽 처리분이 전날로 밀린다.
+//   예) 2026-08-09 01:00 KST = 2026-08-08T16:00Z → slice=08-08(하루 어긋남).
+function kstDay(iso: string | null | undefined): string {
+    if (!iso) return '';
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return String(iso).slice(0, 10);
+    return new Date(t + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
 // 사업소득 원천징수 3.3% — 소득세 3%(원단위 절사) + 지방소득세 0.3%(원단위 절사). 실지급 = 공급가 - 세액.
 function withhold(gross: number): { incomeTax: number; localTax: number; tax: number; net: number } {
     const incomeTax = Math.floor((gross * 0.03) / 10) * 10;
@@ -43,8 +52,10 @@ export function ApprovedReportsModal({
     const [blogFilter, setBlogFilter] = useState('all');
     const [reporterFilter, setReporterFilter] = useState('all');
     const [uploadSort, setUploadSort] = useState<'asc' | 'desc'>('asc'); // 업로드일 정렬(순번 기준)
-    const [dateFrom, setDateFrom] = useState(''); // 정산 탭 — 입금일 범위 시작(YYYY-MM-DD)
-    const [dateTo, setDateTo] = useState('');     // 정산 탭 — 입금일 범위 종료
+    // 입금일 범위 — '입금 완료'·'정산 내역' 두 탭에 함께 적용(기준 = 입금 처리 시각 paid_at, KST).
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const [includeNoDate, setIncludeNoDate] = useState(false); // 입금일 미기록(옛 데이터) 포함 여부
     const [paying, setPaying] = useState<string | null>(null);
     const [settling, setSettling] = useState<string | null>(null);
 
@@ -93,12 +104,27 @@ export function ApprovedReportsModal({
         return [...ids].map((id) => ({ id, name: reporterMap[id] || '기자단' })).sort((a, b) => a.name.localeCompare(b.name));
     }, [reports, reporterMap]);
 
+    // 입금일(KST) 범위 판정 — 입금 완료·정산 내역이 같은 기준을 쓰도록 한 곳에서만 정의한다.
+    //   paid_at 이 없는 옛 건은 기본 제외(체크로 포함). 범위를 안 정하면 전부 통과.
+    const payDay = (r: BlogPostReport) => kstDay(r.paid_at);
+    const inPayRange = useMemo(() => (r: BlogPostReport) => {
+        if (!dateFrom && !dateTo) return true;
+        const d = payDay(r);
+        if (!d) return includeNoDate;
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+        return true;
+    }, [dateFrom, dateTo, includeNoDate]);
+    // 입금일이 기록되지 않은 입금완료 건 수 — 범위를 걸면 안 보이므로 화면에 알려 준다.
+    const noDateCount = useMemo(() => reports.filter((r) => r.paid && !payDay(r)).length, [reports]);
+
     const filtered = useMemo(
         () =>
             reports.filter((r) => {
-                // 입금 완료 탭 = 입금된 건만. 그 외 탭 = 미입금 건만(입금하면 목록에서 빠져 입금 완료로 이동).
+                // 입금 완료 탭 = 입금된 건만(+ 입금일 범위). 그 외 탭 = 미입금 건만(입금하면 입금 완료로 이동).
                 if (typeTab === 'paid') {
                     if (!r.paid) return false;
+                    if (!inPayRange(r)) return false;
                 } else {
                     if (r.paid) return false;
                     if (typeTab !== 'all' && typeOf(r) !== typeTab) return false;
@@ -108,7 +134,7 @@ export function ApprovedReportsModal({
                     (reporterFilter === 'all' || r.reporter_id === reporterFilter)
                 );
             }),
-        [reports, typeTab, blogFilter, reporterFilter],
+        [reports, typeTab, blogFilter, reporterFilter, inPayRange],
     );
 
     // 순번/정렬 — 업로드일(created_at) 기준. 헤더 클릭으로 오름/내림 토글. 맨 앞 '순번' = 표시 순서 1..N.
@@ -124,12 +150,7 @@ export function ApprovedReportsModal({
     );
     // 기자단별 집계(입금일 날짜 범위 반영). from/to 비면 전체.
     const settleRows = useMemo(() => {
-        const scoped = paidScoped.filter((r) => {
-            const d = (r.paid_at || '').slice(0, 10);
-            if (dateFrom && (!d || d < dateFrom)) return false;
-            if (dateTo && (!d || d > dateTo)) return false;
-            return true;
-        });
+        const scoped = paidScoped.filter(inPayRange);
         const byRep = new Map<string, BlogPostReport[]>();
         for (const r of scoped) {
             const k = r.reporter_id || 'none';
@@ -143,7 +164,7 @@ export function ApprovedReportsModal({
                 return { rid, name: rid === 'none' ? '기자단' : reporterMap[rid] || '기자단', count: list.length, gross, tax: w.tax, net: w.net, list };
             })
             .sort((a, b) => b.gross - a.gross);
-    }, [paidScoped, dateFrom, dateTo, reporterMap, blogNameOf]);
+    }, [paidScoped, inPayRange, reporterMap, blogNameOf]);
     const settleTotal = useMemo(() => {
         const gross = settleRows.reduce((s, r) => s + r.gross, 0);
         return { count: settleRows.reduce((s, r) => s + r.count, 0), gross, ...withhold(gross) };
@@ -246,8 +267,9 @@ export function ApprovedReportsModal({
                             ))}
                         </select>
                     </div>
-                    {typeTab === 'settle' ? (
-                        <div className="flex items-center gap-2">
+                    {/* 입금일 범위 — 입금 완료·정산 내역 두 탭에 같은 기준(입금 처리 시점, KST)으로 적용 */}
+                    {typeTab === 'settle' || typeTab === 'paid' ? (
+                        <div className="flex flex-wrap items-center gap-2">
                             <span className="text-[12px] font-semibold text-[#64748b]">입금일</span>
                             <input type="date" className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-sm"
                                 value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -257,6 +279,14 @@ export function ApprovedReportsModal({
                             {dateFrom || dateTo ? (
                                 <button type="button" onClick={() => { setDateFrom(''); setDateTo(''); }}
                                     className="text-[12px] font-semibold text-[#64748b] hover:text-[#334155]">전체</button>
+                            ) : null}
+                            {/* 옛 데이터(입금일 미기록)는 범위를 걸면 사라진다 — 사라진 이유를 화면에 밝히고 포함 선택을 준다. */}
+                            {(dateFrom || dateTo) && noDateCount ? (
+                                <label className="flex cursor-pointer items-center gap-1 rounded-md border border-[#fed7aa] bg-[#fff7ed] px-2 py-1 text-[11px] font-semibold text-[#9a3412]">
+                                    <input type="checkbox" className="h-3.5 w-3.5 accent-[#c2410c]" checked={includeNoDate}
+                                        onChange={(e) => setIncludeNoDate(e.target.checked)} />
+                                    입금일 미기록 {noDateCount}건 포함
+                                </label>
                             ) : null}
                         </div>
                     ) : null}
@@ -353,7 +383,7 @@ export function ApprovedReportsModal({
                                                 .sort((a, b) => (b.paid_at || '').localeCompare(a.paid_at || ''))
                                                 .map((r) => (
                                                     <tr className="border-b border-[#f1f5f9] text-[#334155]" key={r.id}>
-                                                        <td className="whitespace-nowrap px-3 py-2">{dateOf(r.paid_at)}</td>
+                                                        <td className="whitespace-nowrap px-3 py-2">{payDay(r) || '—'}</td>
                                                         <td className="whitespace-nowrap px-3 py-2 text-[#64748b]">{dateOf(r.created_at)}</td>
                                                         <td className="whitespace-nowrap px-3 py-2">{blogNameOf(r.blog_account_id)}</td>
                                                         <td className="px-3 py-2">{r.title || '—'}</td>
@@ -375,6 +405,13 @@ export function ApprovedReportsModal({
                     <div className="py-12 text-center text-sm text-[#94a3b8]">승인 처리된 글이 없습니다.</div>
                 ) : (
                     <div className="overflow-x-auto">
+                        {/* 범위를 걸었을 때 몇 건이 보이는지 명시 — '설정했는데 전부 나온다'는 오해 방지 */}
+                        {typeTab === 'paid' && (dateFrom || dateTo) ? (
+                            <p className="m-0 mb-2 text-[12px] font-semibold text-[#1d4ed8]">
+                                입금일 {dateFrom || '처음'} ~ {dateTo || '오늘'} · {filtered.length}건
+                                <span className="ml-1 font-normal text-[#94a3b8]">(전체 입금완료 {nPaid}건 중)</span>
+                            </p>
+                        ) : null}
                         <table className="w-full border-collapse text-sm">
                             <thead>
                                 <tr className="border-b border-[#e2e8f0] text-left text-[12px] text-[#64748b]">
@@ -385,6 +422,7 @@ export function ApprovedReportsModal({
                                         </button>
                                     </th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">승인일</th>
+                                    {typeTab === 'paid' ? <th className="whitespace-nowrap px-2 py-2 font-semibold text-[#1d4ed8]">입금일</th> : null}
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">승인 직원</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">업체</th>
                                     <th className="whitespace-nowrap px-2 py-2 font-semibold">기자단</th>
@@ -402,6 +440,11 @@ export function ApprovedReportsModal({
                                         <td className="whitespace-nowrap px-2 py-2 text-center font-semibold text-[#94a3b8]">{i + 1}</td>
                                         <td className="whitespace-nowrap px-2 py-2 text-[#475569]">{dateOf(r.created_at)}</td>
                                         <td className="whitespace-nowrap px-2 py-2 text-[#475569]">{dateOf(r.reviewed_at)}</td>
+                                        {typeTab === 'paid' ? (
+                                            <td className="whitespace-nowrap px-2 py-2 font-semibold text-[#1d4ed8]">
+                                                {payDay(r) || <span className="font-normal text-[#f59e0b]" title="입금 처리 시각이 기록되지 않은 옛 데이터입니다. 입금 버튼을 껐다 켜면 오늘 날짜로 기록됩니다.">미기록</span>}
+                                            </td>
+                                        ) : null}
                                         <td className="whitespace-nowrap px-2 py-2 font-semibold text-[#334155]">
                                             {r.reviewed_by ? nameMap[r.reviewed_by] || '—' : '—'}
                                         </td>
