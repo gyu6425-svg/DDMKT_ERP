@@ -97,6 +97,16 @@ export function cafeRankLabel(m: CafeMeasurement | null | undefined): string {
     const s = cafeTiStatus(m.ti_status);
     return s === 'ranked' ? `${m.ti}위` : s === 'out' ? '권외' : s === 'no_section' ? '측정불가' : '실패';
 }
+// 순위를 확인한 그 검색 화면 URL — 크롤러 measure_cafe_rank 와 같은 주소여야 화면과 순위가 일치한다.
+//   crawler/blog_rank_crawler.py:1417 = m.search.naver.com/search.naver?query=... (모바일 통합검색).
+//   PC(search.naver.com)로 열면 인기글 섹션 구성이 달라 순위가 어긋난다 → 모바일 고정.
+export const cafeSearchUrl = (kw: string) => `https://m.search.naver.com/search.naver?query=${encodeURIComponent(kw)}`;
+// 순위가 어느 자리에서 잡힌 것인지 — 인기글 섹션(ok) / 통합리스트(list_ok). 링크 tooltip 안내용.
+export function cafeRankWhere(s?: string | null): string {
+    if (s === 'ok') return '인기글 섹션';
+    if (s === 'list_ok') return '통합검색 리스트';
+    return '';
+}
 
 // 등록 — (cafe_name, article_id) 유니크. 이미 있으면 keyword/title/url 갱신(measurements 보존).
 export async function upsertCafeRankPost(input: {

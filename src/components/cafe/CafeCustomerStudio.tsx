@@ -3,7 +3,7 @@ import { listTokens, balanceOf } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls, studioSavedPath, updateKeywordPool, markNaverLogin } from '../../api/cafeStudioSettings';
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
-import { getCafeRankPostsForClient, latestCafeMeasure, cafeTiStatus, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
+import { getCafeRankPostsForClient, latestCafeMeasure, cafeTiStatus, cafeRankWhere, cafeSearchUrl, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, deleteGenRequest, publishTargetFor, kstYmd, kstNowNaive, fmtScheduled, type GenQueueSummary } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
@@ -1049,12 +1049,22 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                     const rankCls = mS === 'ranked' ? (m!.ti <= 5 ? 'font-bold text-[#166534]' : 'text-[#334155]') : 'text-[#94a3b8]';
                                     const achieved = p.top5_achieved_at && !p.top5_seeded;
                                     const url = p.post_url || (p.cafe_name && p.article_id ? `https://cafe.naver.com/${p.cafe_name}/${p.article_id}` : null);
+                                    // 순위 클릭 → 그 순위를 확인한 네이버 검색 화면(크롤러와 동일한 모바일 통합검색).
+                                    const kwText = p.keyword_manual || p.keyword || '';
+                                    const where = m ? cafeRankWhere(m.ti_status) : '';
                                     return (
                                         <tr className="border-b border-[#f1f5f9] align-top text-[#334155]" key={p.id}>
                                             <td className="whitespace-nowrap px-2 py-1.5">{p.published_date ?? '-'}</td>
                                             <td className="px-2 py-1.5">{p.keyword_manual || p.keyword || '-'}</td>
                                             <td className="whitespace-nowrap px-2 py-1.5 text-[#64748b]">{p.board ?? p.cafe_accounts?.board_short ?? '-'}</td>
-                                            <td className={`whitespace-nowrap px-2 py-1.5 ${rankCls}`}>{rankText}</td>
+                                            <td className={`whitespace-nowrap px-2 py-1.5 ${rankCls}`}>
+                                                {kwText ? (
+                                                    <a className="inline-flex items-center gap-1 hover:underline" href={cafeSearchUrl(kwText)} rel="noreferrer" target="_blank"
+                                                        title={`네이버 검색 '${kwText}' 열기 — ${where ? `${where}에서 ${rankText}` : '측정과 같은 모바일 통합검색 화면'}`}>
+                                                        {rankText}<span className="text-[10px] text-[#94a3b8]">🔍</span>
+                                                    </a>
+                                                ) : rankText}
+                                            </td>
                                             <td className="whitespace-nowrap px-2 py-1.5">
                                                 {achieved ? <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-bold text-[#166534]">✓ 실적</span>
                                                     : p.top5_seeded ? <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#94a3b8]">기준</span>
