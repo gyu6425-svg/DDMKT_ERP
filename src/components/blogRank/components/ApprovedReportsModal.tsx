@@ -13,6 +13,13 @@ function kstDay(iso: string | null | undefined): string {
     if (Number.isNaN(t)) return String(iso).slice(0, 10);
     return new Date(t + 9 * 3600 * 1000).toISOString().slice(0, 10);
 }
+// 입금 버튼을 누른 시각(KST) "HH:mm" — 날짜 옆에 같이 보여 준다.
+function kstTime(iso: string | null | undefined): string {
+    if (!iso) return '';
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return '';
+    return new Date(t + 9 * 3600 * 1000).toISOString().slice(11, 16);
+}
 
 // 사업소득 원천징수 3.3% — 소득세 3%(원단위 절사) + 지방소득세 0.3%(원단위 절사). 실지급 = 공급가 - 세액.
 function withhold(gross: number): { incomeTax: number; localTax: number; tax: number; net: number } {
@@ -165,6 +172,20 @@ export function ApprovedReportsModal({
             })
             .sort((a, b) => b.gross - a.gross);
     }, [paidScoped, inPayRange, reporterMap, blogNameOf]);
+    // 입금일별 요약 — '언제 얼마 나갔는지'가 한 줄로 보이게. 칩 클릭 = 그 날짜만 보기.
+    //   기준은 입금 버튼을 누른 시각(paid_at, KST). 글 업로드일과 무관하다.
+    const payDays = useMemo(() => {
+        const m = new Map<string, { count: number; gross: number }>();
+        for (const r of paidScoped) {
+            const d = payDay(r) || '미기록';
+            const cur = m.get(d) ?? { count: 0, gross: 0 };
+            cur.count += 1;
+            cur.gross += reportOutUnit(r, blogNameOf(r.blog_account_id));
+            m.set(d, cur);
+        }
+        return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+    }, [paidScoped, blogNameOf]);
+
     const settleTotal = useMemo(() => {
         const gross = settleRows.reduce((s, r) => s + r.gross, 0);
         return { count: settleRows.reduce((s, r) => s + r.count, 0), gross, ...withhold(gross) };
@@ -313,9 +334,38 @@ export function ApprovedReportsModal({
                     loading ? (
                         <div className="py-12 text-center text-sm text-[#94a3b8]">불러오는 중...</div>
                     ) : settleRows.length === 0 ? (
-                        <div className="py-12 text-center text-sm text-[#94a3b8]">입금완료된 정산 내역이 없습니다.</div>
+                        <div className="py-12 text-center text-sm text-[#94a3b8]">
+                            {dateFrom || dateTo ? (
+                                <>
+                                    <div>{dateFrom || '처음'} ~ {dateTo || '오늘'} 사이에 입금 처리한 건이 없습니다.</div>
+                                    <button type="button" onClick={() => { setDateFrom(''); setDateTo(''); }}
+                                        className="mt-2 rounded-md border border-[#cbd5e1] px-3 py-1 text-[12px] font-semibold text-[#475569] hover:bg-[#f1f5f9]">전체 기간 보기</button>
+                                </>
+                            ) : '입금완료된 정산 내역이 없습니다.'}
+                        </div>
                     ) : (
                         <div className="grid gap-4">
+                            {/* 입금일별 — 입금 버튼 누른 날 기준. 칩을 누르면 그 날짜만 본다. */}
+                            {payDays.length ? (
+                                <div className="rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-3">
+                                    <div className="mb-1.5 text-[11px] font-bold text-[#64748b]">
+                                        입금일별 <span className="font-normal text-[#94a3b8]">— 입금 버튼을 누른 시점 기준(글 업로드일과 무관)</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {payDays.map(([d, v]) => {
+                                            const on = dateFrom === d && dateTo === d;
+                                            return (
+                                                <button key={d} type="button"
+                                                    onClick={() => { if (on) { setDateFrom(''); setDateTo(''); } else if (d !== '미기록') { setDateFrom(d); setDateTo(d); } }}
+                                                    title={d === '미기록' ? '입금 시각이 없는 옛 데이터' : `${d} 입금 건만 보기`}
+                                                    className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${on ? 'border-[#7c3aed] bg-[#7c3aed] text-white' : 'border-[#cbd5e1] bg-white text-[#475569] hover:border-[#7c3aed]'}`}>
+                                                    {d} · {v.count}건 · ₩{won(v.gross)}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ) : null}
                             {/* 합계 요약 카드 */}
                             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-3">
@@ -383,7 +433,9 @@ export function ApprovedReportsModal({
                                                 .sort((a, b) => (b.paid_at || '').localeCompare(a.paid_at || ''))
                                                 .map((r) => (
                                                     <tr className="border-b border-[#f1f5f9] text-[#334155]" key={r.id}>
-                                                        <td className="whitespace-nowrap px-3 py-2">{payDay(r) || '—'}</td>
+                                                        <td className="whitespace-nowrap px-3 py-2">
+                                                            {payDay(r) ? <>{payDay(r)} <span className="text-[11px] text-[#94a3b8]">{kstTime(r.paid_at)}</span></> : '—'}
+                                                        </td>
                                                         <td className="whitespace-nowrap px-3 py-2 text-[#64748b]">{dateOf(r.created_at)}</td>
                                                         <td className="whitespace-nowrap px-3 py-2">{blogNameOf(r.blog_account_id)}</td>
                                                         <td className="px-3 py-2">{r.title || '—'}</td>
@@ -442,7 +494,9 @@ export function ApprovedReportsModal({
                                         <td className="whitespace-nowrap px-2 py-2 text-[#475569]">{dateOf(r.reviewed_at)}</td>
                                         {typeTab === 'paid' ? (
                                             <td className="whitespace-nowrap px-2 py-2 font-semibold text-[#1d4ed8]">
-                                                {payDay(r) || <span className="font-normal text-[#f59e0b]" title="입금 처리 시각이 기록되지 않은 옛 데이터입니다. 입금 버튼을 껐다 켜면 오늘 날짜로 기록됩니다.">미기록</span>}
+                                                {payDay(r)
+                                                    ? <>{payDay(r)} <span className="font-normal text-[#94a3b8]">{kstTime(r.paid_at)}</span></>
+                                                    : <span className="font-normal text-[#f59e0b]" title="입금 처리 시각이 기록되지 않은 옛 데이터입니다. 입금 버튼을 껐다 켜면 그 시점으로 기록됩니다.">미기록</span>}
                                             </td>
                                         ) : null}
                                         <td className="whitespace-nowrap px-2 py-2 font-semibold text-[#334155]">

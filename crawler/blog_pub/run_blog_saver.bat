@@ -3,7 +3,7 @@ REM [SUB1] Blog auto-SAVE listener. Fills the Naver blog editor and clicks SAVE 
 REM   It never publishes: save_blog.py has no publish code path and blocks publish
 REM   requests at the network + DOM level. See test_no_publish.py.
 REM
-REM   1) Starts headless Chrome on 9225 if not listening (profile: blog_pub\chrome_profile).
+REM   1) Starts headless Chrome on 9235 if not listening (profile: blog_pub\chrome_profile).
 REM   2) Runs blog_save_listener.py - polls blog_save_queue, saves drafts, keeps session alive.
 REM   3) Restarts 30s after any exit. Log: blog_saver.log
 REM
@@ -28,10 +28,10 @@ if not defined PYEXE (
   exit /b 1
 )
 :loop
-netstat -ano | findstr ":9225" | findstr LISTENING >nul
+netstat -ano | findstr ":9235" | findstr LISTENING >nul
 if errorlevel 1 (
   echo [CHROME START] %date% %time% >> blog_saver.log
-  start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --remote-debugging-port=9225 --user-data-dir="%~dp0chrome_profile" --window-size=1400,950 --no-first-run --no-default-browser-check "https://blog.naver.com"
+  start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --remote-debugging-port=9235 --user-data-dir="%~dp0chrome_profile" --window-size=1400,950 --no-first-run --no-default-browser-check "https://blog.naver.com"
   timeout /t 8 /nobreak >nul
 )
 echo [SAVER START] %date% %time% >> blog_saver.log

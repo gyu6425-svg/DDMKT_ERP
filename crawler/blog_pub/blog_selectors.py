@@ -7,7 +7,7 @@
 
 🔴 지금은 전부 '미확정 후보'다. CONFIRMED_ON 이 비어 있으면 save_blog.py 가 실제 저장을 거부한다.
    확정 절차:
-     1) SUB1 에서 run_chrome_blog.bat 으로 크롬(포트 9225) 띄우고 대상 블로그에 1회 수동 로그인
+     1) SUB1 에서 run_chrome_blog.bat 으로 크롬(포트 9235) 띄우고 대상 블로그에 1회 수동 로그인
      2) python diag_blog.py            → 프레임/입력칸/버튼 덤프
      3) python diag_blog.py --record   → 사람이 '저장'을 누를 때 나가는 POST URL 기록
         (⚠️ '발행'은 테스트 블로그에서만 눌러 볼 것. 기록 목적은 **차단 대상 확정**이다.)
