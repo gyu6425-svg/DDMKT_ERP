@@ -5,14 +5,22 @@ import { listActiveDeployTargets, type DeployDashTarget } from '../../../api/caf
 import { downloadCsv, todayTag } from '../../../lib/exportCsv';
 import { latestKwAudit, auditStale, type KwAudit } from '../../../api/cafeKwAudit';
 
+// 실제 발행 글 주소 — post_url 이 있으면 그걸, 없으면 카페명/글번호로 만든다.
+//   (CafeCustomerStudio 와 같은 규칙. 엑셀에서는 URL 이 그대로 클릭된다.)
+function postUrlOf(p: CafeRankPost): string {
+    return p.post_url || (p.cafe_name && p.article_id ? `https://cafe.naver.com/${p.cafe_name}/${p.article_id}` : '');
+}
+
 // 누적 발행 글 목록 → 엑셀(CSV).
 function exportCumList(board: string, bp: CafeRankPost[], kwOf: (p: CafeRankPost) => string) {
-    const headers = ['발행일', '키워드', '제목', '카페/게시판', '현재 순위', '실적'];
+    const headers = ['발행일', '키워드', '제목', '카페/게시판', '현재 순위', '실적', '발행 글 확인하기'];
     const rows = bp.map((p) => {
         const m = latestCafeMeasure(p.measurements);
         const rankText = !m ? '-' : cafeRankLabel(m);
         const perf = p.top5_achieved_at && !p.top5_seeded ? '실적' : p.top5_seeded ? '기준' : p.top5_since ? '5위 진입' : '-';
-        return [p.published_date ?? '', kwOf(p), p.title ?? '', p.cafe_accounts?.display_name || p.cafe_name || '', rankText, perf];
+        // 실제 발행 글 주소 — post_url 이 없으면 카페명/글번호로 만든다(CafeCustomerStudio 와 같은 규칙).
+        const url = postUrlOf(p);
+        return [p.published_date ?? '', kwOf(p), p.title ?? '', p.cafe_accounts?.display_name || p.cafe_name || '', rankText, perf, url];
     });
     downloadCsv(`누적발행_${board}_${todayTag()}`, headers, rows);
 }
@@ -191,7 +199,7 @@ export function CafeDashboardTab() {
                                         <table className="w-full min-w-[720px] border-collapse text-[13px]">
                                             <thead>
                                                 <tr className="border-b border-[#f1f5f9] text-left text-[#94a3b8]">
-                                                    {['발행일', '키워드', '제목', '카페/게시판', '현재 순위', '실적'].map((h) => <th key={h} className="px-2 py-1 font-semibold">{h}</th>)}
+                                                    {['발행일', '키워드', '제목', '카페/게시판', '현재 순위', '실적', '발행 글 확인하기'].map((h) => <th key={h} className="px-2 py-1 font-semibold">{h}</th>)}
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -221,6 +229,14 @@ export function CafeDashboardTab() {
                                                                     : p.top5_seeded ? <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#94a3b8]">기준</span>
                                                                     : p.top5_since ? <span className="text-[11px] text-[#b45309]">5위 진입</span>
                                                                     : <span className="text-[11px] text-[#cbd5e1]">-</span>}
+                                                            </td>
+                                                            {/* 실제 발행 글로 이동 — 순위(검색결과)와 달리 우리가 쓴 글 자체를 연다. */}
+                                                            <td className="whitespace-nowrap px-2 py-1.5">
+                                                                {postUrlOf(p) ? (
+                                                                    <a href={postUrlOf(p)} target="_blank" rel="noreferrer"
+                                                                        className="rounded border border-[#c7d2fe] bg-white px-2 py-0.5 text-[11px] font-bold text-[#4338ca] hover:bg-[#eef2ff]"
+                                                                        title="실제 발행한 게시글 열기">발행 글 →</a>
+                                                                ) : <span className="text-[11px] text-[#cbd5e1]">-</span>}
                                                             </td>
                                                         </tr>
                                                     );
