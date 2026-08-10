@@ -279,8 +279,7 @@ async function fromWebsite(u: URL) {
             const js = await grab(new URL(b, u).toString());
             if (js.body) koParts.push(bundleKorean(js.body));
         }
-        const salvaged = [meta, ...koParts].filter((x) => x && x.trim()).join('
-');
+        const salvaged = [meta, ...koParts].filter((x) => x && x.trim()).join('\n');
         if (salvaged.replace(/\s/g, '').length >= MIN_USEFUL) {
             text = salvaged;
             pages.push('(자바스크립트에서 추출)');
