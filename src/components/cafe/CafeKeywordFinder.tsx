@@ -555,8 +555,17 @@ export function CafeKeywordFinder({
                         찔러보기가 0이어도 '아님'이 아니라 '미확인'이다(저밀도 업종은 8번으로 안 걸린다). */}
                     {regionalCands.length ? (
                         <div className="rounded-md border border-[#f59e0b] bg-[#fffbeb] p-2">
-                            <div className="mb-1 text-[12px] font-bold text-[#b45309]">
-                                📍 지역을 붙여야 나오는 키워드 {regionalCands.length}건 — 지역 스캔을 돌리면 전수로 찾습니다
+                            <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#b45309]">
+                                <span>📍 지역을 붙여야 나오는 키워드 {regionalCands.length}건 — 지역 스캔을 돌리면 전수로 찾습니다</span>
+                                {/* 후보를 하나씩 누르게 두면 안 된다 — 찔러보는 제품 수를 6→24로 늘려서
+                                    이제 24번을 눌러야 한다. runRegion 은 쉼표 구분으로 여러 키워드를 받으므로
+                                    후보 전부를 한 번에 넘긴다(회차 30건 + ＋10 은 그대로 적용된다). */}
+                                <button type="button" disabled={kwLoading || dongLoading}
+                                    onClick={() => { setKeyword(regionalCands.map((r) => r.keyword).join(', ')); void runRegion(false, FIRST_TARGET); }}
+                                    className="rounded bg-[#b45309] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-50"
+                                    title="후보 전부를 한 번에 지역 스캔합니다">
+                                    {kwLoading ? '스캔 중…' : `전부 지역 스캔 (${regionalCands.length}개) →`}
+                                </button>
                             </div>
                             {/* 지역 스캔에는 시도 선택이 필요하다 — 연관 모드엔 없으므로 여기서 고르게 한다. */}
                             <div className="mb-1.5 flex flex-wrap items-center gap-1">
