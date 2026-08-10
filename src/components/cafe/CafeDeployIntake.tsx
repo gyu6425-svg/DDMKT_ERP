@@ -691,7 +691,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
 
             {/* 접수 폼 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
-                <div className="mb-1 text-[15px] font-bold text-[#0f172a]">카페 배포 접수</div>
+                <div className="mb-1 flex items-center gap-2">
+                    <div className="text-[15px] font-bold text-[#0f172a]">카페 배포 접수</div>
+                    {/* 사용 가이드 다시 보기 — CustomerGuide(Layout)가 이벤트를 받아 투어를 다시 띄운다. */}
+                    <button type="button" onClick={() => window.dispatchEvent(new Event('cafe-guide:open'))}
+                        className="ml-auto inline-flex items-center gap-1 rounded-md border border-[#c7d2fe] bg-[#eef2ff] px-2.5 py-1 text-[12px] font-bold text-[#4338ca] hover:bg-[#e0e7ff]"
+                        title="카페 배포 사용 가이드를 다시 봅니다">
+                        📖 가이드 보기
+                    </button>
+                </div>
                 <p className="mb-4 mt-0 text-[13px] text-[#64748b]">배포를 원하시는 내용과 사진을 접수해 주세요. 담당자 확인 후 세팅해 드립니다. (금액·정산은 별도 안내)</p>
 
                 {/* ① 배포 종류 → ② (인기탭일 때만) 키워드 잡는 방식.

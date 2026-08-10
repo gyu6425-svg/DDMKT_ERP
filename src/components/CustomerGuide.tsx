@@ -43,6 +43,13 @@ export function CustomerGuide() {
         return () => clearTimeout(t);
     }, [role, pending, needsOnboarding, profile?.must_change_password, uid]);
 
+    // '가이드 보기' 버튼(카페 배포 화면)에서 다시 열기 — seen 여부와 무관하게 즉시 표시.
+    useEffect(() => {
+        const open = () => setShow(true);
+        window.addEventListener('cafe-guide:open', open);
+        return () => window.removeEventListener('cafe-guide:open', open);
+    }, []);
+
     const finish = useCallback(() => {
         try { if (uid) localStorage.setItem(GUIDE_KEY(uid), new Date().toISOString()); } catch { /* 무시 */ }
         setShow(false);
