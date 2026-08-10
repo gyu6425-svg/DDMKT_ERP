@@ -155,6 +155,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [picked, setPicked] = useState<Set<string>>(new Set());
     const [extracting, setExtracting] = useState(false);
     const [siteUrl, setSiteUrl] = useState('');   // 홈페이지·네이버 블로그 주소(여러 개 가능)
+    // 지역이 없는 업체(보홀 다이빙투어·유학원 등) — 국내 지역축을 붙이지 않고 전국으로 판정한다.
+    const [noRegion, setNoRegion] = useState(false);
     // 주소 → 원문을 붙여넣기 칸에 채운다. 줄바꿈/쉼표로 여러 개를 한 번에.
     //   ★ 사이트+블로그를 같이 넣는 게 가장 낫다(실측 2026-08-07 경기간호): 각각 28개인데 합치면 39개.
     //   ★ 덮어쓰지 않는다 — 직전 자동수집분만 걷어내고 다시 붙인다(안 그러면 두 번째 주소가 첫 번째를 지운다).
@@ -206,8 +208,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             ];
             const hint = (form.keyword || '').trim();
             const runs = lots.length
-                ? await Promise.all(lots.map((s) => extractMenuKeywords(s.text, hint).catch(() => ({ biz: '', products: [] as ExtractedProduct[] }))))
-                : [await extractMenuKeywords(raw, hint)];
+                ? await Promise.all(lots.map((s) => extractMenuKeywords(s.text, hint, noRegion).catch(() => ({ biz: '', products: [] as ExtractedProduct[] }))))
+                : [await extractMenuKeywords(raw, hint, noRegion)];
             const seen = new Set<string>();
             const products: ExtractedProduct[] = [];
             for (const r of runs) {
@@ -395,7 +397,21 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         const kws = (productKws.length ? productKws : [(form.keyword || '').trim()]).filter(Boolean);
         if (!kws.length) { setKwErr('제품 키워드를 추가하세요(입력 후 엔터/추가). 예: 누수탐지'); return; }
         const sidos = form.region_sets || [];
-        if (!sidos.length && !ownAddr.trim()) { setKwErr('지역을 선택하거나 위치를 직접 입력하세요.'); return; }
+        // ★ 지역이 없는 업체(보홀 다이빙투어 등)는 지역을 곱하지 않고 키워드 그대로 전국 판정한다.
+        if (noRegion) {
+            setKwErr(''); setKwLoading(true); setScanNote('전국 인기탭 조회 중…'); setScanTarget(target);
+            try {
+                const { id, error } = await enqueueListScan(kws, Math.max(target, kws.length));
+                if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+                const { result } = await pollPlaceScan(id, { timeoutSec: 600, onProgress: (note) => setScanNote(note) });
+                if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — 전국 기준 [${kws.join(', ')}]`); return; }
+                setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+            } catch (e) {
+                setKwErr(e instanceof Error ? e.message : '조회 실패');
+            } finally { setKwLoading(false); setScanNote(''); }
+            return;
+        }
+        if (!sidos.length && !ownAddr.trim()) { setKwErr('지역을 선택하거나 위치를 직접 입력하세요. 지역이 없는 업체면 아래 ‘지역 없음’을 체크하세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote('지역 인기탭 조회 준비 중…'); setScanTarget(target);
         // 첫 회차만 초기화 — '＋더 찾기'는 기존 결과 위에 이어붙인다.
         const prev = target > FIRST_TARGET ? (kwResult ?? []) : [];
@@ -932,6 +948,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             {isInfo ? (
                             <div className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
                                 <div className="text-[12px] font-bold text-[#6d28d9]">🌐 홈페이지·블로그 주소 → 키워드 → 인기탭</div>
+                                <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 rounded-md border border-[#fbbf24] bg-[#fffbeb] px-3 py-1.5 text-[12px] font-semibold text-[#b45309]">
+                                    <input type="checkbox" className="h-3.5 w-3.5 accent-[#b45309]" checked={noRegion}
+                                        onChange={(e) => setNoRegion(e.target.checked)} />
+                                    🌏 지역 없음 — 전국/해외로 판정 (보홀 다이빙투어처럼 국내 지역이 없는 업체)
+                                </label>
                                 <div className="mt-2 grid gap-2">
                                     <input className={inputCls} value={ownAddr} onChange={(e) => setOwnAddr(e.target.value)}
                                         placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
