@@ -274,7 +274,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             if (!list.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
             setRelCands(list);
             // 기본 체크 = 의도어(여행·숙소·패키지…)가 붙은 것. 실측상 여기서 인기글이 나온다(정확도 76%).
-            setRelPicked(new Set(list.filter((x) => x.intent && x.tier !== 'far').slice(0, 45).map((x) => x.kw)));
+            // ★ 기본 체크 = 씨앗어를 포함한 것(tier==='seed'). 옛 '의도어' 규칙은 재현율 7%였다
+            //   (독립검증 2026-08-10: 의도어 96개·재현율 7% vs tier==seed 1509개·재현율 77%).
+            //   의도어는 여행 어휘 목록이라 창업·누수탐지·입주청소에서 양성을 0건 골랐다.
+            setRelPicked(new Set(list.filter((x) => x.tier === 'seed').slice(0, 200).map((x) => x.kw)));
             // ★ 스캔 전에 캐시부터 — 이미 판정된 게 1,000건 넘어 상당수는 긁지 않고 바로 준다.
             const hits = await searchCachedPopular(relatedStems(s, list));
             setCachedVia([...new Set(hits.map((h) => h.via))]);

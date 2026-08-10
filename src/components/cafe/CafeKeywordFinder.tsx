@@ -247,13 +247,17 @@ export function CafeKeywordFinder({
             const hits = await searchCachedPopular(terms);
             setCachedVia([...new Set(hits.map((h) => h.via))]);
             setCachedHits(hits.map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined })));
-            // ★ 기본 체크 = '의도어(여행·숙소·패키지·투어…)가 붙은 것'.
-            //   실측(2026-08-07, 보홀 70조합 전수): 옛 규칙(검색량순 상위 40)은 정확도 60%였는데
-            //   의도어 규칙은 78%다. 지명·상품명 단독은 검색량이 아무리 커도 섹션이 없다
-            //   (보홀 49,600 / 필리핀 56,500 / 보홀항공권 32,190 전부 없음).
-            //   far 는 무관어가 섞이므로(디트로이트) 자동 체크에서 제외한다.
+            // ★ 기본 체크 = 씨앗어를 포함한 것(tier==='seed') 전부.
+            //   옛 규칙은 '의도어(여행·숙소·패키지…)가 붙은 것'이었는데 여행 전용이었다.
+            //   독립검증 실측(2026-08-10, 양성 1,169건 기준):
+            //     의도어 규칙   선택 96개 · 정밀도 67% · 재현율  7%   ← 93%를 놓친다
+            //     tier==seed   선택 1509개 · 정밀도 60% · 재현율 77%   ← 11배
+            //   정밀도 67% 도 보홀 하나가 만든 수치였다(보홀 8/11, 나머지 5개 씨앗 합계 0양성).
+            //   원인: 전체 양성 중 의도어를 가진 것이 5.6%뿐이고 그중 40건이 '맛집'이다.
+            //   그래서 창업은 '유명맛집·포항두호동맛집'이 체크되고 실제 양성 122건은 0건 선택됐다.
+            //   far 는 무관어(하와이→디트로이트)가 섞이므로 여전히 제외한다.
             setRelPicked(new Set(
-                list.filter((x) => x.intent && x.tier !== 'far').slice(0, 45).map((x) => x.kw),
+                list.filter((x) => x.tier === 'seed').slice(0, 200).map((x) => x.kw),
             ));
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '연관어 조회 실패');

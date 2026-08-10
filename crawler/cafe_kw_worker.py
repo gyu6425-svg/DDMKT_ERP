@@ -580,6 +580,78 @@ def _title_has_token(rows, tok):
     return any(t in _norm(x.get("title")) for x in (rows or []))
 
 
+# 시도 → 하위 지명 캐시(‘전북 누수탐지’처럼 상위 단위가 하위 지명으로만 채워지는 경우 대체 계산용).
+_SIDO_KEYS = {"서울", "경기", "인천", "대전", "세종", "충북", "충남", "강원",
+              "전북", "전남", "광주", "대구", "경북", "경남", "부산", "울산", "제주"}
+_CHILDREN = {}
+
+
+def _children_of(tok):
+    """tok 이 시도면 그 하위 토큰 집합, 아니면 빈 집합.
+       시군구·신도시·역세권·동은 더 쪼갤 하위가 없으므로 대체 계산이 필요 없다."""
+    t = _norm(tok)
+    if t not in _SIDO_KEYS:
+        return ()
+    if t not in _CHILDREN:
+        try:
+            _CHILDREN[t] = tuple(_norm(x) for x in _region_tokens_for([t], True))
+        except Exception:
+            _CHILDREN[t] = ()
+    return _CHILDREN[t]
+
+
+# 지역 근거 최소 건수. 2 = 진짜 최저값(노원 타이어·장한평 차수리)과 오탐값(울릉 1) 사이의 안전선.
+#   3 으로 올리면 고객 본인 지역인 '장한평 차수리'가 죽는다.
+_REGION_MIN_EVIDENCE = 2
+
+# 지역 키워드 최소 검색량. 근거 2건짜리 중 진짜와 오탐이 같은 값에 걸려 있어 근거 축으로는 못 가른다.
+#   실측(QA 2026-08-10): 봉화 타이어 15(오탐 — 근거 2건 중 하나가 '버스 타이어 이탈' 사고글)
+#                        장한평 차수리 25(진짜 · 고객 본인 지역) · 동대문 타이어 25
+#   ≤20 이 봉화를 자르면서 장한평을 살리는 유일한 선이다. 10 은 봉화를 못 자르고 30 은 장한평을 죽인다.
+_REGION_MIN_VOLUME = 20
+
+# 자격증·구직 섹션 판별. 업종 대표어가 그대로 자격증 이름인 업종(자동차정비·전기·조리)에서
+#   섹션이 수험생·구직자용으로 굳어 있는 경우가 있다. 업체 홍보글을 넣어도 독자가 다르다.
+#   실측(QA 2026-08-10): 자동차정비 3/5(60%) · 차량정비 2/7(29%) · 지역형 20건 0/140 · 전국 타이어 0/5.
+#   임계 40% → 자동차정비만 잘리고 나머지는 그대로 통과한다.
+_CAREER_FRAG = ("기능사", "산업기사", "자격증", "필기", "실기", "국가고시",
+                "연봉", "전망", "취업", "구인", "구직", "채용", "비전공")
+_CAREER_RATIO = 0.4
+
+
+def _offtopic_career(rows):
+    rows = rows or []
+    if len(rows) < 3:
+        return False
+    n = sum(1 for x in rows if any(f in _norm(x.get("title")) for f in _CAREER_FRAG))
+    return n / len(rows) >= _CAREER_RATIO
+
+
+def _region_evidence(rows, tok, product):
+    """제목 하나에 '지역(또는 그 하위 지명) + 제품어'가 같이 들어간 글 수.
+       ★ 왜 '토큰이 있나'가 아니라 '지역+제품 동시'인가 (QA 실측 2026-08-10, 장한평 자동차 22건):
+         '울릉 타이어'는 토큰만 보면 통과한다 — 제목이 '울릉도 일주도로 후기'·'저속주행시
+         울릉거림 느껴지시는분'(의성어)인 관광 섹션인데도. 동시 등장으로 세면 1건이라 걸린다.
+       ★ 임계 2 인 이유: 진짜 최저값이 2(노원 타이어·장한평 차수리)이고 오탐값이 1(울릉)이다.
+         3 으로 올리면 고객 본인 지역인 '장한평 차수리'가 죽는다.
+       ★ 상위 행정단위는 하위 지명으로 대체한다 — '전북 누수탐지'는 지역+제품 0건이지만
+         자식(군산·전주·익산)+제품이 7건이라 통과한다(기존 실측과 충돌하지 않음)."""
+    _, grams = _product_grams(product)
+
+    def count(cands):
+        n = 0
+        for x in (rows or []):
+            title = _norm(x.get("title"))
+            if any(c and c in title for c in cands) and any(g in title for g in grams):
+                n += 1
+        return n
+
+    core = _region_core(tok)
+    hit = count([core])
+    kids = _children_of(tok)
+    return max(hit, count(kids) if kids else 0)
+
+
 def adjudicate(kw, r, tok, product, known, want_volume=True):
     """인기탭 채택 최종 판정 — 네 경로(플레이스형·지역형·정보입력형·키워드형)가 전부 이 하나를 탄다.
 
@@ -600,18 +672,29 @@ def adjudicate(kw, r, tok, product, known, want_volume=True):
         return {"has_section": r.get("has_section"), "verdict": f"비관련({why})",
                 "theme": r.get("theme"), "rows": rows}
 
-    # ① 오타보정 — 네이버가 '선유남'을 '선유도'로 고쳐 남의 동네 인기글을 준다. 마스터 밖 토큰만 확인
-    #    (마스터 안 토큰은 '전북 누수탐지'처럼 제목이 하위 지명으로만 채워지는 정상 케이스가 있다).
-    if strict and not _title_has_token(rows, tok):
-        return _demote("지역불일치"), False, None
+    # ① 지역 근거 — '지역(또는 하위 지명) + 제품'이 한 제목에 같이 나온 글이 2건 이상이어야 한다.
+    #    ★ 예전엔 마스터 밖 토큰(strict)에만 걸었고, 그것도 '토큰 문자열이 있나'만 봤다.
+    #      그 결과 마스터 안 토큰은 검사를 통째로 건너뛰어 '울릉 타이어'(관광 섹션·검색량 10)가
+    #      통과했다(QA 실측 2026-08-10). 마스터 여부와 무관하게 근거를 요구한다.
+    #      마스터 밖 토큰은 오타보정('선유남'→'선유도') 위험이 더 크므로 토큰 직접 등장도 함께 요구.
+    if tok:
+        if strict and not _title_has_token(rows, tok):
+            return _demote("지역불일치"), False, None
+        if _region_evidence(rows, tok, product) < _REGION_MIN_EVIDENCE:
+            return _demote("지역근거부족"), False, None
     # ② 제품 관련성 + 일반명사 지역(예산 인테리어)
     if not _topical(rows, product, _region_core(tok) if tok else None):
         return _demote("오탐"), False, None
+    # ②-b 테마 이탈 — 섹션이 자격증·구직 콘텐츠면 업체 홍보글이 들어가도 독자가 다르다.
+    if _offtopic_career(rows):
+        return _demote("자격증·구직섹션"), False, None
     if not want_volume:
         return r, True, None
     v = _real_volume(kw)
-    # ③ 마스터 밖 지역어인데 검색량이 최저값(10=측정값 0)이면 1위를 해도 유입이 0이다.
-    if strict and (v or 0) <= 10:
+    # ③ 검색량 — 1위를 해도 유입이 0인 자리는 팔 수 없다.
+    #    ★ 예전엔 strict(마스터 밖)에만 걸려 있어 '울릉 타이어'(10)·'봉화 타이어'(15)가 통과했다.
+    #      지역 키워드면 마스터 여부와 무관하게 건다(지역 없는 전국어는 그대로 통과).
+    if tok and (v or 0) <= _REGION_MIN_VOLUME:
         return _demote("검색량없음"), False, v
     return r, True, v
 
@@ -780,8 +863,18 @@ def normalize_region(addr):
     addr = (addr or "").strip()
     if not addr:
         return []
+    # ★ 출구 번호는 지역이 아니다 — '장한평역 1번출구'에서 '번출','번출구'가 토큰으로 나왔다
+    #   (QA 실측 2026-08-10). 스캔해도 0건인 순수 낭비라 파싱 전에 지운다.
+    addr = re.sub(r"\d+\s*번\s*출구", " ", addr)
     sido = p._sido(addr, addr)
     narrow = p.region_tokens(addr, addr)
+    # ★ 역 이름만 적는 고객이 많다. '장한평역' 한 줄이면 기존 파서는 토큰 0개를 돌려주고
+    #   워커가 '위치를 해석하지 못했습니다'로 실패했다(QA 실측 2026-08-10).
+    #   역명은 그 자체가 상권 축이므로(장한평=자동차부품 상가) 역/역명 기본형을 축에 넣는다.
+    for m in re.finditer(r"([가-힣]{2,6})역(?=\s|$|[,·])", addr):
+        stn = m.group(1)
+        if len(stn) >= 2 and stn not in narrow:
+            narrow = list(narrow) + [stn]
     base, suffixed, road = [], [], []
     for t in narrow:
         b = _SIDO_SUF.sub("", t)
@@ -885,11 +978,18 @@ def process_menu(req, payload):
 #   ★ 한계: 찔러보기가 0이어도 '지역형 아님'이 아니다. 적중밀도가 낮은 제품
 #     (소자본창업 4/205=2%, 소방시설 4/146=3%)은 8번 찔러도 22% 확률로만 걸린다.
 #     그래서 결과는 '미확인'으로 표시하고 전수 지역 스캔을 따로 돌릴 수 있게 한다.
+# 지역형인지 찔러볼 지역. ★ 순서가 곧 우선순위다(앞에서 K개만 쓴다).
+#   실측(독립검증 2026-08-10, 지역형 5제품):
+#     축별 적중밀도 — newtown 50~84% · sigungu 10~59% · sido '경기' 0/4 · station 1/599(0.2%)
+#     현행 8곳(동탄·강남·수원·서울·판교·부천·성남·경기) = 5개 중 4개 판명, '욕창'은 0/8 완전 누락
+#     신형 신도시(청라·송도·위례·고촌·고덕·광교) 앞세우면 4곳만으로 5/5 판명
+#   그래서 ① 신형 신도시를 맨 앞에 ② 역세권(강남역·홍대입구역)과 시도('경기')는 뒤로/제거
+#   동탄·판교는 오래된 신도시라 시군구처럼 굳었다 — 앞자리에서 뺀다.
 _PROBE_SEED = [
-    "동탄", "강남", "수원", "서울",          # 신도시·시군구·시도
-    "판교", "부천", "성남", "경기",
-    "위례", "고양", "인천", "미사",
-    "강남역", "홍대입구역", "잠실", "안양",
+    "청라", "송도", "위례", "고촌",          # 신형 신도시 — 적중밀도 최상
+    "고덕", "광교", "미사", "서울",
+    "수원", "동탄", "판교", "성남",          # 굳은 신도시·시군구
+    "부천", "고양", "인천", "안양",
 ]
 
 
@@ -977,8 +1077,14 @@ def process_related(req, payload):
     #   2.5초 간격 × 200 ≈ 8.5분, 찔러보기(6×8=48) 포함해도 10.5분이라 폴링 안쪽이다.
     #   캐시 히트는 네트워크 0이라 상한과 무관하게 통과한다.
     MAX_A = 200
-    MAX_PROBE_PROD = 6              # 지역 찔러보기 대상 제품 수(× K = 콜 수)
-    probes = _probe_regions(K)
+    # ★ 깊이(6제품×8지역)를 넓이(24제품×4지역)로 재배분한다 — 콜 수는 같고 판명률만 오른다.
+    #   실측(독립검증 2026-08-10, 씨앗 '간병인' 연관어 20개 전수):
+    #     검색량 상위 6개 = 간병인보험·노인장기요양보험·요양보호사자격증·요양보호사시험 …
+    #     전부 '정보성 키워드'라 지역을 붙여도 인기탭이 없다 → 48콜 쓰고 0건.
+    #     진짜 지역형은 9위(욕창)와 20위(간병인)에 있었다. 상위 6개 컷이 구조적으로 헛콜이었다.
+    #   지역 K 는 8→4 로 줄여도 안전하다(신형 신도시 4곳으로 5/5 판명 실측).
+    MAX_PROBE_PROD = 24             # 지역 찔러보기 대상 제품 수(× K = 콜 수)
+    probes = _probe_regions(min(K, 4))
     known = set(_region_tokens_for(["서울", "경기", "인천"], True))
 
     national, miss, errs = [], [], 0
