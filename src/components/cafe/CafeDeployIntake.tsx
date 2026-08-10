@@ -767,19 +767,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     일반 배포는 그 자리에서 키워드 입력으로 끝난다(고를 게 없음). */}
                 <div data-tour="cafe-deploy-type" className="mb-4">
                     <label className={labelCls}>배포 종류</label>
-                    <div className="inline-flex rounded-lg border border-[#cbd5e1] p-0.5">
-                        {([['일반 배포', '직접형'], ['인기탭 배포', '지역형']] as const).map(([name, dt]) => {
-                            const on = name === '일반 배포' ? isManual : !isManual;
-                            return (
-                                <button key={name} type="button" onClick={() => set('deploy_type', dt)}
-                                    className={`rounded-md px-4 py-1.5 text-sm font-bold ${on ? 'bg-[#4338ca] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}>
-                                    {name}
-                                </button>
-                            );
-                        })}
-                    </div>
-                    {/* 두 종류 설명을 모두 펼쳐 둔다 — 고른 것만 보이면 '다른 쪽이 뭔지' 몰라 고객이 못 고른다. 카드 클릭=선택. */}
-                    <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                    {/* 선택은 설명 카드로만 한다(위 토글 제거 — 같은 걸 두 번 고르게 만들 필요가 없다). */}
+                    <div className="mt-1 grid gap-1.5 sm:grid-cols-2">
                         {([
                             ['일반 배포', '직접형', '인기탭을 따지지 않고, 적어 주신 키워드 그대로 발행합니다.'],
                             ['인기탭 배포', '지역형', '실제 인기글 섹션에 들어갈 수 있는 키워드만 골라 발행합니다.'],
@@ -798,22 +787,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     {!isManual ? (
                         <div className="mt-3">
                             <label className={labelCls}>키워드 잡는 방식</label>
-                            <div className="inline-flex rounded-lg border border-[#cbd5e1] p-0.5">
-                                {([['지역형', '지역형'], ['키워드형', '키워드형'], ['직접입력형', '인기직접형'], ['연관형', '연관형'], ['🌐 정보형', '정보형']] as const).map(([name, dt]) => (
-                                    <button key={dt} type="button" onClick={() => set('deploy_type', dt)}
-                                        className={`rounded-md px-4 py-1.5 text-sm font-bold ${form.deploy_type === dt ? 'bg-[#4338ca] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}>
-                                        {name}
-                                    </button>
-                                ))}
-                            </div>
-                            {/* 5가지 방식 설명을 모두 노출 — 무엇을 고를지 비교가 되어야 한다(카드 클릭=선택). */}
-                            <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                            {/* 5가지 방식 = 설명 카드로만 선택(위 토글 제거). */}
+                            <div className="mt-1 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
                                 {([
                                     ['지역형', '지역형', '원하는 지역을 골라서 노출되고 싶을 때', '지역 선택 + 제품키워드(예: 입주청소·상가청소)'],
                                     ['키워드형', '키워드형', '특정 지역 위주로 노출이 되고 싶을 때', '플레이스 주소 기반으로 업체 키워드를 잡습니다'],
                                     ['직접 입력형', '인기직접형', '일반 배포는 아니지만, 내가 원하는 키워드를 인기탭에서 확인 후 배포하고 싶을 때', '적어 주신 키워드 중 인기탭이 확인된 것만 골라 드립니다'],
                                     ['연관형', '연관형', '연관 키워드를 찾아서 배포하고 싶을 때', '대표 단어 하나면 됩니다(예: 보홀·장기요양) · 플레이스 불필요'],
-                                    ['정보형', '정보형', '본인 업체 정보가 많지 않을 때 — 정보를 입력해 키워드를 뽑고, 인기탭 확인 후 배포하고 싶을 때', '홈페이지·네이버 블로그 주소로 자동 추출 · 플레이스 불필요'],
+                                    ['🌐 정보형', '정보형', '본인 업체 정보가 많지 않을 때 — 정보를 입력해 키워드를 뽑고, 인기탭 확인 후 배포하고 싶을 때', '홈페이지·네이버 블로그 주소로 자동 추출 · 플레이스 불필요'],
                                 ] as const).map(([name, dt, desc, hint]) => {
                                     const on = form.deploy_type === dt;
                                     return (
