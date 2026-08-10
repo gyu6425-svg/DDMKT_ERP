@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AUTH_DISABLED } from '../lib/authConfig'
-import { updatePassword } from '../api/auth'
+import { updatePassword, loginId } from '../api/auth'
 import { useAuth } from '../hooks/useAuth'
 
 // 직함 표기 — 특정 계정만 직함, 나머지는 이름만.
@@ -64,7 +64,7 @@ export default function AccountMenu() {
       </button>
       {open ? (
         <div className="absolute right-0 z-50 mt-1 w-56 rounded-lg border border-[#e2e8f0] bg-white p-1 shadow-lg">
-          <div className="px-3 py-2 text-[11px] text-[#94a3b8]">{profile?.email}</div>
+          <div className="px-3 py-2 text-[11px] text-[#94a3b8]">{loginId(profile?.email)}</div>
           <button
             className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-[#f1f5f9]"
             onClick={() => {

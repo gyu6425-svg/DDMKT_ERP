@@ -10,7 +10,6 @@ import { ensureClientBlogAccount, getBlogAccounts, type BlogAccount } from '../a
 import {
     completedOutsource,
     getClientContracts,
-    hasProcessInPeriod,
     insertClientContracts,
     outsourceInPeriod,
     supplyInPeriod,
@@ -386,15 +385,11 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         if (!year && !month) return true;
         const cs = clientContracts.filter((ct) => ct.client_id === client.id && ct.contract_date);
         if (cs.length) {
-            const bySale = cs.some((ct) => {
+            // 계약일(contract_date) 기준만 — 선택한 달에 '계약된' 업체만 노출(처리월 확장 제외).
+            return cs.some((ct) => {
                 const d = ct.contract_date || '';
                 return (!year || Number(d.slice(0, 4)) === year) && (!month || Number(d.slice(5, 7)) === month);
             });
-            // 월 보장형은 처리월(주간 로그)에도 노출 — 외주비 정산이 그 달에 잡히므로.
-            const byProcess = clientContracts.some(
-                (ct) => ct.client_id === client.id && hasProcessInPeriod(ct, year, month),
-            );
-            return bySale || byProcess;
         }
         if (contractsOnly) return false; // 계약 관리: 날짜 없으면 임시 탭에서만
         const cy = client.created_at ? new Date(client.created_at).getFullYear() : 0;
@@ -405,9 +400,8 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const contractInPeriod = (ct: ClientContract, year: number, month: number) => {
         if (!year && !month) return true;
         const d = ct.contract_date || '';
-        const bySale = !!d && (!year || Number(d.slice(0, 4)) === year) && (!month || Number(d.slice(5, 7)) === month);
-        // 월 보장형은 처리월(주간 로그)에도 노출(외주비만 그 달에 귀속).
-        return bySale || hasProcessInPeriod(ct, year, month);
+        // 계약일 기준만 — 그 달에 계약된 상품만(처리월 확장 제외).
+        return !!d && (!year || Number(d.slice(0, 4)) === year) && (!month || Number(d.slice(5, 7)) === month);
     };
     // 계약 관리(연/월 필터 화면)에서만 상품을 스코프. 임시 탭은 스코프 안 함(날짜 없는 상품 전부).
     const scopeMonth = (cts: ClientContract[]) =>
@@ -530,7 +524,12 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
             //   각 회차가 그 달에만 잡히게(전체 amount가 재계약월로 통째로 이동하지 않음). 계약일 없으면 월 매출 제외.
             const s = supplyInPeriod(ct, yearFilter, monthFilter);
             supply += s;
-            total += saleVat(s, ct.no_vat); // 계약별 VAT(그 달 공급가에 대해)
+            // 실매출 = 저장된 실매출(이카운트 합계)이 있고 그 달에 계약 전액이 귀속되면 그 값 그대로(장부 정확 일치),
+            //   아니면 그 달 공급가에 대해 부가세 재계산.
+            total +=
+                ct.sale_total != null && ct.sale_total > 0 && s === (ct.amount || 0)
+                    ? ct.sale_total
+                    : saleVat(s, ct.no_vat);
             // 외주비 = 월보장이면 처리월(주간 로그)로 귀속, 그 외 상품은 계약월. (계약월≠처리월 분리 정산)
             outs += outsourceInPeriod(ct, yearFilter, monthFilter);
             used += usedOutsourceInPeriod(ct, yearFilter, monthFilter); // 실제 사용(그 달 소진)
@@ -1307,7 +1306,9 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                       ? c.created_at.slice(0, 10)
                                       : '--';
                                 // 계약 관리 신규건 = 미승인(승인 전). 고객사 관리 화면에선 최근등록(newIds) 강조 유지.
-                                const isNew = contractsOnly ? !c.contract_approved : newIds.has(c.id);
+                                //   + 등록(created_at) 24h 이내면 두 화면 모두 파란 강조(가입승인 자동등록 건 포함).
+                                const fresh = !!c.created_at && Date.now() - new Date(c.created_at).getTime() < NEW_TTL;
+                                const isNew = (contractsOnly ? !c.contract_approved : newIds.has(c.id)) || fresh;
                                 // 상품 상세 집계 — 카테고리 → 세부유형별 계약/진행/잔여(합산). 월 필터 시 그 달 상품만.
                                 const myCts = scopeMonth(
                                     clientContracts.filter((ct) => ct.client_id === c.id),

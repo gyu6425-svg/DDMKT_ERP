@@ -123,6 +123,17 @@ RECENT_DAYS = 90
 RSS_INGEST_MAX = 60  # RSS 수집 안전상한(창 이내 글만 담되, 폭주 방지 상한)
 def recent_cutoff():
     return (datetime.date.today() - datetime.timedelta(days=RECENT_DAYS)).isoformat()
+
+# 누수탐지 블로그 앵커 client — 이 client 의 블로그는 8월1일 이후 글만 추적(옛 글 재유입 차단).
+LEAK_TRACK_CLIENT_ID = "c05e9c96-0f3e-4cc9-9554-443c80f1672a"
+LEAK_SINCE = "2026-08-01"
+
+
+def _keep_entry(acc, published_date):
+    """이 계정 글목록 동기화 대상 판정. 누수탐지 블로그=8월1일 이후 확정일자만, 그 외=최근 90일(미일자 유지)."""
+    if (acc or {}).get("client_id") == LEAK_TRACK_CLIENT_ID:
+        return bool(published_date) and published_date >= LEAK_SINCE
+    return (not published_date) or published_date >= recent_cutoff()
 MAX_KEYWORDS_PER_ACCOUNT = 3  # 블로그당 대표키워드 측정 상한(네이버 요청량/차단 가드)
 MAX_RANK_SCAN = 30         # 이 순위까지 탐색(넘으면 권외=99)
 OUT_OF_RANK = 99
@@ -1311,6 +1322,57 @@ def _ad_ranks_cafe(j):
     return ads - real
 
 
+# ── 통합리스트(인기글 섹션이 없는 키워드) 안의 카페 순위 ──────────────────────────
+#   왜: 약국·창업처럼 '○○ 인기글' 라벨이 아예 없는 키워드가 있다. 그런 SERP 는 UGC 를 묶음 섹션이
+#     아니라 '개별 문서 카드'(meta.area = urB_boR / urB_coR)로 한 건씩 나열한다.
+#     실측(2026-08-06): 그런데도 카페 글이 실제로 상위를 먹고 있다 —
+#       서울 약국·드럭스토어는 1~5위 5칸 전부 카페, 카페창업·프랜차이즈창업은 1~3위가 카페.
+#       인기탭 없는 6키워드 1~5위 30칸 중 카페 22칸(73%). (인기탭 있는 키워드는 50%)
+#     이걸 못 세서 status=no_section 으로 버려 왔다 → 글이 1위여도 계약상 미달성 처리됐다.
+#   순위 규칙은 통합탭(_rank_in_popular)과 같다: 광고·웹문서·이미지·연관검색어를 빼고
+#     블로그·카페 글만 화면 위에서부터 1,2,3… 으로 센다.
+#   ⚠️ 인기글 섹션 판정 자체는 건드리지 않는다. 광고 블록(area=ugB_pkR)이 인기글(ugB_bsR)과
+#     템플릿 파일명·CSS 클래스가 완전히 같아서, area 말고 다른 걸로 판정하면 광고를 인기글로 오탐한다.
+_UGC_LIST_AREAS = ("urB_boR", "urB_coR")
+
+
+def _rank_in_cafe_list(html_text, cafe_name, article_id, club_id=None):
+    """인기글 섹션이 없는 SERP 의 통합리스트에서 카페 글 순위.
+       반환 (순위, status). status: list_ok / list_out / no_list."""
+    seen = []          # [(kind, key, is_ours)] 화면 순서
+    found_any = False
+    for b in extract_bootstrap_json(html_text):
+        try:
+            j = json.loads(b)
+        except Exception:
+            continue
+        area = ((j.get("meta") or {}).get("area")) or ""
+        if area not in _UGC_LIST_AREAS:
+            continue
+        found_any = True
+        if "ader.naver.com" in b:          # 광고 카드는 순위에서 제외(통합탭 규약과 동일)
+            continue
+        # ★ 이 블록은 '문서 1건'이다(1:1). 블록 안의 첫 링크만 그 문서로 본다.
+        #   같은 URL 이 제목·본문·댓글·keep 으로 8~11번 반복되고, 그 뒤엔 댓글글·클러스터처럼
+        #   순위 아이템이 아닌 다른 URL 도 섞여 있다. 전부 세면 순위가 부풀려진다
+        #   (실측: barman/1298333 이 7위인데 12위로 나왔다).
+        m = re.search(r"(cafe|blog)\.naver\.com/([A-Za-z0-9_-]+)/(\d{4,})", b)
+        if not m:
+            continue                       # 외부 웹문서 카드 — 통합탭 순위에서 제외
+        key = f"{m.group(2)}/{m.group(3)}"
+        if any(s[1] == key for s in seen):
+            continue
+        ours = (m.group(1) == "cafe" and str(m.group(3)) == str(article_id)
+                and (not cafe_name or m.group(2) == cafe_name))
+        seen.append((m.group(1), key, ours))
+    if not found_any:
+        return OUT_OF_RANK, "no_list"
+    for i, (_kind, _key, ours) in enumerate(seen, 1):
+        if ours:
+            return i, "list_ok"
+    return OUT_OF_RANK, "list_out"
+
+
 def _rank_in_cafe_section(html_text, cafe_name, article_id, club_id=None):
     """통합검색 HTML → 카페 글의 '인기글 테마 섹션 내 순위'(clickLog.r). (2026-07-16 기준 변경)
     status: ok=섹션 내 순위 / out=섹션은 있으나 우리 글 없음(권외) / no_section=인기글 섹션 자체 없음(측정불가) / fail=차단."""
@@ -1342,7 +1404,10 @@ def _rank_in_cafe_section(html_text, cafe_name, article_id, club_id=None):
     if best is not None:
         return int(best), "ok"
     if not saw_section:
-        return OUT_OF_RANK, "no_section"
+        # 인기글 섹션이 없으면 통합리스트(개별 문서 나열)에서 다시 본다 — 거기 카페 자리가 실제로 있다.
+        #   status 를 list_ok/list_out 으로 따로 두어 '인기글 5위'와 섞이지 않게 한다
+        #   (배포 종류별로 달성 기준을 다르게 잡을 수 있어야 한다 — 사장님 확정 2026-08-06).
+        return _rank_in_cafe_list(html_text, cafe_name, article_id, club_id)
     return OUT_OF_RANK, "out"
 
 
@@ -1380,6 +1445,33 @@ def measure_rank(keyword, blog_id, post_url):
     _pause()
 
     return ti, bl, ti_status, bl_status, ws
+
+
+def measure_extra_keywords(row, blog_id, url):
+    """글의 추가 검색 키워드(extra_keywords, 트래커 우측 1,2,3)를 본 키워드와 별개로 측정.
+    오늘 이미 측정(비-fail)된 건 건너뜀 → 라운드 반복·안정글 스킵과 무관하게 하루 1회만 측정."""
+    eks = row.get("extra_keywords") or []
+    if not eks:
+        return
+    changed = False
+    for ek in eks:
+        ekw = (ek.get("keyword") or "").strip()
+        if not ekw:
+            continue
+        et = next((r for r in (ek.get("measurements") or []) if r.get("date") == TODAY), None)
+        if et and et.get("ti_status") != "fail" and et.get("bl_status") != "fail":
+            continue
+        ti, bl, ti_s, bl_s, ws = measure_rank(ekw, blog_id, url)
+        ems = [r for r in (ek.get("measurements") or []) if r.get("date") != TODAY]
+        ems.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s, "ws": ws})
+        ek["measurements"] = ems
+        changed = True
+    if changed:
+        try:
+            sb_patch("blog_posts", {"id": f"eq.{row['id']}"}, {"extra_keywords": eks})
+            row["extra_keywords"] = eks
+        except Exception as exc:
+            print(f"  [추가키워드 저장실패] {row.get('id')}: {exc}", flush=True)
 
 
 def _skip_stable(measurements, today):
@@ -1581,8 +1673,8 @@ def _process_blog(acc, kw_by_acc, force=False):
     except Exception as exc:
         print(f"  RSS 실패 {name}: {exc}")
         rss = []
-    # 너무 옛날 글 제외(최신 1~2년만). published_date 없으면(판단 불가) 유지.
-    rss = [p for p in rss if not p.get("published_date") or p["published_date"] >= recent_cutoff()]
+    # 너무 옛날 글 제외(최근 90일). 누수탐지 블로그는 8월1일 이후만(옛 글 재유입 차단).
+    rss = [p for p in rss if _keep_entry(acc, p.get("published_date"))]
     rows = [
         {"blog_account_id": acc["id"], "post_url": p["url"], "title": p["title"],
          "keyword": derive_keyword(p["title"], p.get("tags") or []), "published_date": p["published_date"], "published_at": p.get("published_at")}
@@ -1724,7 +1816,7 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
         except Exception as exc:
             print(f"  RSS 실패 {acc.get('name')}: {exc}", flush=True)
             entries = []
-        entries = [e for e in entries if not e.get("published_date") or e["published_date"] >= recent_cutoff()]
+        entries = [e for e in entries if _keep_entry(acc, e.get("published_date"))]
         rows = [{"blog_account_id": acc["id"], "post_url": e["url"], "title": e["title"],
                  "keyword": derive_keyword(e["title"], e["rss_tags"]), "published_date": e["published_date"], "published_at": e.get("published_at")}
                 for e in entries if e["url"]]
@@ -1742,14 +1834,18 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
     # ── 1b) DB 추적글 전체(창 이내) 병합 — RSS 최신 N글에 없는 옛 추적글도 매일 재측정(우측 최신화). ──
     #   블로그당 최신글만이 아니라, 추적 중인 모든 글(발행일 최근 RECENT_DAYS일 이내, 최신순)을 측정 대상에 포함.
     cutoff = recent_cutoff()
+    _base_sel = "id,blog_account_id,post_url,title,keyword,keyword_manual,published_date,measurements"
+    _where = {"or": f"(published_date.gte.{cutoff},published_date.is.null)"}
     try:
-        all_posts = sb_get("blog_posts", {
-            "select": "id,blog_account_id,post_url,title,keyword,keyword_manual,published_date,measurements",
-            "or": f"(published_date.gte.{cutoff},published_date.is.null)",
-        })
-    except Exception as exc:
-        print(f"  DB 추적글 조회 실패(RSS만 측정): {exc}", flush=True)
-        all_posts = []
+        all_posts = sb_get("blog_posts", {"select": _base_sel + ",extra_keywords", **_where})
+    except Exception:
+        # extra_keywords 컬럼 미적용(SQL 미실행) 등 → 그 컬럼만 빼고 재조회(크롤 정상 유지).
+        try:
+            all_posts = sb_get("blog_posts", {"select": _base_sel, **_where})
+            print("  (extra_keywords 컬럼 없음 → 추가키워드 측정 생략. docs/blog-post-extra-keywords.sql 실행 필요)", flush=True)
+        except Exception as exc:
+            print(f"  DB 추적글 조회 실패(RSS만 측정): {exc}", flush=True)
+            all_posts = []
     posts_by_acc = {}
     for p in all_posts:
         posts_by_acc.setdefault(p.get("blog_account_id"), []).append(p)
@@ -1782,6 +1878,8 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
             if not extract_log_no(item.get("url", "")):
                 done += 1
                 continue
+            # 추가 검색 키워드(우측 1,2,3) — 본 키워드와 독립. 스킵 전에 처리해 새로 저장한 키워드도 측정되게.
+            measure_extra_keywords(row, blog_id, item.get("url", ""))
             tr = next((r for r in (row.get("measurements") or []) if r.get("date") == TODAY), None)
             if not force and tr and tr.get("ti_status") != "fail" and tr.get("bl_status") != "fail":
                 done += 1

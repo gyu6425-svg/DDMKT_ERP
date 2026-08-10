@@ -3,16 +3,13 @@ import { useAuth } from '../hooks/useAuth';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { getClientContracts, type ClientContract } from '../api/clientContracts';
 import { CONTAINER_SUBS, PRODUCT_CATEGORIES } from '../lib/products';
-import { canSeeAdminPage } from '../lib/permissions';
+import { canSeeAdminPage, canManagePermissions } from '../lib/permissions';
+import { SIGNUP_ENABLED } from '../lib/authConfig';
 
 const navigationItems = [
     // 대시보드는 좌측 상단 'DDMKT ERP' 로고 클릭으로 이동(아래 참고).
     { path: '/clients', label: '고객사 관리' },
     { path: '/contracts', label: '계약 관리' },
-    // 리포트·메모·캘린더는 추후 구현 — 지금은 비활성(클릭 불가).
-    { path: '/calendar', label: '캘린더', disabled: true },
-    { path: '/reports', label: '리포트', disabled: true },
-    { path: '/memos', label: '메모', disabled: true },
     { path: '/banner-generator', label: '배너 생성기' },
     // 카페 원고 생성기는 '카페' 카테고리 하위로 이동(categories.ts subs) — 최상위에서 제거.
     { path: '/powerlink', label: '파워링크' },
@@ -39,13 +36,9 @@ function Sidebar() {
     const [openKeys, setOpenKeys] = useState<Set<string>>(
         () => new Set(SIDEBAR_CATEGORIES.filter((c) => c.dashHref === window.location.pathname).map((c) => c.key)),
     );
-    const [hoverKey, setHoverKey] = useState<string | null>(null);
+    // 아코디언 — 다른 카테고리를 열면 기존 열린 건 자동으로 닫힌다(한 번에 하나만).
     const toggleOpen = (key: string) =>
-        setOpenKeys((prev) => {
-            const next = new Set(prev);
-            next.has(key) ? next.delete(key) : next.add(key);
-            return next;
-        });
+        setOpenKeys((prev) => (prev.has(key) ? new Set<string>() : new Set<string>([key])));
     const { signOut, role, isAdmin, canManageSheet, profile } = useAuth();
     // 고객(viewer) — 자기 계약(RLS 스코프) 중 '시트 승인(sheet_approved)'된 것만 메뉴에 노출.
     //   내부(관리자) '고객 ERP' 토글 미리보기(?as=<업체>)면 그 업체 계약으로 로드 → 실제 로그인과 동일 메뉴.
@@ -72,6 +65,8 @@ function Sidebar() {
             if (!m.has(cat)) m.set(cat, new Set());
             m.get(cat)!.add(raw);
         }
+        // 카페는 계약이 없어도 모든 고객에게 항상 노출 — 미계약 고객도 '카페 배포' 접수를 넣을 수 있게.
+        if (!m.has('카페')) m.set('카페', new Set());
         return m;
     }, [custContracts]);
     const navigate = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
@@ -133,6 +128,8 @@ function Sidebar() {
     // 고객 ERP(/portal*)·기자단 ERP(/reporter)에서는 내부 메뉴를 숨기고 각 전용 메뉴만 보여준다.
     const isCustomerView = isCustomerViewPath;
     const isReporterView = currentPath.startsWith('/reporter');
+    // 누수탐지 ERP — 회사 ERP와 별도 영역이라 전용 메뉴만 보여준다(4인 전용, 페이지에서 게이트).
+    const isLeakView = currentPath.startsWith('/leak');
 
     return (
         <aside
@@ -152,16 +149,28 @@ function Sidebar() {
             </div>
 
             <nav className="grid gap-[18px] max-[800px]:grid-cols-2">
-                {isReporterView ? (
+                {isLeakView ? (
+                    <>
+                        {renderNavItem({ path: '/leak', label: '고객 관리' })}
+                        {renderNavItem({ path: '/leak/jobs', label: '작업 · 정산' })}
+                        {renderNavItem({ path: '/leak/ledger', label: '통장 원장' })}
+                        {renderNavItem({ path: '/leak/outsourcing', label: '외주 발주' })}
+                        {renderNavItem({ path: '/leak/blog', label: '누수탐지 블로그' })}
+                        {renderNavItem({ path: '/leak/cafe', label: '누수탐지 카페' })}
+                    </>
+                ) : isReporterView ? (
                     <>{renderNavItem({ path: '/reporter', label: '기자단 대시보드' })}</>
                 ) : isCustomerView ? (
                     <>
                         {/* 통합 대시보드 + 계약(승인)된 카테고리·하위유형만 */}
-                        {renderNavItem({ path: '/portal', label: '통합 대시보드' })}
+                        {renderNavItem({ path: previewAs ? `/portal?as=${previewAs}` : '/portal', label: '통합 대시보드' })}
                         {[...custCatMap.entries()].map(([catLabel, subSet]) => {
                             const scat = SIDEBAR_CATEGORIES.find((c) => c.label === catLabel);
                             if (!scat) return null;
                             const base = `/portal/${scat.key}`;
+                            // 내부(관리자) 미리보기(?as=업체)면 카테고리·하위 링크에도 as를 유지 → 스코프 유실 방지.
+                            const asQ = previewAs ? `?as=${previewAs}` : '';
+                            const baseHref = `${base}${asQ}`;
                             const subs = [...subSet];
                             return (
                                 <div key={scat.key}>
@@ -172,15 +181,15 @@ function Sidebar() {
                                                 ? 'font-semibold text-[#FF6000]'
                                                 : 'font-normal text-[#777777] hover:text-[#000000]'
                                         }`}
-                                        href={base}
-                                        onClick={(event) => navigate(event, base)}
+                                        href={baseHref}
+                                        onClick={(event) => navigate(event, baseHref)}
                                     >
                                         {catLabel}
                                     </a>
                                     {subs.length ? (
                                         <div className="ml-2 mt-2 grid gap-2 border-l border-[#eef0f2] pl-3">
                                             {subs.map((s) => {
-                                                const href = `${base}?sub=${encodeURIComponent(s)}`;
+                                                const href = `${baseHref}${asQ ? '&' : '?'}sub=${encodeURIComponent(s)}`;
                                                 const active =
                                                     currentPath === base &&
                                                     new URLSearchParams(loc.search).get('sub') === s;
@@ -242,15 +251,11 @@ function Sidebar() {
                                             </a>
                                         );
                                     }
-                                    const expanded = openKeys.has(c.key) || hoverKey === c.key;
+                                    const expanded = openKeys.has(c.key);
                                     const childActive =
                                         linkActive(c.dashHref) || c.subs.some((s) => linkActive(s.href));
                                     return (
-                                        <div
-                                            key={c.key}
-                                            onMouseEnter={() => setHoverKey(c.key)}
-                                            onMouseLeave={() => setHoverKey((k) => (k === c.key ? null : k))}
-                                        >
+                                        <div key={c.key}>
                                             {/* 최상위 — 클릭 시 펼침 토글 */}
                                             <button
                                                 aria-expanded={expanded}
@@ -326,16 +331,56 @@ function Sidebar() {
                         {isAdmin || role === 'manager'
                             ? navigationItems.slice(afterContracts).map(renderNavItem)
                             : null}
-                        {canSeeAdminPage(profile?.email) ? (
-                            <a
-                                aria-current={currentPath === '/admin' ? 'page' : undefined}
-                                className={linkClassName('/admin')}
-                                href="/admin"
-                                onClick={(event) => navigate(event, '/admin')}
-                            >
-                                관리자 페이지
-                            </a>
-                        ) : null}
+                        {canSeeAdminPage(profile?.email) ? (() => {
+                            const adminActive = currentPath === '/admin';
+                            const curTab = new URLSearchParams(loc.search).get('tab') || '';
+                            const expanded = openKeys.has('admin');
+                            const adminSubs = [
+                                ...(canManagePermissions(profile?.email) ? [{ key: 'users', label: '사원 관리' }] : []),
+                                ...(SIGNUP_ENABLED ? [{ key: 'signups', label: '가입 승인' }] : []),
+                                { key: 'deploy', label: '카페 접수' },
+                                { key: 'cafe', label: '카페 원고 생성기' },
+                                { key: 'api', label: 'API 사용량' },
+                            ];
+                            return (
+                                <div>
+                                    <button
+                                        aria-expanded={expanded}
+                                        className={`flex w-full items-center justify-between text-[16px] no-underline ${
+                                            adminActive ? 'font-semibold text-[#FF6000]' : 'font-normal text-[#777777] hover:text-[#000000]'
+                                        }`}
+                                        onClick={() => toggleOpen('admin')}
+                                        type="button"
+                                    >
+                                        <span>관리자 페이지</span>
+                                        <svg aria-hidden="true" className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24">
+                                            <path d="M9 6l6 6-6 6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+                                        </svg>
+                                    </button>
+                                    <div className={`grid transition-all duration-300 ease-in-out ${expanded ? 'mt-3.5 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+                                        <div className="overflow-hidden">
+                                            <div className="ml-2 grid gap-2 border-l border-[#eef0f2] pl-3">
+                                                {adminSubs.map((s) => {
+                                                    const href = `/admin?tab=${s.key}`;
+                                                    const active = adminActive && curTab === s.key;
+                                                    return (
+                                                        <a
+                                                            key={s.key}
+                                                            className={`text-[14px] no-underline ${active ? 'font-semibold text-[#FF6000]' : 'font-normal text-[#888888] hover:text-[#000000]'}`}
+                                                            href={href}
+                                                            onClick={(event) => navigate(event, href)}
+                                                            tabIndex={expanded ? 0 : -1}
+                                                        >
+                                                            {s.label}
+                                                        </a>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })() : null}
                     </>
                 )}
             </nav>

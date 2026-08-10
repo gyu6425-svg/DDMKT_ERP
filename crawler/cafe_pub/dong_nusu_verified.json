@@ -1,0 +1,74 @@
+[
+  {
+    "region": "광진",
+    "dong": "능동",
+    "keyword": "능동 누수탐지",
+    "cafe": 4
+  },
+  {
+    "region": "강북",
+    "dong": "번동",
+    "keyword": "번동 누수탐지",
+    "cafe": 4
+  },
+  {
+    "region": "도봉",
+    "dong": "창동",
+    "keyword": "창동 누수탐지",
+    "cafe": 3
+  },
+  {
+    "region": "구로",
+    "dong": "항동",
+    "keyword": "항동 누수탐지",
+    "cafe": 5
+  },
+  {
+    "region": "강동",
+    "dong": "길동",
+    "keyword": "길동 누수탐지",
+    "cafe": 5
+  },
+  {
+    "region": "안산",
+    "dong": "사동",
+    "keyword": "사동 누수탐지",
+    "cafe": 2
+  },
+  {
+    "region": "안산",
+    "dong": "와동",
+    "keyword": "와동 누수탐지",
+    "cafe": 3
+  },
+  {
+    "region": "부천",
+    "dong": "중동",
+    "keyword": "중동 누수탐지",
+    "cafe": 0
+  },
+  {
+    "region": "부천",
+    "dong": "상동",
+    "keyword": "상동 누수탐지",
+    "cafe": 4
+  },
+  {
+    "region": "군포",
+    "dong": "당동",
+    "keyword": "당동 누수탐지",
+    "cafe": 4
+  },
+  {
+    "region": "의왕",
+    "dong": "삼동",
+    "keyword": "삼동 누수탐지",
+    "cafe": 3
+  },
+  {
+    "region": "오산",
+    "dong": "궐동",
+    "keyword": "궐동 누수탐지",
+    "cafe": 0
+  }
+]

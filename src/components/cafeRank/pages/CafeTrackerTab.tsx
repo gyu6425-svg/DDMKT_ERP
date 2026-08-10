@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
+    cafeTiStatus,
     excludeCafeRankPost,
     getCafeRankPosts,
     parseCafeUrl,
@@ -39,34 +40,54 @@ const boardRank = (b: string) => {
 };
 const boardStyle = (b: string) => BOARD_STYLE[b] || { bg: '#f1f5f9', fg: '#475569' };
 
+// 순위 확인 링크 — 반드시 모바일(m.search).
+//   ★ 인기글 섹션은 PC 와 모바일이 다르다. 실측(2026-08-07) '광진 소방업체'는
+//     모바일엔 인기글 헤더가 있고 PC엔 없다(플레이스·뉴스만). CF 경유든 사무실 IP든 동일했다.
+//     우리 측정(measure_cafe_rank)이 m.search 전용이므로 확인도 모바일로 통일해야
+//     "화면엔 없는데 왜 있다고 하냐"는 어긋남이 안 생긴다.
+const cafeSearchUrl = (kw: string) => `https://m.search.naver.com/search.naver?query=${encodeURIComponent(kw)}`;
+
 // 순위 셀 — 인기글 테마 섹션 내 순위. 측정없음=측정대기, fail=실패, no_section=측정불가(섹션없음), out=권외.
 //   인기글 섹션은 보통 5~10개 → ≤3 초록(상위), ≤7 파랑, 그외 회색.
-function RankCell({ ms }: { ms: CafeMeasurement[] }) {
-    if (!ms || !ms.length) return <span className="text-[12px] font-semibold text-[#d97706]">측정 대기</span>;
+function RankCell({ ms, keyword }: { ms: CafeMeasurement[]; keyword?: string | null }) {
+    const kw = (keyword || '').trim();
+    // 순위(또는 상태)를 누르면 그 키워드의 모바일 검색결과가 새 탭으로 열린다.
+    const wrap = (node: React.ReactNode) => (kw
+        ? <a href={cafeSearchUrl(kw)} target="_blank" rel="noreferrer"
+            title={`모바일 검색결과 열기 — ${kw}`} className="hover:underline">{node}</a>
+        : node);
+    if (!ms || !ms.length) return wrap(<span className="text-[12px] font-semibold text-[#d97706]">측정 대기</span>);
     const cur = ms[ms.length - 1];
     const prev = ms.length > 1 ? ms[ms.length - 2] : null;
-    if (cur.ti_status === 'fail') return <span className="text-[13px] font-bold text-[#dc2626]">실패</span>;
-    if (cur.ti_status === 'no_section')
-        return <span className="text-[12px] font-semibold text-[#94a3b8]" title="이 키워드엔 인기글 섹션이 없어 측정 대상이 아닙니다">측정불가</span>;
-    if (cur.ti_status === 'out') return <span className="text-[13px] font-semibold text-[#64748b]">권외</span>;
+    const curS = cafeTiStatus(cur.ti_status);   // ok/list_ok→ranked · out/list_out→out · no_section/no_list→no_section
+    if (curS === 'fail') return wrap(<span className="text-[13px] font-bold text-[#dc2626]">실패</span>);
+    if (curS === 'no_section')
+        return wrap(<span className="text-[12px] font-semibold text-[#94a3b8]" title="모바일 기준 인기글 섹션이 없어 측정 대상이 아닙니다(눌러서 확인)">측정불가</span>);
+    if (curS === 'out') return wrap(<span className="text-[13px] font-semibold text-[#64748b]">권외</span>);
     const color = cur.ti <= 3 ? '#059669' : cur.ti <= 7 ? '#2563eb' : '#64748b';
     let delta = null as null | { s: string; c: string };
-    if (prev && prev.ti_status === 'ok') {
+    if (prev && cafeTiStatus(prev.ti_status) === 'ranked') {
         const d = prev.ti - cur.ti;
         if (d > 0) delta = { s: `▲${d}`, c: '#dc2626' };
         else if (d < 0) delta = { s: `▼${-d}`, c: '#2563eb' };
         else delta = { s: '—', c: '#94a3b8' };
     }
-    return (
+    return wrap(
         <span className="inline-flex items-center gap-1">
             <b style={{ color }} className="text-[14px]">{cur.ti}위</b>
             {delta ? <span className="text-[11px] font-bold" style={{ color: delta.c }}>{delta.s}</span> : null}
-        </span>
+        </span>,
     );
 }
 
-export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}) {
-    const external = readOnly; // 고객/기자단 뷰용(현재 미연결) — true면 삭제·키워드수정 숨김
+export function CafeTrackerTab({
+    readOnly = false,
+    lockCompany = null,
+    scopeClientId = null,
+}: { readOnly?: boolean; lockCompany?: string | string[] | null; scopeClientId?: string | null } = {}) {
+    // lockCompany: 고객 뷰 — 이 업체(company_key) 글만(자동 읽기전용).
+    // scopeClientId: 내부 관리 스코프(누수탐지 등) — 이 client 의 카페 글만, 등록/붙여넣기는 그대로 가능.
+    const external = readOnly || !!lockCompany;
     const [posts, setPosts] = useState<CafeRankPost[]>([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -86,7 +107,13 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
         setLoading(true);
         const { data, error } = await getCafeRankPosts();
         if (error) setErr(error.message || 'cafe_rank_posts 조회 실패 — docs/cafe-rank-tables.sql 실행 필요');
-        else { setErr(''); setPosts(data); }
+        else {
+            setErr('');
+            let list = data;
+            if (lockCompany) list = list.filter((p) => { const ck = p.cafe_accounts?.company_key ?? ''; return Array.isArray(lockCompany) ? lockCompany.includes(ck) : ck === lockCompany; });
+            if (scopeClientId) list = list.filter((p) => p.cafe_accounts?.client_id === scopeClientId);
+            setPosts(list);
+        }
         setLoading(false);
     };
     useEffect(() => { void reload(); }, []);
@@ -173,9 +200,12 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
         const scoped = cafeFilter === '전체' ? posts : posts.filter((p) => (p.cafe_name || '기타') === cafeFilter);
         const cnt = new Map<string, number>();
         for (const p of scoped) cnt.set(boardKey(p), (cnt.get(boardKey(p)) || 0) + 1);
-        if (cafeFilter === '전체') for (const b of BOARD_ORDER) if (!cnt.has(b)) cnt.set(b, 0);
+        // 마이클의 정보 세상(ddmkt2)에서는 '누수' 게시판 탭을 숨긴다(글은 보존 · 표시만 제외).
+        if (cafeFilter === 'ddmkt2') cnt.delete('누수');
+        // 고객 뷰(lockCompany)·스코프 뷰(누수 ERP 등)에선 경쟁사 게시판 0건 탭을 깔지 않는다 — 스코프 안 게시판만.
+        if (cafeFilter === '전체' && !lockCompany && !scopeClientId) for (const b of BOARD_ORDER) if (!cnt.has(b)) cnt.set(b, 0);
         return [...cnt.entries()].sort((a, b) => boardRank(a[0]) - boardRank(b[0]) || a[0].localeCompare(b[0]));
-    }, [posts, cafeFilter]);
+    }, [posts, cafeFilter, lockCompany, scopeClientId]);
 
     // 게시판별 그룹 — 검색/필터 적용 후 게시판 순서대로 묶는다. '다 구분되어서' 보기 위함.
     const groups = useMemo(() => {
@@ -264,13 +294,15 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
                         {bulk.busy ? `측정 중… 남은 ${bulk.left}` : `전체 재검색 ${shownCount}`}
                     </button>
                 ) : null}
-                <button
-                    className="inline-flex h-9 items-center rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
-                    onClick={() => setShowAdd((v) => !v)}
-                    type="button"
-                >
-                    시트 붙여넣기 등록
-                </button>
+                {!external ? (
+                    <button
+                        className="inline-flex h-9 items-center rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
+                        onClick={() => setShowAdd((v) => !v)}
+                        type="button"
+                    >
+                        시트 붙여넣기 등록
+                    </button>
+                ) : null}
             </div>
 
             <p className="m-0 text-xs text-[#94a3b8]">
@@ -453,7 +485,7 @@ export function CafeTrackerTab({ readOnly = false }: { readOnly?: boolean } = {}
                                                 );
                                             })()}
                                         </td>
-                                        <td className="px-3 py-2 text-center"><RankCell ms={p.measurements} /></td>
+                                        <td className="px-3 py-2 text-center"><RankCell ms={p.measurements} keyword={p.keyword_manual || p.keyword} /></td>
                                         <td className="px-3 py-2 text-center text-[11px] text-[#94a3b8]">{last?.date?.slice(5) || '—'}</td>
                                         {!external ? (
                                             <td className="px-2 py-2 text-center">

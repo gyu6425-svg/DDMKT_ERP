@@ -2,7 +2,7 @@
 //   새 업체는 여기에 한 항목만 추가하면 탭이 늘어난다(코드 복제 없음).
 //   확인 안 된 값(facts/links/footer)은 비워둔다 — 비면 자격서술·링크·연락처가 그냥 빠질 뿐 발행은 정상.
 
-export type CompanyKey = 'theman' | 'seolgo';
+export type CompanyKey = 'theman' | 'seolgo' | 'leak';
 
 export type CompanyConfig = {
     key: CompanyKey;
@@ -30,6 +30,20 @@ function tagSet(region: string, service: string, extra: string[], brand: string)
 }
 
 export const COMPANIES: Record<CompanyKey, CompanyConfig> = {
+    leak: {
+        key: 'leak',
+        label: '누수탐지',
+        brand: '든든한 누수탐지',
+        business: '누수탐지',
+        board: '누수',                          // 카페(clubid 31754130) menuId=1
+        fixedDir: 'nusu-real',                  // public/images/nusu-real/ (실제 작업현장 사진)
+        links: ['https://ddnusu.imweb.me/'],    // 홈페이지
+        footer: '',                             // 번호는 본문에 넣지 않음
+        facts: [],
+        tags: (region, service) => tagSet(region, service, ['누수', '누수탐지업체', '화장실누수', '아파트누수'], '든든한누수탐지'),
+        secType: '누수 탐지',
+        titleLines: ['우리 집', '누수 탐지', '원인부터'],
+    },
     theman: {
         key: 'theman',
         label: '더맨시스템',

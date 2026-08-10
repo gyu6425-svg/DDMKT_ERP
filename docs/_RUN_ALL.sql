@@ -739,4 +739,50 @@ grant execute on function public.count_blog_progress(uuid) to authenticated;
 --   ("Could not find the table ... in the schema cache" 오류 방지).
 notify pgrst, 'reload schema';
 
+-- ┌───────────────────────────────────────────────────────────────────────┐
+-- │ blog-save-queue.sql — 블로그 자동 '임시저장' 대기열 (2026-08-10)        │
+-- │  웹 작성기 → 큐 → SUB1 데몬이 스마트에디터에 채우고 '저장'까지만.       │
+-- │  ⚠️ 발행 없음: status 에 posted/done 이 없고 posted_url 컬럼도 없다.    │
+-- └───────────────────────────────────────────────────────────────────────┘
+create table if not exists public.blog_save_queue (
+    id uuid primary key default gen_random_uuid(),
+    created_at timestamptz not null default now(),
+    blog_account_id uuid references public.blog_accounts(id) on delete set null,
+    blog_id text not null,
+    title text not null,
+    manifest jsonb not null default '[]',
+    status text not null default 'pending',
+    reason text,
+    attempts int not null default 0,
+    claimed_at timestamptz,
+    saved_at timestamptz,
+    draft_seq int,
+    keyword text,
+    region text,
+    source_output_id uuid references public.blog_outputs(id) on delete set null,
+    scheduled_at timestamp,
+    constraint bsq_status_chk check (status in ('pending','processing','saved','fail'))
+);
+create index if not exists bsq_status_idx on public.blog_save_queue (status, created_at);
+create index if not exists bsq_blog_status_idx on public.blog_save_queue (blog_id, status, created_at);
+create unique index if not exists bsq_active_dedup_idx
+  on public.blog_save_queue (blog_id, title)
+ where status in ('pending','processing');
+alter table public.blog_save_queue enable row level security;
+drop policy if exists "bsq 내부 전체" on public.blog_save_queue;
+create policy "bsq 내부 전체" on public.blog_save_queue
+    for all to authenticated
+    using (public.is_internal()) with check (public.is_internal());
+insert into storage.buckets (id, name, public)
+values ('blog-save-images', 'blog-save-images', false)
+on conflict (id) do nothing;
+drop policy if exists "storage blog-save 내부" on storage.objects;
+create policy "storage blog-save 내부" on storage.objects
+    for all to authenticated
+    using (bucket_id = 'blog-save-images' and public.is_internal())
+    with check (bucket_id = 'blog-save-images' and public.is_internal());
+
+notify pgrst, 'reload schema';
+-- (위 blog-save-images 버킷도 private 로 생성됨)
+
 -- ═══ 끝. Storage: blog-materials · cafe-images 버킷은 위 SQL로 생성됨(private). ═══

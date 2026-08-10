@@ -41,7 +41,9 @@ export function SheetTab() {
         customerMode,
         reporterMode,
     } = useBlogRank();
-    const { isAdmin } = useAuth(); // 기자단 계정 삭제(관리)는 관리자만
+    const { isAdmin, profile } = useAuth(); // 기자단 계정 삭제(관리)는 관리자만
+    // (임시) 브랜드블로그 시트에서 진행 건수 직접 수정 — 김다영 계정만. 수정 시 계약 관리 잔여도 자동 연동.
+    const canEditProgress = (profile?.email || '').toLowerCase() === 'cleokim77@ddmkt.com';
     const [q, setQ] = useState(initialQ);
     // 대시보드 '재계약 임박' 블로그 클릭으로 진입하면 그 업체명으로 검색 채움(마운트 타이밍 무관).
     //   ※ 키 입력마다 컨텍스트(setSheetQ)를 갱신하면 Provider 전체가 매 키 리렌더돼 한글 IME 조합이
@@ -1005,6 +1007,7 @@ export function SheetTab() {
             {progressAcc ? (
                 <ProgressModal
                     account={progressAcc}
+                    canEdit={canEditProgress}
                     onClose={() => setProgressAcc(null)}
                     onReload={onReload}
                     onToast={onToast}

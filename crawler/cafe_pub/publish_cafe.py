@@ -31,6 +31,7 @@ import tempfile
 import pathlib
 import requests
 
+import sb_auth   # Supabase 인증 헤더(서비스키 레거시 / publishable+내부JWT). 라이브는 서비스키 그대로.
 from playwright.sync_api import sync_playwright
 
 try:
@@ -40,8 +41,10 @@ except Exception:
     pass
 requests.packages.urllib3.disable_warnings()
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CDP = "http://127.0.0.1:9223"
+# 데이터 폴더 — 프리즈(PyInstaller) 시 agent_main 이 CAFE_DATA_DIR 로 exe 옆 폴더를 넘긴다.
+#   env 없으면(개발·라이브) 이 파일 위치 = 기존과 동일(무변경).
+HERE = os.environ.get("CAFE_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+DEFAULT_CDP = "http://127.0.0.1:9223"   # 기본 크롬(누수). 멀티 스택은 아래 _load_env 후 CAFE_CDP 로 덮는다.
 CAFE_BUCKET = "cafe-images"
 # 등록 클릭 후 글 상세로 이동했는지 확인하는 시간(초). 느린 카페에서 12초는 짧아 오탐이 났다.
 CAFE_CONFIRM_SEC = int(os.environ.get("CAFE_CONFIRM_SEC", "60"))
@@ -63,13 +66,14 @@ class BoardError(RuntimeError):
 def _load_env():
     for p in [os.path.join(HERE, ".env"), os.path.join(HERE, "..", ".env")]:
         try:
-            for line in pathlib.Path(p).read_text(encoding="utf-8", errors="ignore").splitlines():
+            for line in pathlib.Path(p).read_text(encoding="utf-8-sig", errors="ignore").splitlines():
                 m = re.match(r'^([A-Z_]+)\s*=\s*"?([^"\n\r]+)"?', line)
                 if m and m.group(1) not in os.environ:
                     os.environ[m.group(1)] = m.group(2).strip()
         except Exception:
             pass
 _load_env()
+DEFAULT_CDP = os.environ.get("CAFE_CDP", DEFAULT_CDP)   # 스택마다 다른 크롬 포트(예: 더맨 9224) — 누수(9223)와 크롬 분리
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 CAFE_WRITE_URL = os.environ.get("CAFE_WRITE_URL", "")  # 카페 글쓰기 페이지 주소
@@ -160,7 +164,13 @@ def _log(m):
 
 
 def _headers():
-    return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
+    # 서비스키(레거시) 또는 publishable+내부계정 JWT — sb_auth 가 env 로 판정(라이브=서비스키 무변경).
+    return sb_auth.headers("application/json")
+
+
+def auth_ready():
+    """발행에 필요한 Supabase 인증이 준비됐는가(URL + 서비스키 또는 publishable 경로)."""
+    return sb_auth.ready()
 
 
 def sb_get(path, params=None):
@@ -585,7 +595,9 @@ def _select_board_and_prefix(page, board=None):
     try:
         bsel.click(); page.wait_for_timeout(700)
         opts = page.locator("ul.option_list button.option")
-        texts = [(opts.nth(i).inner_text() or "").strip() for i in range(opts.count())]
+        # 옵션 텍스트 첫 줄만 사용 — /menus/N/ URL 로 이미 선택된 게시판은 "이름\n선택됨" 으로 떠서
+        #   정확일치가 깨진다(더반 카페). 첫 줄(게시판명)만 비교하면 누수(단일줄)엔 영향 없다.
+        texts = [((opts.nth(i).inner_text() or "").strip().split("\n")[0].strip()) for i in range(opts.count())]
         idx = _pick_exact_option(texts, board)
         if idx < 0:
             raise BoardError(f"게시판 '{board}' 정확일치 없음 — 후보: {texts[:8]}")
@@ -633,9 +645,13 @@ def publish(page, title, blocks, no_send=False, link_url=None, tags=None, links=
         except Exception as e:
             _log(f"  (대화상자 처리 무시: {str(e)[:50]})")
     page.on("dialog", _on_dialog)
-    if CAFE_WRITE_URL:
-        page.goto(CAFE_WRITE_URL, wait_until="domcontentloaded")
-        page.wait_for_timeout(2500)
+    # 🔴 fail-closed: 발행 대상 URL 이 비어 있으면(빈 문자열은 falsy≠None) 예전엔 이 goto 를 건너뛰고
+    #   '열려 있는 아무 페이지'에 그대로 발행돼 오발행 사고가 났다. 이제는 오발행 대신 중단한다.
+    #   (리스너가 'CAFE_URL_MISSING' 을 환경오류로 분류해 job 을 pending 으로 되돌린다 → .env 고치면 자동 재개)
+    if not CAFE_WRITE_URL:
+        raise RuntimeError("CAFE_URL_MISSING: 발행 대상 카페(CAFE_WRITE_URL) 미설정 — 오발행 방지로 중단")
+    page.goto(CAFE_WRITE_URL, wait_until="domcontentloaded")
+    page.wait_for_timeout(2500)
     # 로그인 만료 감지 — 글쓰기 URL 이 로그인 페이지로 튕기면 재시도 대상(리스너가 대기로 되돌림).
     if re.search(r"nid\.naver\.com|nidlogin", page.url or ""):
         raise RuntimeError("LOGIN_REQUIRED: 네이버 로그인 필요 — 크롬 9223 에서 로그인하세요")

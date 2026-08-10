@@ -34,12 +34,20 @@ def sync_contracts():
     계약 카드는 완료=목표-잔여 로 계산하므로, 잔여=목표-실적 으로 맞추면 카드 카운트가 카페 대시보드와 일치."""
     accounts = c.sb_get("cafe_accounts", {"select": "id,client_id,display_name,done_count"})
     auto = _auto_by_account()
-    n = 0
+    # ⚠️ 업체(client)별로 '합산' 해야 함 — 계정별로 remain 을 쓰면 같은 계약을 여러 번 덮어써
+    #   마지막 계정(마이클 ddmkt2)의 실적만 남아 대시보드/고객ERP가 틀린 값을 보인다.
+    #   자체 카페 + 마이클 공유카페의 실적을 client 단위로 합쳐 한 번만 반영한다(관리시트와 동일).
+    by_client = {}
     for a in accounts:
         cid = a.get("client_id")
         if not cid:
             continue
         realized = (a.get("done_count") or 0) + auto.get(a["id"], 0)
+        d = by_client.setdefault(cid, {"realized": 0, "name": a.get("display_name")})
+        d["realized"] += realized
+    n = 0
+    for cid, d in by_client.items():
+        realized = d["realized"]
         try:
             cons = c.sb_get("client_contracts", {"client_id": f"eq.{cid}", "category": "eq.카페", "select": "id,goal_count,remain_count"})
         except Exception:
@@ -50,7 +58,7 @@ def sync_contracts():
             if ct.get("remain_count") != remain:
                 c.sb_patch("client_contracts", {"id": f"eq.{ct['id']}"}, {"remain_count": remain})
                 n += 1
-                print(f"  {a['display_name']} 실적 {realized}/{goal} → 계약 잔여 {remain}", flush=True)
+                print(f"  {d['name']} 실적 {realized}/{goal} → 계약 잔여 {remain}", flush=True)
     if n:
         print(f"[top5] 계약 진행 동기화 {n}건", flush=True)
 
@@ -84,7 +92,11 @@ def run():
         cur = ms[-1] if ms else {}
         st = cur.get("ti_status")
         ti = cur.get("ti")
-        in_top5 = st == "ok" and isinstance(ti, (int, float)) and not isinstance(ti, bool) and ti <= 5
+        # ok = 인기글 테마섹션 내 순위 / list_ok = 인기글 섹션이 없는 키워드의 통합리스트 순위.
+        #   둘 다 '화면에서 위에서부터 센 5위'라는 점은 같아 실적 판정은 동일하게 본다(사장님 확정 2026-08-06).
+        #   ※ 나중에 배포 종류별로 기준을 다르게 할 거면 여기서 st 로 갈라 주면 된다.
+        in_top5 = (st in ("ok", "list_ok")
+                   and isinstance(ti, (int, float)) and not isinstance(ti, bool) and ti <= 5)
         since = _parse(p.get("top5_since"))
         patch = {}
         if in_top5:
@@ -94,7 +106,7 @@ def run():
                 patch["top5_achieved_at"] = now.isoformat()    # 24h 유지 달성 = 실적 +1
                 achieved += 1
         else:
-            # fail(측정오류)은 상태 유지 — 진짜 하락(out/no_section/ok&ti>5)일 때만 리셋.
+            # fail(측정오류)은 상태 유지 — 진짜 하락(out/list_out/no_section/no_list/5위밖)일 때만 리셋.
             if st != "fail" and since is not None:
                 patch["top5_since"] = None
         if patch:

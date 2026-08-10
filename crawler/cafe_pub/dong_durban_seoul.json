@@ -1,0 +1,32 @@
+[
+  {
+    "gu": "강동구",
+    "dong": "길동",
+    "form": "dong",
+    "keyword": "길동 입주청소"
+  },
+  {
+    "gu": "강북구",
+    "dong": "번동",
+    "form": "dong",
+    "keyword": "번동 입주청소"
+  },
+  {
+    "gu": "도봉구",
+    "dong": "창동",
+    "form": "dong",
+    "keyword": "창동 입주청소"
+  },
+  {
+    "gu": "양천구",
+    "dong": "목동",
+    "form": "dong",
+    "keyword": "목동 입주청소"
+  },
+  {
+    "gu": "강서구",
+    "dong": "등촌동",
+    "form": "dong",
+    "keyword": "등촌동 입주청소"
+  }
+]

@@ -24,11 +24,16 @@ try:
 except Exception:
     pass
 
+# 데이터 폴더 — 프리즈 시 agent_main 이 CAFE_DATA_DIR(exe 옆) 로 넘긴다. 없으면 이 파일 위치(무변경).
+_DATA_DIR = os.environ.get("CAFE_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+
 POLL_SEC = 6
 MIN_GAP_MIN = int(os.environ.get("CAFE_MIN_GAP_MIN", "20"))  # 발행 최소 간격(분) — 계정 안전
 # 최대 간격 — MIN~MAX 사이에서 매번 새로 뽑아 발행 간격을 불규칙하게 만든다(같은 간격 반복은 봇 티가 남).
 #   미설정이면 MIN 과 같아 기존처럼 고정 간격으로 동작(하위호환).
 MAX_GAP_MIN = int(os.environ.get("CAFE_MAX_GAP_MIN", str(MIN_GAP_MIN)))
+# 일일 발행 상한(계정=게시판당) — 재차단 방지. 0=무제한(기본, 하위호환). 권장 계정당 2~3, 신규 1~2.
+DAILY_CAP = int(os.environ.get("CAFE_DAILY_CAP", "0"))
 _gap_min = [float(MIN_GAP_MIN)]   # 이번 회차에 적용할 간격(분) — 발행할 때마다 재추첨
 
 
@@ -44,7 +49,31 @@ KEEPALIVE_MIN = int(os.environ.get("CAFE_KEEPALIVE_MIN", "9"))  # 유휴 시 세
 REAP_MIN = int(os.environ.get("CAFE_REAP_MIN", "30"))
 MAX_ATTEMPTS = int(os.environ.get("CAFE_MAX_ATTEMPTS", "3"))    # 원고결함성 재시도 상한 → 넘으면 fail
 STUCK_POSTED_MIN = int(os.environ.get("CAFE_STUCK_POSTED_MIN", "20"))  # posted 로 이만큼 방치되면 사람에게 경고(자동 재발행 X)
-_EXPIRE_FLAG_STR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".session_expired")
+# 크롬 포트(9223 누수 / 9224 더맨 …) — 스택별로 세션 플래그를 분리해 두 리스너가 서로의 만료 플래그를 밟지 않게.
+_CDP_PORT = pc.DEFAULT_CDP.rsplit(":", 1)[-1].split("/")[0]
+_EXPIRE_FLAG_STR = os.path.join(_DATA_DIR, f".session_expired_{_CDP_PORT}")
+
+# ── 게시판 소유 필터 — 여러 PC가 같은 카페를 게시판별로 나눠 발행(작업분담·중복회피). 2026-07-21 독립검증 ──
+#   CAFE_BOARDS="누수" 처럼 이 PC가 맡을 게시판 이름을 콤마로 나열 → 소유 게시판 행만 집는다.
+#   미설정이면 fail-closed(발행 안 함) — 잘못 집어 오발행하느니 안 집는다. .bat 이 30초 뒤 재시작.
+#   CAFE_CLAIM_NULL_BOARD=1 : board 가 비어 있는(레거시/자동) 행도 이 PC가 집는다.
+#     ▶ 반드시 '한 대'에만 켠다(그 PC의 CAFE_BOARD 폴백 게시판으로 나가므로). 다PC 시 오발행 위험.
+OWNED_BOARDS = [b.strip() for b in os.environ.get("CAFE_BOARDS", "").split(",") if b.strip()]
+CLAIM_NULL_BOARD = os.environ.get("CAFE_CLAIM_NULL_BOARD", "0") == "1"
+if not OWNED_BOARDS and not CLAIM_NULL_BOARD:
+    print("CAFE_BOARDS 미설정 — 이 PC는 발행하지 않음(fail-closed). .env 에 소유 게시판을 지정하세요.", flush=True)
+    sys.exit(1)
+
+
+def _owned_filter():
+    """게시판 소유 PostgREST 필터. poll·claim 두 곳에 병합해 자기 게시판 행만 집게 한다.
+      · or= 는 다른 top-level 필터(id=eq, status=eq)와 AND 로 결합되므로 안전."""
+    if OWNED_BOARDS:
+        ins = ",".join('"' + b.replace('"', '') + '"' for b in OWNED_BOARDS)
+        if CLAIM_NULL_BOARD:
+            return {"or": f"(board.in.({ins}),board.is.null)"}
+        return {"board": f"in.({ins})"}
+    return {"board": "is.null"}   # CLAIM_NULL_BOARD 만 켠 PC = board 없는 행 전담
 
 
 def _now_iso():
@@ -52,10 +81,25 @@ def _now_iso():
     ⚠️ DB now()/UTC 를 쓰면 안 된다. 저장은 KST 벽시계값을 UTC 라벨로 넣고, 읽을 때 라벨을 버려 상쇄한다.
        청소기 cutoff 도 반드시 이 규약과 같아야 9시간 skew 가 상쇄된다."""
     return datetime.datetime.now().isoformat(timespec="seconds")
+
+
+def _published_today():
+    """오늘(KST 벽시계 0시부터) 이 게시판으로 발행 완료(done/posted)된 건수. DAILY_CAP 판정용."""
+    if DAILY_CAP <= 0:
+        return 0
+    today0 = datetime.datetime.now().strftime("%Y-%m-%dT00:00:00")   # done_at 과 같은 naive KST 규약
+    try:
+        rows = pc.sb_get("cafe_publish_queue",
+                         {"status": "in.(done,posted)", **_owned_filter(),
+                          "done_at": f"gte.{today0}", "select": "id"})
+        return len(rows)
+    except Exception:
+        return 0
 _last_pub = [0.0]
 _last_touch = [0.0]   # 크롬과 마지막 상호작용(발행/핑) 시각 — 세션 유지 판단용
 _stopped = [False]    # CAFE_STOP_AT 지나 발행 중단됨(로그 1회만)
-_EXPIRE_FLAG = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".session_expired")
+_capped = [False]     # CAFE_DAILY_CAP 도달로 발행 중단됨(로그 1회만)
+_EXPIRE_FLAG = os.path.join(_DATA_DIR, f".session_expired_{_CDP_PORT}")
 
 
 def _keepalive():
@@ -85,7 +129,7 @@ def _init_last_pub_from_db():
     try:
         # done 뿐 아니라 posted(등록됐으나 done 확정 전)도 '발행됨'으로 쳐서 간격을 지킨다.
         rows = pc.sb_get("cafe_publish_queue",
-                         {"status": "in.(done,posted)", "order": "done_at.desc.nullslast", "limit": "1", "select": "done_at,claimed_at"})
+                         {"status": "in.(done,posted)", **_owned_filter(), "order": "done_at.desc.nullslast", "limit": "1", "select": "done_at,claimed_at"})
         if not rows or not rows[0].get("done_at"):
             return
         # ⚠️ 이 리스너는 done_at 에 datetime.now()(KST, tz없음)를 넣는다. 컬럼이 timestamptz 라
@@ -163,15 +207,16 @@ def _warn_stuck_posted():
 
 
 def main():
-    if not pc.SUPABASE_URL or not pc.SUPABASE_KEY:
-        print("SUPABASE_URL / SUPABASE_SERVICE_KEY 필요(../.env)", flush=True); sys.exit(1)
+    if not pc.auth_ready():
+        print("Supabase 인증 미비 — SUPABASE_URL + (SUPABASE_SERVICE_KEY 또는 "
+              "SUPABASE_PUBLISHABLE_KEY+SUPABASE_AUTH_EMAIL+SUPABASE_AUTH_PASSWORD) 필요", flush=True); sys.exit(1)
     mode = "수동보조(등록 직전까지)" if NO_SEND else "완전 자동(등록 클릭)"
     print(f"[카페 발행 리스너] cafe_publish_queue 폴링 {POLL_SEC}s · 간격 {MIN_GAP_MIN}분 · {mode} — Ctrl+C 종료", flush=True)
     _init_last_pub_from_db()   # 재시작해도 발행 간격 유지(DB 기준)
     _init_first_at()           # CAFE_FIRST_AT 지정 시 그 시각으로 덮어씀
     while True:
         try:
-            reqs = pc.sb_get("cafe_publish_queue", {"status": "eq.pending", "order": "created_at.asc", "limit": "1", "select": "*"})
+            reqs = pc.sb_get("cafe_publish_queue", {"status": "eq.pending", **_owned_filter(), "order": "created_at.asc", "limit": "1", "select": "*"})
         except Exception as e:
             print(f"폴링 오류: {e}", flush=True); time.sleep(8); continue
         # 발행 종료 시각(CAFE_STOP_AT=HH:MM) 지나면 더 이상 발행하지 않음(세션 유지 핑만).
@@ -187,6 +232,23 @@ def main():
                     time.sleep(POLL_SEC); continue
             except Exception:
                 pass
+        # 발행 시작 시각(CAFE_START_AT=HH:MM) 이전이면 발행 안 함(매일 이 시각부터 시작 — 새벽 발행 방지).
+        start_at = os.environ.get("CAFE_START_AT", "").strip()
+        if start_at and reqs:
+            try:
+                th, tm = (int(x) for x in start_at.split(":"))
+                now_dt = datetime.datetime.now()
+                if (now_dt.hour, now_dt.minute) < (th, tm):
+                    time.sleep(POLL_SEC); continue      # 아직 시작 전 → 대기(세션핑만)
+            except Exception:
+                pass
+        # ── 일일 발행 상한(CAFE_DAILY_CAP) — 계정 안전(재차단 방지). 도달 시 남은 건 내일로 대기. ──
+        if reqs and DAILY_CAP > 0 and _published_today() >= DAILY_CAP:
+            if not _capped[0]:
+                print(f"[{datetime.datetime.now():%H:%M:%S}] ⏸ 오늘 발행 상한({DAILY_CAP}건) 도달 — 남은 {len(reqs)}건은 내일 발행", flush=True)
+                _capped[0] = True
+            time.sleep(POLL_SEC); continue
+        _capped[0] = False
         gap_wait = (not NO_SEND) and (time.time() - _last_pub[0]) < _gap_min[0] * 60
         # 발행할 게 없거나(=유휴) 간격 대기 중이면 → 좀비/stuck 점검 + 세션 유지 핑(주기적)
         if not reqs or gap_wait:
@@ -203,7 +265,7 @@ def main():
         job = reqs[0]; jid = job["id"]
         # ── CAS 잠금: pending 일 때만 processing 으로. 못 이기면(다른 워커/상태변동) 이 행은 건너뛴다. ──
         try:
-            claimed = pc.sb_patch("cafe_publish_queue", {"id": f"eq.{jid}"},
+            claimed = pc.sb_patch("cafe_publish_queue", {"id": f"eq.{jid}", **_owned_filter()},
                                   {"status": "processing", "claimed_at": _now_iso()}, expect="pending")
         except Exception as e:
             print(f"  (claim 실패 — 8s 후 재시도: {str(e)[:60]})", flush=True); time.sleep(8); continue
@@ -246,7 +308,8 @@ def main():
             # 환경 미비(크롬 꺼짐/로그인 만료/CDP 끊김) = 시도 횟수 안 올리고 무한 대기(복구되면 자동 재개).
             env_not_ready = any(k in reason for k in (
                 "LOGIN_REQUIRED", "ECONNREFUSED", "connect_over_cdp", "browserContext", "websocket",
-                "Target closed", "has been closed", "Browser closed", "Connection closed", "Protocol error", "net::ERR_"))
+                "Target closed", "has been closed", "Browser closed", "Connection closed", "Protocol error", "net::ERR_",
+                "CAFE_URL_MISSING"))
             # 원고성 일시오류(페이지 지연 등) = 시도 횟수 누적, MAX 넘으면 포기.
             job_transient = any(k in reason for k in (
                 "Timeout", "timed out", "제목 입력칸", "에디터 영역", "posted 마킹 실패"))

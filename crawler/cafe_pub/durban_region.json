@@ -1,0 +1,201 @@
+{
+  "step1": [
+    {
+      "region": "수원",
+      "cafe": 3,
+      "done": true
+    },
+    {
+      "region": "성남",
+      "cafe": 3,
+      "done": true
+    },
+    {
+      "region": "고양",
+      "cafe": 3,
+      "done": true
+    },
+    {
+      "region": "용인",
+      "cafe": 3,
+      "done": true
+    },
+    {
+      "region": "부천",
+      "cafe": 2,
+      "done": true
+    },
+    {
+      "region": "안산",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "안양",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "평택",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "시흥",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "파주",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "김포",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "광명",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "의정부",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "남양주",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "화성",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "군포",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "의왕",
+      "cafe": 4,
+      "done": false
+    },
+    {
+      "region": "오산",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "하남",
+      "cafe": 3,
+      "done": true
+    },
+    {
+      "region": "구리",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "광주",
+      "cafe": 2,
+      "done": false
+    },
+    {
+      "region": "과천",
+      "cafe": 3,
+      "done": true
+    },
+    {
+      "region": "인천",
+      "cafe": 3,
+      "done": false
+    },
+    {
+      "region": "부평",
+      "cafe": 1,
+      "done": false
+    }
+  ],
+  "step2": [
+    {
+      "gu": "중구",
+      "form": "일반형",
+      "cafe": 5
+    },
+    {
+      "gu": "용산",
+      "form": "일반형",
+      "cafe": 3
+    },
+    {
+      "gu": "광진",
+      "form": "구형",
+      "cafe": 3
+    },
+    {
+      "gu": "동대문",
+      "form": "구형",
+      "cafe": 3
+    },
+    {
+      "gu": "노원",
+      "form": "일반형",
+      "cafe": 2
+    },
+    {
+      "gu": "은평",
+      "form": "일반형",
+      "cafe": 6
+    },
+    {
+      "gu": "마포",
+      "form": "일반형",
+      "cafe": 3
+    },
+    {
+      "gu": "강서",
+      "form": "구형",
+      "cafe": 3
+    },
+    {
+      "gu": "구로",
+      "form": "일반형",
+      "cafe": 3
+    },
+    {
+      "gu": "영등포",
+      "form": "일반형",
+      "cafe": 3
+    },
+    {
+      "gu": "관악",
+      "form": "구형",
+      "cafe": 3
+    },
+    {
+      "gu": "서초",
+      "form": "구형",
+      "cafe": 3
+    },
+    {
+      "gu": "강남",
+      "form": "일반형",
+      "cafe": 3
+    },
+    {
+      "gu": "송파",
+      "form": "구형",
+      "cafe": 2
+    },
+    {
+      "gu": "강동",
+      "form": "구형",
+      "cafe": 3
+    }
+  ]
+}

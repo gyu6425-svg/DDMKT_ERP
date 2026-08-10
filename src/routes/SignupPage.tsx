@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import Button from '../components/Button';
 import { hasSupabaseConfig } from '../lib/supabase';
 import { requestSignup, type SignupRole } from '../api/signup';
+import { signInWithKakao } from '../api/auth';
 
 const inputClass =
     'h-[59px] w-[400px] max-w-full rounded-xl border border-[#cfcfcf] bg-white px-[13px] text-[20px] font-medium text-[#333333] outline-none placeholder:text-[20px] placeholder:font-medium placeholder:text-[#999999] focus:border-[#ff5a00]';
@@ -21,6 +22,7 @@ function SignupPage() {
     const [company, setCompany] = useState('');
     const [bizNo, setBizNo] = useState('');
     const [phone, setPhone] = useState('');
+    const [agency, setAgency] = useState(false); // 대행사 여부(고객만)
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [done, setDone] = useState(false);
@@ -43,6 +45,7 @@ function SignupPage() {
             company: company.trim() || undefined,
             bizNo: bizNo.trim() || undefined,
             phone: phone.trim() || undefined,
+            isAgency: role === 'viewer' ? agency : false,
         });
         setLoading(false);
         if (!ok) return setError(err || '가입에 실패했습니다.');
@@ -143,6 +146,10 @@ function SignupPage() {
                                     placeholder="사업자등록번호(선택)"
                                     value={bizNo}
                                 />
+                                <label className="flex w-[400px] max-w-full cursor-pointer items-center gap-2.5 px-1 text-[17px] font-medium text-[#555555]">
+                                    <input type="checkbox" checked={agency} onChange={(e) => setAgency(e.target.checked)} className="h-5 w-5 accent-[#ff5a00]" />
+                                    대행사입니다
+                                </label>
                             </>
                         ) : null}
                         <input
@@ -171,6 +178,19 @@ function SignupPage() {
                             type="button"
                         >
                             이미 계정이 있으신가요? 로그인
+                        </button>
+
+                        {/* 카카오로 간편 가입 — 첫 로그인 시 가입정보 입력 후 관리자 승인. */}
+                        <div className="my-1 flex items-center gap-3 text-[13px] text-[#bbbbbb]">
+                            <span className="h-px flex-1 bg-[#eeeeee]" /> 또는 <span className="h-px flex-1 bg-[#eeeeee]" />
+                        </div>
+                        <button
+                            type="button"
+                            disabled={loading || !hasSupabaseConfig}
+                            onClick={() => void signInWithKakao()}
+                            className="flex h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[#FEE500] text-[17px] font-bold text-[#191600] hover:brightness-95 disabled:opacity-50"
+                        >
+                            <span className="text-[18px]">💬</span> 카카오로 간편 가입
                         </button>
                         <p className="m-0 text-center text-[13px] leading-6 text-[#999999]">
                             가입 후 관리자 승인이 완료되어야 이용할 수 있습니다.

@@ -14,12 +14,17 @@ type GenerateCafePayload = {
     tone?: string; // review 톤: review(후기)·info(정보)·story(스토리)·talk(대화)·notice(공지)
     count?: number; // 카드(이미지) 장수 = 본문 「사진 N」 마커 개수
     layout?: 'markers' | 'bottom'; // markers=본문에 「사진 N」 인터리브 / bottom=이미지 상단 일괄 + 본문 하단(마커 없음, [출처] 끝)
-    variant?: 'info-guide'; // 더맨시스템 정보형 — 별도 프롬프트(functions/lib/cafeInfoGuide.mjs). 없으면 기존 경로 그대로.
+    variant?: 'info-guide' | 'longform'; // info-guide=더맨 정보형 / longform=누수·청소 후기 롱폼. 없으면 기존 경로.
     facts?: string[];       // 사용자가 확인해 준 사실(허가·자격 등). 모델이 자격을 지어내지 못하게 하는 근거 블록.
+    businessKind?: 'leak' | 'clean'; // longform 전용 — 업종 선택(누수탐지/입주청소). 프롬프트·시드풀을 고른다.
+    dong?: string;          // longform 전용 — 위치스택 동(선택). 제목/본문 지역 롱테일.
+    retryNote?: string;     // longform 전용 — 재생성 시 위반 지적 문구(로컬 orchestrator 의 재시도 루프가 채운다).
 };
 
 // 정보형은 별도 모듈 — 배포본과 로컬 dev 서버가 같은 프롬프트를 쓰게 하기 위함(복붙 드리프트 방지).
 import { buildInfoGuidePrompt, bodyLen as infoBodyLen, INFO_GUIDE_LEN } from '../lib/cafeInfoGuide.mjs';
+// 후기형 롱폼(누수탐지·입주청소) — 로컬 orchestrator 가 CF 를 경유해 원고를 받도록(로컬 OpenAI 키 0) 서버가 프롬프트를 만든다.
+import { buildLongformPrompt } from '../lib/cafeLongform.mjs';
 
 // 후기 본문 톤 5종 — 시작 말투/문체 지시. 기본 review(후기형).
 export const REVIEW_TONES: Record<string, { name: string; guide: string }> = {
@@ -199,7 +204,44 @@ export function parseCafeJson(text: string): Record<string, unknown> | null {
     }
 }
 
+// 후기형 롱폼(longform) — 로컬 orchestrator(cafe_auto_publish_nusu2/_ddclean.py)가 지역/동/업종을 주면
+//   서버가 프롬프트를 만들어 1회 생성해 {title, body} 로 돌려준다(재시도·길이/어투 판정은 orchestrator 쪽).
+//   ※ json_object 포맷 — 본문에 큰따옴표가 있어도 JSON 이 깨지지 않게(파이썬 _openai_review 와 동일).
+async function generateLongform(payload: GenerateCafePayload, env: FunctionContext['env']) {
+    const apiKey = env.OPENAI_API_KEY;
+    if (!apiKey) return jsonResponse({ message: 'Cloudflare 환경변수 OPENAI_API_KEY가 필요합니다.' }, 500);
+    if (!payload.region || !payload.region.trim()) return jsonResponse({ message: 'region 이 필요합니다.' }, 400);
+    const model = env.OPENAI_CAFE_TEXT_MODEL || 'gpt-5-mini';
+    const prompt = buildLongformPrompt({
+        businessKind: payload.businessKind === 'clean' ? 'clean' : 'leak',
+        region: payload.region,
+        dong: payload.dong,
+        retryNote: payload.retryNote,
+        brand: payload.brand,   // 고객 셀프발행 — 업체명은 고객 것(비면 업종 기본상수)
+        phone: payload.phone,   // 비면('' 또는 미전달) 전화 언급 생략
+    });
+    const response = await fetch(OPENAI_API_URL, {
+        body: JSON.stringify({ input: prompt, model, reasoning: { effort: 'low' }, text: { format: { type: 'json_object' } } }),
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        method: 'POST',
+    });
+    const text = await response.text();
+    let result: Record<string, unknown> = {};
+    try {
+        result = text ? JSON.parse(text) : {};
+    } catch {
+        return jsonResponse({ message: 'OpenAI 응답을 해석하지 못했습니다.' }, 502);
+    }
+    if (!response.ok) {
+        return jsonResponse({ message: (result.error as { message?: string } | undefined)?.message || '원고 생성에 실패했습니다.' }, response.status);
+    }
+    const parsed = parseCafeJson(extractOutputText(result as Parameters<typeof extractOutputText>[0]));
+    if (!parsed) return jsonResponse({ message: '생성 결과(JSON)를 해석하지 못했습니다.' }, 502);
+    return jsonResponse({ title: parsed.title ?? '', body: parsed.body ?? '', usage: (result as { usage?: unknown }).usage ?? null, model });
+}
+
 export async function generateCafe(payload: GenerateCafePayload, env: FunctionContext['env']) {
+    if (payload.variant === 'longform') return generateLongform(payload, env);
     if (!payload.keyword || !payload.keyword.trim()) {
         return jsonResponse({ message: '키워드를 입력해주세요.' }, 400);
     }

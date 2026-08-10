@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { checkPopular, generateCafeReview, generateSecurityBanner } from '../../api/cafeWriter';
+import { scanKeywordsViaSub4 } from '../../api/keywordScan';
 import { createPublishJob, listPublishedPairs } from '../../api/cafePublishQueue';
+import { queueNusu2, nusu2Health } from '../../api/nusu2Bridge';
 import { COMPANIES, type CompanyKey } from './companies';
 import { REGION_GROUPS, type RegionSet } from './regions';
 import { buildImageOrder } from './imageOrder';
@@ -54,13 +56,51 @@ export function AutoPublishPanel({ company }: { company: CompanyKey }) {
     const [msg, setMsg] = useState('');
     const [abort, setAbort] = useState(false);
 
+    // SEO 키워드 찾기(누수 탭 전용) — 검색광고 API(배포 CF)로 실제 검색량·경쟁 키워드 추천
+    const [reco, setReco] = useState<Array<{ keyword: string; total: number; comp: string }> | null>(null);
+    const [recoLoading, setRecoLoading] = useState(false);
+    const [recoErr, setRecoErr] = useState('');
+
+    // nusu2 브릿지(로컬 8788) 가동 여부 — 누수 탭에서만 확인/사용
+    const [bridgeUp, setBridgeUp] = useState<boolean | null>(null);
+    useEffect(() => {
+        if (company !== 'leak') return;
+        void nusu2Health().then(setBridgeUp);
+    }, [company]);
+
     const kws = keywords.map((k) => k.trim()).filter(Boolean);
     const scanned = scan.filter((r) => r.status !== '대기' && r.status !== '검사중').length;
     const setKw = (i: number, v: string) => setKeywords((prev) => prev.map((k, j) => (j === i ? v : k)));
 
+    // 이 업종의 실제 검색되는 키워드를 검색량·경쟁도와 함께 추천(배포 CF /api/naver-keywords).
+    const findKeywords = async () => {
+        setRecoLoading(true); setRecoErr(''); setReco(null);
+        try {
+            const res = await fetch(`https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(cfg.business)}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error((data && data.error) || `오류 ${res.status}`);
+            const rows = ((data && data.keywords) || []) as Array<{ keyword: string; total: number; comp: string }>;
+            const core = cfg.business.replace(/\s/g, '').slice(0, 2);   // 온토픽 필터(누수/보안/소방)
+            const on = rows.filter((r) => r.keyword && r.keyword.includes(core));
+            setReco((on.length ? on : rows).sort((a, b) => b.total - a.total).slice(0, 30));
+        } catch (e) {
+            setRecoErr(String((e as Error).message || e));
+        } finally {
+            setRecoLoading(false);
+        }
+    };
+    // 추천 키워드 클릭 → 첫 빈 키워드칸에 채움(없으면 1번칸)
+    const pickReco = (kw: string) => setKeywords((prev) => {
+        const empty = prev.findIndex((k) => !k.trim());
+        const idx = empty === -1 ? 0 : empty;
+        return prev.map((k, j) => (j === idx ? kw : k));
+    });
+
     // ── 1) 지역 스캔 (무료) — 지역 × 키워드 조합 ──
     const runScan = async () => {
-        if (!kws.length) return setMsg('키워드를 1개 이상 입력하세요');
+        // 누수(leak)는 base '누수탐지'로 인기글을 확인한다(SEO 세컨 키워드는 제목에만 붙는다).
+        const scanKws = company === 'leak' ? [cfg.business] : kws;
+        if (!scanKws.length) return setMsg('키워드를 1개 이상 입력하세요');
         setMsg('');
         setPhase('scanning');
         setAbort(false);
@@ -76,7 +116,7 @@ export function AutoPublishPanel({ company }: { company: CompanyKey }) {
         // 지역 우선(서울부터 훑기) × 키워드. 이미 발행한 쌍(표기 지역+키워드)은 제외.
         const rows: ScanRow[] = [];
         for (const rg of REGION_GROUPS[regionSet]) {
-            for (const keyword of kws) {
+            for (const keyword of scanKws) {
                 if (!pairs.has(`${rg.label}|${keyword}`)) rows.push({ region: rg.label, scans: rg.scans, keyword, status: '대기' });
             }
         }
@@ -110,6 +150,54 @@ export function AutoPublishPanel({ company }: { company: CompanyKey }) {
         setMsg(hit.length >= count ? `${count}건 목표 달성` : `${count}건 요청 → ${hit.length}건 가능(후보 소진)`);
     };
 
+    // ── 1-B) SUB4 정확 스캔 — 폰 모바일 IP 경유(큐). Cloudflare(DC IP) 대신 실제 사용자와 동일 결과 ──
+    const runScanSub4 = async () => {
+        const scanKws = company === 'leak' ? [cfg.business] : kws;
+        if (!scanKws.length) return setMsg('키워드를 1개 이상 입력하세요');
+        setMsg('');
+        setPhase('scanning');
+        setAbort(false);
+        setReport(null);
+        setGen([]);
+
+        const { pairs, error } = await listPublishedPairs(company);
+        if (error) {
+            setPhase('idle');
+            return setMsg(`중복 확인 실패 — 스캔 중단(${error.message})`);
+        }
+        const rows: ScanRow[] = [];
+        for (const rg of REGION_GROUPS[regionSet]) {
+            for (const keyword of scanKws) {
+                if (!pairs.has(`${rg.label}|${keyword}`)) rows.push({ region: rg.label, scans: rg.scans, keyword, status: '대기' });
+            }
+        }
+        if (!rows.length) { setPhase('idle'); return setMsg('발행 안 한 지역×키워드 조합이 없습니다'); }
+        setScan(rows.map((r) => ({ ...r, status: '검사중' })));
+        setMsg(`SUB4로 ${rows.length}개 조합 스캔 요청 중… (폰 IP, 완료까지 대기)`);
+
+        // 모든 변형 "{scan} {keyword}" 를 한 요청으로 보낸다. 행 통과 = 변형 중 하나라도 O.
+        const allKw = Array.from(new Set(rows.flatMap((r) => r.scans.map((s) => `${s} ${r.keyword}`))));
+        let res: Record<string, string>;
+        try {
+            res = await scanKeywordsViaSub4(allKw, { note: `${cfg.business}/${regionSet}` });
+        } catch (e) {
+            setPhase('idle');
+            return setMsg(e instanceof Error ? e.message : 'SUB4 스캔 실패');
+        }
+        const hit: Pair[] = [];
+        const filled = rows.map((r) => {
+            const verdicts = r.scans.map((s) => res[`${s} ${r.keyword}`]);
+            const ok = verdicts.some((v) => v === 'O');
+            const allErr = verdicts.every((v) => v === 'err' || v === undefined);
+            if (ok) hit.push({ region: r.region, keyword: r.keyword });
+            return { ...r, status: (ok ? '통과' : allErr ? '오류' : '없음') as ScanRow['status'] };
+        });
+        setScan(filled);
+        setPassed(hit);
+        setPhase('scanned');
+        setMsg(`SUB4 스캔 완료 — 인기탭 ${hit.length}건 / ${rows.length}개 조합`);
+    };
+
     // ── 2) 생성 + 발행 (유료) ──
     const runPublish = async () => {
         if (!passed.length) return;
@@ -123,11 +211,41 @@ export function AutoPublishPanel({ company }: { company: CompanyKey }) {
         let failed = 0;
         let skipped = 0;
 
+        // 누수(leak)는 스캔 통과 지역을 nusu2 브릿지로 생성한다(위치스택 제목+동·지역CTA·실사페어·
+        //   카드·존댓말). 스캔 자체가 인기글 검증이므로 popular_verified 로 넘어간다. JS 생성/배너 미사용.
+        if (company === 'leak') {
+            if (!(await nusu2Health())) {
+                setBridgeUp(false);
+                setPhase('scanned');
+                return setMsg('브릿지 서버(8788) 꺼짐 — run_nusu2_api.bat 실행 후 다시 시도');
+            }
+            for (let i = 0; i < rows.length; i += 1) {
+                if (abort) break;
+                rows[i] = { ...rows[i], status: 'nusu2 생성·큐 등록중…' };
+                setGen([...rows]);
+                try {
+                    const r = await queueNusu2({ region: rows[i].region, kind: 'nusu', company, board: cfg.board });
+                    rows[i] = { ...rows[i], status: `큐 등록 완료 — ${r.title}`, jobId: r.job_id };
+                    queued += 1;
+                } catch (e) {
+                    rows[i] = { ...rows[i], status: `실패: ${e instanceof Error ? e.message : String(e)}` };
+                    failed += 1;
+                }
+                setGen([...rows]);
+            }
+            setReport({ queued, failed, skipped });
+            setPhase('done');
+            return;
+        }
+
         for (let i = 0; i < rows.length; i += 1) {
             if (abort) break;
             const region = rows[i].region;
             const kw = rows[i].keyword;
-            const fullKw = `${region} ${kw}`;
+            // leak 은 위 브릿지 분기에서 처리·반환됨 → 여기는 theman/seolgo 만. 세컨 키워드 미사용.
+            const scenes: string[] = [];
+            const scene = scenes.length ? scenes[i % scenes.length] : '';
+            const fullKw = scene ? `${region} ${kw} ${scene}` : `${region} ${kw}`;
 
             // 원고 — 형식검사 통과까지 최대 3회
             let body: string | null = null;
@@ -196,12 +314,55 @@ export function AutoPublishPanel({ company }: { company: CompanyKey }) {
         setPhase('done');
     };
 
+    // ── nusu2 방식 바로 발행 (로컬 브릿지) ──
+    //   스캔·JS생성 없이, 선택 지역셋의 미발행 지역을 브릿지(8788)로 넘겨 nusu2 최신 포맷으로
+    //   생성·큐 적재한다(위치스택 제목+동·지역CTA·실사페어·카드·존댓말·태그·링크). 발행은 리스너가.
+    const runNusu2 = async () => {
+        setPhase('generating');
+        setAbort(false);
+        setReport(null);
+        setGen([]);
+        setMsg('');
+
+        const { pairs, error } = await listPublishedPairs(company);
+        if (error) {
+            setPhase('idle');
+            return setMsg(`중복 확인 실패 — 중단(${error.message})`);
+        }
+        const doneRegions = new Set([...pairs].map((p) => p.split('|')[0]));
+        const regions = REGION_GROUPS[regionSet].map((r) => r.label).filter((r) => !doneRegions.has(r)).slice(0, count);
+        if (!regions.length) {
+            setPhase('idle');
+            return setMsg('발행할 새 지역이 없습니다(선택 지역셋이 모두 발행됨)');
+        }
+        const rows: GenRow[] = regions.map((r) => ({ region: r, keyword: cfg.business, status: '대기' }));
+        setGen([...rows]);
+        let queued = 0;
+        let failed = 0;
+        for (let i = 0; i < rows.length; i += 1) {
+            if (abort) break;
+            rows[i] = { ...rows[i], status: 'nusu2 생성·큐 등록중…' };
+            setGen([...rows]);
+            try {
+                const r = await queueNusu2({ region: rows[i].region, kind: 'nusu', company, board: cfg.board });
+                rows[i] = { ...rows[i], status: `큐 등록 완료 — ${r.title}`, jobId: r.job_id };
+                queued += 1;
+            } catch (e) {
+                rows[i] = { ...rows[i], status: `실패: ${e instanceof Error ? e.message : String(e)}` };
+                failed += 1;
+            }
+            setGen([...rows]);
+        }
+        setReport({ queued, failed, skipped: 0 });
+        setPhase('done');
+    };
+
     return (
         <div className="rounded-xl border-2 border-[#4338ca] bg-[#eef2ff] p-4">
             <div className="mb-3 text-[13px] font-bold text-[#3730a3]">자동발행 — 지역 스캔 → 통과 지역만 발행</div>
 
             <div className="grid gap-1">
-                <span className="text-[12px] font-semibold text-[#475569]">키워드 (최대 3개 · 예: 소방점검)</span>
+                <span className="text-[12px] font-semibold text-[#475569]">{company === 'leak' ? '세컨 키워드 (선택 · 제목 "누수탐지" 뒤에 붙음) — 아래 SEO 찾기로 추가' : '키워드 (최대 3개 · 예: 소방점검)'}</span>
                 <div className="grid grid-cols-3 gap-2">
                     {[0, 1, 2].map((i) => (
                         <input
@@ -214,6 +375,39 @@ export function AutoPublishPanel({ company }: { company: CompanyKey }) {
                     ))}
                 </div>
             </div>
+
+            {company === 'leak' ? (
+                <div className="mt-2 grid gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            className="h-9 rounded-md bg-[#0369a1] px-4 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50"
+                            disabled={recoLoading}
+                            onClick={() => void findKeywords()}
+                            type="button"
+                        >
+                            {recoLoading ? '검색 중…' : `🔍 SEO 키워드 찾기 (${cfg.business})`}
+                        </button>
+                        {recoErr ? <span className="text-[12px] text-[#dc2626]">{recoErr}</span> : null}
+                        {reco ? <span className="text-[12px] text-[#64748b]">검색량 순 · 클릭하면 키워드칸에 추가</span> : null}
+                    </div>
+                    {reco ? (
+                        <div className="max-h-44 overflow-y-auto rounded-md border border-[#bae6fd] bg-white p-1">
+                            {reco.length ? reco.map((r) => (
+                                <button
+                                    className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-[13px] hover:bg-[#f0f9ff]"
+                                    key={r.keyword}
+                                    onClick={() => pickReco(r.keyword)}
+                                    type="button"
+                                >
+                                    <span className="font-medium text-[#0f172a]">{r.keyword}</span>
+                                    <span className="text-[12px] text-[#64748b]">월 {r.total.toLocaleString()} · 경쟁 {r.comp}</span>
+                                </button>
+                            )) : <div className="px-2 py-1 text-[13px] text-[#94a3b8]">추천 키워드 없음</div>}
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+
             <div className="mt-2 grid gap-3 sm:grid-cols-2">
                 <label className="grid gap-1">
                     <span className="text-[12px] font-semibold text-[#475569]">지역</span>
@@ -229,9 +423,36 @@ export function AutoPublishPanel({ company }: { company: CompanyKey }) {
                 </label>
             </div>
 
+            {company === 'leak' ? (
+                <div className="mt-3 rounded-lg border-2 border-[#0f766e] bg-[#f0fdfa] p-3">
+                    <div className="mb-1.5 flex items-center gap-2 text-[13px] font-bold text-[#0f766e]">
+                        ⚡ nusu2 방식 바로 발행 <span className="rounded bg-[#0f766e] px-1.5 py-0.5 text-[10px] text-white">최신·권장</span>
+                    </div>
+                    <div className="mb-2 text-[11px] leading-relaxed text-[#475569]">
+                        위치스택 제목(+실재 동)·지역 CTA 배너·실사페어·카드·존댓말 후기체 그대로. 스캔/JS생성 없이 선택 지역셋의 <b>미발행 지역 {count}건</b>을 큐에 적재합니다(발행은 로컬 리스너가 간격 두고 순차).
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            className="h-10 rounded-md bg-[#0f766e] px-5 text-sm font-bold text-white hover:bg-[#115e59] disabled:opacity-50"
+                            disabled={phase === 'generating' || phase === 'scanning' || bridgeUp === false}
+                            onClick={() => void runNusu2()}
+                            type="button"
+                        >
+                            {phase === 'generating' ? '발행 중…' : `nusu2로 ${count}건 발행`}
+                        </button>
+                        {bridgeUp === false ? <span className="text-[12px] text-[#dc2626]">브릿지 서버(8788) 꺼짐 — run_nusu2_api.bat 실행 필요</span> : null}
+                        {bridgeUp === true ? <span className="text-[12px] font-semibold text-[#0f766e]">브릿지 연결됨 ✓</span> : null}
+                        {bridgeUp === null ? <span className="text-[12px] text-[#94a3b8]">브릿지 확인 중…</span> : null}
+                    </div>
+                </div>
+            ) : null}
+
             <div className="mt-3 flex flex-wrap items-center gap-2">
-                <button className="h-10 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50" disabled={phase === 'scanning' || phase === 'generating' || !kws.length} onClick={() => void runScan()} type="button">
-                    {phase === 'scanning' ? `스캔 중… (${scanned}/${scan.length} · 통과 ${passed.length})` : '지역 스캔 (무료)'}
+                <button className="h-10 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50" disabled={phase === 'scanning' || phase === 'generating' || (company !== 'leak' && !kws.length)} onClick={() => void runScan()} type="button">
+                    {phase === 'scanning' ? `스캔 중… (${scanned}/${scan.length} · 통과 ${passed.length})` : '지역 스캔 (무료·DC IP)'}
+                </button>
+                <button className="h-10 rounded-md bg-[#0369a1] px-5 text-sm font-bold text-white hover:bg-[#075985] disabled:opacity-50" disabled={phase === 'scanning' || phase === 'generating' || (company !== 'leak' && !kws.length)} onClick={() => void runScanSub4()} type="button" title="SUB4 폰 모바일 IP로 정확 스캔(큐 경유). 스캔 리스너가 켜져 있어야 함.">
+                    {phase === 'scanning' ? '스캔 중…' : '키워드 찾기 (SUB4·정확)'}
                 </button>
                 {phase === 'scanned' && passed.length > 0 ? (
                     <button className="h-10 rounded-md bg-[#0f766e] px-5 text-sm font-bold text-white hover:bg-[#115e59]" onClick={() => void runPublish()} type="button">

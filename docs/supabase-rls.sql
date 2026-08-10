@@ -1,5 +1,12 @@
--- React + Supabase direct connection + RLS
--- Run this in the Supabase SQL Editor after creating the tables.
+-- ⚠️⚠️⚠️ 폐기(SUPERSEDED) — 현재 라이브 DB 에 실행하지 마시오. ⚠️⚠️⚠️
+--   이 파일은 초기 모델(public.users.role='admin' + clients."담당자_id")용 최초 RLS 다.
+--   현재 권한 모델은 public.profiles + is_internal()(= client_id NULL) 로 교체됨
+--   → 진짜 소스: docs/enable-login-rls.sql (+ docs/fix-rls-policies.sql). 그쪽을 쓴다.
+--   이 파일을 재실행하면 없는 컬럼/테이블(담당자_id, users) 참조로 깨지거나,
+--   폐기된 정책을 되살려 현재 is_internal 모델과 충돌한다. 역사 보존용으로만 남긴다.
+--   (RLS 를 다시 세팅할 일이 있으면 enable-login-rls.sql / fix-rls-policies.sql 을 전체 실행할 것.)
+--
+-- React + Supabase direct connection + RLS  (LEGACY, 참고용)
 -- Hard delete policies are intentionally omitted. Delete through soft delete only.
 
 alter table clients enable row level security;

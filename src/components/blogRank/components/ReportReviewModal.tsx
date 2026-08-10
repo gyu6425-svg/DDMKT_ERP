@@ -29,6 +29,7 @@ export function ReportReviewModal({
     const [reports, setReports] = useState<BlogPostReport[]>([]);
     const [names, setNames] = useState<Record<string, string>>({});
     const [busy, setBusy] = useState<string | null>(null);
+    const [bulkBusy, setBulkBusy] = useState(false); // 일괄 승인 진행 중
     const [loading, setLoading] = useState(true);
     const [rejectId, setRejectId] = useState<string | null>(null);
     const [rejectReason, setRejectReason] = useState('');
@@ -89,6 +90,54 @@ export function ReportReviewModal({
                   : `승인 완료(추적 등록) · 외주비 ${outUnit.toLocaleString('ko-KR')}원 · 연결된 계약이 없어 잔여 카운트는 미반영`,
         );
     };
+    // 일괄 승인 — 현재 탭의 모든 대기 보고를 한 번에 처리한다.
+    //   브랜드·기자단 등록 업체 = 바로 승인. 비-브랜드(최적화·준최적화·저인망)는 외주비가
+    //   입력된 것만 승인하고, 미입력분은 건너뛴다(금액 없이 계상되는 것을 막기 위함).
+    const approveAll = async () => {
+        if (reports.length === 0) return;
+        const skipped: BlogPostReport[] = [];
+        const jobs: { r: BlogPostReport; outAmount: number | null }[] = [];
+        for (const r of reports) {
+            const brand = isBrandKind(r.blog_kind) || ownBlogIds.has(r.blog_account_id);
+            if (brand) {
+                jobs.push({ r, outAmount: null });
+            } else {
+                const v = Number((amounts[r.id] || '').replace(/[^0-9]/g, ''));
+                if (!v) skipped.push(r);
+                else jobs.push({ r, outAmount: v });
+            }
+        }
+        if (jobs.length === 0) {
+            alert('일괄 승인할 보고가 없습니다. 비-브랜드 보고는 외주비를 입력해야 일괄 승인됩니다.');
+            return;
+        }
+        if (
+            !confirm(
+                `${jobs.length}건을 일괄 승인합니다. (각 건 잔여 -1)` +
+                    (skipped.length ? `\n외주비 미입력 ${skipped.length}건은 제외됩니다.` : ''),
+            )
+        )
+            return;
+        setBulkBusy(true);
+        let ok = 0;
+        const fails: string[] = [];
+        for (const { r, outAmount } of jobs) {
+            const { error } = await approveReport(r, reviewerProfileId, outAmount);
+            if (error) fails.push(`${reporterName(r)}: ${error.message}`);
+            else {
+                ok++;
+                setReports((prev) => prev.filter((x) => x.id !== r.id));
+            }
+        }
+        setBulkBusy(false);
+        onChanged?.();
+        alert(
+            `일괄 승인 완료 · ${ok}건 처리(잔여 -1)` +
+                (skipped.length ? `\n· 외주비 미입력 제외 ${skipped.length}건` : '') +
+                (fails.length ? `\n· 실패 ${fails.length}건:\n${fails.join('\n')}` : ''),
+        );
+    };
+
     const doReject = async (r: BlogPostReport) => {
         setBusy(r.id);
         const { error } = await rejectReport(r.id, reviewerProfileId, rejectReason.trim() || undefined);
@@ -113,13 +162,25 @@ export function ReportReviewModal({
             <div className="max-h-[88vh] w-[min(920px,96vw)] overflow-y-auto rounded-2xl bg-white p-6">
                 <div className="mb-3 flex items-center justify-between">
                     <h3 className="m-0 text-lg font-bold text-[#0f172a]">기자단 글 보고 승인</h3>
-                    <button
-                        className="rounded-md border border-[#cbd5e1] px-3 py-1 text-sm font-semibold text-[#64748b]"
-                        onClick={onClose}
-                        type="button"
-                    >
-                        닫기
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {!loading && reports.length > 0 ? (
+                            <button
+                                className="rounded-md bg-[#16a34a] px-3 py-1 text-sm font-bold text-white hover:bg-[#15803d] disabled:opacity-50"
+                                disabled={bulkBusy || busy !== null}
+                                onClick={() => void approveAll()}
+                                type="button"
+                            >
+                                {bulkBusy ? '일괄 승인 중…' : `일괄 승인 (${reports.length})`}
+                            </button>
+                        ) : null}
+                        <button
+                            className="rounded-md border border-[#cbd5e1] px-3 py-1 text-sm font-semibold text-[#64748b]"
+                            onClick={onClose}
+                            type="button"
+                        >
+                            닫기
+                        </button>
+                    </div>
                 </div>
 
                 {/* 탭: 저장 승인 대기 / 발행 승인 대기 (둘 다 pending) */}

@@ -105,7 +105,11 @@ export type BlogPost = {
     rank_sent_at?: string | null; // 전날 '순위 성과보고' 발송 완료 시각(발행보고와 별개) → 전날 모달 '발송 리스트' + KPI.
     excluded?: boolean; // true = 트래커에서 삭제(우리 기자단이 안 쓴 글 등). 트래커 숨김 + 크롤러 측정·재등록 제외.
     measurements: BlogMeasurement[];
+    extra_keywords?: BlogExtraKeyword[] | null; // 트래커 우측에서 검색해 저장한 추가 키워드(최대 3, 크롤러가 매일 측정).
 };
+
+// 글별 추가 검색 키워드 — 자동 키워드와 별개로 트래커 우측 슬롯에 저장·측정.
+export type BlogExtraKeyword = { keyword: string; measurements: BlogMeasurement[] };
 
 // URL에서 네이버 블로그 아이디 추출 — 경로형(blog.naver.com/puleenbe/…) + 모바일 PostView(?blogId=…) 둘 다.
 export function extractBlogId(url: string): string {
@@ -325,6 +329,15 @@ export async function updatePostKeyword(postId: string, keywordManual: string) {
     const { error } = await supabase
         .from('blog_posts')
         .update({ keyword_manual: value || null })
+        .eq('id', postId);
+    return { error };
+}
+
+// 글별 추가 검색 키워드(우측 1,2,3) 저장 — 검색 시 저장하면 다음 크롤부터 함께 측정된다.
+export async function updatePostExtraKeywords(postId: string, extra: BlogExtraKeyword[]) {
+    const { error } = await supabase
+        .from('blog_posts')
+        .update({ extra_keywords: extra.length ? extra : null })
         .eq('id', postId);
     return { error };
 }

@@ -126,6 +126,34 @@ async function postCafe(
     }
 }
 
+// 후기형 롱폼(누수·청소) — 더반클린·누수탐지 자동발행과 '똑같은' 제목/본문 양식.
+//   제목은 반드시 "{지역} {업종} {동}" 으로 시작, 본문은 nusu2 골격(존댓말 후기체·문단 다수).
+//   brand 는 고객 업체명(비면 업종 기본상수), phone 비면 전화 언급 없음. 이미지 마커는 발행측(interleaveMarkers)이 붙인다.
+export async function generateLongform(input: {
+    region: string;
+    businessKind: 'leak' | 'clean';
+    dong?: string;
+    brand?: string;
+    phone?: string;
+    signal?: AbortSignal;
+}): Promise<{ title: string; body: string }> {
+    const result = await postCafe(
+        {
+            variant: 'longform',
+            businessKind: input.businessKind,
+            region: input.region,
+            dong: input.dong,
+            brand: input.brand,
+            phone: input.phone,
+        },
+        input.signal,
+    );
+    const title = String((result as { title?: unknown }).title ?? '').trim();
+    const body = String((result as { body?: unknown }).body ?? '').trim();
+    if (!title || !body) throw new Error('생성 결과(제목·본문)를 해석하지 못했습니다.');
+    return { title, body };
+}
+
 export async function generateCafe(input: GenerateCafeInput): Promise<GenerateCafeResult> {
     const result = await postCafe(
         {
@@ -145,7 +173,7 @@ export async function generateCafe(input: GenerateCafeInput): Promise<GenerateCa
 export type GenerateCafeReviewResult = { title: string; reviewBody: string; topics?: string[]; usage?: CafeTokenUsage | null; model?: string | null; check?: { ok: boolean; problems: string[] } | null };
 
 // 인기글 필터 — 브라우저는 CORS 로 네이버를 못 부르므로 로컬 서버(:8787)가 대신 검사한다.
-export type PopularReason = 'ok' | 'no_popular' | 'no_review_block' | 'serp_fetch_failed';
+export type PopularReason = 'ok' | 'no_popular' | 'no_review_block' | 'serp_fetch_failed' | 'blocked' | 'crawler_busy';
 export async function checkPopular(keyword: string, signal?: AbortSignal): Promise<{ hasPopular: boolean; reason: PopularReason }> {
     const url = import.meta.env.DEV ? 'http://127.0.0.1:8787/api/cafe-popular-check' : '/api/cafe-popular-check';
     const res = await fetch(url, {

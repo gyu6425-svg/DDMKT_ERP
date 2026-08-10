@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { getClients, type ErpClient } from '../api/erp';
 import { getReporters, getViewers, type ReporterProfile, type ViewerProfile } from '../api/blogRank';
+import { canSeeLeakErp } from '../lib/permissions';
 
 // 회사 / 고객 / 기자단 ERP 토글 — 김종인·송민경(전부), 김다영(회사·기자단).
 //   회사 = 로그인한 본인 뷰. 고객/기자단 = 검색으로 대상 선택(내부 관리자 미리보기, RLS로 이미 접근 가능한 데이터).
@@ -97,7 +98,9 @@ export default function ErpViewSwitcher() {
     const email = (profile?.email || '').toLowerCase();
     const showCustomer = OWNERS.includes(email);
     const showReporter = OWNERS.includes(email) || REPORTER_EXTRA.includes(email);
-    const showToggle = showCustomer || showReporter;
+    // 누수탐지 ERP — 4인 전용. permissions.canSeeLeakErp / DB is_leak_member 와 대상이 같아야 한다.
+    const showLeak = canSeeLeakErp(email);
+    const showToggle = showCustomer || showReporter || showLeak;
 
     // 현재 경로/미리보기 대상 추적.
     const [loc, setLoc] = useState(() => window.location.pathname + window.location.search);
@@ -112,11 +115,13 @@ export default function ErpViewSwitcher() {
     }, []);
     const path = loc.split('?')[0];
     const asId = new URLSearchParams(loc.split('?')[1] || '').get('as') || '';
-    const mode: 'company' | 'customer' | 'reporter' = path.startsWith('/reporter')
+    const mode: 'company' | 'customer' | 'reporter' | 'leak' = path.startsWith('/reporter')
         ? 'reporter'
-        : path.startsWith('/portal')
-          ? 'customer'
-          : 'company';
+        : path.startsWith('/leak')
+          ? 'leak'
+          : path.startsWith('/portal')
+            ? 'customer'
+            : 'company';
 
     // 기자단 목록(검색용) — 기자단 토글 권한자만 로드.
     const [reporters, setReporters] = useState<ReporterProfile[]>([]);
@@ -183,6 +188,7 @@ export default function ErpViewSwitcher() {
                 {tabBtn('회사 ERP', mode === 'company', () => navigate('/dashboard'))}
                 {showCustomer ? tabBtn('고객 ERP', mode === 'customer', () => navigate('/portal/blog')) : null}
                 {showReporter ? tabBtn('기자단 ERP', mode === 'reporter', () => navigate('/reporter')) : null}
+                {showLeak ? tabBtn('누수탐지 ERP', mode === 'leak', () => navigate('/leak')) : null}
             </div>
             {mode === 'customer' && showCustomer ? (
                 <SearchPicker

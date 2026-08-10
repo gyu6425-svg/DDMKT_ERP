@@ -1,0 +1,86 @@
+[
+  {
+    "area": "서울",
+    "region": "기존",
+    "dong": "목동",
+    "keyword": "목동 입주청소",
+    "cafe": null
+  },
+  {
+    "area": "서울",
+    "region": "기존",
+    "dong": "등촌동",
+    "keyword": "등촌동 입주청소",
+    "cafe": null
+  },
+  {
+    "area": "서울",
+    "region": "기존",
+    "dong": "창동",
+    "keyword": "창동 입주청소",
+    "cafe": null
+  },
+  {
+    "area": "서울",
+    "region": "기존",
+    "dong": "길동",
+    "keyword": "길동 입주청소",
+    "cafe": null
+  },
+  {
+    "area": "서울",
+    "region": "기존",
+    "dong": "번동",
+    "keyword": "번동 입주청소",
+    "cafe": null
+  },
+  {
+    "area": "서울",
+    "region": "광진",
+    "dong": "능동",
+    "keyword": "능동 입주청소",
+    "cafe": 3
+  },
+  {
+    "area": "서울",
+    "region": "구로",
+    "dong": "항동",
+    "keyword": "항동 입주청소",
+    "cafe": 3
+  },
+  {
+    "area": "경기/인천",
+    "region": "안산",
+    "dong": "사동",
+    "keyword": "사동 입주청소",
+    "cafe": 3
+  },
+  {
+    "area": "경기/인천",
+    "region": "부천",
+    "dong": "중동",
+    "keyword": "중동 입주청소",
+    "cafe": 3
+  },
+  {
+    "area": "경기/인천",
+    "region": "부천",
+    "dong": "상동",
+    "keyword": "상동 입주청소",
+    "cafe": 4
+  },
+  {
+    "area": "경기/인천",
+    "region": "파주",
+    "dong": "와동동",
+    "keyword": "와동동 입주청소",
+    "cafe": 2
+  },
+  {
+    "area": "경기/인천",
+    "region": "군포",
+    "dong": "당동",
+    "keyword": "당동 입주청소",
+    "cafe": 4
+  }
+]

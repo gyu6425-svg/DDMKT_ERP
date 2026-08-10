@@ -18,6 +18,7 @@ import blog_rank_crawler as c
 import cafe_rank_sync
 import cafe_board_crawl
 import cafe_top5_tracker
+import cafe_token_sync
 
 INTERVAL = int(sys.argv[1]) if len(sys.argv) > 1 else 1800   # 기본 30분
 # 블로그 크롤에 막혔을 때는 30분을 통째로 기다리지 않고 짧게 재시도한다.
@@ -25,7 +26,10 @@ INTERVAL = int(sys.argv[1]) if len(sys.argv) > 1 else 1800   # 기본 30분
 RETRY_SEC = 240
 # 새벽 블로그/카페 크롤 구간 = 측정 금지. Full 이 01:00 시작이므로 00:50 부터 막아 구간 전체를 덮는다
 #   (01:00~08:30 Full → 체인 카페측정 → 09:05 당일건 → 09:20 플레이스까지).
-BUSY_START, BUSY_END = datetime.time(0, 50), datetime.time(9, 30)
+#   ★09:45 까지 연장: 플레이스 크롤은 crawl_status.running 을 안 세워 _blog_active 로 못 막으므로,
+#     플레이스(09:20 시작)가 09:30 을 넘겨 돌 때 카페 09:40 슬롯과 같은 IP 충돌하는 갭을 시간대로 차단.
+#     (독립검증 R1 — 플레이스 무플래그 + band 조기종료 갭. 09:45 로 여유 확보, 카페 첫 측정은 09:55 슬롯.)
+BUSY_START, BUSY_END = datetime.time(0, 50), datetime.time(9, 45)
 
 _seen = {"ua": None, "since": 0.0}
 
@@ -55,10 +59,10 @@ def _in_busy_band():
     return BUSY_START <= t <= BUSY_END
 
 
-# 카페 '당일 크롤' 고정 슬롯 — 매시 :20 / :50.
-#   블로그 당일크롤이 :05/:35 이므로 정확히 15분 어긋나 시간대가 절대 겹치지 않는다.
-#   (기존 '시작 시각 기준 30분마다'는 시간이 흐르며 위상이 물려 매번 건너뛰던 문제가 있었음.)
-SLOT_MINUTES = (20, 50)
+# 카페 '당일 크롤' 고정 슬롯 — 매시 :10 / :25 / :40 / :55 (15분 주기).
+#   발행현황·순위트래커 반영을 빠르게(발행 후 최대 15분). 블로그 당일크롤(:05/:35)과 최소 5분 이격 + _blog_active 게이트로 겹침 방지.
+#   (기존 :20/:50 = 30분 주기라 발행 반영이 느렸음.)
+SLOT_MINUTES = (10, 25, 40, 55)
 
 
 def _sleep_to_next_slot():
@@ -74,14 +78,21 @@ def _sleep_to_next_slot():
 
 def _measure_new():
     today = datetime.date.today().isoformat()
-    posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*"})
-    # 대상 = ① 오늘 미측정 글 + ② 현재 5위 안인 글(30분마다 재측정해 24h 유지 여부 확인 — 사용자 선택).
-    def _top5(p):
+    # 최신 발행 우선 정렬 — 측정 창이 짧게 끊겨도 최근 등록 글이 뒤로 반복 밀리지 않게(독립검증 R3).
+    posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*", "order": "published_date.desc.nullslast"})
+    posts = [p for p in posts if (p.get("cafe_name") or "").strip() != "ddmkt2"]  # 마이클정보세상(ddmkt2) 순위체크 제외(사용자 지정)
+    # 대상 = ① 오늘 미측정 글 + ② 매 사이클(15분) 재측정: 현재 순위권(ok) OR 최근 발행 신규글.
+    #   순위권 글은 순위 변동을 바로바로 반영, 최근 신규글은 아직 변동이 커 매번 추적(진입/이탈 즉시 포착).
+    #   권외·측정불가 옛글은 매 사이클 안 돌고 하루 1회만(전체 재측정 시 ~22분=차단위험이라 순위권+신규로 한정).
+    recent_cut = (datetime.date.today() - datetime.timedelta(days=2)).isoformat()  # 최근 2일 발행분
+    def _track(p):
         ms = p.get("measurements") or []
         cur = ms[-1] if ms else {}
-        return cur.get("ti_status") == "ok" and isinstance(cur.get("ti"), (int, float)) and not isinstance(cur.get("ti"), bool) and cur.get("ti") <= 5
+        ranked = cur.get("ti_status") == "ok"                      # 현재 순위권 = 순위 변동 즉시 반영
+        recent = (p.get("published_date") or "") >= recent_cut     # 최근 신규글 = 변동 큼, 매번 추적
+        return ranked or recent
     todo = [p for p in posts
-            if (not any((m.get("date") == today) for m in (p.get("measurements") or []))) or _top5(p)]
+            if (not any((m.get("date") == today) for m in (p.get("measurements") or []))) or _track(p)]
     if not todo:
         print(f"[{datetime.datetime.now():%H:%M}] 재측정 대상 없음 — {len(posts)}글", flush=True)
         return
@@ -107,43 +118,87 @@ def _measure_new():
         c._pause(c.REQUEST_DELAY)
 
 
+def _measure_priority(cap=20):
+    """블로그 당일크롤 중에도 '오늘 발행 신규글'만 소량 우선 측정 — 발행 직후 순위 즉시 반영.
+       대량(전체 순위권) 재측정은 블로그 끝난 자유슬롯에서 _measure_new 가 한다. m.search 소량이라 부하 낮음."""
+    today = datetime.date.today().isoformat()
+    posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*",
+                                         "published_date": f"eq.{today}", "order": "created_at.desc"})
+    posts = [p for p in posts if (p.get("cafe_name") or "").strip() != "ddmkt2"]  # 마이클정보세상(ddmkt2) 순위체크 제외(사용자 지정)
+    todo = [p for p in posts
+            if not any((m.get("date") == today) for m in (p.get("measurements") or []))][:cap]
+    if not todo:
+        return
+    print(f"[{datetime.datetime.now():%H:%M}] (블로그 중) 오늘 신규 {len(todo)}글 우선측정", flush=True)
+    for p in todo:
+        kw = (p.get("keyword_manual") or p.get("keyword") or "").strip()
+        aid = str(p.get("article_id") or "").strip()
+        if not kw or not aid:
+            continue
+        club = str(p.get("club_id")).strip() if p.get("club_id") else None
+        ti, ti_s = c.measure_cafe_rank(kw, (p.get("cafe_name") or "").strip() or None, aid, club_id=club)
+        recs = [r for r in (p.get("measurements") or []) if r.get("date") != today]
+        recs.append({"date": today, "ti": ti, "ti_status": ti_s})
+        try:
+            c.sb_patch("cafe_rank_posts", {"id": f"eq.{p['id']}"}, {"measurements": recs})
+        except Exception as exc:
+            print(f"    [저장실패] #{aid}: {exc}", flush=True)
+        tag = f"{ti}위" if ti_s == "ok" else ti_s
+        print(f"    [{p.get('board') or '?'}] #{aid} '{kw}' → {tag}", flush=True)
+        c._pause(c.REQUEST_DELAY)
+
+
 def main():
     c.need_config()
     print(f"[카페 주기측정 시작] {datetime.datetime.now():%H:%M} · 간격 {INTERVAL // 60}분 · 블로그크롤 겹침 방지 게이트 ON", flush=True)
     while True:
-        # 게이트: 블로그 크롤 중이거나 새벽 바쁜 시간대면 네이버 접촉 전부 건너뜀(겹침 방지)
-        if _blog_active():
-            print(f"[{datetime.datetime.now():%H:%M}] 블로그 크롤 중 — {RETRY_SEC // 60}분 뒤 재시도", flush=True)
-            time.sleep(RETRY_SEC)   # 당일크롤은 금방 끝나므로 짧게 재시도(위상 겹침 방지)
-            continue
+        # ① 새벽 Full 구간(00:50~09:45) = 전면 양보 — 무거운 새벽 크롤과 절대 겹치지 않게 등록·측정 모두 건너뜀.
         if _in_busy_band():
             print(f"[{datetime.datetime.now():%H:%M}] 새벽 크롤 시간대({BUSY_START:%H:%M}~{BUSY_END:%H:%M}) — 건너뜀", flush=True)
-        else:
-            # 1) 게시판 직접 수집(네이버 API) — 발행경로 무관하게 신규글 등록
+            _sleep_to_next_slot()
+            continue
+        # ② 당일 블로그 크롤 중 — 등록(게시판 API=m.search 안 씀, 무충돌)은 항상 + 오늘 신규글만 우선측정(소량).
+        #    대량 재측정(전체 순위권)은 블로그 끝난 자유슬롯에서. → 발행 직후 '오늘 발행'·순위가 바로 잡힘.
+        if _blog_active():
             try:
                 cafe_board_crawl.main()
             except SystemExit:
                 pass
             except Exception as exc:
                 print(f"  게시판수집 오류: {exc}", flush=True)
-            # 2) 발행큐 sync(DB만, 중복 무해)
             try:
-                cafe_rank_sync.main()
-            except SystemExit:
-                pass
+                _measure_priority()
             except Exception as exc:
-                print(f"  sync 오류: {exc}", flush=True)
-            # 3) 신규 포함 미측정 글 + 현재 5위 글 재측정
-            try:
-                _measure_new()
-            except Exception as exc:
-                print(f"  측정 오류: {exc}", flush=True)
-            # 4) 5위 24h 유지 실적 집계(글별 상태만 갱신, done_count 미변경)
-            try:
-                cafe_top5_tracker.run()
-            except Exception as exc:
-                print(f"  top5 집계 오류: {exc}", flush=True)
-        _sleep_to_next_slot()   # 다음 고정 슬롯(:20/:50)까지 — 블로그 당일크롤(:05/:35)과 15분 어긋남
+                print(f"  우선측정 오류: {exc}", flush=True)
+            print(f"[{datetime.datetime.now():%H:%M}] 블로그 크롤 중 — 등록+신규측정만, {RETRY_SEC // 60}분 뒤 재시도", flush=True)
+            time.sleep(RETRY_SEC)
+            continue
+        # ③ 자유 슬롯 — 풀 사이클(등록 + sync + 전체 재측정 + 실적/토큰).
+        try:
+            cafe_board_crawl.main()   # 게시판 직접 수집 — 발행경로 무관 신규글 등록
+        except SystemExit:
+            pass
+        except Exception as exc:
+            print(f"  게시판수집 오류: {exc}", flush=True)
+        try:
+            cafe_rank_sync.main()     # 발행큐 sync(DB만)
+        except SystemExit:
+            pass
+        except Exception as exc:
+            print(f"  sync 오류: {exc}", flush=True)
+        try:
+            _measure_new()            # 신규+순위권 전체 재측정
+        except Exception as exc:
+            print(f"  측정 오류: {exc}", flush=True)
+        try:
+            cafe_top5_tracker.run()   # 5위 24h 유지 실적 집계
+        except Exception as exc:
+            print(f"  top5 집계 오류: {exc}", flush=True)
+        try:
+            cafe_token_sync.sync()    # 발행 토큰 동기화
+        except Exception as exc:
+            print(f"  토큰 sync 오류: {exc}", flush=True)
+        _sleep_to_next_slot()   # 다음 고정 슬롯(:10/:25/:40/:55)까지
 
 
 if __name__ == "__main__":

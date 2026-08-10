@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { excludeBlogPost, todayKST } from '../../../api/blogRank';
+import { excludeBlogPost, todayKST, updatePostExtraKeywords, type BlogExtraKeyword } from '../../../api/blogRank';
 import { dayN, lastM, PER_FEED } from '../lib/helpers';
 import { Pager } from '../lib/ui';
 import { useBlogRank } from '../lib/BlogRankContext';
 import { PostSearchCell } from '../components/PostSearchCell';
+import { QuickRankLookup } from '../components/QuickRankLookup';
 import { RankCell } from '../components/RankCell';
 
 export function TrackerTab() {
@@ -43,17 +44,13 @@ export function TrackerTab() {
     const [inOnly, setInOnly] = useState(initialInOnly);
     const [pubFilter, setPubFilter] = useState<'all' | 'today' | 'yesterday'>('all'); // 당일/전날 발행 필터
     const [page, setPage] = useState(1);
-    // 우측 '키워드 검색' 결과 슬롯 — post.id → 최근 검색 최대 3개(세션 유지). 자동키워드 순위와 별개로 쌓임.
-    type Slot = { kw: string; ti: number; ti_status: string; bl: number; bl_status: string };
-    const [extraByPost, setExtraByPost] = useState<Record<string, Slot[]>>({});
-    const addExtra = (postId: string, kw: string, r: Omit<Slot, 'kw'>) => {
-        setExtraByPost((prev) => {
-            const cur = prev[postId] || [];
-            const rest = cur.filter((e) => e.kw !== kw); // 같은 키워드는 최신값으로 교체
-            return { ...prev, [postId]: [...rest, { kw, ...r }].slice(-3) }; // 최근 3개만
-        });
+    // 우측 '키워드 검색' 슬롯은 이제 글에 저장(post.extra_keywords) → 새로고침해도 유지 + 크롤러가 매일 측정.
+    //   검색해둔 키워드 제거(×).
+    const removeExtra = async (postId: string, extra: BlogExtraKeyword[], kw: string) => {
+        await updatePostExtraKeywords(postId, extra.filter((e) => e.keyword !== kw));
+        await onReload();
     };
-    const rankLabel = (v: number, status: string) =>
+    const rankLabel = (v: number, status?: string) =>
         status === 'ok' ? `${v}위` : status === 'fail' ? '실패' : '권외';
     // 오늘/어제(KST) — 발행일 필터용.
     const today = todayKST();
@@ -122,6 +119,8 @@ export function TrackerTab() {
 
     return (
         <div className="grid gap-3">
+            {/* 즉석 순위 조회 — 계약 업체와 무관하게 주소+키워드로 1회성 조회(내부 전용). 탭바와 이름검색 사이. */}
+            {!external ? <QuickRankLookup /> : null}
             <input
                 aria-label="블로그 이름 검색"
                 className="h-11 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
@@ -243,7 +242,6 @@ export function TrackerTab() {
                                             hideEdit={customerMode}
                                             post={p}
                                             onSaved={onReload}
-                                            onExtraResult={(kw, r) => addExtra(p.id, kw, r)}
                                         />
                                     </td>
                                     <td className="px-3 py-2">
@@ -283,26 +281,37 @@ export function TrackerTab() {
                                     <td className="px-3 py-2 text-center">
                                         <RankCell post={p} keyName="bl" />
                                     </td>
-                                    {/* 직접 검색한 키워드 결과 슬롯 3개 — #키워드 아래 통합/블로그 순위 작게 */}
+                                    {/* 저장된 추가 키워드 슬롯 3개(post.extra_keywords) — 새로고침해도 유지·크롤러가 매일 측정. */}
                                     {[0, 1, 2].map((i) => {
-                                        const slot = (extraByPost[p.id] || [])[i];
+                                        const ek = (p.extra_keywords || [])[i];
+                                        const last = ek?.measurements?.[ek.measurements.length - 1];
                                         return (
                                             <td className="px-2 py-2 text-center align-top" key={i}>
-                                                {slot ? (
-                                                    <div className="min-w-[84px]">
+                                                {ek && last ? (
+                                                    <div className="group/slot relative min-w-[84px]">
                                                         <div
-                                                            className="truncate text-[11px] font-semibold text-[#7c3aed]"
-                                                            title={slot.kw}
+                                                            className="truncate pr-3 text-[11px] font-semibold text-[#7c3aed]"
+                                                            title={ek.keyword}
                                                         >
-                                                            #{slot.kw}
+                                                            #{ek.keyword}
                                                         </div>
+                                                        {!customerMode ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => void removeExtra(p.id, p.extra_keywords || [], ek.keyword)}
+                                                                className="absolute right-0 top-0 hidden text-[11px] text-[#cbd5e1] hover:text-[#dc2626] group-hover/slot:block"
+                                                                title="이 추가 키워드 삭제(크롤 중단)"
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        ) : null}
                                                         <div className="mt-0.5 text-[11px] leading-tight">
                                                             <span className="font-bold text-[#059669]">
-                                                                통합 {rankLabel(slot.ti, slot.ti_status)}
+                                                                통합 {rankLabel(last.ti, last.ti_status)}
                                                             </span>
                                                             <span className="mx-1 text-[#cbd5e1]">·</span>
                                                             <span className="font-bold text-[#1e40af]">
-                                                                블로그 {rankLabel(slot.bl, slot.bl_status)}
+                                                                블로그 {rankLabel(last.bl, last.bl_status)}
                                                             </span>
                                                         </div>
                                                     </div>

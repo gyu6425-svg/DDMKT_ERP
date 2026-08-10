@@ -8,6 +8,7 @@ export type AuthContextValue = {
   loading: boolean
   profile: Profile | null
   pending: boolean // 로그인됐으나 프로필이 비활성(회원가입 후 관리자 승인 대기)
+  needsOnboarding: boolean // 카카오 가입 후 온보딩(역할·업체명) 미완료 → 온보딩 폼 표시
   session: Session | null
   signOut: () => Promise<void>
   user: User | null

@@ -15,7 +15,8 @@ import BannerGeneratorPage from './routes/BannerGeneratorPage';
 import LoginPage from './routes/LoginPage';
 import SignupPage from './routes/SignupPage';
 import PendingApprovalGate from './components/PendingApprovalGate';
-import { SIGNUP_ENABLED } from './lib/authConfig';
+import OnboardingGate from './components/OnboardingGate';
+import { SIGNUP_ENABLED, AUTH_DISABLED } from './lib/authConfig';
 import MemosPage from './routes/MemosPage';
 import MyPage from './routes/MyPage';
 import PowerLinkPage from './routes/PowerLinkPage';
@@ -26,6 +27,7 @@ import ReporterPortalPage from './routes/ReporterPortalPage';
 import { SkeletonRankPage, PlaceRankPage, CategoryDashPage } from './components/categoryRank/SkeletonRankPage';
 import InstaRankPage from './routes/InstaRankPage';
 import CafeRankPage from './routes/CafeRankPage';
+import LeakPage from './routes/LeakPage';
 import { UpdateBanner } from './components/UpdateBanner';
 
 const routes = [
@@ -58,6 +60,13 @@ const routes = [
     { path: '/portal/video', element: <CustomerCategoryPage /> },
     { path: '/portal/blog', element: <CustomerCategoryPage /> },
     { path: '/reporter', element: <ReporterPortalPage /> },
+    // 누수탐지 ERP(4인 전용 — 페이지 자체에서 게이트). 메뉴 전환은 사이드바.
+    { path: '/leak', element: <LeakPage section="customers" /> },
+    { path: '/leak/jobs', element: <LeakPage section="jobs" /> },
+    { path: '/leak/ledger', element: <LeakPage section="ledger" /> },
+    { path: '/leak/outsourcing', element: <LeakPage section="outsourcing" /> },
+    { path: '/leak/blog', element: <LeakPage section="blog" /> },
+    { path: '/leak/cafe', element: <LeakPage section="cafe" /> },
     { path: '/banner-generator', element: <BannerGeneratorPage /> },
     { path: '/powerlink', element: <PowerLinkPage /> },
     { path: '/mypage', element: <MyPage /> },
@@ -66,7 +75,7 @@ const routes = [
 
 function App() {
     const [currentPath, setCurrentPath] = useState(window.location.pathname);
-    const { role, loading, pending } = useAuth();
+    const { role, loading, pending, needsOnboarding } = useAuth();
     // 고객(viewer) = 고객 포털(/portal)만. 기자단(reporter) = 기자단 포털(/reporter)만. 회사 ERP 경로 차단.
     const isCustomer = role === 'viewer';
     const isReporter = role === 'reporter';
@@ -125,6 +134,17 @@ function App() {
         );
     }
 
+    // 카카오 가입 후 온보딩 미완료(또는 프로필 미생성) — 역할·업체명 입력 화면만(승인 대기보다 먼저).
+    //   AUTH_DISABLED(개발 익명세션)에선 프로필이 없어도 온보딩 게이트를 띄우지 않는다.
+    if (!loading && !AUTH_DISABLED && needsOnboarding) {
+        return (
+            <>
+                <UpdateBanner />
+                <OnboardingGate />
+            </>
+        );
+    }
+
     // 회원가입 후 승인 대기(프로필 비활성) — 데이터 접근 차단, 승인 대기 화면만.
     if (!loading && pending) {
         return (
@@ -140,6 +160,8 @@ function App() {
         isExternal && !currentPath.startsWith(externalHome) ? externalHome : currentPath;
     const currentRoute = routes.find((route) => route.path === effectivePath) ?? routes[0];
     const isBannerGeneratorActive = !isExternal && currentPath === '/banner-generator';
+    // 누수탐지 ERP = 회사 ERP와 별도 영역 — 사이드바 메뉴가 누수 전용으로 바뀐다(Sidebar isLeakView).
+    const isLeakErp = effectivePath.startsWith('/leak');
 
     return (
         <>
@@ -147,7 +169,7 @@ function App() {
             <ProtectedRoute>
                 <ErpDataProvider>
                     <Layout>
-                        {!isExternal ? (
+                        {!isExternal && !isLeakErp ? (
                             <div hidden={!isBannerGeneratorActive}>
                                 <BannerGeneratorPage />
                             </div>

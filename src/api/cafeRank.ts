@@ -20,7 +20,7 @@ export type CafeRankPost = {
     top5_achieved_at?: string | null; // 5위 24h 유지 달성 시각(실적)
     top5_seeded?: boolean | null; // 수동 베이스라인에 포함된 글(자동 카운트 제외)
     cafe_account_id?: string | null;
-    cafe_accounts?: { company_key: string; display_name: string; board_short: string } | null;
+    cafe_accounts?: { company_key: string; display_name: string; board_short: string; client_id?: string | null } | null;
     excluded: boolean;
     measurements: CafeMeasurement[];
 };
@@ -42,7 +42,7 @@ export function parseCafeUrl(url: string): { clubId: string | null; cafeName: st
 export async function getCafeRankPosts() {
     const joined = await supabase
         .from('cafe_rank_posts')
-        .select('*,cafe_accounts(company_key,display_name,board_short)')
+        .select('*,cafe_accounts(company_key,display_name,board_short,client_id)')
         .eq('excluded', false)
         .order('published_date', { ascending: false, nullsFirst: false });
     if (!joined.error) return { data: (joined.data ?? []) as unknown as CafeRankPost[], error: null };
@@ -54,6 +54,58 @@ export async function getCafeRankPosts() {
         .eq('excluded', false)
         .order('published_date', { ascending: false, nullsFirst: false });
     return { data: (legacy.data ?? []) as CafeRankPost[], error: legacy.error };
+}
+
+// 이 업체(client)의 순위 트래킹 글 목록 — 자동화발행 스튜디오 하단 '발행 히스토리'.
+//   실적 집계(cafe_contract_sync)와 동일 매칭: cafe_account_id ∈ 이 client 계정 OR board ∈ board_short.
+export async function getCafeRankPostsForClient(clientId: string): Promise<CafeRankPost[]> {
+    const { data: accs } = await supabase.from('cafe_accounts')
+        .select('id,board_short,company_key').eq('client_id', clientId);
+    const ids = new Set((accs ?? []).map((a) => (a as { id: string }).id));
+    const boards = new Set((accs ?? []).map((a) => (a as { board_short: string | null }).board_short).filter(Boolean));
+    const keys = new Set((accs ?? []).map((a) => (a as { company_key: string | null }).company_key).filter(Boolean));
+    const { data } = await supabase.from('cafe_rank_posts')
+        .select('*,cafe_accounts(company_key,display_name,board_short)')
+        .eq('excluded', false)
+        .order('published_date', { ascending: false, nullsFirst: false });
+    const rows = (data ?? []) as unknown as CafeRankPost[];
+    return rows.filter((p) =>
+        (p.cafe_account_id && ids.has(p.cafe_account_id)) ||
+        (p.board && boards.has(p.board)) ||
+        (p.cafe_accounts?.company_key && keys.has(p.cafe_accounts.company_key)),
+    );
+}
+
+// 측정 배열에서 가장 최근(날짜 큰) 1건.
+export function latestCafeMeasure(ms: CafeMeasurement[] | null | undefined): CafeMeasurement | null {
+    if (!ms?.length) return null;
+    return [...ms].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+}
+
+// 카페 순위 상태 정규화 — 크롤러가 인기섹션(ok/out/no_section)과 글목록(list_ok/list_out/no_list) 두 방식 상태를 섞어 저장한다.
+//   UI 표시는 4가지로 통일: ranked(순위 있음) / out(권외) / no_section(측정불가·섹션없음) / fail(측정실패).
+//   ⚠️ 이 매핑이 없으면 list_out·no_list 가 UI에서 '순위 있음(99위)'으로 오표시된다(실측 26건).
+export function cafeTiStatus(s?: string | null): 'ranked' | 'out' | 'no_section' | 'fail' {
+    if (s === 'fail') return 'fail';
+    if (s === 'ok' || s === 'list_ok') return 'ranked';
+    if (s === 'no_section' || s === 'no_list') return 'no_section';
+    return 'out'; // out · list_out · 기타 → 권외
+}
+// 순위 표시 라벨 — 'N위' / '권외' / '측정불가' / '실패' / '측정 대기'.
+export function cafeRankLabel(m: CafeMeasurement | null | undefined): string {
+    if (!m) return '측정 대기';
+    const s = cafeTiStatus(m.ti_status);
+    return s === 'ranked' ? `${m.ti}위` : s === 'out' ? '권외' : s === 'no_section' ? '측정불가' : '실패';
+}
+// 순위를 확인한 그 검색 화면 URL — 크롤러 measure_cafe_rank 와 같은 주소여야 화면과 순위가 일치한다.
+//   crawler/blog_rank_crawler.py:1417 = m.search.naver.com/search.naver?query=... (모바일 통합검색).
+//   PC(search.naver.com)로 열면 인기글 섹션 구성이 달라 순위가 어긋난다 → 모바일 고정.
+export const cafeSearchUrl = (kw: string) => `https://m.search.naver.com/search.naver?query=${encodeURIComponent(kw)}`;
+// 순위가 어느 자리에서 잡힌 것인지 — 인기글 섹션(ok) / 통합리스트(list_ok). 링크 tooltip 안내용.
+export function cafeRankWhere(s?: string | null): string {
+    if (s === 'ok') return '인기글 섹션';
+    if (s === 'list_ok') return '통합검색 리스트';
+    return '';
 }
 
 // 등록 — (cafe_name, article_id) 유니크. 이미 있으면 keyword/title/url 갱신(measurements 보존).

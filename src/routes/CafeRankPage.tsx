@@ -3,8 +3,9 @@ import { CafeDashboardTab } from '../components/cafeRank/pages/CafeDashboardTab'
 import { CafeTrackerTab } from '../components/cafeRank/pages/CafeTrackerTab';
 import { CafeSheetTab } from '../components/cafeRank/pages/CafeSheetTab';
 import { CafeCrawlStatusTab } from '../components/cafeRank/pages/CafeCrawlStatusTab';
+import { CafeAdminPublishTab } from '../components/cafeRank/pages/CafeAdminPublishTab';
 
-// 카페 대시보드 — 플레이스와 동일 구조(대시보드/관리시트 통합/순위/크롤 + 하위는 관리시트만).
+// 카페 대시보드 — 플레이스와 동일 구조. '카페 배포' 하위 = 관리시트 + 순위트래커 + 자동화 발행 + 크롤링 현황.
 function CafeRankPage() {
     return (
         <CategoryDashPage
@@ -14,6 +15,7 @@ function CafeRankPage() {
             label="카페"
             sheet={<CafeSheetTab />}
             tracker={<CafeTrackerTab />}
+            automation={<CafeAdminPublishTab />}
         />
     );
 }

@@ -12,6 +12,7 @@ import { computeRecordCostUsd, extractTokenBreakdown, formatKrw, formatUsd } fro
 import { WORK_CATEGORIES, categoryLabel } from '../lib/categories';
 import { useAuth } from '../hooks/useAuth';
 import Button from '../components/Button';
+import BlogSavePanel from '../components/blogRank/components/BlogSavePanel';
 
 const TONES: Array<{ value: NonNullable<GenerateBlogInput['tone']>; label: string }> = [
     { label: '정보형', value: 'info' },
@@ -360,6 +361,11 @@ function BlogPage() {
                             왼쪽에서 조건을 입력하고 글을 생성하세요
                         </p>
                     )}
+                    {/* 생성된 원고를 네이버 블로그에 '임시저장'까지만 자동으로 넣어두는 요청 패널.
+                        발행은 사람이 임시저장함에서 검수 후 직접 한다(발행 자동화는 범위 밖). */}
+                    {result ? (
+                        <BlogSavePanel body={result} title={parseBlogTitle(result) || topic} />
+                    ) : null}
                 </div>
             </div>
         </section>

@@ -78,6 +78,7 @@ export function CategoryDashPage({
     tracker,
     crawl,
     sheet: customSheet,
+    automation,
 }: {
     category: string;
     label: string;
@@ -85,6 +86,7 @@ export function CategoryDashPage({
     tracker?: ReactNode;
     crawl?: ReactNode;
     sheet?: ReactNode;
+    automation?: ReactNode; // 있으면 '순위 트래커'와 '크롤링 현황' 사이에 '자동화 발행' 탭 추가(카페 전용)
 }) {
     const href = useLocHref();
     const displayLabel = subLabelOf(href, `${label} 대시보드`);
@@ -92,11 +94,14 @@ export function CategoryDashPage({
 
     if (hasSub) {
         const scope = resolveScope(href);
-        const sheet = scope ? (
-            customSheet ?? <ContractSheetTab category={scope.category} subtype={scope.subtype} />
-        ) : (
-            <Placeholder name={displayLabel} />
-        );
+        const sub = new URLSearchParams(href.split('?')[1] || '').get('sub');
+        // 카페 '카페 배포' 하위 = 발행 워크스페이스(관리시트 + 순위트래커 + 자동화 발행 + 크롤링 현황).
+        const cafeDeploy = !!automation && sub === '카페 배포';
+        const sheet = cafeDeploy
+            ? (customSheet ?? <ContractSheetTab category={category} />)
+            : scope
+                ? (customSheet ?? <ContractSheetTab category={scope.category} subtype={scope.subtype} />)
+                : <Placeholder name={displayLabel} />;
         // 하위 뷰에도 '순위 트래커' 탭을 함께 노출 → 관리 시트에서 업체 클릭(?tab=tracker) 시 트래커로 이동 가능.
         return (
             <CategoryShell
@@ -104,6 +109,12 @@ export function CategoryDashPage({
                 tabs={[
                     { name: '관리 시트', el: sheet, slug: 'sheet' },
                     { name: '순위 트래커', el: tracker ?? <Placeholder name="순위 트래커" />, slug: 'tracker' },
+                    ...(cafeDeploy
+                        ? [
+                              { name: '자동화 발행', el: automation, slug: 'automation' },
+                              { name: '크롤링 현황', el: crawl ?? <Placeholder name="크롤링 현황" />, slug: 'crawl' },
+                          ]
+                        : []),
                 ]}
             />
         );
@@ -117,7 +128,8 @@ export function CategoryDashPage({
                 { name: '대시보드', el: dashboard ?? <Placeholder name={`${label} 대시보드`} />, slug: 'dashboard' },
                 { name: '관리 시트', el: customSheet ?? <ContractSheetTab category={category} />, slug: 'sheet' },
                 { name: '순위 트래커', el: tracker ?? <Placeholder name="순위 트래커" />, slug: 'tracker' },
-                { name: '크롤링 현황', el: crawl ?? <Placeholder name="크롤링 현황" />, slug: 'crawl' },
+                // 카페(automation 있음)는 크롤링 현황을 '카페 배포' 하위로 이동 → 메인 대시보드에서 제외.
+                ...(automation ? [] : [{ name: '크롤링 현황', el: crawl ?? <Placeholder name="크롤링 현황" />, slug: 'crawl' }]),
             ]}
         />
     );

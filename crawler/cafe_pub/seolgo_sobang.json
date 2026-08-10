@@ -1,0 +1,121 @@
+{
+  "step1": [
+    {
+      "region": "광명",
+      "top": 6,
+      "done": false
+    },
+    {
+      "region": "안산",
+      "top": 3,
+      "done": false
+    },
+    {
+      "region": "구리",
+      "top": 4,
+      "done": false
+    },
+    {
+      "region": "의왕",
+      "top": 4,
+      "done": false
+    },
+    {
+      "region": "천안",
+      "top": 3,
+      "done": false
+    },
+    {
+      "region": "대전",
+      "top": 3,
+      "done": false
+    },
+    {
+      "region": "울산",
+      "top": 4,
+      "done": false
+    },
+    {
+      "region": "창원",
+      "top": 4,
+      "done": false
+    },
+    {
+      "region": "부천",
+      "top": 4,
+      "done": false
+    },
+    {
+      "region": "용인",
+      "top": 4,
+      "done": false
+    },
+    {
+      "region": "안양",
+      "top": 3,
+      "done": false
+    }
+  ],
+  "step2": [
+    {
+      "gu": "종로구",
+      "form": "일반형",
+      "top": 4
+    },
+    {
+      "gu": "중구",
+      "form": "구형",
+      "top": 5
+    },
+    {
+      "gu": "광진구",
+      "form": "일반형",
+      "top": 3
+    },
+    {
+      "gu": "성북구",
+      "form": "일반형",
+      "top": 4
+    },
+    {
+      "gu": "도봉구",
+      "form": "일반형",
+      "top": 5
+    },
+    {
+      "gu": "노원구",
+      "form": "일반형",
+      "top": 4
+    },
+    {
+      "gu": "마포구",
+      "form": "일반형",
+      "top": 5
+    },
+    {
+      "gu": "강서구",
+      "form": "일반형",
+      "top": 5
+    },
+    {
+      "gu": "동작구",
+      "form": "일반형",
+      "top": 5
+    },
+    {
+      "gu": "관악구",
+      "form": "일반형",
+      "top": 3
+    },
+    {
+      "gu": "송파구",
+      "form": "일반형",
+      "top": 3
+    },
+    {
+      "gu": "강동구",
+      "form": "일반형",
+      "top": 5
+    }
+  ]
+}

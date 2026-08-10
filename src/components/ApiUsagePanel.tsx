@@ -26,28 +26,35 @@ function formatDateTime(value: string) {
 
 type UsageKind = 'all' | 'banner' | 'blog' | 'post' | 'image';
 
-// 배너(이미지) = banner_size 있음, 블로그(텍스트) = model 'blog'.
-// 카페: 원고 = model 'cafe-post'(텍스트), 이미지 = model 'cafe-card'.
-function isBanner(record: ApiUsageRecord) {
-    return Boolean(record.banner_size);
-}
-function isBlog(record: ApiUsageRecord) {
-    return record.model === 'blog';
-}
+// 카페: 원고 = 'cafe-post'(텍스트), 이미지 = 'cafe-card'(+mini),
+//       더맨시스템 보안배너 = 'sec-card'/'sec-card2'(+mini) · 항목 = 'sec-items'(+mini).
+// 블로그: 원고 = 'blog'(텍스트, BlogPage) · 배너 = 블로그용 이미지 생성(아직 기록 없음).
 function isCafePost(record: ApiUsageRecord) {
     return record.model === 'cafe-post';
 }
 function isCafeCard(record: ApiUsageRecord) {
     return record.model === 'cafe-card' || record.model === 'cafe-card-mini';
 }
+// 더맨시스템(보안배너)도 카페 탭에서 쓰는 기능이라 '카페 자동화'에 포함.
+function isTheman(record: ApiUsageRecord) {
+    return (record.model || '').startsWith('sec-');
+}
 function isCafe(record: ApiUsageRecord) {
-    return isCafePost(record) || isCafeCard(record);
+    return isCafePost(record) || isCafeCard(record) || isTheman(record);
+}
+function isBlogPost(record: ApiUsageRecord) {
+    return record.model === 'blog';
+}
+// 블로그 배너 = 이미지(banner_size 있음)인데 카페/더맨 것이 아닌 것.
+// 현재는 0건이지만 블로그 배너 생성 기능을 쓰면 여기에 잡힌다.
+function isBlogBanner(record: ApiUsageRecord) {
+    return Boolean(record.banner_size) && !isCafeCard(record) && !isTheman(record);
 }
 
 const KIND_TABS_ALL: Array<{ id: UsageKind; label: string }> = [
     { id: 'all', label: '전체' },
-    { id: 'banner', label: '배너' },
-    { id: 'blog', label: '블로그' },
+    { id: 'banner', label: '카페 자동화' },
+    { id: 'blog', label: '블로그 배너 생성' },
 ];
 const KIND_TABS_CAFE: Array<{ id: UsageKind; label: string }> = [
     { id: 'all', label: '전체' },
@@ -90,8 +97,8 @@ function ApiUsagePanel({ scope = 'all' }: { scope?: 'all' | 'cafe' } = {}) {
         () =>
             records.filter((record) => {
                 if (scope === 'cafe' && !isCafe(record)) return false;
-                if (kind === 'banner') return isBanner(record);
-                if (kind === 'blog') return isBlog(record);
+                if (kind === 'banner') return isCafe(record);        // '카페 자동화'
+                if (kind === 'blog') return isBlogBanner(record);    // '블로그 배너 생성'
                 if (kind === 'post') return isCafePost(record);
                 if (kind === 'image') return isCafeCard(record);
                 return true;
@@ -241,14 +248,16 @@ function ApiUsagePanel({ scope = 'all' }: { scope?: 'all' | 'cafe' } = {}) {
                                         </td>
                                         <td className="px-3 py-2 text-[#374151]">
                                             {isCafePost(record)
-                                                ? '원고'
+                                                ? '카페 원고'
                                                 : isCafeCard(record)
-                                                  ? '이미지'
-                                                  : isBanner(record)
-                                                    ? '배너'
-                                                    : isBlog(record)
-                                                      ? '블로그'
-                                                      : '-'}
+                                                  ? '카페 이미지'
+                                                  : isTheman(record)
+                                                    ? '더맨시스템'
+                                                    : isBlogBanner(record)
+                                                      ? '블로그 배너'
+                                                      : isBlogPost(record)
+                                                        ? '블로그 원고'
+                                                        : '-'}
                                         </td>
                                         <td className="px-3 py-2 text-[#374151]">
                                             {record.banner_size

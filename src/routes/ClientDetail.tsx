@@ -10,6 +10,7 @@ import {
     type RewardWeeklyLog,
 } from '../api/clientContracts';
 import { ensureClientBlogAccount, getBlogAccounts, syncBlogAccountFromContract, updateBlogAccount } from '../api/blogRank';
+import { getCafeAccounts, type CafeAccount } from '../api/cafeAccounts';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import {
     PRODUCT_CATEGORIES,
@@ -28,6 +29,7 @@ import TaxGuidelineModal, { type ParsedProduct } from '../components/TaxGuidelin
 import { canIssueClientAccount } from '../lib/permissions';
 import { PlaceUrlField } from '../components/PlaceUrlField';
 import { getCustomerAccount } from '../api/profiles';
+import { loginId } from '../api/auth';
 import {
     parseTsvGrid,
     findCol,
@@ -268,6 +270,25 @@ const LAND_KEY = '__landing__';
 const LAND_LABEL = '랜딩페이지';
 const LAND_CAT = { key: LAND_KEY, label: LAND_LABEL, path: '', ready: false, subs: [] as string[] };
 
+// 카페 구매 — 아이디 구매와 동일 방식(우리가 카페를 사는 것 → 상품명·수량·금액, 전액 외주비, 매출 0).
+const CAFE_BUY_KEY = '__cafebuy__';
+const CAFE_BUY_LABEL = '카페 구매';
+const CAFE_BUY_CAT = { key: CAFE_BUY_KEY, label: CAFE_BUY_LABEL, path: '', ready: false, subs: [] as string[] };
+
+// 기타(외주비) — 아이디 구매/카페 구매와 동일 방식(상품명 자유입력·수량·금액, 전액 외주비, 매출 0).
+//   ※ 위 ETC_CAT('__etc__')는 종합광고 2차 '매출' 전용이라 별개 키로 둔다(라벨만 같음).
+const ETC_OUT_KEY = '__etcout__';
+const ETC_OUT_LABEL = '기타';
+const ETC_OUT_CAT = { key: ETC_OUT_KEY, label: ETC_OUT_LABEL, path: '', ready: false, subs: [] as string[] };
+
+// 체험단 — 아이디 구매/랜딩페이지처럼 매출 0·전액 외주비(부가세 없음). 입력 금액은 체험단원에게
+//   지급하는 총액이고, 개인 지급이라 원천징수 3.3%를 뺀 '실지급액'을 함께 표시한다(참고).
+const EXP_KEY = '__exp__';
+const EXP_LABEL = '체험단';
+const EXP_CAT = { key: EXP_KEY, label: EXP_LABEL, path: '', ready: false, subs: [] as string[] };
+const EXP_TAX_RATE = 0.033; // 원천징수 3.3%
+const expNetPay = (amount: number) => Math.round(amount * (1 - EXP_TAX_RATE)); // 3.3% 뺀 실지급액
+
 // 계약 추가 모달 — 카테고리 → 세부유형 → 건수·금액·계약일.
 //   boostPrefix 지정 시 = 상위노출 보장형 2차 등록: 카테고리 고정, subtype 앞에 접두 부착.
 function ContractAddModal({
@@ -304,10 +325,13 @@ function ContractAddModal({
     const isFee = catKey === FEE_KEY; // 대행수수료 = 건수·금액만, 카테고리 미귀속
     const isBuy = catKey === BUY_KEY; // 아이디 구매 = 상품명·수량·금액만, 금액 전액 외주비
     const isLand = catKey === LAND_KEY; // 랜딩페이지 = 아이디 구매와 동일 방식
-    const isOutOnly = isBuy || isLand; // 외주비 전용 항목(매출 0)
+    const isExp = catKey === EXP_KEY; // 체험단 = 아이디 구매 방식 + 3.3% 실지급액 표시
+    const isCafeBuy = catKey === CAFE_BUY_KEY; // 카페 구매 = 아이디 구매와 동일(우리가 카페 구매)
+    const isEtcOut = catKey === ETC_OUT_KEY; // 기타(외주비) = 아이디 구매와 동일 + 상품명 자유입력
+    const isOutOnly = isBuy || isLand || isExp || isCafeBuy || isEtcOut; // 외주비 전용 항목(매출 0)
     const cat =
         PRODUCT_CATEGORIES.find((c) => c.key === catKey) ??
-        (isFee ? FEE_CAT : isBuy ? BUY_CAT : isLand ? LAND_CAT : isEtc ? ETC_CAT : PRODUCT_CATEGORIES[0]);
+        (isFee ? FEE_CAT : isBuy ? BUY_CAT : isLand ? LAND_CAT : isExp ? EXP_CAT : isCafeBuy ? CAFE_BUY_CAT : isEtcOut ? ETC_OUT_CAT : isEtc ? ETC_CAT : PRODUCT_CATEGORIES[0]);
     // 2차 등록에선 컨테이너형(상위노출 보장형·종합광고) 자기 자신은 하위로 못 넣게 제외.
     const subOptions = boostPrefix ? cat.subs.filter((s) => !CONTAINER_SUBS.includes(s)) : cat.subs;
     // 카테고리 칩 표시: 일반 등록 또는 종합광고 2차(picking)에서. 종합광고 2차에서만 자기(종합광고)를 칩에서 제외.
@@ -318,7 +342,7 @@ function ContractAddModal({
         ? [...PRODUCT_CATEGORIES.filter((c) => c.label !== '종합광고'), ETC_CAT]
         : boostPrefix
           ? PRODUCT_CATEGORIES
-          : [...PRODUCT_CATEGORIES, FEE_CAT, BUY_CAT, LAND_CAT];
+          : [...PRODUCT_CATEGORIES, FEE_CAT, BUY_CAT, LAND_CAT, EXP_CAT, CAFE_BUY_CAT, ETC_OUT_CAT];
     const [subtype, setSubtype] = useState(subOptions[0]);
     const [count, setCount] = useState('');
     const [perDay, setPerDay] = useState('');
@@ -332,6 +356,10 @@ function ContractAddModal({
     const [blogUrl, setBlogUrl] = useState(''); // 브랜드 블로그 발행 URL(크롤 대상 연동)
     const [serviceNote, setServiceNote] = useState(''); // 서비스 내용 메모(무슨 서비스인지)
     const [noVat, setNoVat] = useState(false); // 부가세 없음(현금) — 실매출 VAT 미포함
+    const [cardSale, setCardSale] = useState(false); // 카드매출 — 공급가/부가세 분리, payment_method='card'
+    const [cardSupplyInput, setCardSupplyInput] = useState(''); // 카드 공급가 직접수정(비우면 단가×수량)
+    const [cardVatInput, setCardVatInput] = useState('');       // 카드 부가세(비우면 공급가×10%, 거의 고정)
+    const [cardFeeInput, setCardFeeInput] = useState('');       // 카드 수수료(건별 상이 · 직접 입력)
     const [date, setDate] = useState('');
     const [saving, setSaving] = useState(false);
     const daily = isDailySub(subtype); // 리워드 등 = 일일수량 × 일수
@@ -357,6 +385,14 @@ function ContractAddModal({
         : outDirect > 0
           ? outDirect
           : (Number(onlyDigits(outUnit)) || 0) * cnt;
+    // 카드매출 — 공급가는 직접 수정(비우면 단가×수량=amt), 부가세는 기본 10%(비우면 자동·거의 고정), 수수료는 건별 직접 입력.
+    const cardSupply = cardSale && cardSupplyInput.trim() ? Number(onlyDigits(cardSupplyInput)) || 0 : amt;
+    const cardVat = cardSale ? (cardVatInput.trim() ? Number(onlyDigits(cardVatInput)) || 0 : Math.round(cardSupply * 0.1)) : 0;
+    const cardFeeAmt = cardSale ? Number(onlyDigits(cardFeeInput)) || 0 : 0;
+    const cardTotal = cardSupply + cardVat;          // 카드 결제 총액(공급가+부가세)
+    // 카드 수수료는 공급가·실매출에서 차감해 저장 — 공급가액=공급가−수수료, 실매출=카드합계−수수료(실수령), VAT는 그대로 유지.
+    const saleAmt = cardSale ? cardSupply - cardFeeAmt : amt;   // 저장 공급가(카드=수수료 차감)
+    const cardNet = cardTotal - cardFeeAmt;                     // 실매출(VAT포함)=실수령
 
     const pickCat = (key: string) => {
         setCatKey(key);
@@ -368,8 +404,8 @@ function ContractAddModal({
             setSubtype(FEE_LABEL); // 대행수수료 = 세부유형 고정
             return;
         }
-        if (key === BUY_KEY || key === LAND_KEY) {
-            setSubtype(''); // 아이디 구매·랜딩페이지 = 상품명 직접 입력
+        if (key === BUY_KEY || key === LAND_KEY || key === EXP_KEY || key === CAFE_BUY_KEY || key === ETC_OUT_KEY) {
+            setSubtype(''); // 아이디 구매·랜딩페이지·체험단·카페 구매·기타 = 이름 직접 입력
             return;
         }
         const c = PRODUCT_CATEGORIES.find((x) => x.key === key);
@@ -394,14 +430,14 @@ function ContractAddModal({
             onToast('금액을 입력하세요');
             return;
         }
-        if (!isService && !isOutOnly && !n && !amt) {
-            onToast('수량 또는 단가를 입력하세요');
+        if (!isService && !isOutOnly && !n && !saleAmt) {
+            onToast('수량 또는 단가(카드매출은 공급가)를 입력하세요');
             return;
         }
         setSaving(true);
         const { error } = await insertClientContracts([
             {
-                amount: amt,
+                amount: saleAmt,
                 // 컨테이너 2차는 계약 category를 컨테이너(lockCategoryLabel)로 고정. 일반은 선택 카테고리.
                 category: lockCategoryLabel ?? cat.label,
                 client_id: clientId,
@@ -420,6 +456,9 @@ function ContractAddModal({
                 blog_name: blogName.trim() || null, // 업체명/이름 라벨(전 카테고리 공통, 카드 칩 표시)
                 note: isService && serviceNote.trim() ? serviceNote.trim() : null, // 서비스 내용 메모
                 no_vat: noVat, // 부가세 없음(현금)
+                payment_method: cardSale ? 'card' : null, // 카드매출(공급가/부가세 분리 표기)
+                sale_total: cardSale ? cardNet : null,    // 실매출(VAT포함)=카드합계−수수료(실수령)
+                card_fee: cardSale ? cardFeeAmt : null,   // 카드 수수료(건별 직접 입력)
             },
         ]);
         setSaving(false);
@@ -433,7 +472,7 @@ function ContractAddModal({
         //   컨테이너 2차(상위노출·종합광고) 하위는 블로그 계정 자동생성 제외.
         if (isBrandBlog && !boostPrefix) {
             await ensureClientBlogAccount(clientId, blogName.trim() || companyName || '업체', {
-                amount: amt || null,
+                amount: saleAmt || null,
                 contract_date: date || null,
                 goal_count: n,
                 manager: managerName || null,
@@ -556,26 +595,30 @@ function ContractAddModal({
                     ) : isOutOnly ? (
                         <>
                             <div className="rounded-md bg-[#ecfeff] px-3 py-2 text-xs font-semibold text-[#0e7490]">
-                                {cat.label} — 카테고리에 잡히지 않고, 입력 금액이 <b>전액 외주비</b>로 기록됩니다(매출 반영 없음).
+                                {isExp
+                                    ? '체험단 — 카테고리에 잡히지 않고, 입력 금액이 전액 외주비로 기록됩니다(매출·부가세 없음). 개인 지급이라 원천징수 3.3%를 뺀 실지급액을 아래에 표시합니다.'
+                                    : `${cat.label} — 카테고리에 잡히지 않고, 입력 금액이 전액 외주비로 기록됩니다(매출 반영 없음).`}
                             </div>
                             <label className="block text-xs font-semibold text-[#475569]">
-                                상품명
+                                {isExp ? '체험단 이름' : '상품명'}
                                 <input
                                     className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
                                     onChange={(e) => setSubtype(e.target.value)}
-                                    placeholder={isLand ? '예: 상세 랜딩페이지 제작' : '예: 네이버 아이디'}
+                                    placeholder={
+                                        isExp ? '예: 인스타 체험단 A' : isLand ? '예: 상세 랜딩페이지 제작' : isCafeBuy ? '예: 네이버 카페(누수탐지 상담소)' : isEtcOut ? '예: 기타 상품명' : '예: 네이버 아이디'
+                                    }
                                     type="text"
                                     value={subtype}
                                 />
                             </label>
                             <div className="grid grid-cols-2 gap-2">
                                 <label className="block text-xs font-semibold text-[#475569]">
-                                    수량
+                                    {isExp ? '건' : '수량'}
                                     <input
                                         className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-sm"
                                         inputMode="numeric"
                                         onChange={(e) => setCount(e.target.value)}
-                                        placeholder="10"
+                                        placeholder={isExp ? '5' : '10'}
                                         type="text"
                                         value={withCommas(count)}
                                     />
@@ -592,6 +635,15 @@ function ContractAddModal({
                                     />
                                 </label>
                             </div>
+                            {/* 체험단 — 원천징수 3.3% 뺀 실지급액 표시(참고). 외주비 자체는 입력 금액 전액. */}
+                            {isExp && outAmt > 0 ? (
+                                <div className="rounded-md bg-[#f0fdf4] px-3 py-2 text-xs font-semibold text-[#15803d]">
+                                    실지급액(원천징수 3.3% 제외): <b>{expNetPay(outAmt).toLocaleString('ko-KR')}원</b>
+                                    <span className="ml-1 font-normal text-[#16a34a]">
+                                        · 원천징수 {(outAmt - expNetPay(outAmt)).toLocaleString('ko-KR')}원
+                                    </span>
+                                </div>
+                            ) : null}
                             <label className="block text-xs font-semibold text-[#475569]">
                                 계약일 (이력 날짜)
                                 <input
@@ -812,17 +864,53 @@ function ContractAddModal({
                             외주비를 직접 입력해 외주단가×수량 대신 이 값을 사용합니다.
                         </div>
                     ) : null}
-                    <div className="rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
-                        실매출(VAT){' '}
-                        <span className="text-[#1e40af]">{saleVat(amt, noVat).toLocaleString('ko-KR')}</span> · 외주{' '}
-                        <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
-                        <span className="text-[#059669]">{(amt - outAmt).toLocaleString('ko-KR')}</span>원
+                    {cardSale ? (
+                        <div className="rounded-md bg-[#faf5ff] px-3 py-2.5 ring-1 ring-[#e9d5ff]">
+                            <div className="grid grid-cols-3 gap-2">
+                                <label className="block text-[11px] font-semibold text-[#6d28d9]">공급가(원)
+                                    <input className="mt-1 h-9 w-full rounded-md border border-[#c4b5fd] px-2 text-right text-sm" inputMode="numeric" type="text"
+                                        value={withCommas(cardSupplyInput)} onChange={(e) => setCardSupplyInput(e.target.value)} placeholder={amt.toLocaleString('ko-KR')} />
+                                </label>
+                                <label className="block text-[11px] font-semibold text-[#6d28d9]">부가세(원) <span className="font-normal text-[#a78bda]">기본10%</span>
+                                    <input className="mt-1 h-9 w-full rounded-md border border-[#c4b5fd] px-2 text-right text-sm" inputMode="numeric" type="text"
+                                        value={withCommas(cardVatInput)} onChange={(e) => setCardVatInput(e.target.value)} placeholder={Math.round(cardSupply * 0.1).toLocaleString('ko-KR')} />
+                                </label>
+                                <label className="block text-[11px] font-semibold text-[#6d28d9]">카드 수수료(원)
+                                    <input className="mt-1 h-9 w-full rounded-md border border-[#c4b5fd] px-2 text-right text-sm" inputMode="numeric" type="text"
+                                        value={withCommas(cardFeeInput)} onChange={(e) => setCardFeeInput(e.target.value)} placeholder="0" />
+                                </label>
+                            </div>
+                            <div className="mt-2 text-sm font-semibold text-[#0f172a]">
+                                카드합계 <span className="text-[#1e40af]">{cardTotal.toLocaleString('ko-KR')}</span> · 수수료{' '}
+                                <span className="text-[#c2410c]">{cardFeeAmt.toLocaleString('ko-KR')}</span> · 실수령{' '}
+                                <span className="text-[#7c3aed]">{cardNet.toLocaleString('ko-KR')}</span> · 외주{' '}
+                                <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
+                                <span className="text-[#059669]">{(saleAmt - outAmt).toLocaleString('ko-KR')}</span>원
+                            </div>
+                            <div className="mt-1 text-[11px] text-[#94a3b8]">공급가·부가세 수정 가능(부가세 기본 10%), 수수료는 건별 직접 입력. 매출=공급가 기준.</div>
+                        </div>
+                    ) : (
+                        <div className="rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
+                            실매출(VAT){' '}
+                            <span className="text-[#1e40af]">{saleVat(amt, noVat).toLocaleString('ko-KR')}</span> · 외주{' '}
+                            <span className="text-[#dc2626]">{outAmt.toLocaleString('ko-KR')}</span> · 순매출{' '}
+                            <span className="text-[#059669]">{(amt - outAmt).toLocaleString('ko-KR')}</span>원
+                        </div>
+                    )}
+                    {/* 결제수단 — 카드매출(공급가·부가세·수수료 직접) / 부가세 없음(현금). 상호 배타. */}
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setCardSale((v) => { const nv = !v; if (nv) setNoVat(false); return nv; })}
+                            className={`h-8 rounded-md px-3 text-xs font-bold ${cardSale ? 'bg-[#7c3aed] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1] hover:bg-[#f8fafc]'}`}
+                        >
+                            💳 카드매출{cardSale ? ' · 공급가/부가세/수수료 입력' : ''}
+                        </button>
+                        <label className="flex items-center gap-1.5 text-xs font-semibold text-[#059669]">
+                            <input checked={noVat} onChange={(e) => { setNoVat(e.target.checked); if (e.target.checked) setCardSale(false); }} type="checkbox" />
+                            부가세 없음 (현금 — 실매출에 VAT 10% 미포함)
+                        </label>
                     </div>
-                    {/* 부가세 없음(현금) — 체크 시 실매출에 VAT 10% 미포함 */}
-                    <label className="flex items-center gap-1.5 text-xs font-semibold text-[#059669]">
-                        <input checked={noVat} onChange={(e) => setNoVat(e.target.checked)} type="checkbox" />
-                        부가세 없음 (현금 — 실매출에 VAT 10% 미포함)
-                    </label>
                     <label className="block text-xs font-semibold text-[#475569]">
                         계약일
                         <input
@@ -900,6 +988,7 @@ function ContractEditModal({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isBrandContract, contract.client_id, contract.blog_name]);
     const [bulk, setBulk] = useState(''); // N건 일괄 완료 입력
+    const [deduct, setDeduct] = useState(''); // N건 차감(환불) 입력 — 진행 이력에 −N건으로 기록
     const [outSheetOpen, setOutSheetOpen] = useState(false); // 외주 시트 붙여넣기 모달
     const [outSheetText, setOutSheetText] = useState(OUT_SHEET_HEADER + '\n');
     const [outUnitEdit, setOutUnitEdit] = useState(contract.unit_outsource?.toString() ?? ''); // 나중 외주단가 입력
@@ -915,6 +1004,7 @@ function ContractEditModal({
     const [editLog, setEditLog] = useState<{ idx: number; value: string } | null>(null); // 진행 이력 타수 수정
     const [amount, setAmount] = useState(contract.amount?.toString() ?? '');
     const [unitPrice, setUnitPrice] = useState(contract.unit_price?.toString() ?? '');
+    const [saleTotal, setSaleTotal] = useState(contract.sale_total?.toString() ?? ''); // 실매출(부가세포함) — 이카운트 합계
     const [date, setDate] = useState(contract.contract_date ?? '');
     const [note, setNote] = useState(contract.note ?? '');
     const [saving, setSaving] = useState(false);
@@ -1092,6 +1182,8 @@ function ContractEditModal({
             goal_count: goal.trim() === '' ? null : Math.round(evalNum(goal)),
             remain_count: remain.trim() === '' ? null : Math.round(evalNum(remain)),
             unit_price: unitPrice.trim() === '' ? null : Math.round(evalNum(unitPrice)),
+            // 실매출(부가세포함) — 입력하면 매출 요약이 이 값을 그대로 써서 이카운트와 정확히 일치. 비우면 공급가×1.1 재계산.
+            sale_total: saleTotal.trim() === '' ? null : Math.round(evalNum(saleTotal)),
         };
         const { error } = await updateClientContract(contract.id, patch);
         setSaving(false);
@@ -1108,10 +1200,12 @@ function ContractEditModal({
     // 리워드 주간 처리 — 잔여(진실의 원천)를 먼저 저장해 게이지/외주비 즉시 반영,
     //   주차 로그는 별도 저장(weekly_logs 컬럼 미생성 시에도 진행은 반영되게).
     const commitWeek = async (count: number, auto: boolean) => {
-        if (saving || !hasGoal || count <= 0) return;
-        const applied = Math.min(remainN, count); // 잔여 초과 방지
-        if (applied <= 0) return;
-        const next = remainN - applied;
+        if (saving || !hasGoal || count === 0) return;
+        // 양수=완료(잔여 초과 방지) / 음수=차감·환불(완료분 초과 차감 방지 → 잔여가 목표 초과 못 함).
+        const done = goalN - remainN;
+        const applied = count > 0 ? Math.min(remainN, count) : Math.max(count, -done);
+        if (applied === 0) return;
+        const next = remainN - applied; // 완료면 잔여 감소, 차감이면 잔여 증가(0~목표 범위)
         // 입력한 외주단가·외주업체를 사용(비면 계약의 기존값). 외주비 = 타수 × 외주단가.
         const unit = outUnitEdit.trim() ? Math.round(evalNum(outUnitEdit)) : contract.unit_outsource ?? null;
         const vendor = outCompanyEdit.trim() || contract.outsource_company || null;
@@ -1531,10 +1625,20 @@ function ContractEditModal({
                                 value={unitPrice}
                             />
                         </label>
+                        <label className="grid min-w-0 gap-1 text-[11px] font-semibold text-[#0f766e]">
+                            실매출(부가세포함)
+                            <input
+                                className="h-8 w-full rounded-md border border-[#5eead4] px-2 text-sm"
+                                inputMode="numeric"
+                                onChange={(e) => setSaleTotal(e.target.value)}
+                                placeholder="이카운트 합계 · 비우면 공급가×1.1"
+                                value={saleTotal}
+                            />
+                        </label>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                         <span className="text-[10px] text-[#94a3b8]">
-                            건수·잔여를 바꾸면 진행률·외주비가 자동 재계산됩니다.
+                            건수·잔여를 바꾸면 진행률·외주비가 자동 재계산 · 실매출을 넣으면 부가세가 그 값 기준(이카운트 일치)
                         </span>
                         <button
                             className="h-8 rounded-md bg-[#1e40af] px-4 text-xs font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
@@ -1898,6 +2002,38 @@ function ContractEditModal({
                                         일괄 완료
                                     </button>
                                 </div>
+                                {/* 차감(환불) — 건수로 입력하면 진행 이력에 −N건으로 기록, 실제 사용 외주비·정산에서 자동 차감 */}
+                                <div className="mt-1.5 flex items-center gap-1.5">
+                                    <input
+                                        className="h-9 w-full rounded-md border border-[#fca5a5] bg-white px-2 text-sm"
+                                        inputMode="numeric"
+                                        onChange={(e) => setDeduct(withCommas(e.target.value))}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && Number(onlyDigits(deduct)) > 0) {
+                                                void commitWeek(-Number(onlyDigits(deduct)), false);
+                                                setDeduct('');
+                                            }
+                                        }}
+                                        placeholder="환불·차감 건수(−)"
+                                        value={deduct}
+                                    />
+                                    <button
+                                        className="shrink-0 rounded-md bg-[#dc2626] px-3 py-2 text-sm font-bold text-white hover:bg-[#b91c1c] disabled:opacity-50"
+                                        disabled={saving || Number(onlyDigits(deduct)) <= 0 || (goalN - remainN) <= 0}
+                                        onClick={() => {
+                                            void commitWeek(-Number(onlyDigits(deduct)), false);
+                                            setDeduct('');
+                                        }}
+                                        type="button"
+                                    >
+                                        차감
+                                    </button>
+                                </div>
+                                {Number(onlyDigits(deduct)) > 0 && (evalNum(outUnitEdit) || contract.unit_outsource || 0) > 0 ? (
+                                    <div className="mt-1 text-right text-[11px] text-[#64748b]">
+                                        차감 외주비 ≈ <b className="text-[#059669]">−{fmtWon(Math.min(goalN - remainN, Number(onlyDigits(deduct))) * (evalNum(outUnitEdit) || contract.unit_outsource || 0))}원</b>
+                                    </div>
+                                ) : null}
                                 {Number(onlyDigits(bulk)) > 0 &&
                                 (evalNum(outUnitEdit) || contract.unit_outsource || 0) > 0 ? (
                                     <div className="mt-1 text-right text-[11px] text-[#64748b]">
@@ -2497,6 +2633,28 @@ export function ClientDetail({
     const { isAdmin, profile } = useAuth();
     // 고객 ERP 발급/계정정보/재발급 UI — 관리자 또는 허용 계정(조재현).
     const canIssueAcct = isAdmin || canIssueClientAccount(profile?.email);
+    // 이 고객사의 카페 계정(있으면) — '카페' 계약 섹션에 순위 트래커·관리 시트 딥링크 노출용.
+    const [cafeAcct, setCafeAcct] = useState<CafeAccount | null>(null);
+    useEffect(() => {
+        let alive = true;
+        void getCafeAccounts().then(({ data }) => {
+            if (alive) setCafeAcct(data.find((a) => a.client_id === client.id) || null);
+        });
+        return () => {
+            alive = false;
+        };
+    }, [client.id]);
+    // SPA 내비게이션(카페 대시보드 딥링크) — pushState + app:navigate 이벤트.
+    const goCafe = (tab: 'tracker' | 'sheet') => {
+        let path = '/cafe-rank?tab=sheet';
+        if (tab === 'tracker') {
+            path = cafeAcct
+                ? `/cafe-rank?tab=tracker&company=${encodeURIComponent(cafeAcct.company_key)}`
+                : '/cafe-rank?tab=tracker';
+        }
+        window.history.pushState(null, '', path);
+        window.dispatchEvent(new Event('app:navigate'));
+    };
     // 세금계산서 붙여넣기 적용 — 기본/업종 정보 저장 + (상품 있으면) 계약 생성.
     const applyTax = async (patch: Partial<ErpClient>, products: ParsedProduct[]) => {
         if (Object.keys(patch).length) onSave(patch);
@@ -2528,22 +2686,21 @@ export function ClientDetail({
         }
         onToast(products.length ? `정보 입력 + 계약 ${products.length}건 등록 완료` : '정보 입력 완료');
     };
-    // 발급 전 필수 검증 — 기본정보(업체명·거래처명·연락처·이메일) + 업종정보(사업자번호·주소·업종/업태) + 계약(상품) 등록.
-    //   여기까지 채워져야 '고객 ERP 발급'이 활성화된다.
+    // 발급 전 필수 검증 — 발급(열람 계정 생성)에 실제 필요한 최소만 요구: 업체명 + 계약(상품).
+    //   사업자번호·주소·업종 등 나머지는 정산/세금계산서 완성도용이라 발급을 막지 않는다(선택).
     const missingForIssue = (): string[] => {
         const need: [string, string | null][] = [
             ['업체명', client.company],
-            ['거래처명', client.client_partner],
-            ['연락처', client.contact],
-            ['이메일', client.email],
-            ['사업자등록번호', client.business_number],
-            ['사업장 주소', client.address],
-            ['업종/업태', client.industry],
         ];
         const miss = need.filter(([, v]) => !(v && String(v).trim())).map(([k]) => k);
         if (!contracts.some((ct) => (ct.amount || 0) > 0)) miss.push('계약(상품) 등록');
         return miss;
     };
+    // 발급은 되지만 정산/세금계산서용으로 채우면 좋은 항목(안내용 · 발급을 막지 않음).
+    const recommendedForIssue = ([
+        ['거래처명', client.client_partner], ['연락처', client.contact], ['이메일', client.email],
+        ['사업자등록번호', client.business_number], ['사업장 주소', client.address], ['업종/업태', client.industry],
+    ] as [string, string | null][]).filter(([, v]) => !(v && String(v).trim())).map(([k]) => k);
     const issueMiss = missingForIssue();
     const canIssue = issueMiss.length === 0;
     const tryIssue = () => {
@@ -2759,7 +2916,7 @@ export function ClientDetail({
     const catAmount = (label: string) =>
         contracts.filter((ct) => ct.category === label).reduce((s, ct) => s + (ct.amount || 0), 0);
     // 실매출(VAT 포함) — 계약별로 부가세 없음(현금)이면 VAT 미포함. 합산은 계약별로.
-    const totalReal = contracts.reduce((s, ct) => s + saleVat(ct.amount, ct.no_vat), 0);
+    const totalReal = contracts.reduce((s, ct) => s + saleVat(ct.amount, ct.no_vat, ct.sale_total), 0);
     const totalSupply = contracts.reduce((s, ct) => s + (ct.amount || 0), 0); // 공급가(VAT 제외) 합계
     const totalOutsource = contracts.reduce((s, ct) => s + (ct.outsource || 0), 0); // 외주비 합계(받은·고정)
     // 순매출 = 공급가(VAT 제외) − 외주비 정산 차액(예상 외주비 − 실제 사용). (차액 = outMargin, 아래에서 계산)
@@ -2785,7 +2942,7 @@ export function ClientDetail({
     const receivedTotal = totalOutsource; // 예상(받은) 외주비 = 상단 외주비 합계
     const usedTotal = outsourceRows.reduce((s, r) => s + r.used, 0); // 실제 사용 = 진행 이력 합
     const outMargin = receivedTotal - usedTotal; // 차액 = 예상 − 사용(외주비 정산 섹션용)
-    // 순매출 = 공급가(VAT 제외) − 받은 외주비(계약 시 외주비). 실제 사용은 '외주비 정산'에서 별도 추적.
+    // 순매출 = 공급가(VAT 제외) − 받은 외주비. (카드 수수료는 공급가에 이미 차감돼 저장됨) 실제 사용은 '외주비 정산'에서 별도 추적.
     const netRevenue = totalSupply - receivedTotal;
 
     // (외주비 정산 내역의 삭제 버튼은 제거 — 외주비/사용이력 삭제는 계약(카드/진행 이력)에서만)
@@ -2811,6 +2968,9 @@ export function ClientDetail({
         ...(contracts.some((ct) => ct.category === FEE_LABEL) ? [FEE_CAT] : []),
         ...(contracts.some((ct) => ct.category === BUY_LABEL) ? [BUY_CAT] : []),
         ...(contracts.some((ct) => ct.category === LAND_LABEL) ? [LAND_CAT] : []),
+        ...(contracts.some((ct) => ct.category === EXP_LABEL) ? [EXP_CAT] : []),
+        ...(contracts.some((ct) => ct.category === CAFE_BUY_LABEL) ? [CAFE_BUY_CAT] : []),
+        ...(contracts.some((ct) => ct.category === ETC_OUT_LABEL) ? [ETC_OUT_CAT] : []),
     ];
 
     return (
@@ -2883,7 +3043,7 @@ export function ClientDetail({
                                 type="button"
                             >
                                 <span className="block text-[10px] font-normal text-[#818cf8]">고객 ERP 아이디 →</span>
-                                {(custAcct.email || '').split('@')[0] || custAcct.email}
+                                {loginId(custAcct.email)}
                             </button>
                             <button
                                 className="rounded-md border border-[#c7d2fe] bg-white px-2 py-1.5 text-[11px] font-semibold text-[#4338ca] hover:bg-[#eef2ff]"
@@ -2912,7 +3072,9 @@ export function ClientDetail({
                             onClick={tryIssue}
                             title={
                                 canIssue
-                                    ? '이 업체 전용 열람 계정(고객 ERP) 발급'
+                                    ? (recommendedForIssue.length
+                                        ? `발급 가능 · 정산/세금계산서용 미입력(선택): ${recommendedForIssue.join(', ')}`
+                                        : '이 업체 전용 열람 계정(고객 ERP) 발급')
                                     : `발급 조건 미충족: ${issueMiss.join(', ')}`
                             }
                             type="button"
@@ -3152,6 +3314,24 @@ export function ClientDetail({
                                 <span className="rounded-full bg-[#e0e7ff] px-2.5 py-0.5 text-xs font-bold text-[#4338ca]">
                                     {c.label}
                                 </span>
+                                {c.label === '카페' ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => goCafe('tracker')}
+                                            className="rounded-full border border-[#c7d2fe] bg-white px-2.5 py-0.5 text-xs font-semibold text-[#4338ca] hover:bg-[#eef2ff]"
+                                        >
+                                            순위 트래커
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => goCafe('sheet')}
+                                            className="rounded-full border border-[#c7d2fe] bg-white px-2.5 py-0.5 text-xs font-semibold text-[#4338ca] hover:bg-[#eef2ff]"
+                                        >
+                                            관리 시트
+                                        </button>
+                                    </>
+                                ) : null}
                             </div>
                             {(() => {
                                 // 세부유형별 그룹 → 각 유형을 별도 그리드로(다음 유형은 새 줄부터 시작).
@@ -3656,6 +3836,32 @@ export function ClientDetail({
                 ).map(renderFieldCard)}
             </div>
 
+            {/* 히스토리 — 고객사 관리에서 남긴 상담·문의 기록(같은 고객 레코드, 계약 관리에서도 조회). */}
+            {(() => {
+                const hist = Array.isArray(client.history) ? client.history : [];
+                return (
+                    <>
+                        <h3 className="m-0 mt-2 text-base font-bold text-[#0f172a]">
+                            히스토리 <span className="text-xs font-normal text-[#94a3b8]">— 고객사 관리 기록 ({hist.length})</span>
+                        </h3>
+                        {hist.length ? (
+                            <div className="grid gap-1.5">
+                                {hist.map((h, i) => (
+                                    <div key={i} className="flex gap-3 rounded-lg border border-[#e2e8f0] bg-white px-3 py-2">
+                                        <span className="shrink-0 text-xs font-semibold text-[#94a3b8]">{h.date || '-'}</span>
+                                        <span className="min-w-0 whitespace-pre-wrap break-words text-sm text-[#334155]">{h.text || ''}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="rounded-lg border border-dashed border-[#e2e8f0] bg-white px-3 py-4 text-center text-sm text-[#94a3b8]">
+                                기록된 히스토리가 없습니다.
+                            </div>
+                        )}
+                    </>
+                );
+            })()}
+
             {addOpen ? (
                 <ContractAddModal
                     clientId={client.id}
@@ -3847,7 +4053,7 @@ export function ClientDetail({
                                         breakdown === 'net'
                                             ? (ct.amount || 0) - (ct.outsource || 0)
                                             : breakdown === 'sales'
-                                              ? saleVat(ct.amount, ct.no_vat) // 실매출 = VAT 포함(현금이면 미포함)
+                                              ? saleVat(ct.amount, ct.no_vat, ct.sale_total) // 실매출 = VAT 포함(현금이면 미포함, 저장된 실매출 우선)
                                               : ct.outsource || 0;
                                     const color =
                                         breakdown === 'net'
@@ -3954,7 +4160,7 @@ export function ClientDetail({
                                       : ([
                                             ['수량', `${(detailC.goal_count ?? 0).toLocaleString('ko-KR')}건`],
                                             ['단가', `${fmtWon(detailC.unit_price || 0)}원`],
-                                            ['실매출 (VAT 포함)', `${fmtWon(saleVat(detailC.amount, detailC.no_vat))}원`, '#1e40af'],
+                                            ['실매출 (VAT 포함)', `${fmtWon(saleVat(detailC.amount, detailC.no_vat, detailC.sale_total))}원`, '#1e40af'],
                                         ] as [string, string, string?][])
                             ).map(([k, v, color]) => (
                                 <div

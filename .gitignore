@@ -15,6 +15,13 @@ dist-ssr
 .env.*
 !.env.example
 !**/.env.example
+# 고객 에이전트 실제 설정(비번·키 포함) — 견본(agent.env.example)만 추적
+agent.env
+**/agent.env
+# 에이전트 빌드 산출물(PyInstaller) + 배포 zip
+crawler/cafe_pub/build/
+crawler/cafe_pub/dist/
+crawler/cafe_pub/*.zip
 
 # Editor directories and files
 .vscode/*
@@ -51,5 +58,11 @@ public/images/123/
 # 개발 중 테스트 스크린샷/배너 (언더스코어 시작) — 커밋 안 함
 public/images/_*.png
 
+# codex 로컬 훅(머신 경로 박힘) — 커밋 제외
+.codex/
 # 카페 댓글 자동화 heartbeat(런타임 살아있음 신호 — 커밋 안 함)
 crawler/cafe_cmt/.hb_*
+
+# 발굴 스캔 프록시 자격증명(민감 — 절대 커밋 금지)
+crawler/cafe_pub/scan_proxy.txt
+crawler/cafe_kw_cache.json

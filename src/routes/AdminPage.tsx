@@ -1,17 +1,27 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import ApiUsagePanel from '../components/ApiUsagePanel'
 import AdminUsersPanel from '../components/AdminUsersPanel'
 import PendingSignupsPanel from '../components/PendingSignupsPanel'
+import CafeDeployAdminPanel from '../components/CafeDeployAdminPanel'
 import { useAuth } from '../hooks/useAuth'
-import { canManagePermissions } from '../lib/permissions'
+import { canManagePermissions, canSeeAdminPage } from '../lib/permissions'
 import { SIGNUP_ENABLED } from '../lib/authConfig'
 
 function AdminPage() {
     const { isAdmin, profile } = useAuth()
     const canUsers = canManagePermissions(profile?.email) // 사원 관리 = 김종인(대표)만
-    const [tab, setTab] = useState<'users' | 'signups' | 'api' | 'cafe'>(canUsers ? 'users' : 'api')
+    type AdminTab = 'users' | 'signups' | 'api' | 'cafe' | 'deploy'
+    const tabFromUrl = () => (new URLSearchParams(window.location.search).get('tab') || '') as AdminTab
+    const [tab, setTab] = useState<AdminTab>(() => tabFromUrl() || (canUsers ? 'users' : 'api'))
+    // 사이드바 하위메뉴(/admin?tab=)로 진입 시 탭 동기화.
+    useEffect(() => {
+        const sync = () => { const t = tabFromUrl(); if (t) setTab(t) }
+        window.addEventListener('popstate', sync)
+        window.addEventListener('app:navigate', sync)
+        return () => { window.removeEventListener('popstate', sync); window.removeEventListener('app:navigate', sync) }
+    }, [])
 
-    if (!isAdmin) {
+    if (!isAdmin && !canSeeAdminPage(profile?.email)) {
         return (
             <section className="min-h-[320px] rounded-[8px] border border-[#e5e7eb] bg-white p-12">
                 <h2 className="m-0 text-[24px] font-semibold text-[#111111]">접근 권한이 없습니다</h2>
@@ -29,60 +39,19 @@ function AdminPage() {
               ? 'signups'
               : tab === 'cafe'
                 ? 'cafe'
-                : 'api'
+                : tab === 'deploy'
+                  ? 'deploy'
+                  : 'api'
 
     return (
         <section className="min-h-[320px] rounded-[8px] border border-[#e5e7eb] bg-white p-8">
-            {/* 상단 탭 — 사원 관리(대표만) + API 사용량 */}
-            <div className="mb-5 flex gap-1 border-b border-[#e2e8f0]">
-                {canUsers ? (
-                    <button
-                        className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
-                            active === 'users'
-                                ? 'border-[#1e40af] text-[#1e40af]'
-                                : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
-                        }`}
-                        onClick={() => setTab('users')}
-                        type="button"
-                    >
-                        사원 관리
-                    </button>
-                ) : null}
-                {SIGNUP_ENABLED ? (
-                    <button
-                        className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
-                            active === 'signups'
-                                ? 'border-[#1e40af] text-[#1e40af]'
-                                : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
-                        }`}
-                        onClick={() => setTab('signups')}
-                        type="button"
-                    >
-                        가입 승인
-                    </button>
-                ) : null}
-                <button
-                    className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
-                        active === 'api'
-                            ? 'border-[#1e40af] text-[#1e40af]'
-                            : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
-                    }`}
-                    onClick={() => setTab('api')}
-                    type="button"
-                >
-                    API 사용량
-                </button>
-                <button
-                    className={`-mb-px border-b-2 px-4 py-2 text-sm font-bold ${
-                        active === 'cafe'
-                            ? 'border-[#1e40af] text-[#1e40af]'
-                            : 'border-transparent text-[#94a3b8] hover:text-[#475569]'
-                    }`}
-                    onClick={() => setTab('cafe')}
-                    type="button"
-                >
-                    카페 원고 생성기
-                </button>
+            {/* 섹션 제목 — 탭 네비게이션은 사이드바 '관리자 페이지' 하위메뉴로 이동 */}
+            <div className="mb-5 border-b border-[#e2e8f0] pb-3 text-[18px] font-bold text-[#111111]">
+                {active === 'users' ? '사원 관리'
+                    : active === 'signups' ? '가입 승인'
+                    : active === 'cafe' ? '카페 원고 생성기'
+                    : active === 'deploy' ? '카페 접수'
+                    : 'API 사용량'}
             </div>
 
             {active === 'users' ? (
@@ -91,6 +60,8 @@ function AdminPage() {
                 <PendingSignupsPanel />
             ) : active === 'cafe' ? (
                 <ApiUsagePanel scope="cafe" />
+            ) : active === 'deploy' ? (
+                <CafeDeployAdminPanel />
             ) : (
                 <ApiUsagePanel />
             )}

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { signInWithPassword } from '../api/auth';
+import { signInWithPassword, signInWithKakao } from '../api/auth';
 import Button from '../components/Button';
 import { hasSupabaseConfig } from '../lib/supabase';
 import { SIGNUP_ENABLED } from '../lib/authConfig';
@@ -75,6 +75,19 @@ function LoginPage() {
                             고객·기자단 회원가입
                         </button>
                     ) : null}
+
+                    {/* 카카오 로그인 — 고객·기자단 소셜 로그인. 첫 로그인 시 가입정보 입력 후 관리자 승인. */}
+                    <div className="my-1 flex items-center gap-3 text-[13px] text-[#bbbbbb]">
+                        <span className="h-px flex-1 bg-[#eeeeee]" /> 또는 <span className="h-px flex-1 bg-[#eeeeee]" />
+                    </div>
+                    <button
+                        type="button"
+                        disabled={loading || !hasSupabaseConfig}
+                        onClick={() => void signInWithKakao()}
+                        className="flex h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[#FEE500] text-[17px] font-bold text-[#191600] hover:brightness-95 disabled:opacity-50"
+                    >
+                        <span className="text-[18px]">💬</span> 카카오로 시작하기
+                    </button>
                 </form>
 
                 {!hasSupabaseConfig ? (
