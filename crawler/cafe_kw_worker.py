@@ -731,7 +731,13 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
     ROUND_MAX_LIVE = 120                        # 약 5분(2.5초 간격) — 한 번 누르면 이만큼만 본다
     MAX_LIVE = ROUND_MAX_LIVE if cf else 120
     # 저수익 조기 중단 임계 — 반드시 회차 상한보다 작아야 한다(같거나 크면 절대 안 걸린다).
-    LOWYIELD_AT = min(90, MAX_LIVE - 1)
+    #   ★ 값 근거(SUB4 실측 2026-08-10, 양성 1건 이상 나온 과거 요청의 '첫 양성 위치' 분포):
+    #     p95=14 · p99=42 · 90 이상은 0.69%. 90도 통계적으로는 안전하다.
+    #     그런데 소방시설(146스캔·양성 4건=2.7%)의 첫 양성이 정확히 90이었다 — 경계에 걸린다.
+    #     회차 상한이 120이라 이 규칙이 아끼는 건 90이면 30콜, 110이면 10콜. 차이는 20콜뿐인데
+    #     오판 손해는 '팔 수 있는 업종을 안 맞음으로 버리는 것'이라 비대칭이다. → 110 으로 여유.
+    #     (0건 안내 문구는 조기 중단과 무관하게 회차 끝에서도 나오므로 아무것도 안 잃는다.)
+    LOWYIELD_AT = min(110, MAX_LIVE - 1)
     if max_live:
         MAX_LIVE = min(MAX_LIVE, max_live)      # 호출부가 더 작게 주면 그쪽을 따른다
     kws = [(k + (False,))[:4] for k in kws]            # (tok, kw, product[, strict]) 정규화
