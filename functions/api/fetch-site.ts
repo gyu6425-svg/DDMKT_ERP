@@ -182,6 +182,35 @@ function siteLinks(html: string, base: URL): string[] {
     return [...out];
 }
 
+// SPA 라도 글자는 어딘가 있다 — ① 메타태그 ② JS 번들 안의 한글 문자열.
+//   ★ 실측 2026-08-10(1988아야진동태탕.com, 퓨니코드 도메인): HTML 362KB 인데 본문 0자였다.
+//     그런데 og:description 에 "5호점까지 가맹비 1천만원…"이 있었고, 번들(749KB)에는
+//     동태탕·매운동태탕·월매출·창업 희망 지역·안양본점 같은 실제 사업 내용이 505조각 있었다.
+//     본문이 없다고 바로 포기하면 이런 업체를 통째로 놓친다.
+//   번들은 코드가 대부분이라 한글 조각만 골라 쓴다(영문 식별자·CSS 클래스는 걸러진다).
+function metaText(html: string): string {
+    const out: string[] = [];
+    const t = /<title[^>]*>([\s\S]{2,200}?)<\/title>/i.exec(html);
+    if (t) out.push(t[1].trim());
+    for (const m of html.matchAll(/<meta[^>]+(?:property|name)="(og:title|og:description|description|keywords)"[^>]+content="([^"]{4,400})"/gi)) {
+        out.push(m[2].trim());
+    }
+    return [...new Set(out)].join('\n');
+}
+
+function bundleKorean(js: string): string {
+    const frags = [...js.matchAll(/[가-힣][가-힣0-9 ·,()%~\-]{1,40}/g)].map((m) => m[0].trim());
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const f of frags) {
+        if (f.length < 2 || seen.has(f)) continue;
+        seen.add(f);
+        out.push(f);
+        if (out.length >= 400) break;
+    }
+    return out.join('\n');
+}
+
 // 페이지마다 반복되는 전역 메뉴(기관소개·인사말·오시는길…)를 걷어낸다.
 //   ★ 안 걷어내면 8장을 모아도 같은 네비게이션이 8번 들어가 추출기 입력 상한만 잡아먹는다.
 function dedupeLines(chunks: string[]): string {
@@ -240,7 +269,24 @@ async function fromWebsite(u: URL) {
         chunks.push(t);
         pages.push(new URL(l).pathname);
     }
-    return { chars: 0, pages, source: 'website', text: dedupeLines(chunks), title };
+    let text = dedupeLines(chunks);
+    // 본문이 안 나오면(SPA) 메타태그 + JS 번들의 한글로 대체한다. 조용히 포기하지 않는다.
+    if (text.replace(/\s/g, '').length < MIN_USEFUL) {
+        const meta = metaText(first.body);
+        const bundles = [...new Set([...first.body.matchAll(/["'](\/assets\/[^"']+\.js)["']/g)].map((m) => m[1]))].slice(0, 2);
+        const koParts: string[] = [];
+        for (const b of bundles) {
+            const js = await grab(new URL(b, u).toString());
+            if (js.body) koParts.push(bundleKorean(js.body));
+        }
+        const salvaged = [meta, ...koParts].filter((x) => x && x.trim()).join('
+');
+        if (salvaged.replace(/\s/g, '').length >= MIN_USEFUL) {
+            text = salvaged;
+            pages.push('(자바스크립트에서 추출)');
+        }
+    }
+    return { chars: 0, pages, source: 'website', text, title };
 }
 
 async function handle(raw: string) {
