@@ -778,11 +778,22 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             );
                         })}
                     </div>
-                    <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">
-                        {isManual
-                            ? '일반 배포 — 인기탭을 따지지 않고, 적어 주신 키워드 그대로 발행합니다.'
-                            : '인기탭 배포 — 실제 인기글 섹션에 들어갈 수 있는 키워드만 골라 발행합니다.'}
-                    </p>
+                    {/* 두 종류 설명을 모두 펼쳐 둔다 — 고른 것만 보이면 '다른 쪽이 뭔지' 몰라 고객이 못 고른다. 카드 클릭=선택. */}
+                    <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                        {([
+                            ['일반 배포', '직접형', '인기탭을 따지지 않고, 적어 주신 키워드 그대로 발행합니다.'],
+                            ['인기탭 배포', '지역형', '실제 인기글 섹션에 들어갈 수 있는 키워드만 골라 발행합니다.'],
+                        ] as const).map(([name, dt, desc]) => {
+                            const on = name === '일반 배포' ? isManual : !isManual;
+                            return (
+                                <button key={name} type="button" onClick={() => set('deploy_type', dt)}
+                                    className={`rounded-lg border px-3 py-2 text-left ${on ? 'border-[#4338ca] bg-[#eef2ff]' : 'border-[#e2e8f0] bg-white hover:bg-[#f8fafc]'}`}>
+                                    <div className={`text-[12px] font-bold ${on ? 'text-[#4338ca]' : 'text-[#334155]'}`}>{on ? '● ' : ''}{name}</div>
+                                    <div className="mt-0.5 text-[11px] leading-snug text-[#64748b]">{desc}</div>
+                                </button>
+                            );
+                        })}
+                    </div>
 
                     {!isManual ? (
                         <div className="mt-3">
@@ -795,13 +806,26 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     </button>
                                 ))}
                             </div>
-                            <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">
-                                {isInfo ? '정보형 — 홈페이지·네이버 블로그 주소만 넣으면 글에서 제품키워드를 뽑아 인기탭을 찾습니다. 플레이스가 없어도 됩니다.'
-                                    : isKw ? '키워드형 — 플레이스 주소 기반으로 키워드를 잡습니다(맛집 등).'
-                                    : isRelated ? '연관형 — 대표 단어 하나(예: 보홀 · 장기요양)만 넣으면 연관 키워드를 펼쳐 인기탭을 찾습니다. 플레이스·지역 없이도 됩니다.'
-                                    : isPopManual ? '직접입력형 — 원하시는 키워드를 직접 적으면, 인기탭이 확인된 것만 골라 드립니다.'
-                                    : '지역형 — 지역 선택 + 제품키워드(예: 입주청소·상가청소)로 지역+키워드를 잡습니다.'}
-                            </p>
+                            {/* 5가지 방식 설명을 모두 노출 — 무엇을 고를지 비교가 되어야 한다(카드 클릭=선택). */}
+                            <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                                {([
+                                    ['지역형', '지역형', '원하는 지역을 골라서 노출되고 싶을 때', '지역 선택 + 제품키워드(예: 입주청소·상가청소)'],
+                                    ['키워드형', '키워드형', '특정 지역 위주로 노출이 되고 싶을 때', '플레이스 주소 기반으로 업체 키워드를 잡습니다'],
+                                    ['직접 입력형', '인기직접형', '일반 배포는 아니지만, 내가 원하는 키워드를 인기탭에서 확인 후 배포하고 싶을 때', '적어 주신 키워드 중 인기탭이 확인된 것만 골라 드립니다'],
+                                    ['연관형', '연관형', '연관 키워드를 찾아서 배포하고 싶을 때', '대표 단어 하나면 됩니다(예: 보홀·장기요양) · 플레이스 불필요'],
+                                    ['정보형', '정보형', '본인 업체 정보가 많지 않을 때 — 정보를 입력해 키워드를 뽑고, 인기탭 확인 후 배포하고 싶을 때', '홈페이지·네이버 블로그 주소로 자동 추출 · 플레이스 불필요'],
+                                ] as const).map(([name, dt, desc, hint]) => {
+                                    const on = form.deploy_type === dt;
+                                    return (
+                                        <button key={dt} type="button" onClick={() => set('deploy_type', dt)}
+                                            className={`rounded-lg border px-3 py-2 text-left ${on ? 'border-[#4338ca] bg-[#eef2ff]' : 'border-[#e2e8f0] bg-white hover:bg-[#f8fafc]'}`}>
+                                            <div className={`text-[12px] font-bold ${on ? 'text-[#4338ca]' : 'text-[#334155]'}`}>{on ? '● ' : ''}{name}</div>
+                                            <div className="mt-0.5 text-[11px] leading-snug text-[#64748b]">{desc}</div>
+                                            <div className="mt-0.5 text-[10px] leading-snug text-[#94a3b8]">{hint}</div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                     ) : null}
 
