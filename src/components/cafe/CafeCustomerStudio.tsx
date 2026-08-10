@@ -5,7 +5,7 @@ import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudi
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
-import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, publishTargetFor, kstYmd, kstNowNaive, fmtScheduled, type GenQueueSummary } from '../../api/cafeGenRequests';
+import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, deleteGenRequest, publishTargetFor, kstYmd, kstNowNaive, fmtScheduled, type GenQueueSummary } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { customerLogin } from '../../api/nusu2Bridge';
@@ -115,6 +115,12 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         setReqMsg(r.error ? `실패: ${r.error}`
             : resume ? `중단분 ${r.count}건을 다시 대기열에 넣었습니다.`
                 : `대기 ${r.count}건 발행을 중단했습니다.${queue?.publishing.length ? ' (진행 중 1건은 끝까지 게시됩니다)' : ''}`);
+        await loadGenStatus();
+    };
+    // 개별 발행 취소 — 예약/대기/실패 1건을 큐에서 삭제(그 건만). 발행 중(claimed)은 대상 아님.
+    const cancelQueueItem = async (id: string) => {
+        const { error } = await deleteGenRequest(id);
+        if (error) { setReqMsg(`취소 실패: ${error}`); return; }
         await loadGenStatus();
     };
     // 진행중(발행 중)인 요청이 있으면 20초마다 상태 자동 갱신 → 현재 발행건 게이지 실시간 반영.
@@ -612,7 +618,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 }
                 // ── 신규 업체(모델B): 일별 발행 — 키워드 풀에서 미사용 N개 골라 dep_{style}_ 로 요청 ──
                 const norm = (s: string) => s.replace(/\s/g, '');
-                const USED = new Set(['done', 'pending', 'processing', 'claimed']);
+                // held(발행 중단)도 '사용됨'으로 취급 → 예정 큐에 다시 안 뜬다(재개 버튼으로만 되돌림).
+                const USED = new Set(['done', 'pending', 'processing', 'claimed', 'held']);
                 const st = (kw: string) => genStatus[norm(kw)];
                 const unused = poolKw.filter((kw) => !USED.has(st(kw)));
                 const doneN = poolKw.filter((k) => st(k) === 'done').length;
@@ -632,11 +639,12 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     if (!picks.length) { setReqMsg('발행할 키워드가 없습니다 — 칩을 클릭해 고르거나 finder로 추가하세요.'); return; }
                     const sched = computeScheduledAt();
                     setReqBusy(true); setReqMsg('');
-                    const { error, count } = await enqueueGenRequestsSelf(clientId!, picks, productKw, style, false, sched);
+                    // 예약 시 발행텀(gapMin)만큼 각 건 시각 스태거 → 첫 13:00·2시간텀이면 15:00·17:00…
+                    const { error, count } = await enqueueGenRequestsSelf(clientId!, picks, productKw, style, false, sched, gapMin);
                     setReqBusy(false);
                     if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
                     setSelfPicked(new Set());
-                    const whenMsg = sched ? `${fmtScheduled(sched)} 이후 예약 발행` : 'SUB2가 순차 게시';
+                    const whenMsg = sched ? `${fmtScheduled(sched)}부터 ${gapMin > 0 ? `${gapMin}분 간격 ` : ''}예약 발행` : 'SUB2가 순차 게시';
                     setReqMsg(`${count}건 발행 요청 완료(${style === 'info' ? '정보성' : '후기성'}) — ${whenMsg}. 미사용 ${Math.max(0, unused.length - count)}개 남음.`);
                     await loadGenStatus();
                 };
@@ -667,7 +675,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     for (let i = 0; i < picks.length; i += perDay) {
                         const chunk = picks.slice(i, i + perDay);
                         const at = `${addDaysYmd(startYmd, day)}T${startTime}`;
-                        const { error, count } = await enqueueGenRequestsSelf(clientId!, chunk, productKw, style, false, at);
+                        // 하루 안에서도 발행텀(gapMin)만큼 시각 스태거 → 화면·발행 시각 일치.
+                        const { error, count } = await enqueueGenRequestsSelf(clientId!, chunk, productKw, style, false, at, gapMin);
                         if (error) { setReqBusy(false); setReqMsg(`요청 실패(${day + 1}일차): ${error.message}`); await loadGenStatus(); return; }
                         total += count; day += 1;
                     }
@@ -701,6 +710,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                         const selectable = !USED.has(s);
                                         const picked = selfPicked.has(kw);
                                         const cls = s === 'done' ? 'bg-[#dcfce7] text-[#166534] line-through ring-1 ring-inset ring-[#bbf7d0]'
+                                            : s === 'held' ? 'bg-[#f1f5f9] text-[#94a3b8] line-through ring-1 ring-inset ring-[#e2e8f0]'
                                             : USED.has(s) ? 'bg-[#fef9c3] text-[#854d0e] ring-1 ring-inset ring-[#fde68a]'
                                                 : picked ? 'bg-[#ede9fe] text-[#5b21b6] ring-2 ring-inset ring-[#7c3aed]'
                                                     : 'bg-white text-[#475569] ring-1 ring-inset ring-[#cbd5e1]';
@@ -710,7 +720,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                                     <button type="button" onClick={() => toggleSelf(kw)} title="클릭해 선택 발행 대상 지정" className="inline-flex items-center gap-1">
                                                         {picked ? '✓ ' : ''}{kw}
                                                     </button>
-                                                ) : <span>{kw}{s === 'done' ? ' ✓' : ' …'}</span>}
+                                                ) : <span>{kw}{s === 'done' ? ' ✓' : s === 'held' ? ' ⏸중단' : ' …'}</span>}
                                                 <button type="button" onClick={() => void removePoolKw(kw)} title="풀에서 삭제" className="text-[#94a3b8] hover:text-[#dc2626]">×</button>
                                             </span>
                                         );
@@ -847,16 +857,23 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                     {queue.publishing.map((x) => (
                                         <div key={x.keyword} className="mt-1 truncate text-[10px] text-[#7c3aed]">▶ {x.keyword} 게시 중…</div>
                                     ))}
-                                    {/* 예약 대기 — 발행 예정 시각(M/D HH:mm) 표시 */}
-                                    {queue.scheduled.slice(0, 6).map((x, i) => (
-                                        <div key={`s${i}`} className="mt-1 flex items-center gap-1 truncate text-[10px] text-[#7c3aed]">
-                                            <span className="rounded-full bg-[#ede9fe] px-1.5 py-0.5 font-bold">예약됨 {fmtScheduled(x.at)}</span>
-                                            <span className="truncate text-[#6d28d9]">{x.keyword}</span>
+                                    {/* 예약 대기 — 발행 예정 시각(M/D HH:mm) · X로 그 예약 발행 취소 */}
+                                    {queue.scheduled.slice(0, 30).map((x) => (
+                                        <div key={x.id} className="mt-1 flex items-center gap-1 text-[10px] text-[#7c3aed]">
+                                            <span className="shrink-0 rounded-full bg-[#ede9fe] px-1.5 py-0.5 font-bold">예약됨 {fmtScheduled(x.at)}</span>
+                                            <span className="min-w-0 flex-1 truncate text-[#6d28d9]">{x.keyword}</span>
+                                            <button type="button" onClick={() => void cancelQueueItem(x.id)} title="이 예약 발행 취소(삭제)"
+                                                className="shrink-0 rounded px-1 font-bold text-[#a78bfa] hover:bg-[#fef2f2] hover:text-[#dc2626]">✕</button>
                                         </div>
                                     ))}
-                                    {queue.scheduled.length > 6 ? <div className="mt-0.5 text-[10px] text-[#94a3b8]">외 예약 {queue.scheduled.length - 6}건</div> : null}
-                                    {queue.failed.slice(0, 3).map((x, i) => (
-                                        <div key={i} className="mt-1 truncate text-[10px] text-[#dc2626]" title={x.reason || ''}>✖ {x.keyword} — {x.reason || '실패'}</div>
+                                    {queue.scheduled.length > 30 ? <div className="mt-0.5 text-[10px] text-[#94a3b8]">외 예약 {queue.scheduled.length - 30}건</div> : null}
+                                    {/* 실패 — X로 그 실패건 삭제(목록에서 제거) */}
+                                    {queue.failed.slice(0, 30).map((x) => (
+                                        <div key={x.id} className="mt-1 flex items-center gap-1 text-[10px] text-[#dc2626]" title={x.reason || ''}>
+                                            <span className="min-w-0 flex-1 truncate">✖ {x.keyword} — {x.reason || '실패'}</span>
+                                            <button type="button" onClick={() => void cancelQueueItem(x.id)} title="이 실패건 삭제"
+                                                className="shrink-0 rounded px-1 font-bold text-[#fca5a5] hover:bg-[#fef2f2] hover:text-[#dc2626]">✕</button>
+                                        </div>
                                     ))}
                                 </div>
                             ) : null}
