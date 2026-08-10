@@ -451,13 +451,15 @@ export function savePendingScan(id: number, kind: string, label: string): void {
 
 // 지금까지 모은 결과 + 아직 도는 요청을 갱신 — 새로고침해도 여기까지는 화면에 되살아난다.
 //   liveIds 가 비면 '다 끝났고 결과만 남은' 상태로 보관한다(배너는 안 뜨고 결과만 복원).
-export function savePendingProgress(liveIds: number[], result: KwResult[]): void {
+//   liveIds=null 이면 도는 요청 목록은 그대로 두고 결과만 갱신한다(스캔 도중 부분결과 저장용).
+export function savePendingProgress(liveIds: number[] | null, result: KwResult[]): void {
     const cur = readPending();
     if (!cur && !result.length) return;
+    const ids = liveIds === null ? (cur?.ids || []) : liveIds.filter((n) => Number.isFinite(n) && n > 0);
     writePending({
         at: Date.now(),
-        id: liveIds[0] || 0,
-        ids: liveIds.filter((n) => Number.isFinite(n) && n > 0),
+        id: ids[0] || 0,
+        ids,
         kind: cur?.kind || '', label: cur?.label || '',
         result,
     });
@@ -506,7 +508,10 @@ export async function peekScans(ids: number[]): Promise<{ live: number[]; note: 
     const out: KwResult[] = [];
     const notes: string[] = [];
     for (const r of rows) {
-        if (['done', 'failed', 'fail', 'error'].includes(r.status)) { out.push(...(r.result || [])); continue; }
+        // ★ 아직 도는 요청의 result 도 걷어 온다 — 워커가 찾는 즉시 result 를 갱신하므로(부분결과),
+        //   새로고침해도 '지금까지 찾은 것'이 그대로 되살아난다.
+        out.push(...(r.result || []));
+        if (['done', 'failed', 'fail', 'error'].includes(r.status)) continue;
         live.push(r.id);
         if (r.note) notes.push(r.note);
     }
@@ -515,11 +520,18 @@ export async function peekScans(ids: number[]): Promise<{ live: number[]; note: 
 
 // 폴링 — done 까지. result 반환. onProgress(note) 로 워커 진행상태(note "진행 x/total · 인기탭 n") 전달.
 export async function pollPlaceScan(
-    id: number, opts?: { signal?: AbortSignal; timeoutSec?: number; onProgress?: (note: string, status: string) => void },
+    id: number,
+    opts?: {
+        signal?: AbortSignal; timeoutSec?: number;
+        onProgress?: (note: string, status: string) => void;
+        // 부분결과 — 워커가 인기탭을 하나 찾을 때마다 result 를 갱신한다. 끝나기 전에 화면에 쌓는 용도.
+        onPartial?: (rows: KwResult[]) => void;
+    },
 ): Promise<{ result: KwResult[]; bizName: string | null }> {
     const timeoutMs = (opts?.timeoutSec ?? 180) * 1000;
     const t0 = Date.now();
     let lastNote = '';
+    let seenPartial = 0;
     while (Date.now() - t0 < timeoutMs) {
         if (opts?.signal?.aborted) throw new Error('취소됨');
         await new Promise((r) => setTimeout(r, 3000));
@@ -528,6 +540,9 @@ export async function pollPlaceScan(
         if (row) {
             if (row.note) lastNote = row.note;
             if (opts?.onProgress && row.note) opts.onProgress(row.note, row.status);
+            // 찾은 개수가 늘었을 때만 올려보낸다 — 3초마다 같은 배열을 다시 그리지 않게.
+            const partial = row.result || [];
+            if (opts?.onPartial && partial.length > seenPartial) { seenPartial = partial.length; opts.onPartial(partial); }
             // 워커는 실패 시 status='failed' 를 쓴다('fail' 아님 — 예전엔 안 잡혀 900초 타임아웃까지 매달렸다).
             //   실패 사유(note)를 그대로 노출한다 — 차단으로 못 판정한 걸 '0건'처럼 보이게 하면 안 된다.
             if (['done', 'failed', 'fail', 'error'].includes(row.status)) {

@@ -730,6 +730,8 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
     #   이어갈지 결정하는 편이 낫다(이미 본 조합은 캐시라 다음 회차가 그만큼 빨라진다).
     ROUND_MAX_LIVE = 120                        # 약 5분(2.5초 간격) — 한 번 누르면 이만큼만 본다
     MAX_LIVE = ROUND_MAX_LIVE if cf else 120
+    # 저수익 조기 중단 임계 — 반드시 회차 상한보다 작아야 한다(같거나 크면 절대 안 걸린다).
+    LOWYIELD_AT = min(90, MAX_LIVE - 1)
     if max_live:
         MAX_LIVE = min(MAX_LIVE, max_live)      # 호출부가 더 작게 주면 그쪽을 따른다
     kws = [(k + (False,))[:4] for k in kws]            # (tok, kw, product[, strict]) 정규화
@@ -774,14 +776,23 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
     #    실측(2026-08-04): 병렬x6 20건 2.1s·에러0 (직렬 무gap 13s 대비 6배). 사무실 직접 IP는 차단 보호로 직렬 유지.
     PAR = 1 if cf else 1
     ex = ThreadPoolExecutor(max_workers=PAR) if PAR > 1 else None
+    pushed_n = -1                      # 마지막으로 화면에 흘려보낸 인기탭 개수(캐시 양성부터 바로 보낸다)
     try:
         for i in range(0, len(to_scan), PAR):
             if len(found) >= target:
                 break
             chunk = to_scan[i:i + PAR]
             try:                               # 진행상태(프론트 게이지바)
+                # ★ 찾는 즉시 화면에 쌓이게 한다(2026-08-10 사장님 요청) — 예전엔 result 를 _finish 에서만
+                #   써서, 5분짜리 회차 내내 게이지 숫자만 오르고 키워드는 끝나야 한 번에 나타났다.
+                #   중간에 폴링이 끊기거나 새로고침해도 여기까지 찾은 건 남는다.
+                #   찾은 개수가 늘었을 때만 result 를 실어 보낸다(매 청크마다 보내면 payload 낭비).
+                body = {"note": f"진행 {i + len(chunk)}/{len(to_scan)} · 인기탭 {len(found)}"}
+                if len(found) != pushed_n:
+                    body["result"] = sorted(found, key=lambda f: -(f.get("volume") or 0))
+                    pushed_n = len(found)
                 requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
-                               json={"note": f"진행 {i + len(chunk)}/{len(to_scan)} · 인기탭 {len(found)}"}, timeout=10)
+                               json=body, timeout=10)
             except Exception:
                 pass
             results = list(ex.map(_scan_one, chunk)) if ex else [_scan_one(x) for x in chunk]
@@ -809,10 +820,17 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
                 if kind == "pop":
                     found.append(item)
             # ★ 저수익 조기 중단 — 이 업종이 지역형과 안 맞으면 더 긁어도 안 나온다.
-            #   실측(2026-08-06) '창업' 6제품×수도권 780지역: 330콜 써서 2건, 둘 다 검색량 10(팔 수 없음).
-            #   온디맨드 한 건이 데몬 37분치 예산을 태웠다(SUB4 지적). 팔 수 있는 게 하나도 없으면 멈춘다.
-            #   ⚠️ 희소 업종(소방업체 서울 10건)을 죽이지 않게 임계를 넉넉히 둔다 — 150콜.
-            if scraped >= 150 and not any((f.get("volume") or 0) > 10 for f in found):
+            #   실측(2026-08-06) '창업' 6제품×수도권 780지역: 330콜 써서 2건, 둘 다 검색량 10.
+            #   ⚠️ 2026-08-10 두 곳을 고쳤다(SUB4 지적).
+            #   ① 임계가 150이었는데 회차 상한이 120(2a30ae6)으로 내려가 '절대 안 걸리는' 죽은 코드였다.
+            #      실제로 #189·#192·#194·#195 가 0건인데도 '＋더 찾기' 안내만 받았다 — 사장님이
+            #      '더 찾으면 나올까'와 '이 업종은 원래 안 나온다'를 구분할 수 없었다. → 90 으로.
+            #   ② 조건이 '검색량 10 초과가 없으면'이었다. 사장님 확정(2026-08-07)은
+            #      "검색량이 있든 없든 상관없다, 인기탭만 잡히면 된다" 이므로 검색량으로 끊으면 안 된다.
+            #      → '인기탭이 아예 0건'일 때만 끊는다. 저검색 니치는 이제 안 죽는다.
+            #   예산 걱정은 회차 상한(120)이 이미 막는다 — 이 규칙이 아끼는 건 최대 30콜이고,
+            #   진짜 값어치는 '이 업종은 지역형이 안 맞는다'는 안내를 띄우는 데 있다.
+            if scraped >= LOWYIELD_AT and not found:
                 lowyield = True
                 break
             if aborted:
@@ -829,11 +847,19 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
                 note=f"⚠ 스캔 차단 — {unscanned}/{len(to_scan)}건 판정 못 함(오류 {errs}). "
                      f"부분결과 {len(found)}건뿐이니 잠시 후 다시 조회하세요.")
         return found
-    lownote = (f" · ⚠ {scraped}건을 봤지만 팔 만한 키워드가 없어 중단했습니다 — "
-               f"이 업종은 지역형이 안 맞습니다(일반 배포를 권합니다)") if lowyield else ""
+    # 이번 회차에 못 본 조합 = 상한에 잘린 것(left) + 조기 중단으로 남긴 것.
+    remain = left + max(0, len(to_scan) - scraped - errs)
+    # ★ 0건일 때는 반드시 이유를 말한다 — '더 찾으면 나올까'와 '이 업종은 원래 안 나온다'를
+    #   사장님이 구분할 수 있어야 한다(SUB4 지적 2026-08-10). 조기 중단이 안 걸렸어도 마찬가지다.
+    if not found:
+        lownote = (f" · ⚠ {scraped}개 조합을 봤는데 인기탭이 하나도 없습니다 — "
+                   f"이 업종은 지역형이 잘 안 맞습니다(일반 배포를 권합니다)"
+                   + (f". 그래도 더 보려면 ＋더 찾기 — 남은 조합 {remain}개" if remain else ""))
+    else:
+        lownote = ""
     _finish(req["id"], "done", result=found, extra=extra,
             note=f"{len(found)}건 · 스캔 {scraped}{' · 오류 ' + str(errs) if errs else ''} · {scope}"
-                 f"{f' · 남은 조합 {left}개(＋더 찾기로 이어서)' if capped and not lowyield else ''}{lownote}")
+                 f"{f' · 남은 조합 {remain}개(＋더 찾기로 이어서)' if remain and found else ''}{lownote}")
     print(f"[{_ts()}][{req['id']}] {tag} {total}조합 {scope} → 인기탭 {len(found)}건 · 스크랩 {scraped} · err {errs}", flush=True)
     return found
 

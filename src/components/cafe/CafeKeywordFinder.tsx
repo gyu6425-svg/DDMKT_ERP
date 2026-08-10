@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -102,12 +102,44 @@ export function CafeKeywordFinder({
         try {
             const { id, error } = await enqueuePlaceScan(u, target, regionSel.length ? regionSel.join(',') : '서울,경기,인천');
             if (error || !id) throw new Error(error?.message || '요청 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: target > 10 ? 600 : 180 });
+            const { result } = await pollPlaceScan(id, { timeoutSec: target > 10 ? 600 : 180, onPartial: pushLive });
             setKwResult(result);
             if (target > 10) setKwExpanded(true);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '분석 실패');
         } finally { setKwLoading(false); }
+    };
+
+    // 스캔 중단 — 다음 키워드로 안 넘어가고, 아직 워커가 안 집은(queued) 요청은 취소한다.
+    //   진행 중(claimed)인 1건은 워커 루프라 중간에 못 끊는다 — 최대 5분 뒤 끝난다.
+    const stopRef = useRef(false);
+    const liveIdsRef = useRef<number[]>([]);
+    const [stopping, setStopping] = useState(false);
+    const stopScan = async () => {
+        stopRef.current = true;
+        setStopping(true);
+        const n = await cancelScans(liveIdsRef.current);
+        setScanNote(`중단 중… 대기 ${n}건 취소`);
+    };
+
+    // ── 실시간 누적 ────────────────────────────────────────────────────────────
+    //   워커가 인기탭을 하나 찾을 때마다 화면에 바로 쌓는다(2026-08-10 사장님 요청).
+    //   예전엔 회차(최대 5분)가 끝나야 한 번에 나타나서, 그 사이 게이지 숫자만 오르고 결과는 안 보였다.
+    //   ref 를 같이 두는 이유: 부분결과가 3초마다 들어오는데 state 는 다음 렌더에야 반영돼
+    //   두 번째 부분결과가 첫 번째를 덮어쓴다.
+    const kwResultRef = useRef<KwResult[]>([]);
+    useEffect(() => { kwResultRef.current = kwResult || []; }, [kwResult]);
+    const pushLive = (rows: KwResult[]) => {
+        const seen = new Set<string>(); const out: KwResult[] = [];
+        for (const r of [...kwResultRef.current, ...rows]) {
+            const nk = (r.keyword || '').replace(/\s/g, '');
+            if (seen.has(nk)) continue;
+            seen.add(nk); out.push(r);
+        }
+        out.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+        kwResultRef.current = out;
+        setKwResult(out);
+        savePendingProgress(null, out);   // 도는 요청 목록은 그대로, 결과만 갱신(새로고침 대비)
     };
 
     // 지역형 — 선택 시도의 행정구/시 × 제품키워드(들) 인기탭 조회.
@@ -156,7 +188,9 @@ export function CafeKeywordFinder({
                 const { id } = await enqueueRegionScan(kw, regionSel.join(','), target, includeDong);
                 if (id) jobs.push({ kw, id });
             }
+            liveIdsRef.current = jobs.map((j) => j.id);   // ⏹ 중단이 한 번에 끌 대상
             for (let i = 0; i < jobs.length; i++) {
+                if (stopRef.current) break;               // 중단 눌림 — 다음 키워드로 안 넘어간다
                 const { kw, id } = jobs[i];
                 const tag = jobs.length > 1 ? ` (${i + 1}/${jobs.length})` : '';
                 setScanNote(`${kw}${includeDong ? ' 동' : ''} 스캔 시작…${tag}`);
@@ -164,21 +198,26 @@ export function CafeKeywordFinder({
                 //   (실측 2026-08-10 '세무사': 30건을 찾아 정상 종료했는데 화면이 못 주워왔다).
                 savePendingScan(id, 'region', `${regionSel.join('·')} × ${kw}`);
                 try {
-                    const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(`${kw} · ${note}${tag}`) });
+                    const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (note) => setScanNote(`${kw} · ${note}${tag}`) });
                     merged.push(...result);
                     setKwResult(dedup(merged));                 // 끝나는 대로 누적
                     // 여기까지 모은 결과를 남긴다 — 새로고침해도 되살아난다(아직 안 돈 요청 id 도 같이).
                     savePendingProgress(jobs.slice(i + 1).map((j) => j.id), dedup(merged));
                 } catch { /* 이 키워드만 실패 — 나머지 계속. 기록은 남겨 이어보기가 줍는다 */ }
             }
-            const final = dedup(merged);
+            // ★ 실시간으로 이미 화면에 쌓인 것(kwResultRef)을 반드시 포함한다 — 폴링이 시간초과로
+            //   빠지면 merged 에는 안 들어가 있어서, 여기서 덮어쓰면 찾아 놓은 게 도로 사라진다.
+            const final = dedup([...kwResultRef.current, ...merged]);
             savePendingProgress([], final);
             if (!final.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${regionSel.join('·')} × "${kws.join(', ')}"`); return; }
             setKwResult(final);
             if (includeDong) setDongDone(true);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '조회 실패');
-        } finally { setLoading(false); setScanNote(''); }
+        } finally {
+            setLoading(false); setScanNote(''); setStopping(false);
+            stopRef.current = false; liveIdsRef.current = [];
+        }
     };
     const genRegionKeywords = () => runRegion(false);
 
@@ -291,7 +330,7 @@ export function CafeKeywordFinder({
             const { id, error } = await enqueueRelatedScan(seed, list);
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
             const { result } = await pollPlaceScan(id, {
-                timeoutSec: 1500, onProgress: (n) => { lastNote = n; setScanNote(n); },
+                timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => { lastNote = n; setScanNote(n); },
             });
             const far = new Set((cands || []).filter((c) => c.tier === 'far').map((c) => c.kw));
             const farHit = result.filter((r) => far.has(r.keyword)).map((r) => r.keyword);
@@ -433,7 +472,7 @@ export function CafeKeywordFinder({
                 const { id, error } = await enqueueListScan(list, Math.max(target, list.length));
                 if (error || !id) throw new Error(error?.message || '분석 등록 실패');
                 savePendingScan(id, 'list', `전국(지역없음) × ${list.join(', ')}`);
-                const { result } = await pollPlaceScan(id, { timeoutSec: 600, onProgress: (note) => setScanNote(note) });
+                const { result } = await pollPlaceScan(id, { timeoutSec: 600, onPartial: pushLive, onProgress: (note) => setScanNote(note) });
                 savePendingProgress([], result);
                 if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — 전국 기준 "${list.join(', ')}"`); return; }
                 setKwResult(result);
@@ -451,7 +490,7 @@ export function CafeKeywordFinder({
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
             // 새로고침·이탈해도 이 요청에 다시 붙을 수 있게 남긴다.
             savePendingScan(id, 'menu', `${addr.trim() || regionSel.join('·')} × ${list.join(', ')}`);
-            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(note) });
+            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (note) => setScanNote(note) });
             savePendingProgress([], result);   // 결과 보관 — 새로고침해도 되살아난다
             if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${addr.trim() || regionSel.join('·')} × "${list.join(', ')}"`); return; }
             setKwResult(result);
@@ -509,7 +548,7 @@ export function CafeKeywordFinder({
         try {
             const { id, error } = await enqueueListScan(top.map((t) => t.keyword));
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: 300, onProgress: (note) => setScanNote(note) });
+            const { result } = await pollPlaceScan(id, { timeoutSec: 300, onPartial: pushLive, onProgress: (note) => setScanNote(note) });
             if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — 붙여넣은 정보 기준 ${top.length}개 판정`); return; }
             setKwResult(result);
         } catch (e) {
@@ -828,10 +867,24 @@ export function CafeKeywordFinder({
                     <div className="mt-2 rounded-lg border border-[#c4b5fd] bg-[#f5f3ff] p-3">
                         <div className="mb-1.5 flex items-center justify-between text-[12px] font-bold text-[#6d28d9]">
                             <span>🔍 지역 인기탭 조회 중… <span className="font-normal text-[#64748b]">{scanNote}</span></span>
-                            {pct !== null ? <span>{pct}%</span> : null}
+                            <span className="flex shrink-0 items-center gap-2">
+                                {pct !== null ? <span>{pct}%</span> : null}
+                                {/* 중단 — 지금 도는 1건은 끝나지만(워커 루프라 중간에 못 끊는다) 대기분은 즉시 취소된다. */}
+                                <button type="button" onClick={() => void stopScan()} disabled={stopping}
+                                    className="rounded border border-[#fca5a5] bg-white px-2 py-0.5 text-[11px] font-bold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
+                                    title="대기 중인 키워드를 취소합니다. 지금 처리 중인 1건은 끝까지 갑니다.">
+                                    {stopping ? '중단 중…' : '⏹ 중단'}
+                                </button>
+                            </span>
                         </div>
                         <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#e9d5ff]">
                             <div className={`h-full rounded-full bg-[#7c3aed] ${pct === null ? 'animate-pulse' : 'transition-all duration-500'}`} style={{ width: `${pct ?? 25}%` }} />
+                        </div>
+                        {/* 찾는 즉시 아래 목록에 쌓인다 — 끝날 때까지 기다리지 않아도 된다. */}
+                        <div className="mt-1.5 text-[11px] text-[#7c3aed]">
+                            {kwResult?.length
+                                ? <>✔ 지금까지 <b>{kwResult.length}개</b> 찾았습니다 — 아래에 실시간으로 쌓입니다. 스캔 중에도 골라 두셔도 됩니다.</>
+                                : '찾는 즉시 아래에 하나씩 쌓입니다.'}
                         </div>
                     </div>
                 );

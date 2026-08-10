@@ -346,7 +346,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { id, error } = await enqueueRelatedScan(seed, list.slice(0, REL_MAX));
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (n) => setScanNote(n) });
+            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
             const reg = result.filter((r) => (r as KwResult & { kind?: string }).kind === 'regional');
             const nat = result.filter((r) => (r as KwResult & { kind?: string }).kind !== 'regional');
             setRelRegional(reg as (KwResult & { sample?: string[] })[]);
@@ -370,7 +370,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { id, error } = await enqueueListScan(list, 50);
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (n) => setScanNote(n) });
+            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
             if (!result.length) {
                 setKwErr(`입력한 ${list.length}개 중 인기탭이 확인된 키워드가 없습니다. `
                     + `일반 배포로 접수하시면 인기탭 확인 없이 그대로 발행됩니다.`);
@@ -393,6 +393,26 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [kwLoading, setKwLoading] = useState(false);
     const [scanNote, setScanNote] = useState('');   // 인기탭 스캔 진행상태(게이지바) — "진행 x/total" 형태면 % 표시
     const [kwResult, setKwResult] = useState<KwResult[] | null>(null);
+    // ── 실시간 누적 ────────────────────────────────────────────────────────────
+    //   워커가 인기탭을 하나 찾을 때마다 화면에 바로 쌓는다(2026-08-10 사장님 요청).
+    //   예전엔 회차(최대 5분)가 끝나야 한 번에 나타나서, 그 사이 게이지 숫자만 오르고 결과는 안 보였다.
+    //   ref 를 같이 두는 이유: 부분결과가 3초마다 들어오는데 state 는 다음 렌더에야 반영돼
+    //   두 번째 부분결과가 첫 번째를 덮어쓴다.
+    const kwResultRef = useRef<KwResult[]>([]);
+    useEffect(() => { kwResultRef.current = kwResult || []; }, [kwResult]);
+    const pushLive = (rows: KwResult[]) => {
+        const seen = new Set<string>(); const out: KwResult[] = [];
+        for (const r of [...kwResultRef.current, ...rows]) {
+            const nk = (r.keyword || '').replace(/\s/g, '');
+            if (seen.has(nk)) continue;
+            seen.add(nk); out.push(r);
+        }
+        out.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+        kwResultRef.current = out;
+        setKwResult(out);
+        savePendingProgress(null, out);   // 도는 요청 목록은 그대로, 결과만 갱신(새로고침 대비)
+    };
+
     const [kwErr, setKwErr] = useState('');
     const [kwHidden, setKwHidden] = useState<string[]>([]); // X로 제외한 키워드(화면에서만 숨김)
     const [kwPicked, setKwPicked] = useState<KwResult[]>([]); // 고객이 고른 키워드(발행 대상 → 접수에 전달)
@@ -424,7 +444,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { id, error } = await enqueuePlaceScan(u, target, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
             if (error || !id) throw new Error(error?.message || '요청 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: target > FIRST_TARGET ? 1500 : 600, onProgress: (note) => setScanNote(note) });
+            const { result } = await pollPlaceScan(id, { timeoutSec: target > FIRST_TARGET ? 1500 : 600, onPartial: pushLive, onProgress: (note) => setScanNote(note) });
             // 회차를 이어붙인다 — 워커가 target 만큼만 채우고 끝내므로 이전 회차 결과를 잃으면 안 된다.
             const seenPl = new Set<string>();
             const mergedPl: KwResult[] = [];
@@ -455,7 +475,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 const { id, error } = await enqueueListScan(kws, Math.max(target, kws.length));
                 if (error || !id) throw new Error(error?.message || '분석 등록 실패');
                 savePendingScan(id, 'list', `전국(지역없음) × ${kws.join(', ')}`);
-                const { result } = await pollPlaceScan(id, { timeoutSec: 600, onProgress: (note) => setScanNote(note) });
+                const { result } = await pollPlaceScan(id, { timeoutSec: 600, onPartial: pushLive, onProgress: (note) => setScanNote(note) });
                 savePendingProgress([], result);
                 if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — 전국 기준 [${kws.join(', ')}]`); return; }
                 setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
@@ -478,7 +498,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 if (error || !id) throw new Error(error?.message || '분석 등록 실패');
                 // 새로고침·이탈해도 다시 붙을 수 있게 남긴다(폴링이 끊겨도 워커는 계속 돈다).
                 savePendingScan(id, 'menu', `${ownAddr.trim()} × ${kws.join(', ')}`);
-                const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(note) });
+                const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (note) => setScanNote(note) });
                 const seenOwn = new Set<string>();
                 const mergedOwn: KwResult[] = [];
                 for (const r of [...prev, ...result]) {
@@ -515,7 +535,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 liveIdsRef.current = [...liveIdsRef.current, id];
                 const tag = kws.length > 1 ? ` (${i + 1}/${kws.length})` : '';
                 savePendingScan(id, 'region', `${sidos.join('·')} × ${pk}`);
-                const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
+                const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
                 for (const r of result) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
                 // 키워드 하나 끝날 때마다 저장 — 25개 중 3개째에서 새로고침해도 앞 2개 결과가 남는다.
                 setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
@@ -624,6 +644,12 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         </div>
                         <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#e9d5ff]">
                             <div className={`h-full rounded-full bg-[#7c3aed] ${pct === null ? 'animate-pulse' : 'transition-all duration-500'}`} style={{ width: `${pct ?? 25}%` }} />
+                        </div>
+                        {/* 찾는 즉시 아래 목록에 쌓인다 — 끝날 때까지 기다리지 않아도 된다. */}
+                        <div className="mt-1.5 text-[11px] text-[#7c3aed]">
+                            {kwResult?.length
+                                ? <>✔ 지금까지 <b>{kwResult.length}개</b> 찾았습니다 — 아래에 실시간으로 쌓입니다. 스캔 중에도 골라 두셔도 됩니다.</>
+                                : '찾는 즉시 아래에 하나씩 쌓입니다.'}
                         </div>
                     </div>
                 );
