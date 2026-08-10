@@ -13,6 +13,7 @@ import {
 } from '../../api/leakErp';
 import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Modal, Td, Th } from './ui';
 import { inLeakMonth, useLeakMonth } from './leakMonth';
+import { LeakMonthPicker } from './LeakMonthPicker';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const blank = (): LedgerInput => ({
@@ -140,6 +141,7 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
                 title={`통장 원장${month ? ` · ${Number(month)}월` : ''} (입금 ${won(total.in)}원 · 출금 ${won(total.out)}원 · 잔액 ${won(shownBalance)}원)`}
                 right={
                     <>
+                        <LeakMonthPicker />
                         <Field label="시작 잔액(이월)">
                             <input className={`${INPUT_CLS} w-36`} onChange={(e) => saveOpening(parseWon(e.target.value))} value={won(opening)} />
                         </Field>

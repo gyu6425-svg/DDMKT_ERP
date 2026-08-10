@@ -11,6 +11,7 @@ import {
 } from '../../api/leakErp';
 import { Btn, Card, Chip, Empty, Field, INPUT_CLS, Modal, Td, Th } from './ui';
 import { inLeakMonth, useLeakMonth } from './leakMonth';
+import { LeakMonthPicker } from './LeakMonthPicker';
 
 const blank: OutsourcingInput = {
     amount: 0, amount_vat: 0, ended_on: '', entry_kind: 'order', item_name: '', marketing_type: '',
@@ -141,6 +142,7 @@ export default function LeakOutsourcingTab({ notify }: { notify: (m: string) => 
                 title={`외주 발주 (발주 ${stat.orderCount}건 · 환불 ${stat.refundCount}건 · VAT포함 합계 ${won(stat.vat)}원)`}
                 right={
                     <>
+                        <LeakMonthPicker />
                         <input className={`${INPUT_CLS} w-52 shrink-0`} onChange={(e) => setQ(e.target.value)} placeholder="품목·업체 검색" value={q} />
                         <Btn onClick={() => { setEditId(''); setForm(blank); setOpen(true); }}>+ 발주 추가</Btn>
                     </>

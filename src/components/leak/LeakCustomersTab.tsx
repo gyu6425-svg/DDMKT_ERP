@@ -14,6 +14,7 @@ import LeakInquiryForm from './LeakInquiryForm';
 import LeakJobForm from './LeakJobForm';
 import { Btn, Card, Chip, Empty, INPUT_CLS, Kpi, Td, Th } from './ui';
 import { inLeakMonth, useLeakMonth } from './leakMonth';
+import { LeakMonthPicker } from './LeakMonthPicker';
 
 // 고객 = 연락처(숫자만) 단위. 고객명을 받지 않으므로 번호가 유일한 식별자다.
 type Customer = {
@@ -297,6 +298,7 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
                 title={`고객 목록 (${filtered.length}명)`}
                 right={
                     <>
+                        <LeakMonthPicker />
                         <input className={`${INPUT_CLS} w-52 shrink-0`} onChange={(e) => setQ(e.target.value)} placeholder="연락처·지역·현장 검색" value={q} />
                         <Btn kind="ghost" onClick={() => setInqModal({ edit: null })}>+ 상담 추가</Btn>
                         <Btn onClick={() => setJobModal({ edit: null })}>+ 작업 추가</Btn>

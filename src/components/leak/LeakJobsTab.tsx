@@ -13,6 +13,7 @@ import {
 import LeakJobForm from './LeakJobForm';
 import { Btn, Card, Chip, Empty, INPUT_CLS, Kpi, Td, Th } from './ui';
 import { inLeakMonth, useLeakMonth } from './leakMonth';
+import { LeakMonthPicker } from './LeakMonthPicker';
 
 type JobTab = 'all' | 'unsettled' | 'settled' | 'noinvoice' | 'exception';
 
@@ -104,6 +105,7 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
                 title={`작업 목록 (${filtered.length}건 · 결제 ${won(sum.gross)}원 · 든든 ${won(sum.our)}원 · 백준 ${won(sum.partner)}원)`}
                 right={
                     <>
+                        <LeakMonthPicker />
                         <input className={`${INPUT_CLS} w-52 shrink-0`} onChange={(e) => setQ(e.target.value)} placeholder="지역·현장·업체 검색" value={q} />
                         <Btn onClick={() => setModal({ edit: null })}>+ 작업 추가</Btn>
                     </>
