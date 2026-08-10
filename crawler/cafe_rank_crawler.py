@@ -36,8 +36,65 @@ def _past_stop():
     return _GUARD_ON and datetime.datetime.now().strftime("%H:%M") >= HARD_STOP
 
 
+def _resolve_vanity(club):
+    """clubid → 카페 vanity. 발행 글 없이도 되도록 네이버 구식 리다이렉트/본문에서 추출."""
+    import re, requests
+    try:
+        r = requests.get(f"https://cafe.naver.com/ArticleList.nhn?search.clubid={club}",
+                         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120"},
+                         timeout=10, allow_redirects=True)
+        for pat in (r'cluburl[\"\s:=]+([A-Za-z0-9_]{2,30})', r'cafeUrl[\"\s:=]+([A-Za-z0-9_]{2,30})',
+                    r'cafe\.naver\.com/([A-Za-z0-9_]{3,30})[/?\"\s]'):
+            m = re.search(pat, r.text)
+            if m and m.group(1) not in ("ca", "www", "ArticleList", "f-e"):
+                return m.group(1)
+    except Exception:
+        return None
+    return None
+
+
+def _heal_cafe_accounts():
+    """재발 방지 — 고객 카페 계정(cafe_accounts)의 카페(vanity/clubid)를 studio 실제 발행 카페(board_url)에 맞춘다.
+       접수 때 기본값(마이클 공유카페 ddmkt2)이 잘못 박히는 걸 매일 자동 교정. 대상 vanity를 이미 가진 다른
+       계정이 있으면(중복) 건너뛴다(설고 ddmkt2 vs 자체 ojh097 같은 케이스 보호)."""
+    import re
+    try:
+        acc = c.sb_get("cafe_accounts", {"select": "id,display_name,cafe_name,club_id,client_id"})
+        ss = c.sb_get("cafe_studio_settings", {"select": "client_id,board_url"})
+    except Exception as exc:
+        print(f"  [heal] 조회 실패: {exc}", flush=True); return
+    board = {s["client_id"]: (s.get("board_url") or "") for s in ss if s.get("client_id")}
+    have_vanity = {(a.get("cafe_name") or "") for a in acc}
+    fixed = 0
+    for a in acc:
+        cid = a.get("client_id")
+        if not cid:
+            continue
+        m = re.search(r"/cafes/(\d+)", board.get(cid, ""))
+        if not m:
+            continue
+        club = m.group(1)
+        if club == (a.get("club_id") or ""):
+            continue  # 이미 일치
+        van = _resolve_vanity(club)
+        if not van:
+            continue
+        if any((x.get("cafe_name") == van and x["id"] != a["id"]) for x in acc):
+            continue  # 그 vanity 계정이 이미 있음(중복) → 보호
+        try:
+            c.sb_patch("cafe_accounts", {"id": f"eq.{a['id']}"}, {"cafe_name": van, "club_id": club})
+            print(f"  [heal] '{a.get('display_name','')[:20]}' {a.get('cafe_name')}/{a.get('club_id')} → {van}/{club}", flush=True)
+            fixed += 1
+            have_vanity.add(van)
+        except Exception as exc:
+            print(f"  [heal] 저장 실패 {a['id']}: {exc}", flush=True)
+    if fixed:
+        print(f"=== 카페 계정 자동 교정 {fixed}건 ===", flush=True)
+
+
 def main():
     c.need_config()
+    _heal_cafe_accounts()   # 재발 방지 — 카페 계정을 studio 실제 카페로 자동 교정(마이클 기본값 잔재 정리)
     today_only = "--today" in sys.argv
     params = {"excluded": "eq.false", "select": "*", "order": "published_date.desc"}
     if today_only:
