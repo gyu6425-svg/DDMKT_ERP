@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getCafeRankPosts, latestCafeMeasure, type CafeRankPost } from '../../../api/cafeRank';
+import { getCafeRankPosts, latestCafeMeasure, cafeTiStatus, cafeRankLabel, type CafeRankPost } from '../../../api/cafeRank';
 import { getCafeAccounts, type CafeAccount } from '../../../api/cafeAccounts';
 import { listActiveDeployTargets, type DeployDashTarget } from '../../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../../lib/exportCsv';
@@ -10,7 +10,7 @@ function exportCumList(board: string, bp: CafeRankPost[], kwOf: (p: CafeRankPost
     const headers = ['발행일', '키워드', '제목', '카페/게시판', '현재 순위', '실적'];
     const rows = bp.map((p) => {
         const m = latestCafeMeasure(p.measurements);
-        const rankText = !m ? '-' : m.ti_status === 'ok' ? `${m.ti}위` : m.ti_status === 'out' ? '권외' : m.ti_status === 'no_section' ? '측정불가' : '실패';
+        const rankText = !m ? '-' : cafeRankLabel(m);
         const perf = p.top5_achieved_at && !p.top5_seeded ? '실적' : p.top5_seeded ? '기준' : p.top5_since ? '5위 진입' : '-';
         return [p.published_date ?? '', kwOf(p), p.title ?? '', p.cafe_accounts?.display_name || p.cafe_name || '', rankText, perf];
     });
@@ -197,8 +197,9 @@ export function CafeDashboardTab() {
                                             <tbody>
                                                 {bp.map((p) => {
                                                     const m = latestCafeMeasure(p.measurements);
-                                                    const rankText = !m ? '-' : m.ti_status === 'ok' ? `${m.ti}위` : m.ti_status === 'out' ? '권외' : m.ti_status === 'no_section' ? '측정불가' : '실패';
-                                                    const rankCls = m?.ti_status === 'ok' ? (m.ti <= 5 ? 'font-bold text-[#166534]' : 'text-[#334155]') : 'text-[#94a3b8]';
+                                                    const mS = m ? cafeTiStatus(m.ti_status) : null;
+                                                    const rankText = !m ? '-' : cafeRankLabel(m);
+                                                    const rankCls = mS === 'ranked' ? (m!.ti <= 5 ? 'font-bold text-[#166534]' : 'text-[#334155]') : 'text-[#94a3b8]';
                                                     const achieved = p.top5_achieved_at && !p.top5_seeded;
                                                     return (
                                                         <tr key={p.id} className="border-b border-[#f8fafc] align-top text-[#334155]">

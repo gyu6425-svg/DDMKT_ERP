@@ -82,6 +82,22 @@ export function latestCafeMeasure(ms: CafeMeasurement[] | null | undefined): Caf
     return [...ms].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
 }
 
+// 카페 순위 상태 정규화 — 크롤러가 인기섹션(ok/out/no_section)과 글목록(list_ok/list_out/no_list) 두 방식 상태를 섞어 저장한다.
+//   UI 표시는 4가지로 통일: ranked(순위 있음) / out(권외) / no_section(측정불가·섹션없음) / fail(측정실패).
+//   ⚠️ 이 매핑이 없으면 list_out·no_list 가 UI에서 '순위 있음(99위)'으로 오표시된다(실측 26건).
+export function cafeTiStatus(s?: string | null): 'ranked' | 'out' | 'no_section' | 'fail' {
+    if (s === 'fail') return 'fail';
+    if (s === 'ok' || s === 'list_ok') return 'ranked';
+    if (s === 'no_section' || s === 'no_list') return 'no_section';
+    return 'out'; // out · list_out · 기타 → 권외
+}
+// 순위 표시 라벨 — 'N위' / '권외' / '측정불가' / '실패' / '측정 대기'.
+export function cafeRankLabel(m: CafeMeasurement | null | undefined): string {
+    if (!m) return '측정 대기';
+    const s = cafeTiStatus(m.ti_status);
+    return s === 'ranked' ? `${m.ti}위` : s === 'out' ? '권외' : s === 'no_section' ? '측정불가' : '실패';
+}
+
 // 등록 — (cafe_name, article_id) 유니크. 이미 있으면 keyword/title/url 갱신(measurements 보존).
 export async function upsertCafeRankPost(input: {
     club_id: string | null;

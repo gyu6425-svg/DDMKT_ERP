@@ -3,7 +3,7 @@ import { listTokens, balanceOf } from '../../api/cafeTokens';
 import { getCafeAccounts } from '../../api/cafeAccounts';
 import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls, studioSavedPath, updateKeywordPool, markNaverLogin } from '../../api/cafeStudioSettings';
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
-import { getCafeRankPostsForClient, latestCafeMeasure, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
+import { getCafeRankPostsForClient, latestCafeMeasure, cafeTiStatus, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, deleteGenRequest, publishTargetFor, kstYmd, kstNowNaive, fmtScheduled, type GenQueueSummary } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
@@ -987,8 +987,9 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                             <tbody>
                                 {rankPosts.map((p) => {
                                     const m = latestCafeMeasure(p.measurements);
-                                    const rankText = !m ? '-' : m.ti_status === 'ok' ? `${m.ti}위` : m.ti_status === 'out' ? '권외' : m.ti_status === 'no_section' ? '측정불가' : '실패';
-                                    const rankCls = m?.ti_status === 'ok' ? (m.ti <= 5 ? 'font-bold text-[#166534]' : 'text-[#334155]') : 'text-[#94a3b8]';
+                                    const mS = m ? cafeTiStatus(m.ti_status) : null;   // list_out·no_list 정규화
+                                    const rankText = !m ? '-' : mS === 'ranked' ? `${m.ti}위` : mS === 'out' ? '권외' : mS === 'no_section' ? '측정불가' : '실패';
+                                    const rankCls = mS === 'ranked' ? (m!.ti <= 5 ? 'font-bold text-[#166534]' : 'text-[#334155]') : 'text-[#94a3b8]';
                                     const achieved = p.top5_achieved_at && !p.top5_seeded;
                                     const url = p.post_url || (p.cafe_name && p.article_id ? `https://cafe.naver.com/${p.cafe_name}/${p.article_id}` : null);
                                     return (

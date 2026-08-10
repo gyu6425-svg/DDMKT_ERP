@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
+    cafeTiStatus,
     excludeCafeRankPost,
     getCafeRankPosts,
     parseCafeUrl,
@@ -58,13 +59,14 @@ function RankCell({ ms, keyword }: { ms: CafeMeasurement[]; keyword?: string | n
     if (!ms || !ms.length) return wrap(<span className="text-[12px] font-semibold text-[#d97706]">측정 대기</span>);
     const cur = ms[ms.length - 1];
     const prev = ms.length > 1 ? ms[ms.length - 2] : null;
-    if (cur.ti_status === 'fail') return wrap(<span className="text-[13px] font-bold text-[#dc2626]">실패</span>);
-    if (cur.ti_status === 'no_section')
+    const curS = cafeTiStatus(cur.ti_status);   // ok/list_ok→ranked · out/list_out→out · no_section/no_list→no_section
+    if (curS === 'fail') return wrap(<span className="text-[13px] font-bold text-[#dc2626]">실패</span>);
+    if (curS === 'no_section')
         return wrap(<span className="text-[12px] font-semibold text-[#94a3b8]" title="모바일 기준 인기글 섹션이 없어 측정 대상이 아닙니다(눌러서 확인)">측정불가</span>);
-    if (cur.ti_status === 'out') return wrap(<span className="text-[13px] font-semibold text-[#64748b]">권외</span>);
+    if (curS === 'out') return wrap(<span className="text-[13px] font-semibold text-[#64748b]">권외</span>);
     const color = cur.ti <= 3 ? '#059669' : cur.ti <= 7 ? '#2563eb' : '#64748b';
     let delta = null as null | { s: string; c: string };
-    if (prev && prev.ti_status === 'ok') {
+    if (prev && cafeTiStatus(prev.ti_status) === 'ranked') {
         const d = prev.ti - cur.ti;
         if (d > 0) delta = { s: `▲${d}`, c: '#dc2626' };
         else if (d < 0) delta = { s: `▼${-d}`, c: '#2563eb' };

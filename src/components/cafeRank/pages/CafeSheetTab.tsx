@@ -6,7 +6,7 @@ import {
     upsertCafeAccount,
     type CafeAccount,
 } from '../../../api/cafeAccounts';
-import { getCafeRankPosts, type CafeRankPost } from '../../../api/cafeRank';
+import { getCafeRankPosts, cafeTiStatus, type CafeRankPost } from '../../../api/cafeRank';
 import { listPendingCafeRequests, setCafeRequestStatus, type CafeRequest } from '../../../api/cafeRequests';
 import { cafeCompanyRank, cafeNameLabel, cafeNameRank } from '../../../lib/cafeAccounts';
 import { DeployPublishSetupModal } from '../../cafe/DeployPublishSetupModal';
@@ -88,7 +88,7 @@ export function CafeSheetTab({
             const s = m.get(acc.id)!;
             s.total += 1;
             const last = p.measurements?.[p.measurements.length - 1];
-            if (last?.ti_status === 'ok') s.ranked += 1;
+            if (last && cafeTiStatus(last.ti_status) === 'ranked') s.ranked += 1;
             // 5위 24h 유지 달성(자동) — 수동 베이스라인에 없던 글만(seeded=false).
             if (p.top5_achieved_at && !p.top5_seeded) s.achieved += 1;
         }
