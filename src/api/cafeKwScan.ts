@@ -399,6 +399,48 @@ export async function enqueueMenuScan(
     return { id: (data as { id: number }).id, error: null };
 }
 
+// ── 진행 중인 스캔 기억하기 ──────────────────────────────────────────────────
+//   ★ 왜: 스캔이 회차당 최대 330조합(약 14분)이라 화면을 켜 두고 기다려야 했다. 새로고침하거나
+//     다른 탭으로 가면 요청 id 를 잃어버려, 워커가 다 찾아 놓은 결과를 화면이 못 주워온다.
+//     실측 2026-08-10: #175 가 21건을 찾고 정상 완료됐는데 사장님은 못 보고 3번 다시 눌렀다
+//     (#176·#177·#178 이 같은 걸 또 돌았다).
+//   그래서 요청 id 를 localStorage 에 남기고, 돌아오면 그 id 에 다시 붙는다.
+const PENDING_KEY = 'ddmkt.cafeScan.pending';
+export type PendingScan = { id: number; kind: string; label: string; at: number };
+
+export function savePendingScan(id: number, kind: string, label: string): void {
+    try {
+        localStorage.setItem(PENDING_KEY, JSON.stringify({ at: Date.now(), id, kind, label }));
+    } catch { /* 사파리 프라이빗 등 — 저장 못 해도 스캔 자체는 돌아간다 */ }
+}
+
+export function loadPendingScan(): PendingScan | null {
+    try {
+        const raw = localStorage.getItem(PENDING_KEY);
+        if (!raw) return null;
+        const p = JSON.parse(raw) as PendingScan;
+        // 하루 지난 건 버린다 — 그 사이 워커가 죽었거나 사장님이 잊은 것이다.
+        if (!p?.id || Date.now() - (p.at || 0) > 24 * 3600 * 1000) { localStorage.removeItem(PENDING_KEY); return null; }
+        return p;
+    } catch {
+        return null;
+    }
+}
+
+export function clearPendingScan(): void {
+    try {
+        localStorage.removeItem(PENDING_KEY);
+    } catch { /* 무시 */ }
+}
+
+// 저장해 둔 요청의 현재 상태 — 새로고침 후 '이어보기'용. 폴링 없이 한 번만 읽는다.
+export async function peekScan(id: number): Promise<{ status: string; note: string; result: KwResult[] } | null> {
+    const { data } = await supabase.from('cafe_kw_requests').select('status,result,note').eq('id', id).single();
+    if (!data) return null;
+    const row = data as { status: string; result: KwResult[] | null; note: string | null };
+    return { note: row.note || '', result: row.result || [], status: row.status };
+}
+
 // 폴링 — done 까지. result 반환. onProgress(note) 로 워커 진행상태(note "진행 x/total · 인기탭 n") 전달.
 export async function pollPlaceScan(
     id: number, opts?: { signal?: AbortSignal; timeoutSec?: number; onProgress?: (note: string, status: string) => void },

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, loadPendingScan, clearPendingScan, peekScan, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
@@ -419,14 +419,45 @@ export function CafeKeywordFinder({
         try {
             const { id, error } = await enqueueMenuScan(addr, list, { regions: regionSel.join(','), target });
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+            // 새로고침·이탈해도 이 요청에 다시 붙을 수 있게 남긴다.
+            savePendingScan(id, 'menu', `${addr.trim() || regionSel.join('·')} × ${list.join(', ')}`);
             const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(note) });
+            clearPendingScan();
             if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${addr.trim() || regionSel.join('·')} × "${list.join(', ')}"`); return; }
             setKwResult(result);
             setKeyword(list.join(', '));   // 아래 발행 단계가 쓰는 제품키워드(지역 분리 기준)
         } catch (e) {
+            // 폴링 시간이 다 돼도 워커는 계속 돈다 — 기록을 지우지 않는다(돌아와서 이어본다).
             setKwErr(e instanceof Error ? e.message : '조회 실패');
         } finally { setKwLoading(false); setScanNote(''); }
     };
+
+    // 새로고침/이탈 후 복귀 — 저장해 둔 요청에 다시 붙는다. 화면을 막지 않는다(다른 작업 가능).
+    const [pending, setPending] = useState<PendingScan | null>(null);
+    const [pendNote, setPendNote] = useState('');
+    useEffect(() => {
+        const p = loadPendingScan();
+        if (!p) return;
+        setPending(p);
+        let alive = true;
+        void (async () => {
+            // 완료됐으면 즉시 결과를 꺼내고, 아직이면 30초마다 진행상황만 갱신한다.
+            for (let i = 0; alive && i < 120; i++) {
+                const s = await peekScan(p.id);
+                if (!alive || !s) return;
+                setPendNote(s.note);
+                if (s.status === 'done') {
+                    if (s.result.length) setKwResult(s.result);
+                    setKwErr(`이전 스캔(#${p.id}) 결과 ${s.result.length}건을 불러왔습니다 — ${p.label}`);
+                    clearPendingScan(); setPending(null);
+                    return;
+                }
+                if (['failed', 'fail', 'error'].includes(s.status)) { clearPendingScan(); setPending(null); return; }
+                await new Promise((r) => setTimeout(r, 30000));
+            }
+        })();
+        return () => { alive = false; };
+    }, []);
     // 키워드형 — 추출한 키워드를 지역 없이(전국) 바로 인기탭 판정(워커 process_list).
     const extractAndScan = async () => {
         const top = await extractScored();
@@ -453,6 +484,22 @@ export function CafeKeywordFinder({
     return (
         <div className="rounded-xl border-2 border-[#0369a1] bg-[#f0f9ff] p-4">
             <div className="mb-2 text-[13px] font-bold text-[#075985]">🔍 SEO 키워드 찾기 — {mode === 'region' ? '지역 × 제품키워드' : mode === 'related' ? '연관 인기글 찾기' : mode === 'info' ? '정보형 (홈페이지·블로그 주소)' : '플레이스 인기탭'}</div>
+            {/* 이어보기 배너 — 새로고침·이탈 후 돌아오면 진행 중인 스캔에 다시 붙는다.
+                화면을 막지 않는다: 이 배너가 도는 동안 다른 작업을 계속할 수 있다.
+                (예전엔 요청 id 를 잃어 워커가 찾아 둔 결과를 못 주워왔고, 같은 스캔을 3번 다시 돌렸다.) */}
+            {pending ? (
+                <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-[#93c5fd] bg-[#eff6ff] px-3 py-2 text-[12px] text-[#1e40af]">
+                    <span className="animate-pulse">⏳</span>
+                    <b>이전 스캔이 계속 돌고 있습니다</b>
+                    <span className="text-[#3b82f6]">#{pending.id} · {pending.label}</span>
+                    {pendNote ? <span className="font-semibold">{pendNote}</span> : null}
+                    <span className="text-[11px] text-[#60a5fa]">끝나면 결과가 자동으로 채워집니다 — 그동안 다른 작업 하셔도 됩니다.</span>
+                    <button type="button" onClick={() => { clearPendingScan(); setPending(null); }}
+                        className="ml-auto rounded border border-[#bfdbfe] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#3b82f6]">
+                        그만 보기
+                    </button>
+                </div>
+            ) : null}
 
             {/* 연관 인기글 찾기 — 씨앗어 하나에서 연관 키워드를 펼쳐 인기탭을 찾는다.
                 기존 3모드는 '한국 행정지역 × 제품'이 전제라 보홀·하와이 같은 해외지명이나
