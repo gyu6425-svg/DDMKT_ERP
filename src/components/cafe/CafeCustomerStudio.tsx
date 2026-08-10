@@ -72,6 +72,19 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             setReqMsg(`키워드 삭제 실패: ${error}`);
         }
     };
+    // 예정 큐에서 뺀 키워드(✕) — 풀에서 지우는 게 아니라 '이번 발행만 제외'. 다음에 발행하고 싶을 때 복구해서 쓴다.
+    const [skipKw, setSkipKw] = useState<Set<string>>(new Set());
+    const SK_KEY = (cid: string) => `cafe_skip_pool_${cid}`;
+    const saveSkips = (n: Set<string>) => {
+        if (!clientId) return;
+        try { localStorage.setItem(SK_KEY(clientId), JSON.stringify([...n])); } catch { /* 무시 */ }
+    };
+    const skipOne = (kw: string) => {
+        setSkipKw((prev) => { const n = new Set(prev); n.add(kw); saveSkips(n); return n; });
+        setSelfPicked((prev) => { if (!prev.has(kw)) return prev; const n = new Set(prev); n.delete(kw); return n; });
+    };
+    const unskipOne = (kw: string) => setSkipKw((prev) => { const n = new Set(prev); n.delete(kw); saveSkips(n); return n; });
+    const unskipAll = () => setSkipKw(() => { const n = new Set<string>(); saveSkips(n); return n; });
     const [genStatus, setGenStatus] = useState<Record<string, string>>({});
     const [queue, setQueue] = useState<GenQueueSummary | null>(null);   // 하단 상태바(발행중/대기/오늘완료/실패)
     const [heldN, setHeldN] = useState(0);        // 중단 보관분(재개 버튼용) — 메인 목록엔 안 넣는다
@@ -324,6 +337,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
             if (s?.product_kw) setProductKw(s.product_kw);
             // 삭제한 풀 키워드 복원(finder 재주입 차단이 새로고침에도 유지되게).
             try { const raw = clientId ? localStorage.getItem(RK_KEY(clientId)) : null; if (raw) setRemovedKw(new Set(JSON.parse(raw))); } catch { /* 무시 */ }
+            // 예정 큐에서 제외해 둔 키워드도 복원(새로고침해도 다시 큐에 끼어들지 않게).
+            try { const raw = clientId ? localStorage.getItem(SK_KEY(clientId)) : null; if (raw) setSkipKw(new Set(JSON.parse(raw))); } catch { /* 무시 */ }
             void loadGenStatus();
             // 접수 선택 키워드 — 파인더 시딩 + 재조회 제외.
             const picks = (req?.selected_keywords ?? []).map((p) => ({ keyword: p.keyword, volume: p.volume ?? null, theme: p.theme ?? null }));
@@ -621,7 +636,9 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 // held(발행 중단)도 '사용됨'으로 취급 → 예정 큐에 다시 안 뜬다(재개 버튼으로만 되돌림).
                 const USED = new Set(['done', 'pending', 'processing', 'claimed', 'held']);
                 const st = (kw: string) => genStatus[norm(kw)];
-                const unused = poolKw.filter((kw) => !USED.has(st(kw)));
+                // 예정 큐에서 ✕로 뺀 키워드(skipKw)는 발행 대상에서 제외 — 풀엔 남아 다음에 복구해 쓸 수 있다.
+                const unused = poolKw.filter((kw) => !USED.has(st(kw)) && !skipKw.has(kw));
+                const skippedList = poolKw.filter((kw) => skipKw.has(kw) && !USED.has(st(kw)));
                 const doneN = poolKw.filter((k) => st(k) === 'done').length;
                 // ⚠️ '대기(pending)'와 '발행중(claimed)'을 구분한다 — 합치면 대기 4건이 "발행중 4"로 보인다.
                 const waitN = poolKw.filter((k) => st(k) === 'pending').length;
@@ -695,6 +712,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                 {runN ? <> · <span className="font-semibold text-[#b45309]">발행중 {runN}</span></> : null}
                                 {waitN ? <> · <span className="text-[#0369a1]">대기 {waitN}</span></> : null}
                                 {' '}· <b>미사용 {unused.length}</b>
+                                {skippedList.length ? <> · <span className="text-[#94a3b8]">제외 {skippedList.length}</span></> : null}
                             </span>
                             <button type="button" onClick={() => void loadGenStatus()} className="ml-auto text-[11px] font-semibold text-[#4338ca] hover:underline">상태 새로고침</button>
                         </div>
@@ -707,18 +725,24 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                 <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto py-1">
                                     {poolKw.map((kw) => {
                                         const s = st(kw);
-                                        const selectable = !USED.has(s);
+                                        const skipped = skipKw.has(kw) && !USED.has(s);   // 예정 큐에서 뺀 것 — 클릭하면 복구
+                                        const selectable = !USED.has(s) && !skipped;
                                         const picked = selfPicked.has(kw);
                                         const cls = s === 'done' ? 'bg-[#dcfce7] text-[#166534] line-through ring-1 ring-inset ring-[#bbf7d0]'
                                             : s === 'held' ? 'bg-[#f1f5f9] text-[#94a3b8] line-through ring-1 ring-inset ring-[#e2e8f0]'
                                             : USED.has(s) ? 'bg-[#fef9c3] text-[#854d0e] ring-1 ring-inset ring-[#fde68a]'
-                                                : picked ? 'bg-[#ede9fe] text-[#5b21b6] ring-2 ring-inset ring-[#7c3aed]'
-                                                    : 'bg-white text-[#475569] ring-1 ring-inset ring-[#cbd5e1]';
+                                                : skipped ? 'border border-dashed border-[#cbd5e1] bg-[#f8fafc] text-[#94a3b8]'
+                                                    : picked ? 'bg-[#ede9fe] text-[#5b21b6] ring-2 ring-inset ring-[#7c3aed]'
+                                                        : 'bg-white text-[#475569] ring-1 ring-inset ring-[#cbd5e1]';
                                         return (
                                             <span key={kw} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold leading-none ${cls}`}>
                                                 {selectable ? (
                                                     <button type="button" onClick={() => toggleSelf(kw)} title="클릭해 선택 발행 대상 지정" className="inline-flex items-center gap-1">
                                                         {picked ? '✓ ' : ''}{kw}
+                                                    </button>
+                                                ) : skipped ? (
+                                                    <button type="button" onClick={() => unskipOne(kw)} title="예정 큐로 복구" className="inline-flex items-center gap-1">
+                                                        {kw} ↩제외
                                                     </button>
                                                 ) : <span>{kw}{s === 'done' ? ' ✓' : s === 'held' ? ' ⏸중단' : ' …'}</span>}
                                                 <button type="button" onClick={() => void removePoolKw(kw)} title="풀에서 삭제" className="text-[#94a3b8] hover:text-[#dc2626]">×</button>
@@ -826,10 +850,33 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                                             <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#7c3aed] text-[10px] font-bold text-white">{i + 1}</span>
                                             <span className="font-semibold text-[#4338ca]">{kw}</span>
                                             <span className="ml-auto text-[10px] text-[#94a3b8]">발행 예정</span>
+                                            {/* ✕ = 이번 발행에서만 빼기. 풀엔 남으므로 아래 '제외' 줄에서 복구해 다음에 발행할 수 있다. */}
+                                            <button type="button" onClick={() => skipOne(kw)} title="이번 발행에서 빼기(풀엔 남음 — 나중에 복구 가능)"
+                                                className="shrink-0 rounded px-1 text-[11px] font-bold text-[#a78bfa] hover:bg-[#fef2f2] hover:text-[#dc2626]">✕</button>
                                         </li>
                                     ))}
                                 </ol>
-                            ) : <div className="py-1 text-center text-[11px] text-[#94a3b8]">미사용 키워드 없음 — finder로 추가하세요.</div>}
+                            ) : <div className="py-1 text-center text-[11px] text-[#94a3b8]">
+                                {skippedList.length ? '예정 큐가 비었습니다 — 아래 제외분을 복구하거나 finder로 추가하세요.' : '미사용 키워드 없음 — finder로 추가하세요.'}
+                            </div>}
+                            {/* 제외해 둔 키워드 — 다음에 발행하고 싶을 때 ↩ 로 되돌린다(풀에서 지운 게 아님). */}
+                            {skippedList.length ? (
+                                <div className="mt-1.5 rounded-md border border-dashed border-[#cbd5e1] bg-[#f8fafc] p-1.5">
+                                    <div className="mb-1 flex items-center gap-2 text-[10px] font-bold text-[#64748b]">
+                                        <span>예정 큐에서 뺀 키워드 {skippedList.length}건 (발행 안 함 · 풀엔 남아 있음)</span>
+                                        <button type="button" onClick={unskipAll}
+                                            className="ml-auto rounded border border-[#c7d2fe] bg-white px-2 py-0.5 font-bold text-[#4338ca] hover:bg-[#eef2ff]">↩ 전체 복구</button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                        {skippedList.map((kw) => (
+                                            <button key={kw} type="button" onClick={() => unskipOne(kw)} title="다시 발행 예정으로 되돌리기"
+                                                className="inline-flex items-center gap-1 rounded-full border border-dashed border-[#cbd5e1] bg-white px-2 py-1 text-[11px] font-semibold text-[#94a3b8] hover:border-[#7c3aed] hover:text-[#4338ca]">
+                                                {kw} <span className="text-[10px]">↩</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null}
                             {/* 발행 대기열 상태바 — SUB2 poller 가 쓰는 cafe_gen_requests 를 5초 폴링해 그대로 표시(읽기 전용).
                                 pending=대기(발행텀·하루상한 포함) / claimed=지금 게시 중 / done_at 오늘=오늘완료 / fail=사유 노출 */}
                             {queue && (queue.publishing.length || queue.pending || queue.doneToday || queue.failed.length || queue.scheduled.length) ? (
