@@ -135,6 +135,7 @@ COMMENT_EXCLUDE_BY_CAFE = {
     "themansys": {"rlawhddls25"},    "31764949": {"rlawhddls25"},   # 더맨시스템
     "limebuffet": {"rlawhddls25"},   "31767649": {"rlawhddls25"},   # 라임뷔페
     "dirtyclinic": {"rlawhddls25"},  "31768059": {"rlawhddls25"},   # 더티클리닉
+    "loveyumi0926": {"rlawhddls25"}, "31768221": {"rlawhddls25"},   # 러브유미(방문요양/재활)
 }
 
 
