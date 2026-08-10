@@ -843,7 +843,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         전국형 간병인업체 + 지역형 간병인(지역 붙이면 46건). 업종에 따라 정답이 갈려
                         둘 다 시도한다. */}
                     {isRelated ? (
-                        <div className="mt-3 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
+                        <div data-tour="cafe-deploy-kw" className="mt-3 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
                             <div className="flex gap-2">
                                 <input className={inputCls} value={seed} onChange={(e) => setSeed(e.target.value)}
                                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void runExpandSeed(); } }}
@@ -946,7 +946,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     ) : null}
 
                     {isPopManual ? (
-                        <div className="mt-3 rounded-md border border-dashed border-[#a5b4fc] bg-[#eef2ff] px-3 py-2">
+                        <div data-tour="cafe-deploy-kw" className="mt-3 rounded-md border border-dashed border-[#a5b4fc] bg-[#eef2ff] px-3 py-2">
                             <div className="flex gap-2">
                                 <input className={inputCls} value={form.keyword}
                                     onChange={(e) => set('keyword', e.target.value)}
@@ -979,7 +979,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     ) : null}
                 </div>
 
-                <div data-tour="cafe-deploy-basic" className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {/* data-deploy-type — 사용 가이드(CustomerGuide)가 읽어 방식별 안내로 바꾼다. */}
+                <div data-tour="cafe-deploy-basic" data-deploy-type={form.deploy_type} className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="md:col-span-2">
                         <label className={labelCls}>업체명 *</label>
                         <input className={inputCls} value={form.company_name} onChange={(e) => set('company_name', e.target.value)} placeholder="test" />
