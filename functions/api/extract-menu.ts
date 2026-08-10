@@ -50,23 +50,33 @@ function parseJsonLoose(text: string): Record<string, unknown> | null {
 // 지역어가 섞인 제품키워드는 스캔 축이 겹쳐 '강남 강남네일' 같은 조합을 만든다 → 지역 접두를 떼어낸다.
 const REGION_TAIL = /(특별자치시|특별자치도|특별시|광역시|시|군|구|동|읍|면|리|로|길|역)$/;
 
-function cleanProduct(raw: unknown): string {
+function cleanProduct(raw: unknown, keepPlace = false): string {
     let t = String(raw ?? '').replace(/[^가-힣a-zA-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!t) return '';
     // '강남 네일' 처럼 앞에 지역이 붙어 오면 지역만 제거(뒤 단어가 실제 제품).
     const parts = t.split(' ');
-    if (parts.length > 1 && REGION_TAIL.test(parts[0]) && parts[0].length <= 5) {
+    if (!keepPlace && parts.length > 1 && REGION_TAIL.test(parts[0]) && parts[0].length <= 5) {
         t = parts.slice(1).join(' ');
     }
     return t.length >= 2 && t.length <= 20 ? t : '';
 }
 
-const PROMPT = (text: string, hint: string) => `너는 네이버 카페 인기글 마케팅의 키워드 리서처다.
+// keepPlace=true 면 지역명을 지우지 않는다.
+//   ★ 왜: 지역명이 '지역축'이 아니라 '상품명의 일부'인 업종이 있다(실측 2026-08-10, 보홀 다이빙투어).
+//     국내 업체는 지역을 우리가 곱하므로 빼는 게 맞다("강남 네일" → "네일").
+//     그런데 보홀은 빼면 상품이 사라진다 — 스쿠버다이빙 10,130(전국 경쟁·인기탭 0건) vs
+//     보홀 호핑투어 7,600 · 보홀 스쿠버다이빙 990 · 보홀 다이빙 590 (여기에 인기탭이 있다).
+//     '판교 보홀투어'를 검색하는 사람은 없으므로 국내 지역축을 곱해서도 안 된다.
+const PROMPT = (text: string, hint: string, keepPlace: boolean) => `너는 네이버 카페 인기글 마케팅의 키워드 리서처다.
 아래는 어떤 업체의 소개/메뉴/서비스 설명 원문이다. 여기에서 **고객이 네이버에 실제로 검색할 만한
 제품·서비스 키워드**만 뽑아라.
 
 규칙:
-1. 지역명(시/구/동/역 이름)은 절대 넣지 마라. 지역은 별도로 붙인다. "강남 네일" → "네일" 만.
+${keepPlace
+        ? `1. 이 업체는 특정 지역(여행지·현지)에서 영업한다. **그 지명은 반드시 키워드에 넣어라.**
+   지명이 곧 상품이다 — "보홀 호핑투어", "보홀 스쿠버다이빙", "보홀 자유여행" 처럼 붙여서 만들어라.
+   지명 없는 일반어("스쿠버다이빙")만 뽑으면 전국 경쟁어라 쓸모가 없다. 둘 다 있으면 지명 붙인 쪽을 우선한다.`
+        : `1. 지역명(시/구/동/역 이름)은 절대 넣지 마라. 지역은 별도로 붙인다. "강남 네일" → "네일" 만.`}
 2. 업체 고유 브랜드명·상호·사람 이름은 제외한다. 일반명사구만.
 3. 검색되는 형태로 정규화한다. "저희만의 특별한 속눈썹 연장술" → "속눈썹연장".
 4. 너무 일반적인 말(서비스, 상담, 문의, 안내, 소개, 오시는길)은 제외한다.
@@ -98,12 +108,12 @@ function chunkText(text: string): string[] {
     return out.slice(0, MAX_CHUNKS);
 }
 
-async function extractOnce(chunk: string, hint: string, apiKey: string, model: string) {
+async function extractOnce(chunk: string, hint: string, apiKey: string, model: string, keepPlace: boolean) {
     let response: Response;
     try {
         response = await fetch(OPENAI_API_URL, {
             body: JSON.stringify({
-                input: PROMPT(chunk, hint),
+                input: PROMPT(chunk, hint, keepPlace),
                 model,
                 reasoning: { effort: 'low' },
                 text: { format: { type: 'json_object' } },
@@ -133,7 +143,7 @@ export async function onRequestPost({ request, env }: FunctionContext) {
     const apiKey = env.OPENAI_API_KEY;
     if (!apiKey) return jsonResponse({ message: 'Cloudflare 환경변수 OPENAI_API_KEY가 필요합니다.' }, 500);
 
-    let payload: { text?: string; hint?: string };
+    let payload: { text?: string; hint?: string; keepPlace?: boolean };
     try {
         payload = await request.json();
     } catch {
@@ -145,7 +155,8 @@ export async function onRequestPost({ request, env }: FunctionContext) {
     const model = env.OPENAI_CAFE_TEXT_MODEL || 'gpt-5-mini';
     const hint = (payload.hint || '').trim();
     const chunks = chunkText(text);
-    const runs = await Promise.all(chunks.map((c) => extractOnce(c, hint, apiKey, model)));
+    const keepPlace = payload.keepPlace === true;
+    const runs = await Promise.all(chunks.map((c) => extractOnce(c, hint, apiKey, model, keepPlace)));
 
     // 조각이 하나라도 성공했으면 진행한다 — 전부 실패했을 때만 에러로 돌린다.
     const okRuns = runs.filter((r): r is { parsed: Record<string, unknown>; usage?: { input_tokens?: number; output_tokens?: number } } => 'parsed' in r);
@@ -159,7 +170,7 @@ export async function onRequestPost({ request, env }: FunctionContext) {
     for (const run of okRuns) {
         for (const row of (run.parsed.products as unknown[]) || []) {
             const r = row as { kw?: unknown; kind?: unknown };
-            const kw = cleanProduct(typeof row === 'string' ? row : r.kw);
+            const kw = cleanProduct(typeof row === 'string' ? row : r.kw, keepPlace);
             const key = kw.replace(/\s/g, '');
             if (!kw || seen.has(key)) continue;
             seen.add(key);

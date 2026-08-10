@@ -39,6 +39,8 @@ export function CafeKeywordFinder({
     const [dongDone, setDongDone] = useState(false);        // 이번 결과에 동 스캔까지 마쳤는지
     const [pasteText, setPasteText] = useState('');         // 플레이스에 메뉴/정보 없을 때 직접 붙여넣는 정보·메뉴
     const [siteUrl, setSiteUrl] = useState('');             // 홈페이지·네이버 블로그 주소 — 붙여넣기를 대신하는 입력
+    // 지역이 없는 업체(보홀 다이빙투어·유학원 등) — 국내 지역축을 붙이지 않고 전국으로 판정한다.
+    const [noRegion, setNoRegion] = useState(false);
     const [extracting, setExtracting] = useState('');       // 붙여넣기→키워드 추출 진행상태
     const [kwExpanded, setKwExpanded] = useState(false);
     const [kwErr, setKwErr] = useState('');
@@ -389,8 +391,8 @@ export function CafeKeywordFinder({
             const manual = (autoTextRef.current ? pasteText.split(autoTextRef.current).join('') : pasteText).trim();
             const lots = [...(manual ? [{ label: '직접입력', text: manual }] : []), ...srcParts];
             const runs = lots.length
-                ? await Promise.all(lots.map((s) => extractMenuKeywords(s.text, keyword.trim()).catch(() => ({ biz: '', products: [] as ExtractedProduct[] }))))
-                : [await extractMenuKeywords(raw, keyword.trim())];
+                ? await Promise.all(lots.map((s) => extractMenuKeywords(s.text, keyword.trim(), noRegion).catch(() => ({ biz: '', products: [] as ExtractedProduct[] }))))
+                : [await extractMenuKeywords(raw, keyword.trim(), noRegion)];
             const seen = new Set<string>();
             const products: ExtractedProduct[] = [];
             for (const r of runs) {
@@ -414,7 +416,26 @@ export function CafeKeywordFinder({
     const runMenuScan = async (target = FIRST_TARGET) => {
         const list = (extracted || []).map((x) => x.kw).filter((k) => picked.has(k));
         if (!list.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
-        if (!addr.trim() && !regionSel.length) { setKwErr('위치를 입력하거나 시도를 1개 이상 선택하세요.'); return; }
+        // ★ 지역이 없는 업체가 있다 — 보홀 스쿠버다이빙 투어처럼 현지(해외)에서 영업하는 곳은
+        //   국내 지역축 자체가 성립하지 않는다("판교 보홀투어"를 검색하는 사람은 없다).
+        //   이때는 지역을 곱하지 않고 키워드 그대로 전국 판정한다(list: 라우트 = process_list).
+        if (noRegion) {
+            setKwErr(''); setKwLoading(true); setScanNote(''); setRegionTarget(target);
+            try {
+                const { id, error } = await enqueueListScan(list, Math.max(target, list.length));
+                if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+                savePendingScan(id, 'list', `전국(지역없음) × ${list.join(', ')}`);
+                const { result } = await pollPlaceScan(id, { timeoutSec: 600, onProgress: (note) => setScanNote(note) });
+                clearPendingScan();
+                if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — 전국 기준 "${list.join(', ')}"`); return; }
+                setKwResult(result);
+                setKeyword(list.join(', '));
+            } catch (e) {
+                setKwErr(e instanceof Error ? e.message : '조회 실패');
+            } finally { setKwLoading(false); setScanNote(''); }
+            return;
+        }
+        if (!addr.trim() && !regionSel.length) { setKwErr('위치를 입력하거나 시도를 고르세요. 지역이 없는 업체면 위의 ‘지역 없음’을 체크하세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote(''); setRegionTarget(target);
         try {
             const { id, error } = await enqueueMenuScan(addr, list, { regions: regionSel.join(','), target });
@@ -647,8 +668,15 @@ export function CafeKeywordFinder({
                    제품키워드를 만들고, 직접 적은 위치를 축으로 인기탭을 찾는다.
                    ★ 지역형 안에 끼워 두면 '지역형인데 왜 주소를 넣지?'가 된다 — 별도 모드로 둔다. */
                 <div className="grid gap-2">
+                    {/* 지역 없는 업체 — 현지(해외)에서 영업하는 곳은 국내 지역축이 성립하지 않는다.
+                        보홀 스쿠버다이빙 투어에 '판교 보홀투어'를 붙일 수는 없다. */}
+                    <label className="flex w-fit cursor-pointer items-center gap-2 rounded-md border border-[#fbbf24] bg-[#fffbeb] px-3 py-1.5 text-[12px] font-semibold text-[#b45309]">
+                        <input type="checkbox" className="h-3.5 w-3.5 accent-[#b45309]" checked={noRegion}
+                            onChange={(e) => setNoRegion(e.target.checked)} />
+                        🌏 지역 없음 — 전국/해외로 판정 (보홀 다이빙투어·유학원처럼 국내 지역이 없는 업체)
+                    </label>
                     {/* 시도 선택 — 없으면 자기 주소 주변만 본다. 고르면 그 시도 전체까지 넓힌다. */}
-                    <div className="flex flex-wrap gap-2">
+                    <div className={`flex flex-wrap gap-2 ${noRegion ? 'pointer-events-none opacity-40' : ''}`}>
                         {REGION_KEYS.map((r) => (
                             <button key={r} type="button" onClick={() => toggleRegion(r)}
                                 className={`rounded-full border px-3 py-1 text-sm font-semibold ${regionSel.includes(r) ? 'border-[#4338ca] bg-[#4338ca] text-white' : 'border-[#cbd5e1] bg-white text-[#475569]'}`}>{r}</button>
@@ -658,8 +686,8 @@ export function CafeKeywordFinder({
                     <div className="rounded-md border border-dashed border-[#c4b5fd] bg-white/60 px-3 py-2">
                         <div className="text-[12px] font-bold text-[#6d28d9]">🌐 홈페이지·블로그 주소 → 키워드 → 인기탭</div>
                         <div className="mt-2 grid gap-2">
-                            <input className={inputCls} value={addr} onChange={(e) => setAddr(e.target.value)}
-                                placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
+                            <input className={`${inputCls} ${noRegion ? 'pointer-events-none opacity-40' : ''}`} value={addr} onChange={(e) => setAddr(e.target.value)}
+                                placeholder={noRegion ? '지역 없음 — 위치를 적지 않습니다' : "위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)"} />
                             {/* 주소 한 줄로 원문을 걷는 경로 — 고객에게 "소개글을 붙여넣으세요"라고 하면 대부분 인사말만 넣는다. */}
                             <div className="flex flex-wrap items-center gap-2">
                                 <textarea className="min-h-[38px] w-full min-w-[240px] flex-1 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={2}

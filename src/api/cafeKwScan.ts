@@ -363,9 +363,12 @@ export type ExtractedProduct = { kw: string; kind: string };
 
 // 업체 정보 붙여넣기 → 제품·서비스 키워드 추출(GPT). 플레이스가 없는 업체용.
 //   ★ 결과를 그대로 확정하지 않는다 — 호출부가 체크박스로 보여주고 고객이 고른 것만 스캔한다.
-export async function extractMenuKeywords(text: string, hint = ''): Promise<{ products: ExtractedProduct[]; biz: string }> {
+// keepPlace=true 면 지역명을 지우지 않는다 — 지명이 상품인 업종(보홀 다이빙투어 등).
+//   실측 2026-08-10: 지명을 빼면 '스쿠버다이빙 10,130'(전국 경쟁·인기탭 0건)만 남고,
+//   살리면 '보홀 호핑투어 7,600 · 보홀 스쿠버다이빙 990'이 나온다.
+export async function extractMenuKeywords(text: string, hint = '', keepPlace = false): Promise<{ products: ExtractedProduct[]; biz: string }> {
     const r = await fetch('/api/extract-menu', {
-        body: JSON.stringify({ text, hint }),
+        body: JSON.stringify({ text, hint, keepPlace }),
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
     });
