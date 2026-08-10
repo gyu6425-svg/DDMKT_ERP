@@ -193,18 +193,38 @@ const INTENT_WORDS = [
 //     두마게티 같은 실제 필리핀 지명(관련 O)과, '하와이'의 far 에는 디트로이트·볼티모어(무관)가
 //     같이 들어온다. 그래서 자동 확정하지 않고 tier 만 붙여 사용자가 체크하게 한다.
 export async function expandRelated(seed: string): Promise<RelatedCand[]> {
-    const q = seed.trim();
-    if (!q) return [];
-    const r = await fetch(`/api/naver-keywords?q=${encodeURIComponent(q)}`);
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !Array.isArray((j as { keywords?: unknown }).keywords)) {
-        throw new Error((j as { message?: string }).message || `연관어 조회 실패(${r.status})`);
+    // ★ 쉼표/줄바꿈으로 여러 씨앗을 받는다. 사장님은 업체 설명을 그대로 넣는 게 자연스럽다.
+    //   실측(2026-08-10): 검색광고 API 는 긴 문장을 못 받는다 —
+    //     '자동차 수리 및 타이어'            →    1개
+    //     '자동차수리' 922 · '타이어판매' 473 · '자동차부품' 1,200 (합집합 2,567)
+    //   띄어쓰기는 무관하다('자동차 수리' = '자동차수리' = 922). '및'이 낀 긴 구가 문제였다.
+    //   그래서 쉼표로 쪼개 각각 조회하고 합친다. 씨앗이 여러 개면 tier 는 '어느 하나라도 포함'.
+    const seeds = [...new Set(seed.split(/[,\n]/).map((s) => s.trim()).filter(Boolean))].slice(0, 5);
+    if (!seeds.length) return [];
+    const got = await Promise.all(seeds.map(async (s) => {
+        const r = await fetch(`/api/naver-keywords?q=${encodeURIComponent(s)}`);
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !Array.isArray((j as { keywords?: unknown }).keywords)) {
+            return { err: (j as { message?: string }).message || `연관어 조회 실패(${r.status})`, list: [] };
+        }
+        return { err: '', list: (j as { keywords: { keyword?: string; total?: number }[] }).keywords };
+    }));
+    if (got.every((g) => g.err)) throw new Error(got[0].err);
+    // 합집합 — 같은 키워드가 여러 씨앗에서 나오면 검색량이 큰 쪽을 남긴다.
+    const merged = new Map<string, { kw: string; total: number }>();
+    for (const g of got) {
+        for (const x of g.list) {
+            const kw = String(x.keyword ?? '').trim();
+            if (!kw) continue;
+            const key = kw.replace(/\s/g, '');
+            const total = Number(x.total ?? 0);
+            const prev = merged.get(key);
+            if (!prev || total > prev.total) merged.set(key, { kw, total });
+        }
     }
-    const nq = q.replace(/\s/g, '');
+    const nqs = seeds.map((s) => s.replace(/\s/g, ''));
     // near 판정용 조각 — 씨앗어를 포함한 키워드에서 씨앗을 뗀 나머지(여행·항공권·리조트…).
-    const rows = ((j as { keywords: { keyword?: string; total?: number }[] }).keywords)
-        .map((x) => ({ kw: String(x.keyword ?? '').trim(), total: Number(x.total ?? 0) }))
-        .filter((x) => x.kw);
+    const rows = [...merged.values()];
     // near 조각에서 '아무 데나 붙는 일반 수식어'를 뺀다.
     //   ★ 실측(2026-08-06): '골프'의 near 에 BMW인증중고차·중고자동차·미니쿠퍼가 올라왔다.
     //     원인은 '중고골프채' → 조각 '중고' → '중고'가 든 자동차 키워드가 전부 near 로 승격된 것.
@@ -217,13 +237,15 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
     const frags = new Set<string>();
     for (const { kw } of rows) {
         const n = kw.replace(/\s/g, '');
-        if (!n.includes(nq)) continue;
-        const rest = n.split(nq).join(' ').trim();
+        const hit = nqs.find((s) => n.includes(s));
+        if (!hit) continue;
+        const rest = n.split(hit).join(' ').trim();
         for (const w of rest.split(/\s+/)) if (w.length >= 2 && !GENERIC_FRAG.has(w)) frags.add(w);
     }
     const out: RelatedCand[] = rows.map(({ kw, total }) => {
         const n = kw.replace(/\s/g, '');
-        const tier: RelatedCand['tier'] = n.includes(nq) ? 'seed'
+        // 씨앗이 여러 개면 '어느 하나라도 포함'이면 seed 다.
+        const tier: RelatedCand['tier'] = nqs.some((s) => n.includes(s)) ? 'seed'
             : ([...frags].some((f) => n.includes(f)) ? 'near' : 'far');
         return { intent: INTENT_WORDS.some((w) => n.includes(w)), kw, tier, total };
     });
