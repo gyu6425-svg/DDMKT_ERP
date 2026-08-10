@@ -294,7 +294,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { id, error } = await enqueueRelatedScan(seed, list.slice(0, REL_MAX));
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (n) => setScanNote(n) });
+            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (n) => setScanNote(n) });
             const reg = result.filter((r) => (r as KwResult & { kind?: string }).kind === 'regional');
             const nat = result.filter((r) => (r as KwResult & { kind?: string }).kind !== 'regional');
             setRelRegional(reg as (KwResult & { sample?: string[] })[]);
@@ -318,7 +318,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { id, error } = await enqueueListScan(list, 50);
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (n) => setScanNote(n) });
+            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (n) => setScanNote(n) });
             if (!result.length) {
                 setKwErr(`입력한 ${list.length}개 중 인기탭이 확인된 키워드가 없습니다. `
                     + `일반 배포로 접수하시면 인기탭 확인 없이 그대로 발행됩니다.`);
@@ -372,7 +372,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { id, error } = await enqueuePlaceScan(u, target, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
             if (error || !id) throw new Error(error?.message || '요청 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: target > FIRST_TARGET ? 900 : 300, onProgress: (note) => setScanNote(note) });
+            const { result } = await pollPlaceScan(id, { timeoutSec: target > FIRST_TARGET ? 1500 : 600, onProgress: (note) => setScanNote(note) });
             // 회차를 이어붙인다 — 워커가 target 만큼만 채우고 끝내므로 이전 회차 결과를 잃으면 안 된다.
             const seenPl = new Set<string>();
             const mergedPl: KwResult[] = [];
@@ -406,7 +406,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             if (ownAddr.trim()) {
                 const { id, error } = await enqueueMenuScan(ownAddr, kws, { name: form.company_name, regions: sidos.join(','), target });
                 if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-                const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(note) });
+                const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(note) });
                 const seenOwn = new Set<string>();
                 const mergedOwn: KwResult[] = [];
                 for (const r of [...prev, ...result]) {
@@ -432,7 +432,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 const { id, error } = await enqueueRegionScan(pk, sidos.join(','), target);
                 if (error || !id) continue;
                 const tag = kws.length > 1 ? ` (${i + 1}/${kws.length})` : '';
-                const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
+                const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
                 for (const r of result) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
             }
             if (!merged.length) {

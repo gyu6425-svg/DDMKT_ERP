@@ -405,12 +405,14 @@ export async function pollPlaceScan(
 ): Promise<{ result: KwResult[]; bizName: string | null }> {
     const timeoutMs = (opts?.timeoutSec ?? 180) * 1000;
     const t0 = Date.now();
+    let lastNote = '';
     while (Date.now() - t0 < timeoutMs) {
         if (opts?.signal?.aborted) throw new Error('취소됨');
         await new Promise((r) => setTimeout(r, 3000));
         const { data } = await supabase.from('cafe_kw_requests').select('status,result,biz_name,note').eq('id', id).single();
         const row = data as { status: string; result: KwResult[] | null; biz_name: string | null; note: string | null } | null;
         if (row) {
+            if (row.note) lastNote = row.note;
             if (opts?.onProgress && row.note) opts.onProgress(row.note, row.status);
             // 워커는 실패 시 status='failed' 를 쓴다('fail' 아님 — 예전엔 안 잡혀 900초 타임아웃까지 매달렸다).
             //   실패 사유(note)를 그대로 노출한다 — 차단으로 못 판정한 걸 '0건'처럼 보이게 하면 안 된다.
@@ -420,5 +422,13 @@ export async function pollPlaceScan(
             }
         }
     }
-    throw new Error('분석 시간초과 — 워커 대기가 많을 수 있어요. 잠시 후 다시 시도하세요.');
+    // ★ 타임아웃 = 실패가 아니다. 워커는 계속 돈다 — '다시 시도'라고 하면 처음부터 재스캔하게 만든다.
+    //   실측 2026-08-10(#175 장한평 정보형): 330조합 × 2.5초 ≈ 14분이라 900초 폴링을 넘겼는데
+    //   그때 워커는 257/330 · 인기탭 20건으로 정상 진행 중이었다. 결과는 완료 시점에만 기록되므로
+    //   화면엔 아무것도 안 남는다. 그래서 진행상황을 그대로 붙여 '기다렸다 다시 조회'로 안내한다.
+    //   (재조회는 캐시 히트라 스캔 없이 즉시 끝난다.)
+    throw new Error(
+        `아직 분석 중입니다${lastNote ? ` — ${lastNote}` : ''}. `
+        + '워커는 계속 돌고 있으니 잠시 후 같은 조건으로 다시 조회하세요(이미 본 건 캐시라 즉시 나옵니다).',
+    );
 }

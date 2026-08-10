@@ -158,7 +158,7 @@ export function CafeKeywordFinder({
                 const tag = jobs.length > 1 ? ` (${i + 1}/${jobs.length})` : '';
                 setScanNote(`${kw}${includeDong ? ' 동' : ''} 스캔 시작…${tag}`);
                 try {
-                    const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(`${kw} · ${note}${tag}`) });
+                    const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(`${kw} · ${note}${tag}`) });
                     merged.push(...result);
                     setKwResult(dedup(merged));                 // 끝나는 대로 누적
                 } catch { /* 이 키워드만 실패 — 나머지 계속 */ }
@@ -282,7 +282,7 @@ export function CafeKeywordFinder({
             const { id, error } = await enqueueRelatedScan(seed, list);
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
             const { result } = await pollPlaceScan(id, {
-                timeoutSec: 900, onProgress: (n) => { lastNote = n; setScanNote(n); },
+                timeoutSec: 1500, onProgress: (n) => { lastNote = n; setScanNote(n); },
             });
             const far = new Set((cands || []).filter((c) => c.tier === 'far').map((c) => c.kw));
             const farHit = result.filter((r) => far.has(r.keyword)).map((r) => r.keyword);
@@ -419,7 +419,7 @@ export function CafeKeywordFinder({
         try {
             const { id, error } = await enqueueMenuScan(addr, list, { regions: regionSel.join(','), target });
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-            const { result } = await pollPlaceScan(id, { timeoutSec: 900, onProgress: (note) => setScanNote(note) });
+            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onProgress: (note) => setScanNote(note) });
             if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${addr.trim() || regionSel.join('·')} × "${list.join(', ')}"`); return; }
             setKwResult(result);
             setKeyword(list.join(', '));   // 아래 발행 단계가 쓰는 제품키워드(지역 분리 기준)
