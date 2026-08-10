@@ -723,9 +723,15 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
     # ★ 완전성 우선(누락 금지): 검색량으로 스캔을 건너뛰지 않는다 — 저검색이라도 인기탭 있는 니치(피로연·예식 등)
     #   포착. 검색량은 판정 '후' 표시·정렬용으로만 조회. 판정결과(인기탭/섹션없음)는 캐시되어 재스캔은 즉시.
     total = len(kws)
-    MAX_LIVE = max(total, 400) if cf else 120   # 전수 스캔 보장 — 상한이 토큰수보다 작아 뒷지역 누락되던 것 방지
+    # ★ 회차는 짧게 끊는다 — 목표(target)를 채우면 즉시 멈추고, 못 채워도 이 콜 수에서 끝낸다.
+    #   왜: 예전엔 못 채우면 330콜(약 14분)까지 계속 돌았다. 사장님 실측 2026-08-10(장한평):
+    #   23건에서 30을 못 채워 끝까지 돌았고, 그 14분에 나온 건 강서·도봉 같은 먼 자치구뿐이었다.
+    #   화면 폴링도 그 사이 끊겨 '아직 분석 중'만 반복됐다. 짧게 끊고 '＋더 찾기'로 사장님이
+    #   이어갈지 결정하는 편이 낫다(이미 본 조합은 캐시라 다음 회차가 그만큼 빨라진다).
+    ROUND_MAX_LIVE = 120                        # 약 5분(2.5초 간격) — 한 번 누르면 이만큼만 본다
+    MAX_LIVE = ROUND_MAX_LIVE if cf else 120
     if max_live:
-        MAX_LIVE = min(MAX_LIVE, max_live)      # 회차 상한(정보입력형) — 남은 건 '더 찾기'가 이어서 본다
+        MAX_LIVE = min(MAX_LIVE, max_live)      # 호출부가 더 작게 주면 그쪽을 따른다
     kws = [(k + (False,))[:4] for k in kws]            # (tok, kw, product[, strict]) 정규화
     cache = _cache_get_many([kw for _, kw, _, _ in kws])  # 배치 캐시(재스캔 즉시)
 
@@ -916,7 +922,7 @@ def process_menu(req, payload):
     if not products:
         return _finish(req["id"], "failed", note="제품키워드 없음 — 추출 결과에서 1개 이상 선택하세요")
     # ★ 제품을 검색량 내림차순으로 세운다(2026-08-07).
-    #   추출을 최대로 하는 방침으로 바뀌면서 제품이 70개 넘게 들어온다. 회차 상한(max_live=330)이
+    #   추출을 최대로 하는 방침으로 바뀌면서 제품이 70개 넘게 들어온다. 회차 상한(ROUND_MAX_LIVE=120)이
     #   지역 우선 순회를 자르므로, 제품 순서가 나쁘면 앞쪽 지역에서 '활력징후측정 0' 같은 것만
     #   돌다가 회차가 끝난다. 어차피 한 번에 다 못 돌 바엔 수요 큰 것부터 본다.
     #   (searchad 호출이라 CF egress 예산과 무관하다. 나머지는 '＋더 찾기'가 이어서 본다.)
@@ -961,13 +967,12 @@ def process_menu(req, payload):
             seen.add(nk)
             kws.append((tok, kw, prod, strict))
     target = int(req.get("target") or 30)
-    # ★ 회차 상한 — 제품 축이 곱해져 조합이 폭증한다(제품 11 × 서울 340 = 3,740).
-    #   웹 폴링이 900초라 그 안에 못 끝내면 '결과 없음'처럼 보이고, CF 쿼터(300콜/10분)도 터진다.
-    #   2.5초 간격 × 330 ≈ 14분 → 폴링 안쪽. 남은 조합은 '＋더 찾기'가 캐시를 건너뛰고 이어서 본다.
+    # ★ 회차 상한은 _run_scan(ROUND_MAX_LIVE=120, 약 5분)이 정한다. 여기서 따로 주지 않는다.
+    #   제품 축이 곱해져 조합이 폭증하므로(제품 11 × 서울 340 = 3,740) 한 번에 다 볼 수 없다.
+    #   목표를 채우면 즉시 멈추고, 못 채워도 120콜에서 끊는다. 남은 건 '＋더 찾기'가 이어서 본다.
     _run_scan(req, kws, target, f"정보입력·지역{len(tokens)}×제품{len(products)}",
               extra={"biz_name": (d.get("name") or products[0])},
-              tag=f"정보입력스캔 '{products[0]}'{'…' if len(products) > 1 else ''} @{addr[:20]}",
-              max_live=330)
+              tag=f"정보입력스캔 '{products[0]}'{'…' if len(products) > 1 else ''} @{addr[:20]}")
 
 
 # ── 연관 인기글: 씨앗어 하나로 '전국형'과 '지역형'을 한 번에 훑는다 ────────────────
