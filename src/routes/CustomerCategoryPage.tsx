@@ -147,6 +147,12 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
                         ) : null}
                     </button>
                 ))}
+                {/* 사용 가이드 — 어느 탭에서 눌러도 '카페 배포' 접수 화면으로 이동해 투어를 띄운다(CustomerGuide 수신). */}
+                <button type="button" onClick={() => window.dispatchEvent(new Event('cafe-guide:open'))}
+                    className="my-1 ml-auto inline-flex items-center gap-1 rounded-md border border-[#c7d2fe] bg-[#eef2ff] px-3 py-1.5 text-[12px] font-bold text-[#4338ca] hover:bg-[#e0e7ff]"
+                    title="카페 배포 사용 가이드를 처음부터 다시 봅니다">
+                    📖 사용 가이드
+                </button>
             </div>
             {view === 'tracker'
                 ? (companyKeys.length ? <CafeTrackerTab lockCompany={companyKeys} /> : noCafe)

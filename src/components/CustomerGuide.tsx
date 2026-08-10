@@ -18,6 +18,10 @@ const STEPS: GuideStep[] = [
     { title: '준비 완료! 🎉', body: '이제 카페 배포를 직접 접수해 보세요. 이 가이드는 다시 표시되지 않습니다.' },
 ];
 
+// 지금 화면이 '카페 배포' 접수 화면인지 — 여기여야 data-tour 타겟(빨간 네모)이 붙는다.
+const onIntakeScreen = () => window.location.pathname === '/portal/cafe'
+    && new URLSearchParams(window.location.search).get('sub') === '카페 배포';
+
 export function CustomerGuide() {
     const { role, profile, pending, needsOnboarding } = useAuth();
     const uid = profile?.user_id || '';
@@ -33,8 +37,7 @@ export function CustomerGuide() {
         try { seen = !!localStorage.getItem(GUIDE_KEY(uid)); } catch { /* 무시 */ }
         if (seen) return;
         // 카페 배포 접수 화면이 아니면 그리로 이동(커스텀 라우팅: pushState + app:navigate) → 폼 타겟이 마운트되게.
-        const onIntake = window.location.pathname === '/portal/cafe'
-            && new URLSearchParams(window.location.search).get('sub') === '카페 배포';
+        const onIntake = onIntakeScreen();
         if (!onIntake) {
             window.history.pushState(null, '', CAFE_INTAKE_PATH);
             window.dispatchEvent(new Event('app:navigate'));
@@ -43,11 +46,18 @@ export function CustomerGuide() {
         return () => clearTimeout(t);
     }, [role, pending, needsOnboarding, profile?.must_change_password, uid]);
 
-    // '가이드 보기' 버튼(카페 배포 화면)에서 다시 열기 — seen 여부와 무관하게 즉시 표시.
+    // '가이드 보기' 버튼에서 다시 열기 — seen 여부와 무관하게 즉시 표시.
+    //   다른 탭(관리시트·순위 트래커·충전내역)에서 눌러도 되게 접수 화면으로 먼저 이동한 뒤 띄운다.
     useEffect(() => {
-        const open = () => setShow(true);
+        let t: number | undefined;
+        const open = () => {
+            if (onIntakeScreen()) { setShow(true); return; }
+            window.history.pushState(null, '', CAFE_INTAKE_PATH);
+            window.dispatchEvent(new Event('app:navigate'));
+            t = window.setTimeout(() => setShow(true), 600); // 접수 폼 마운트 대기
+        };
         window.addEventListener('cafe-guide:open', open);
-        return () => window.removeEventListener('cafe-guide:open', open);
+        return () => { window.removeEventListener('cafe-guide:open', open); if (t) clearTimeout(t); };
     }, []);
 
     const finish = useCallback(() => {
