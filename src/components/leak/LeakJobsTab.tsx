@@ -93,6 +93,12 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
 
     return (
         <div className="flex min-w-0 flex-col gap-4">
+            {/* 월별 보기 — 탭 좌측 상단 고정 자리(전 탭 동일 위치). 이 탭에만 적용. */}
+            <div className="flex items-center gap-2">
+                <span className="text-[12px] font-semibold text-[#94a3b8]">월별 보기</span>
+                <LeakMonthPicker value={month} onChange={setMonth} />
+            </div>
+
             <div className="flex flex-wrap gap-3">
                 <Kpi label={month ? `${Number(month)}월 작업` : '전체 작업'} sub="건" value={`${counts.all}`} />
                 <Kpi label="결제금액 합계" tone="amber" value={`${won(inMonth.reduce((a, r) => a + r.gross_amount, 0))}원`} />
@@ -105,7 +111,6 @@ export default function LeakJobsTab({ notify }: { notify: (m: string) => void })
                 title={`작업 목록 (${filtered.length}건 · 결제 ${won(sum.gross)}원 · 든든 ${won(sum.our)}원 · 백준 ${won(sum.partner)}원)`}
                 right={
                     <>
-                        <LeakMonthPicker value={month} onChange={setMonth} />
                         <input className={`${INPUT_CLS} w-52 shrink-0`} onChange={(e) => setQ(e.target.value)} placeholder="지역·현장·업체 검색" value={q} />
                         <Btn onClick={() => setModal({ edit: null })}>+ 작업 추가</Btn>
                     </>

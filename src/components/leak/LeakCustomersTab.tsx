@@ -287,6 +287,12 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
 
     return (
         <div className="flex min-w-0 flex-col gap-4">
+            {/* 월별 보기 — 탭 좌측 상단 고정 자리(전 탭 동일 위치). 이 탭에만 적용. */}
+            <div className="flex items-center gap-2">
+                <span className="text-[12px] font-semibold text-[#94a3b8]">월별 보기</span>
+                <LeakMonthPicker value={month} onChange={setMonth} />
+            </div>
+
             <div className="flex flex-wrap gap-3">
                 <Kpi label="전체 고객" sub="연락처 기준" value={`${kpi.total}`} />
                 <Kpi label="작업완료" sub={`성사율 ${kpi.rate}%`} tone="green" value={`${kpi.done}`} />
@@ -298,7 +304,6 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
                 title={`고객 목록 (${filtered.length}명)`}
                 right={
                     <>
-                        <LeakMonthPicker value={month} onChange={setMonth} />
                         <input className={`${INPUT_CLS} w-52 shrink-0`} onChange={(e) => setQ(e.target.value)} placeholder="연락처·지역·현장 검색" value={q} />
                         <Btn kind="ghost" onClick={() => setInqModal({ edit: null })}>+ 상담 추가</Btn>
                         <Btn onClick={() => setJobModal({ edit: null })}>+ 작업 추가</Btn>

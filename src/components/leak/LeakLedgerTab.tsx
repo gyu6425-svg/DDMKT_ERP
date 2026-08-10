@@ -137,11 +137,16 @@ export default function LeakLedgerTab({ notify }: { notify: (m: string) => void 
 
     return (
         <div className="flex min-w-0 flex-col gap-4">
+            {/* 월별 보기 — 탭 좌측 상단 고정 자리(전 탭 동일 위치). 이 탭에만 적용. */}
+            <div className="flex items-center gap-2">
+                <span className="text-[12px] font-semibold text-[#94a3b8]">월별 보기</span>
+                <LeakMonthPicker value={month} onChange={setMonth} />
+            </div>
+
             <Card
                 title={`통장 원장${month ? ` · ${Number(month)}월` : ''} (입금 ${won(total.in)}원 · 출금 ${won(total.out)}원 · 잔액 ${won(shownBalance)}원)`}
                 right={
                     <>
-                        <LeakMonthPicker value={month} onChange={setMonth} />
                         <Field label="시작 잔액(이월)">
                             <input className={`${INPUT_CLS} w-36`} onChange={(e) => saveOpening(parseWon(e.target.value))} value={won(opening)} />
                         </Field>

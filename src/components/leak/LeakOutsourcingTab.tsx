@@ -138,11 +138,16 @@ export default function LeakOutsourcingTab({ notify }: { notify: (m: string) => 
 
     return (
         <div className="flex min-w-0 flex-col gap-4">
+            {/* 월별 보기 — 탭 좌측 상단 고정 자리(전 탭 동일 위치). 이 탭에만 적용. */}
+            <div className="flex items-center gap-2">
+                <span className="text-[12px] font-semibold text-[#94a3b8]">월별 보기</span>
+                <LeakMonthPicker value={month} onChange={setMonth} />
+            </div>
+
             <Card
                 title={`외주 발주 (발주 ${stat.orderCount}건 · 환불 ${stat.refundCount}건 · VAT포함 합계 ${won(stat.vat)}원)`}
                 right={
                     <>
-                        <LeakMonthPicker value={month} onChange={setMonth} />
                         <input className={`${INPUT_CLS} w-52 shrink-0`} onChange={(e) => setQ(e.target.value)} placeholder="품목·업체 검색" value={q} />
                         <Btn onClick={() => { setEditId(''); setForm(blank); setOpen(true); }}>+ 발주 추가</Btn>
                     </>
