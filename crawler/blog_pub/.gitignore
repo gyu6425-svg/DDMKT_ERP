@@ -1,0 +1,7 @@
+# 컴퓨터마다 다른 것 — 커밋 금지 (docs/MERGE-SAFETY.md §6)
+.env
+chrome_profile/
+*.log
+.session_expired_*
+_endpoints.txt
+__pycache__/
