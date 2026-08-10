@@ -697,7 +697,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 {/* ① 배포 종류 → ② (인기탭일 때만) 키워드 잡는 방식.
                     한 줄에 3개를 늘어놓으면 '인기탭을 따지는지'가 안 보여 고객이 헷갈린다.
                     일반 배포는 그 자리에서 키워드 입력으로 끝난다(고를 게 없음). */}
-                <div className="mb-4">
+                <div data-tour="cafe-deploy-type" className="mb-4">
                     <label className={labelCls}>배포 종류</label>
                     <div className="inline-flex rounded-lg border border-[#cbd5e1] p-0.5">
                         {([['일반 배포', '직접형'], ['인기탭 배포', '지역형']] as const).map(([name, dt]) => {
@@ -879,7 +879,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     ) : null}
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div data-tour="cafe-deploy-basic" className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="md:col-span-2">
                         <label className={labelCls}>업체명 *</label>
                         <input className={inputCls} value={form.company_name} onChange={(e) => set('company_name', e.target.value)} placeholder="test" />
@@ -1041,7 +1041,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 </div>
 
                 {/* 카페 발행 정보 (대신 발행용) */}
-                <div className="mt-4 rounded-lg border border-[#e2e8f0] bg-[#fafaff] p-4">
+                <div data-tour="cafe-deploy-account" className="mt-4 rounded-lg border border-[#e2e8f0] bg-[#fafaff] p-4">
                     <div className="mb-0.5 text-[13px] font-bold text-[#334155]">카페 발행 정보 <span className="text-[#94a3b8]">(대신 발행용)</span></div>
                     <p className="mb-3 mt-0 text-[12px] text-[#94a3b8]">저희가 대신 발행하기 위해 필요합니다. 네이버 비밀번호는 안전하게 보관되며 화면엔 표시되지 않습니다.</p>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1072,7 +1072,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 </div>
 
                 {/* 사진 전달 — 3종 업로드 */}
-                <div className="mt-4">
+                <div data-tour="cafe-deploy-photos" className="mt-4">
                     <label className={labelCls}>사진 전달 (업로드 시 자동 압축)</label>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                         {GROUPS.map((g) => (
@@ -1124,7 +1124,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 ) : null}
 
                 <div className="mt-4 flex items-center gap-3">
-                    <button className="h-10 rounded-md bg-[#4338ca] px-6 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50" disabled={busy || !clientId} onClick={() => void submit()} type="button">
+                    <button data-tour="cafe-deploy-submit" className="h-10 rounded-md bg-[#4338ca] px-6 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50" disabled={busy || !clientId} onClick={() => void submit()} type="button">
                         {busy ? '접수 중…' : `접수하기${totalFiles ? ` (사진 ${totalFiles})` : ''}`}
                     </button>
                     {msg && <span className="text-[13px] text-[#475569]">{msg}</span>}

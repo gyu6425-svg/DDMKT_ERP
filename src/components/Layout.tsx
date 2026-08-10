@@ -3,6 +3,7 @@ import Header from './Header'
 import Sidebar from './Sidebar'
 import DevRoleSwitcher from './DevRoleSwitcher'
 import ForcePasswordChangeGate from './ForcePasswordChangeGate'
+import { CustomerGuide } from './CustomerGuide'
 import ReportPublishAlert from './ReportPublishAlert'
 import SignupRequestAlert from './SignupRequestAlert'
 import ReportToast from './ReportToast'
@@ -39,6 +40,7 @@ function Layout({ children }: LayoutProps) {
       </main>
       <DevRoleSwitcher />
       <ForcePasswordChangeGate />
+      <CustomerGuide />
       {!isLeakErp ? <ReportToast /> : null}
     </div>
   )
