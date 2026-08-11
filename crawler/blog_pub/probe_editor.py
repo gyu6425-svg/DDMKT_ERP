@@ -214,7 +214,18 @@ def main():
                 bl.click(); page.wait_for_timeout(200)
                 page.keyboard.type("PROBE 본문 첫 줄", delay=40)
                 page.wait_for_timeout(1200)
-                bc.log(f"  더미 입력 후 component={count(ctx, '.se-component')}")
+                # 🔴 검증 유효성 게이트 — 비우기 '직전' 텍스트가 실제로 잡히는지 먼저 확인한다.
+                #    이게 없으면 '더미가 애초에 안 들어갔는데 비우기 후 ''→True' 라는
+                #    **거짓 통과**와 구분되지 않는다. 즉 판정 함수가 항상 빈 문자열을 내는
+                #    고장 상태에서도 Q5 가 GREEN 으로 나온다. (SUB1 verify_dirty 지적, 2026-08-11)
+                dirty_txt = bc.content_text(ctx, sel.PLACEHOLDER_CLASS_HINTS)
+                bc.log(f"  더미 입력 후 component={count(ctx, '.se-component')} · "
+                       f"content_text={json.dumps(dirty_txt[:80], ensure_ascii=False)}")
+                if not dirty_txt or dirty_txt == "<NO_SE_NODE>":
+                    bc.log("  🔴 Q5 무효 — 더미 입력이 content_text 에 안 잡힙니다. "
+                           "이 상태의 '비우기 성공'은 의미 없습니다(항상 빈 문자열을 내는 고장일 수 있음).")
+                    bc.log("     타이핑이 실제로 들어갔는지 화면으로 확인하고, 셀렉터부터 다시 보세요.")
+                    return 4
                 # Ctrl+A 범위 재측정 (내용이 있는 상태 = 고신뢰)
                 bl.click(); page.wait_for_timeout(200)
                 page.keyboard.press("Control+a"); page.wait_for_timeout(300)
@@ -240,7 +251,10 @@ def main():
                 n2 = count(ctx, '.se-component')
                 t2 = bc.content_text(ctx, sel.PLACEHOLDER_CLASS_HINTS)
                 bc.log(f"  ⭐ 비우기 후: component={n2} · 엔진텍스트={json.dumps(t2[:120], ensure_ascii=False)}")
-                bc.log(f"     성공 조건(component<=2 and 텍스트==''): {n2 <= 2 and t2 == ''}")
+                # 성공 = '실제로 있던 내용'이 사라졌는가. 비우기 전 non-empty 확인이 전제다(위 게이트).
+                ok5 = (n2 <= sel.EMPTY_COMPONENT_COUNT) and (t2 == "")
+                bc.log(f"     ⭐ Q5 결과: {ok5}  (전제: 비우기 전 텍스트 존재 ✔ / "
+                       f"조건: component<={sel.EMPTY_COMPONENT_COUNT} and 텍스트=='')")
             except Exception as e:
                 bc.log(f"  Q5 실패: {str(e)[:120]}")
             bc.log("  ⚠️ 자동저장으로 임시저장이 생겼을 수 있습니다 — 임시저장함에서 'PROBE…' 건을 지워주세요.")

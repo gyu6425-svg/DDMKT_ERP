@@ -264,6 +264,21 @@ def t11_confirmed_consistency():
     check("T11d SAVE_URL_PARTS 가 발행 차단 조각을 포함하지 않음", not bad, str(bad))
 
 
+# ── T12: probe Q5 가 '비우기 직전 non-empty' 를 확인하는가 ──────────────────
+#   이 확인이 없으면, 더미가 애초에 안 들어갔거나 판정 함수가 항상 빈 문자열을 내는
+#   고장 상태에서도 '비우기 성공'이 GREEN 으로 나온다(= 검증 자체가 무효).
+#   SUB1 이 손으로 메운 구멍이라, 지워지지 않게 테스트로 고정한다.
+def t12_probe_validity_gate():
+    src = _src(os.path.join(HERE, "probe_editor.py"))
+    has_pre = "dirty_txt" in src and "bc.content_text(" in src
+    # 비우기 전 텍스트가 비어 있으면 조기 종료(무효 선언)해야 한다.
+    gates = re.search(r"if not dirty_txt or dirty_txt == \"<NO_SE_NODE>\":", src) is not None
+    check("T12 probe Q5 가 '비우기 직전 텍스트 존재'를 확인 후 진행", has_pre and gates,
+          f"pre={has_pre} gate={gates}")
+    # 엔진도 비우기 전 상태를 로그로 남겨야 스모크 로그만 보고 원인 추적이 된다.
+    check("T12b save_blog 이 비우기 전 상태를 로그로 남김", "비우기 전:" in _src(SAVE_PY))
+
+
 def main():
     print("[blog_pub] 발행 경로 부재 정적검사")
     t1_block_consts_not_actionable()
@@ -277,6 +292,7 @@ def main():
     t9_body_target()
     t10_shared_empty_check()
     t11_confirmed_consistency()
+    t12_probe_validity_gate()
     print(f"\n결과: 통과 {len(_passes)} · 실패 {len(_fails)}")
     if _fails:
         print("실패 항목: " + ", ".join(_fails))
