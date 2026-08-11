@@ -1116,6 +1116,19 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 </button>
                             </div>
                             {seedBusy ? <p className="m-0 mt-1 text-[11px] font-semibold text-[#6d28d9]">🔎 {seedBusy}</p> : null}
+                            {/* ★ 지역을 여기서 고른다 — '③ 인기탭 찾기'가 곧바로 이 지역 전수를 돌기 때문이다.
+                                예전엔 지역 선택 UI 가 지역형·정보형에만 있어서, 연관형에선 고를 방법이 없는데
+                                버튼만 비활성이었다(사장님 신고 2026-08-11). */}
+                            <div className="mt-2 flex flex-wrap items-center gap-1 rounded-md border border-[#c4b5fd] bg-white px-2 py-1.5">
+                                <span className="mr-1 text-[11px] font-bold text-[#6d28d9]">발행할 지역</span>
+                                {REGION_KEYS.map((r) => (
+                                    <button key={r} type="button" onClick={() => toggleRegion(r)}
+                                        className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${regionSel.includes(r) ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>{r}</button>
+                                ))}
+                                <span className="ml-1 text-[11px] text-[#94a3b8]">
+                                    {regionSel.length ? '이 지역의 전 지역을 봅니다' : '하나 이상 골라야 ③ 인기탭 찾기가 됩니다'}
+                                </span>
+                            </div>
                             {/* 발굴 결과 — '신규'는 실제로 조회해서 잰 값이다(추측 아님). */}
                             {seedCands?.length ? (
                                 <div className="mt-2 rounded-md border border-[#c4b5fd] bg-white p-2">
@@ -1278,7 +1291,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                             onClick={() => void runChain((relCands || []).filter((c) => relPicked.has(c.kw)).map((c) => c.kw))}
                                             className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50"
                                             title="체크한 키워드를 순서대로 하나씩 팍니다 — 단독 + 고른 지역 전수. 30건 채우면 멈춥니다.">
-                                            {kwLoading ? '찾는 중…' : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
+                                            {kwLoading ? '찾는 중…'
+                                                : !(form.region_sets || []).length ? '↑ 먼저 지역을 고르세요'
+                                                    : !relPicked.size ? '↑ 키워드를 체크하세요'
+                                                        : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
                                         </button>
                                         <span className="text-[11px] text-[#64748b]">
                                             {relPicked.size > REL_MAX

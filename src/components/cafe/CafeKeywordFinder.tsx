@@ -942,7 +942,10 @@ export function CafeKeywordFinder({
                                     onClick={() => void runChain((cands || []).filter((c) => relPicked.has(c.kw)).map((c) => c.kw))}
                                     className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50"
                                     title="체크한 키워드를 순서대로 하나씩 팍니다 — 단독 + 선택한 지역 전수. 30건 채우면 멈춥니다.">
-                                    {kwLoading ? '찾는 중…' : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
+                                    {kwLoading ? '찾는 중…'
+                                        : !regionSel.length ? '↑ 먼저 지역을 고르세요'
+                                            : !relPicked.size ? '↑ 키워드를 체크하세요'
+                                                : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
                                 </button>
                                 <span className="text-[11px] text-[#64748b]">
                                     {relPicked.size > REL_MAX
