@@ -114,6 +114,58 @@ def _guard_report(page, tripped):
     return hits
 
 
+# ── 복원 팝업 처리 ───────────────────────────────────────────────────────────
+def _dismiss_restore_popup(page, tries=3):
+    """"작성 중인 글이 있습니다 … 이어서 작성하시겠습니까?" 팝업을 **[취소]**로 닫는다.
+
+    왜 필요한가(실측 2026-08-11, SUB1): 복원거리가 있으면 postwrite 진입 시 매번 이 팝업이 뜨고,
+    .se-popup-dim 이 전체화면을 덮어 제목·본문 클릭이 전부 타임아웃 → 저장이 통째로 막힌다.
+    저장이 한 번이라도 중단되면 복원거리가 생기므로, 이 처리가 없으면 **그 계정의 저장이 영구히 막힌다.**
+
+    🔴 반드시 [취소]. [확인]을 누르면 이전 글이 복원되고 우리 원고가 그 위에 덧붙는다 —
+       _clear_editor 로 막으려던 바로 그 오염이다. 그래서 버튼을 **텍스트로 확인하고** 누른다.
+       (셀렉터만 믿고 누르면 팝업 종류가 바뀌었을 때 '확인'을 누를 수 있다)
+
+    반환: True=팝업을 닫음 / False=팝업 없었음. 못 닫으면 SaveError(fail-closed)."""
+    for _ in range(tries):
+        pop = bc.first(page, sel.SEL_RESTORE_POPUP, timeout=1500)
+        if not pop:
+            break
+        btn = None
+        for s in sel.SEL_RESTORE_CANCEL:
+            try:
+                loc = page.locator(s).first
+                if not loc.count():
+                    continue
+                txt = (loc.inner_text() or "").strip()
+                # 텍스트 검증 — '취소'가 있고 '확인'이 없어야 누른다.
+                if "취소" in txt and "확인" not in txt:
+                    btn = loc
+                    break
+            except Exception:
+                continue
+        if btn is None:
+            raise bc.SaveError(
+                "RESTORE_POPUP: 복원 팝업이 떴는데 '취소' 버튼을 찾지 못했습니다 — "
+                "'확인'을 누르면 이전 글이 복원돼 원고가 오염되므로 중단합니다")
+        bc.log("  복원 팝업 감지 → [취소](새로 작성) 클릭")
+        btn.click()
+        page.wait_for_timeout(600)
+
+    # dim 이 남아 있으면 클릭이 계속 막히므로 진행하지 않는다.
+    for _ in range(20):
+        dim = None
+        try:
+            loc = page.locator(sel.SEL_POPUP_DIM[0]).first
+            dim = loc.count() and loc.is_visible()
+        except Exception:
+            dim = False
+        if not dim:
+            return True
+        page.wait_for_timeout(300)
+    raise bc.SaveError("RESTORE_POPUP: 팝업 딤(.se-popup-dim)이 사라지지 않아 중단합니다")
+
+
 # ── 에디터 조작 ──────────────────────────────────────────────────────────────
 def _clear_editor(ctx, page):
     """문서를 완전히 비운다(제목 포함). **못 비우면 False(중단)** — fail-closed.
@@ -181,6 +233,7 @@ def _clear_editor(ctx, page):
             if attempt < 3:
                 page.goto(BLOG_WRITE_URL, wait_until="domcontentloaded")
                 page.wait_for_timeout(2500)
+                _dismiss_restore_popup(page)   # 재진입마다 복원 팝업이 다시 뜬다
                 ctx, _ = bc.resolve_ctx(page, sel.FRAME_HINT, sel.SEL_EDITOR)
         except Exception as e:
             bc.log(f"  ! 에디터 비우기 오류: {str(e)[:70]}")
@@ -287,6 +340,11 @@ def save_draft(page, title, blocks, dry_run=True):
     #   A사 원고가 B사 블로그에 저장된다.
     if BLOG_ID and BLOG_ID.lower() not in (page.url or "").lower():
         raise bc.SaveError(f"BLOG_ID_MISMATCH: 현재 페이지({page.url[:80]})가 담당 블로그({BLOG_ID})가 아닙니다")
+
+    # ⚠️ 복원 팝업을 먼저 닫는다. 딤이 화면을 덮고 있으면 이후 모든 클릭이 타임아웃난다.
+    #    (DOM 조회는 팝업 뒤에서도 되기 때문에 '컴포넌트 2개·내용 없음' 같은 로그가 정상으로 보인다 —
+    #     그래서 증상이 '비우기 실패'로만 나타나 원인을 놓치기 쉽다)
+    _dismiss_restore_popup(page)
 
     ctx, where = bc.resolve_ctx(page, sel.FRAME_HINT, sel.SEL_EDITOR)
     bc.log(f"에디터 컨텍스트: {where}")
@@ -403,6 +461,17 @@ def save_draft(page, title, blocks, dry_run=True):
 
 def save_job(job, cdp_url=DEFAULT_CDP, dry_run=True):
     """큐 1건 저장 — 이미지 다운로드 + 본문 마커 파싱 → 저장. (draft_seq 또는 예외)"""
+    # 🔴 job 의 블로그 == 이 워커의 블로그인지 먼저 대조한다.
+    #    리스너는 blog_id 로 필터링해 claim 하므로 안전하지만, CLI 로 `--job <id>` 를 직접 돌리면
+    #    아무 필터도 없다 → **A 블로그용 원고가 B 블로그에 저장**될 수 있다.
+    #    계정을 교체하는 시점(구 계정 job 이 큐에 남아 있는 상태)이 정확히 이 사고가 나는 순간이다.
+    #    (save_draft 의 BLOG_ID_MISMATCH 는 '지금 열린 페이지'만 보므로 이걸 못 잡는다)
+    job_blog = (job.get("blog_id") or "").strip()
+    if BLOG_ID and job_blog and job_blog.lower() != BLOG_ID.lower():
+        raise bc.SaveError(
+            f"BLOG_ID_MISMATCH: 이 job 은 '{job_blog}' 용인데 이 워커는 '{BLOG_ID}' 입니다 — "
+            f"다른 블로그에 저장되는 사고를 막기 위해 중단합니다(.env 의 BLOG_ID 확인)")
+
     images, body, _tmp = bc.download_manifest(job.get("manifest") or [])
     blocks = bc.parse_body_to_blocks(body, images)
     bc.preflight(job.get("title"), blocks, body, images)

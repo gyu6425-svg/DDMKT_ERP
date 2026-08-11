@@ -283,8 +283,11 @@ def main():
                 "LOGIN_REQUIRED", "ECONNREFUSED", "connect_over_cdp", "browserContext", "websocket",
                 "Target closed", "has been closed", "Browser closed", "Connection closed", "Protocol error",
                 "net::ERR_", "BLOG_URL_MISSING", "SELECTORS_UNCONFIRMED", "BLOG_ID_MISMATCH"))
+            # RESTORE_POPUP: 복원 팝업을 못 닫음. 새 goto 로 다시 뜬 팝업이 잡힐 수 있으니
+            #   재시도 대상(상한 넘으면 fail 로 떨어져 사람이 본다).
             job_transient = any(k in reason for k in (
-                "Timeout", "timed out", "제목 입력칸", "에디터 영역", "저장 확인 실패", "에디터를 비우지"))
+                "Timeout", "timed out", "제목 입력칸", "에디터 영역", "저장 확인 실패",
+                "에디터를 비우지", "RESTORE_POPUP"))
             if env_not_ready:
                 _safe_mark(jid, {"status": "pending", "reason": None})
                 print(f"  ⏸ 환경/설정 오류 — 대기로 되돌림(고치면 자동 재개): {reason[:110]}", flush=True)

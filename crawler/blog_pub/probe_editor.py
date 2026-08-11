@@ -40,6 +40,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import blog_common as bc          # noqa: E402
 import blog_selectors as sel      # noqa: E402
+import save_blog as sv            # noqa: E402  — 복원 팝업 처리를 **엔진과 같은 함수**로 공유
 from playwright.sync_api import sync_playwright   # noqa: E402
 
 bc.load_env()
@@ -79,6 +80,9 @@ def main():
         if re.search(r"nid\.naver\.com|nidlogin", page.url or ""):
             bc.log("🔴 로그인 필요")
             return 3
+        # 복원 팝업("이어서 작성하시겠습니까?")을 [취소]로 닫는다 — 딤이 남아 있으면
+        # 이후 클릭이 전부 타임아웃나고, Q2 기준선도 복원분 때문에 오염된다.
+        sv._dismiss_restore_popup(page)
         ctx, where = bc.resolve_ctx(page, sel.FRAME_HINT, sel.SEL_EDITOR)
         bc.log(f"컨텍스트: {where}  URL: {page.url[:80]}")
 

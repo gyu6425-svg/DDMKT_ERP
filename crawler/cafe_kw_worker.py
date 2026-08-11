@@ -1133,13 +1133,13 @@ def process_related(req, payload):
     #   2.5초 간격 × 200 ≈ 8.5분, 찔러보기(6×8=48) 포함해도 10.5분이라 폴링 안쪽이다.
     #   캐시 히트는 네트워크 0이라 상한과 무관하게 통과한다.
     MAX_A = 200
-    # ★ 깊이(6제품×8지역)를 넓이(24제품×4지역)로 재배분한다 — 콜 수는 같고 판명률만 오른다.
+    # ★ 깊이(6제품×8지역)를 넓이(전 제품×4지역)로 재배분한다 — 지역 K 는 8→4 로 줄여도 안전하다
+    #   (신형 신도시 4곳으로 5/5 판명 실측 2026-08-10).
     #   실측(독립검증 2026-08-10, 씨앗 '간병인' 연관어 20개 전수):
     #     검색량 상위 6개 = 간병인보험·노인장기요양보험·요양보호사자격증·요양보호사시험 …
     #     전부 '정보성 키워드'라 지역을 붙여도 인기탭이 없다 → 48콜 쓰고 0건.
-    #     진짜 지역형은 9위(욕창)와 20위(간병인)에 있었다. 상위 6개 컷이 구조적으로 헛콜이었다.
-    #   지역 K 는 8→4 로 줄여도 안전하다(신형 신도시 4곳으로 5/5 판명 실측).
-    MAX_PROBE_PROD = 24             # 지역 찔러보기 대상 제품 수(× K = 콜 수)
+    #     진짜 지역형은 9위(욕창)와 20위(간병인)에 있었다. 상위 N개 컷 자체가 구조적으로 헛콜이었다.
+    #   그래서 제품 수 상한(옛 MAX_PROBE_PROD=24)은 없앴다 — 아래 PROBE_MAX_LIVE(콜 예산)로만 끊는다.
     probes = _probe_regions(min(K, 4))
     known = set(_region_tokens_for(["서울", "경기", "인천"], True))
 
@@ -1194,19 +1194,40 @@ def process_related(req, payload):
                      f"{' · 오류 ' + str(errs) if errs else ''}"
                      + (f" · 판정 {min(len(kws), MAX_A)}/{len(kws)}(상한)" if len(kws) > MAX_A else ""))
         return
-    todo = sorted(miss, key=lambda x: -(x.get("volume") or 0))[:MAX_PROBE_PROD]
+    # ★ 지역 찔러보기를 '상위 24개'로 자르지 않는다(2026-08-11 사장님 요청: 나오는 건 다 보여달라).
+    #   옛 코드는 miss 200개 중 24개만 찔러 176개는 지역형인지 확인조차 안 했다 — 조용한 누락이었다.
+    #   실측 그날: 체크 200개 · 지역형 후보 2건. 그런데 찔러본 것들의 적중이 여자창업 3/4 ·
+    #   창업떡집 3/4 · 1인창업 2/4 로 높았다 — 안 찔러본 176개에 더 있었다고 보는 게 맞다.
+    #   대신 ① 이미 판정된 조합은 캐시에서 공짜로 가져오고 ② 라이브 콜만 예산으로 끊는다.
+    #   끊기면 note 에 남은 개수를 명시한다(조용한 절단 금지). 다시 조회하면 캐시분을 건너뛰고 이어서 본다.
+    todo = sorted(miss, key=lambda x: -(x.get("volume") or 0))
+    PROBE_MAX_LIVE = 400                 # 약 17분(2.5초 간격). 캐시 히트는 여기 안 든다.
+    pcache = _cache_get_many([f"{tok} {row['keyword']}" for row in todo for tok in probes])
+    plive, pleft, pushed_r = 0, 0, -1
     for j, row in enumerate(todo, 1):
         prod = row["keyword"]
-        hits = []
+        hits, unseen = [], False
+        try:                             # 진행상태 + 찾는 즉시 화면에 쌓기(부분결과)
+            body = {"note": f"지역형 확인 {j}/{len(todo)} · {prod} · 발견 {len(regional)}"}
+            if len(regional) != pushed_r:
+                body["result"] = national + regional
+                pushed_r = len(regional)
+            requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H, json=body, timeout=10)
+        except Exception:
+            pass
         for tok in probes:
-            try:
-                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
-                               json={"note": f"지역형 확인 {j}/{len(todo)} · {prod}"}, timeout=10)
-            except Exception:
-                pass
             kw2 = f"{tok} {prod}"
+            c2 = pcache.get(kw2.replace(" ", ""))
+            if c2 is not None and _cache_trust(c2):      # 이미 판정됨 — 네트워크 0
+                if _is_pop(c2):
+                    hits.append({"keyword": kw2, "volume": c2.get("volume") or 0, "theme": _disp_theme(c2)})
+                continue
+            if plive >= PROBE_MAX_LIVE:                  # 회차 예산 소진 — 못 본 것으로 표시하고 넘어간다
+                unseen = True
+                continue
             r2 = p.classify(kw2)
             _budget_note(1)
+            plive += 1
             time.sleep(gap)
             if r2.get("err"):
                 continue
@@ -1214,6 +1235,8 @@ def process_related(req, payload):
             _cache_put(kw2, r2, v2)
             if ok2:
                 hits.append({"keyword": kw2, "volume": v2 or 0, "theme": _disp_theme(r2)})
+        if unseen:
+            pleft += 1
         if hits:
             # 지역형 후보는 '제품키워드' 자체가 결과다 — 그대로 발행하는 게 아니라
             #   이걸로 지역형 스캔을 한 번 더 돌려야 전수 키워드가 나온다. kind 로 구분해 둔다.
@@ -1228,7 +1251,9 @@ def process_related(req, payload):
         n["kind"] = "national"
     regional.sort(key=lambda f: -(f.get("volume") or 0))
     note = (f"전국형 {len(national)}건 · 지역형 후보 {len(regional)}건"
+            f" · 지역 찔러보기 {len(todo) - pleft}/{len(todo)}개"
             f"{' · 오류 ' + str(errs) if errs else ''}"
+            + (f" · 남은 {pleft}개(다시 조회하면 이어서 봅니다)" if pleft else "")
             + (f" · 판정 {min(len(kws), MAX_A)}/{len(kws)}(상한)" if len(kws) > MAX_A else ""))
     # 결과 배열 하나에 담고 kind 로 가른다 — cafe_kw_requests 에 별도 컬럼이 없다(extra 는 컬럼 업데이트라 실패한다).
     _finish(req["id"], "done", result=national + regional, note=note, extra={"biz_name": seed})

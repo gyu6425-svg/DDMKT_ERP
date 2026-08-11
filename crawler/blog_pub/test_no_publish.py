@@ -279,6 +279,64 @@ def t12_probe_validity_gate():
     check("T12b save_blog 이 비우기 전 상태를 로그로 남김", "비우기 전:" in _src(SAVE_PY))
 
 
+# ── T13: 복원 팝업은 반드시 [취소]로 닫는다 ─────────────────────────────────
+#   [확인]을 누르면 이전 글이 복원돼 우리 원고가 그 위에 덧붙는다 — _clear_editor 로 막으려던
+#   바로 그 오염이 팝업 한 번으로 되살아난다. 그래서:
+#     (a) '확인' 버튼 셀렉터를 상수로 두지 않는다(복붙 사고 차단)
+#     (b) 클릭 전 버튼 텍스트를 검증한다(셀렉터만 믿지 않는다)
+#     (c) 팝업 처리가 _clear_editor 보다 먼저 일어난다
+def t13_restore_popup_cancel_only():
+    sys.path.insert(0, HERE)
+    import blog_selectors as s4   # noqa: E402
+    src = _src(SAVE_PY)
+
+    # (a) 확인/confirm 버튼을 상수로 갖고 있으면 안 된다
+    confirm_consts = [n for n in dir(s4)
+                      if n.startswith("SEL_") and "CONFIRM" in n.upper()]
+    check("T13a 복원 팝업 '확인' 버튼 셀렉터 상수가 없음", not confirm_consts, str(confirm_consts))
+    # 취소 셀렉터가 '확인'을 잡으면 안 된다
+    bad = [s for s in getattr(s4, "SEL_RESTORE_CANCEL", []) if "확인" in s]
+    check("T13b SEL_RESTORE_CANCEL 에 '확인' 문구 없음", not bad, str(bad))
+
+    # (b) 클릭 전에 텍스트를 검증하는가
+    has_text_check = '"취소" in txt' in src and '"확인" not in txt' in src
+    check("T13c 복원 팝업 클릭 전 버튼 텍스트 검증('취소' 포함·'확인' 제외)", has_text_check)
+
+    # (c) 팝업 처리가 비우기보다 먼저
+    tree = _tree(SAVE_PY)
+    fn = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef) and n.name == "save_draft"), None)
+    if fn is None:
+        return check("T13d 팝업 처리가 비우기보다 먼저", False, "save_draft 없음")
+    pop_lines = [n.lineno for n in ast.walk(fn)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                 and n.func.id == "_dismiss_restore_popup"]
+    clr_lines = [n.lineno for n in ast.walk(fn)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                 and n.func.id == "_clear_editor"]
+    ok = bool(pop_lines) and bool(clr_lines) and min(pop_lines) < min(clr_lines)
+    check("T13d save_draft 가 비우기보다 먼저 복원 팝업을 닫음", ok,
+          f"popup@{pop_lines} clear@{clr_lines}")
+
+
+# ── T14: job 의 블로그와 워커의 블로그를 대조한다 ───────────────────────────
+#   CLI 로 --job 을 직접 돌리면 리스너의 blog_id 필터가 없다 → A 블로그용 원고가 B 에 저장될 수 있다.
+def t14_job_blog_match():
+    tree = _tree(SAVE_PY)
+    fn = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef) and n.name == "save_job"), None)
+    if fn is None:
+        return check("T14 save_job 이 job 의 blog_id 를 대조", False, "save_job 없음")
+    src = ast.get_source_segment(_src(SAVE_PY), fn) or ""
+    ok = 'job.get("blog_id")' in src and "BLOG_ID_MISMATCH" in src
+    # 대조가 다운로드/타이핑보다 먼저여야 의미가 있다(엉뚱한 블로그에 이미지부터 올리면 안 됨).
+    dl = src.find("download_manifest")
+    mm = src.find("BLOG_ID_MISMATCH")
+    order_ok = mm >= 0 and (dl < 0 or mm < dl)
+    check("T14 save_job 이 다운로드 전에 job.blog_id 를 워커 blog 와 대조", ok and order_ok,
+          f"has={ok} order_ok={order_ok}")
+
+
 def main():
     print("[blog_pub] 발행 경로 부재 정적검사")
     t1_block_consts_not_actionable()
@@ -293,6 +351,8 @@ def main():
     t10_shared_empty_check()
     t11_confirmed_consistency()
     t12_probe_validity_gate()
+    t13_restore_popup_cancel_only()
+    t14_job_blog_match()
     print(f"\n결과: 통과 {len(_passes)} · 실패 {len(_fails)}")
     if _fails:
         print("실패 항목: " + ", ".join(_fails))

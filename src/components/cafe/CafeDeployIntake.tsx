@@ -14,8 +14,9 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
+import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { useAuth } from '../../hooks/useAuth';
 
 const REGION_KEYS = ['서울', '경기', '인천', '대전', '세종', '충북', '충남', '강원', '전북', '전남', '광주', '대구', '경북', '경남', '부산', '울산', '제주'] as const; // 지역형 지역셋(전국)
@@ -351,7 +352,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const runRelatedScan = async () => {
         const list = [...relPicked];
         if (!list.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
-        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwHidden([]); setKwPicked([]);
+        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwHidden([]);
         try {
             const { id, error } = await enqueueRelatedScan(seed, list.slice(0, REL_MAX));
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
@@ -375,7 +376,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         const list = popManualKws.length ? popManualKws : [(form.keyword || '').trim()].filter(Boolean);
         if (!list.length) { setKwErr('확인할 키워드를 입력하세요(입력 후 엔터/추가).'); return; }
         setKwErr(''); setKwLoading(true); setScanNote('인기탭 확인 준비 중…');
-        setKwResult(null); setKwHidden([]); setKwPicked([]);
+        setKwResult(null); setKwHidden([]);
         try {
             const { id, error } = await enqueueListScan(list, 50);
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
@@ -424,7 +425,21 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
 
     const [kwErr, setKwErr] = useState('');
     const [kwHidden, setKwHidden] = useState<string[]>([]); // X로 제외한 키워드(화면에서만 숨김)
-    const [kwPicked, setKwPicked] = useState<KwResult[]>([]); // 고객이 고른 키워드(발행 대상 → 접수에 전달)
+    // 담아둔 키워드(보관함) — 고객이 고른 발행 대상. 접수 시 함께 전달된다.
+    //   ★ 조회를 새로 해도 비우지 않고, 새로고침해도 남는다(2026-08-11 사장님 요청).
+    //     '창업'으로 뽑고 '프랜차이즈'로 또 뽑고 정보형으로도 뽑아 쌓는 게 정상 사용법이다.
+    const [kwPicked, setKwPicked] = useState<KwResult[]>([]);
+    const pickedLoadedRef = useRef(false);
+    useEffect(() => {                    // 업체가 정해지면 그 업체 보관함을 불러온다
+        if (!clientId) return;
+        pickedLoadedRef.current = false;
+        setKwPicked(loadPickedKw(clientId));
+        pickedLoadedRef.current = true;
+    }, [clientId]);
+    useEffect(() => {                    // 담은 게 바뀌면 바로 보관(불러오기 직후의 덮어쓰기는 막는다)
+        if (!clientId || !pickedLoadedRef.current) return;
+        savePickedKw(clientId, kwPicked);
+    }, [kwPicked, clientId]);
     const [pickedOpen, setPickedOpen] = useState(false); // 선택 키워드 드롭다운 펼침(기본 접힘 · 우측 N개)
     const [payBusy, setPayBusy] = useState(false); // 결제완료 알림 전송 중
     const [payMsg, setPayMsg] = useState(''); // 결제완료 알림 결과
@@ -449,7 +464,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setKwErr(''); setKwLoading(true); setScanNote('인기탭 분석 준비 중…'); setScanTarget(target);
         // 첫 회차만 초기화 — '＋더 찾기'는 기존 결과에 이어붙인다(이미 판정된 건 캐시라 즉시 통과).
         const prev = target > FIRST_TARGET ? (kwResult ?? []) : [];
-        if (target <= FIRST_TARGET) { setKwResult(null); setKwHidden([]); setKwPicked([]); }
+        if (target <= FIRST_TARGET) { setKwResult(null); setKwHidden([]); }
         try {
             const { id, error } = await enqueuePlaceScan(u, target, (form.region_sets?.length ? form.region_sets.join(',') : '서울,경기,인천'));
             if (error || !id) throw new Error(error?.message || '요청 실패');
@@ -498,7 +513,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         // 첫 회차만 초기화 — '＋더 찾기'는 기존 결과 위에 이어붙인다.
         //   저장해 둔 직전 결과도 같이 버린다(안 그러면 옛 결과가 새 조건에 섞인다).
         const prev = target > FIRST_TARGET ? (kwResult ?? []) : [];
-        if (target <= FIRST_TARGET) { clearPendingScan(); setKwResult(null); setKwHidden([]); setKwPicked([]); }
+        if (target <= FIRST_TARGET) { clearPendingScan(); setKwResult(null); setKwHidden([]); }
         try {
             // 위치를 직접 적었으면 그 주소에서 지역 축을 뽑아 '가까운 곳부터' 본다(플레이스 없는 업체).
             //   시도까지 골랐으면 자기 지역을 채운 뒤 그 시도 전체로 확장한다.
@@ -693,12 +708,27 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     <button type="button" onClick={() => setPickedOpen((o) => !o)} className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-[11px] font-semibold text-[#4338ca]">
                         <span className="flex items-center gap-1.5">
                             <span className={`text-[9px] transition-transform ${pickedOpen ? 'rotate-90' : ''}`}>▶</span>
-                            선택한 발행 키워드 — 접수 시 함께 전달됩니다
+                            담아둔 키워드 — 다시 조회해도 지워지지 않습니다 (접수 시 함께 전달)
                         </span>
                         <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-[#4338ca] ring-1 ring-[#c7d2fe]">{kwPicked.length}개</span>
                     </button>
                     {pickedOpen ? (
-                        <div className="flex flex-wrap gap-1.5 border-t border-[#c7d2fe] p-2">
+                        <div className="border-t border-[#c7d2fe] p-2">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <button type="button"
+                                onClick={() => downloadCsv(`담은키워드_${todayTag()}`, ['키워드', '검색량', '테마'],
+                                    kwPicked.map((p) => [p.keyword, p.volume ?? '', p.theme ?? '']))}
+                                className="rounded border border-[#c7d2fe] bg-white px-2 py-0.5 text-[11px] font-bold text-[#4338ca]">
+                                ⬇ 엑셀로 받기
+                            </button>
+                            <button type="button"
+                                onClick={() => { if (confirm(`담아둔 ${kwPicked.length}개를 모두 비웁니다. 계속할까요?`)) setKwPicked([]); }}
+                                className="rounded border border-[#fca5a5] bg-white px-2 py-0.5 text-[11px] font-bold text-[#dc2626]">
+                                전부 비우기
+                            </button>
+                            <span className="text-[11px] text-[#818cf8]">다른 조건으로 계속 조회해 쌓으세요 — 30일 보관됩니다.</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
                             {kwPicked.map((p) => (
                                 <span key={p.keyword} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
                                     {p.keyword}
@@ -706,6 +736,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     <button type="button" onClick={() => togglePick(p)} className="text-[#818cf8] hover:text-[#4338ca]" title="선택 해제">×</button>
                                 </span>
                             ))}
+                        </div>
                         </div>
                     ) : null}
                 </div>
