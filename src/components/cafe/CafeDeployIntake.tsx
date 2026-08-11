@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { useAuth } from '../../hooks/useAuth';
@@ -361,7 +361,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (!products.length) { setKwErr('먼저 키워드가 있어야 합니다.'); return; }
         const sidos = form.region_sets || [];
         if (!sidos.length) { setKwErr('위에서 지역을 하나 이상 고르세요.'); return; }
-        setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…');
+        setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…'); setScanTarget(target);
+        lastScanRef.current = { kind: 'chain', products };
         clearPendingScan();
         try {
             const { id, error } = await enqueueChainScan(products, sidos.join(','), target);
@@ -443,36 +444,6 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         } finally { setExtracting(false); }
     };
     // 연관형 ② — 전국 판정 + 지역형 찔러보기를 한 번에(process_related)
-    const runRelatedScan = async () => {
-        const list = [...relPicked];
-        if (!list.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
-        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwHidden([]);
-        try {
-            const { id, error } = await enqueueRelatedScan(seed, list.slice(0, REL_MAX));
-            if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-            // 연관형은 지역 찔러보기까지 하느라 가장 오래 걸린다 — 기록을 남겨야
-            //   시간초과·새로고침 뒤에도 이 요청에 다시 붙는다.
-            clearPendingScan();
-            savePendingScan(id, 'related', `연관 "${seed.trim()}" × ${list.length}개`);
-            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
-            const reg = result.filter((r) => (r as KwResult & { kind?: string }).kind === 'regional');
-            const nat = result.filter((r) => (r as KwResult & { kind?: string }).kind !== 'regional');
-            setRelRegional(reg as (KwResult & { sample?: string[] })[]);
-            if (!nat.length && !reg.length) {
-                setKwErr(`체크한 ${list.length}개 중 인기탭이 확인된 키워드가 없습니다. `
-                    + `일반 배포로 접수하시면 인기탭 확인 없이 그대로 발행됩니다.`);
-                return;
-            }
-            setKwResult([...nat].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
-            if (!form.keyword) set('keyword', seed.trim());
-        } catch (e) {
-            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
-            const m = e instanceof Error ? e.message : '';
-            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
-            setKwErr(m || '조회 실패');
-        } finally { setKwLoading(false); setScanNote(''); }
-    };
-
     const checkPopManual = async () => {
         const list = popManualKws.length ? popManualKws : [(form.keyword || '').trim()].filter(Boolean);
         if (!list.length) { setKwErr('확인할 키워드를 입력하세요(입력 후 엔터/추가).'); return; }
@@ -598,10 +569,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   숫자는 cafeKwScan 에서만 정한다. 예전엔 이 화면이 플레이스형 10→50, 지역형 300 이라
     //   같은 기능인데 화면마다 결과 개수가 달랐다.
     const [scanTarget, setScanTarget] = useState(FIRST_TARGET);
+    // ★ '＋더 찾기'가 어느 경로로 나온 결과인지 알아야 이어서 돌릴 수 있다.
+    //   실측 2026-08-11: 연관형·목표채우기로 나온 결과에서 ＋더 찾기를 누르면
+    //   지역형 경로로 가서 '제품 키워드를 추가하세요'로 막혔다(칩이 비어 있으니까).
+    const lastScanRef = useRef<{ kind: 'place' | 'region' | 'chain'; products: string[] } | null>(null);
     const runPlaceScan = async (target = FIRST_TARGET) => {
         const u = (form.url || '').trim();
         if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote('인기탭 분석 준비 중…'); setScanTarget(target);
+        lastScanRef.current = { kind: 'place', products: [] };
         // 첫 회차만 초기화 — '＋더 찾기'는 기존 결과에 이어붙인다(이미 판정된 건 캐시라 즉시 통과).
         const prev = target > FIRST_TARGET ? (kwResult ?? []) : [];
         if (target <= FIRST_TARGET) { setKwResult(null); setKwHidden([]); }
@@ -653,6 +629,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         }
         if (!sidos.length && !ownAddr.trim()) { setKwErr('지역을 선택하거나 위치를 직접 입력하세요. 지역이 없는 업체면 아래 ‘지역 없음’을 체크하세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote('지역 인기탭 조회 준비 중…'); setScanTarget(target);
+        lastScanRef.current = { kind: 'region', products: kws };
         // 첫 회차만 초기화 — '＋더 찾기'는 기존 결과 위에 이어붙인다.
         //   저장해 둔 직전 결과도 같이 버린다(안 그러면 옛 결과가 새 조건에 섞인다).
         const prev = target > FIRST_TARGET ? (kwResult ?? []) : [];
@@ -967,7 +944,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     {/* ＋더 찾기 — 회차당 30건에서 멈추므로 부족하면 ＋10 씩 이어서 본다(사무실 화면과 동일).
                         결과가 적을수록 더 필요하다 — 3건만 나왔을 때 더 찾고 싶지, 30건 나왔을 때만이 아니다.
                         이미 판정된 조합은 캐시 히트라 즉시 통과하므로 이어찾기는 처음보다 빠르다. */}
-                    <button type="button" onClick={() => void (isKw ? runPlaceScan(scanTarget + MORE_STEP) : genRegionKeywords(scanTarget + MORE_STEP))}
+                    <button type="button" onClick={() => {
+                        const t = scanTarget + MORE_STEP;
+                        const ls = lastScanRef.current;
+                        if (ls?.kind === 'chain') { void runChain(ls.products, t); return; }
+                        if (ls?.kind === 'place' || isKw) { void runPlaceScan(t); return; }
+                        void genRegionKeywords(t);
+                    }}
                         disabled={kwLoading}
                         className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50"
                         title="이번 회차는 30건에서 멈춥니다. 부족하면 10건씩 이어서 찾습니다(이미 본 조합은 건너뜁니다).">
@@ -1289,9 +1272,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                             ))}
                                     </div>
                                     <div className="mt-2 flex items-center gap-2">
-                                        <button type="button" onClick={() => void runRelatedScan()} disabled={kwLoading || !relPicked.size}
-                                            className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">
-                                            {kwLoading ? '찾는 중…' : '③ 인기탭 찾기'}
+                                        {/* ★ 체크한 순서대로 하나씩 끝까지 파고 30건 채우면 멈춘다(process_chain).
+                                            각 키워드마다 단독 판정 → 위에서 고른 지역 전수. 사장님 설계 2026-08-11. */}
+                                        <button type="button" disabled={kwLoading || !relPicked.size || !(form.region_sets || []).length}
+                                            onClick={() => void runChain((relCands || []).filter((c) => relPicked.has(c.kw)).map((c) => c.kw))}
+                                            className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50"
+                                            title="체크한 키워드를 순서대로 하나씩 팍니다 — 단독 + 고른 지역 전수. 30건 채우면 멈춥니다.">
+                                            {kwLoading ? '찾는 중…' : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
                                         </button>
                                         <span className="text-[11px] text-[#64748b]">
                                             {relPicked.size > REL_MAX

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 
@@ -84,7 +84,8 @@ export function CafeKeywordFinder({
     //     (여기서 무조건 켜면 여행 씨앗은 후보가 거의 안 남는다).
     const [endsOnly, setEndsOnly] = useState(false);
     // 지역형으로 판명된 제품키워드 — 지역을 붙여야 나오는 업종(간병인·입주청소 등).
-    const [regionalCands, setRegionalCands] = useState<(KwResult & { sample?: string[] })[]>([]);
+    // 지역형으로 판명된 후보 — 이제 인기탭 찾기가 곳바로 지역까지 파므로 비어 있다(패널은 유지).
+    const [regionalCands] = useState<(KwResult & { sample?: string[] })[]>([]);
     // 캐시 우선 조회 결과 — 스캔 0회로 즉시 나오는 것들.
     const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
     const [cachedVia, setCachedVia] = useState<string[]>([]);   // 이 결과를 찾아낸 어간(씨앗어와 다를 수 있다)
@@ -159,7 +160,8 @@ export function CafeKeywordFinder({
     const runChain = async (products: string[], target = FIRST_TARGET) => {
         if (!products.length) { setKwErr('먼저 키워드가 있어야 합니다.'); return; }
         if (!regionSel.length) { setKwErr('지역 범위를 하나 이상 고르세요.'); return; }
-        setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…');
+        setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…'); setRegionTarget(target);
+        lastScanRef.current = { kind: 'chain', products };
         clearPendingScan();
         try {
             const { id, error } = await enqueueChainScan(products, regionSel.join(','), target);
@@ -303,6 +305,9 @@ export function CafeKeywordFinder({
     //   부족하면 '+10 더 찾기'로 target 을 올려 이어서 스캔한다(이미 판정된 건 캐시 히트라 즉시 통과).
     //   숫자는 cafeKwScan(FIRST_TARGET/MORE_STEP)에서만 정한다 — 두 화면이 갈리지 않게.
     const [regionTarget, setRegionTarget] = useState(FIRST_TARGET);
+    // ★ '＋더 찾기'가 어느 경로로 나온 결과인지 알아야 이어서 돌릴 수 있다.
+    //   연관형·목표채우기 결과에서 누르면 지역형 경로로 가서 키워드가 없다고 막혔다(2026-08-11).
+    const lastScanRef = useRef<{ kind: 'region' | 'chain'; products: string[] } | null>(null);
     const runRegion = async (includeDong: boolean, target = FIRST_TARGET) => {
         // 칩이 있으면 칩 전부, 없으면 입력칸(쉼표/줄바꿈)으로. → 여러 키워드 한 번에 조회.
         const kws = [...new Set(keyword.split(/[,\n]/).map((s) => s.trim()).filter(Boolean))];
@@ -313,6 +318,7 @@ export function CafeKeywordFinder({
         // 새 스캔이면 저장해 둔 직전 결과도 버린다 — 안 그러면 옛 결과가 새 조건에 섞인다.
         if (!includeDong && target === FIRST_TARGET) { clearPendingScan(); setKwResult(null); setKwExpanded(false); setKwHidden([]); setDongDone(false); }
         setRegionTarget(target);
+        lastScanRef.current = { kind: 'region', products: kws };
         const dedup = (arr: KwResult[]) => {
             const seen = new Set<string>(); const out: KwResult[] = [];
             for (const r of arr) { const nk = (r.keyword || '').replace(/\s/g, ''); if (seen.has(nk)) continue; seen.add(nk); out.push(r); }
@@ -497,60 +503,6 @@ export function CafeKeywordFinder({
     //   ★ 워커(process_list)의 라이브 상한은 60개다. 61번째부터는 '느려지는' 게 아니라
     //     아예 안 재진다(조용한 절단). 그래서 여기서 미리 자르고 그 사실을 화면에 남긴다.
     const REL_MAX = 200;   // 워커 process_related 의 MAX_A 와 같아야 한다(더 보내면 조용히 잘린다)
-    const runRelatedScan = async () => {
-        const all = [...relPicked];
-        if (!all.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
-        // 검색량 높은 순으로 상한까지만 — 잘린 건 아래에 명시한다.
-        const byVol = new Map((cands || []).map((c) => [c.kw, c.total]));
-        const sorted = [...all].sort((a, b) => (byVol.get(b) ?? 0) - (byVol.get(a) ?? 0));
-        const list = sorted.slice(0, REL_MAX);
-        const cut = sorted.length - list.length;
-        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwHidden([]);
-        let lastNote = '';
-        try {
-            // 전국 판정 + 지역형 찔러보기를 한 번에(process_related). 결과는 kind 로 갈라 온다.
-            const { id, error } = await enqueueRelatedScan(seed, list);
-            if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-            // 연관형은 지역 찔러보기까지 하느라 가장 오래 걸린다(제품 전수 × 4지역).
-            //   기록을 남겨야 시간초과·새로고침 뒤에도 이 요청에 다시 붙는다.
-            clearPendingScan();
-            savePendingScan(id, 'related', `연관 "${seed.trim()}" × ${list.length}개`);
-            const { result } = await pollPlaceScan(id, {
-                timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => { lastNote = n; setScanNote(n); },
-            });
-            const far = new Set((cands || []).filter((c) => c.tier === 'far').map((c) => c.kw));
-            const farHit = result.filter((r) => far.has(r.keyword)).map((r) => r.keyword);
-            const notes = [
-                cut > 0 ? `한 번에 ${REL_MAX}개까지만 확인합니다 — 검색량 낮은 ${cut}개는 이번에 못 봤습니다(다시 체크해 재조회하세요).` : '',
-                // far = 씨앗어와 문자열로 안 겹치는 층. 실측(2026-08-06) '하와이' far 의 '디트로이트'가
-                //   인기탭으로 잡혔는데 내용은 MLB·피자 맛집이었다 — 판정은 맞지만 팔면 안 되는 키워드다.
-                farHit.length ? `⚠ ${farHit.join(', ')} 은(는) "${seed.trim()}"과 문자열이 겹치지 않는 후보입니다. 내용이 정말 관련 있는지 확인 후 쓰세요.` : '',
-                /상한초과|남은 조합/.test(lastNote) ? lastNote : '',
-            ].filter(Boolean);
-            if (!result.length) {
-                setKwErr([`체크한 ${list.length}개 중 인기탭이 확인된 키워드가 없습니다.`, ...notes].join(' '));
-                return;
-            }
-            // 지역형 후보(kind='regional')는 그대로 발행할 키워드가 아니라 '지역 스캔을 돌릴 제품키워드'다.
-            //   따로 빼서 아래에 버튼으로 보여준다.
-            const reg = result.filter((r) => (r as KwResult & { kind?: string }).kind === 'regional');
-            const nat = result.filter((r) => (r as KwResult & { kind?: string }).kind !== 'regional');
-            setRegionalCands(reg as (KwResult & { sample?: string[] })[]);
-            if (notes.length) setKwErr(notes.join(' '));
-            setKwResult([...nat].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
-            savePendingProgress([], nat);
-            setKeyword(seed.trim());
-        } catch (e) {
-            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
-            const m = e instanceof Error ? e.message : '';
-            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
-            setKwErr(m || '조회 실패');
-        } finally { setKwLoading(false); setScanNote(''); }
-    };
-
-    // 플레이스 리뷰 가져오기 — 메뉴판이 없는 업체(약국·학원)는 리뷰가 유일한 제품키워드 원천이다.
-    //   실측(2026-08-07): 미미식당 리뷰에서 '가정식 백반'(검색량 2,860·인기탭 O)이 나왔는데 메뉴판엔 없다.
-    //   가져온 텍스트는 붙여넣기 칸에 채워 넣고, 이후 흐름(추출 → 체크 → 스캔)은 기존과 동일하다.
     const pullReviews = async () => {
         const u = url.trim() || addr.trim();
         if (!u.includes('naver')) { setKwErr('플레이스 주소를 입력하세요(https://naver.me/… 또는 place.naver.com/…).'); return; }
@@ -804,6 +756,18 @@ export function CafeKeywordFinder({
                         </button>
                     </div>
                     {seedBusy ? <p className="m-0 text-[11px] font-semibold text-[#6d28d9]">🔎 {seedBusy} <span className="font-normal text-[#94a3b8]">— 검색광고 API라 인기탭 차단 예산과 무관합니다.</span></p> : null}
+                    {/* ★ 지역을 처음부터 고른다 — '③ 인기탭 찾기'가 곧바로 이 지역 전수를 돌기 때문이다.
+                        예전엔 결과가 나온 뒤에야 지역을 골랐는데, 그때는 스캔이 이미 끝나 있었다. */}
+                    <div className="flex flex-wrap items-center gap-1 rounded-md border border-[#c4b5fd] bg-white px-2 py-1.5">
+                        <span className="mr-1 text-[11px] font-bold text-[#6d28d9]">발행할 지역</span>
+                        {REGION_KEYS.map((r) => (
+                            <button key={r} type="button" onClick={() => toggleRegion(r)}
+                                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${regionSel.includes(r) ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>{r}</button>
+                        ))}
+                        <span className="ml-1 text-[11px] text-[#94a3b8]">
+                            {regionSel.length ? `이 지역의 전 지역을 봅니다` : '하나 이상 골라야 인기탭 찾기가 됩니다'}
+                        </span>
+                    </div>
                     {/* 발굴 결과 — '새로 물어오는 개수'는 실제로 조회해서 잰 값이다(추측 아님). */}
                     {seedCands?.length ? (
                         <div className="rounded-md border border-[#c4b5fd] bg-[#faf5ff] p-2">
@@ -970,9 +934,15 @@ export function CafeKeywordFinder({
                                     ))}
                             </div>
                             <div className="mt-2 flex items-center gap-2">
-                                <button type="button" onClick={() => void runRelatedScan()} disabled={kwLoading || !relPicked.size}
-                                    className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">
-                                    {kwLoading ? '찾는 중…' : '③ 인기탭 찾기'}
+                                {/* ★ 체크한 순서대로 하나씩 끝까지 파고 30건 채우면 멈춘다(process_chain).
+                                    각 키워드마다 단독 판정 → 선택한 지역 전수. 사장님 설계 2026-08-11.
+                                    예전엔 process_related(전국 판정 + 지역 4~14곳 찔러보기)로 후보만 내고
+                                    그 다음에 다시 전수를 돌려야 해서 두 번 눌렀다. */}
+                                <button type="button" disabled={kwLoading || !relPicked.size || !regionSel.length}
+                                    onClick={() => void runChain((cands || []).filter((c) => relPicked.has(c.kw)).map((c) => c.kw))}
+                                    className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50"
+                                    title="체크한 키워드를 순서대로 하나씩 팍니다 — 단독 + 선택한 지역 전수. 30건 채우면 멈춥니다.">
+                                    {kwLoading ? '찾는 중…' : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
                                 </button>
                                 <span className="text-[11px] text-[#64748b]">
                                     {relPicked.size > REL_MAX
@@ -1185,7 +1155,12 @@ export function CafeKeywordFinder({
                         {/* +N 더 찾기 — target 을 올려 이어서 스캔. 이미 판정된 조합은 캐시 히트라 즉시 통과하고
                             새 구간만 라이브로 본다. 한 번에 전수를 돌지 않아 빠르고 차단 예산도 아낀다. */}
                         {kwResult && kwResult.length > 0 && (
-                            <button type="button" onClick={() => void runRegion(false, regionTarget + MORE_STEP)} disabled={kwLoading || dongLoading}
+                            <button type="button" onClick={() => {
+                                const t = regionTarget + MORE_STEP;
+                                const ls = lastScanRef.current;
+                                if (ls?.kind === 'chain') { void runChain(ls.products, t); return; }
+                                void runRegion(false, t);
+                            }} disabled={kwLoading || dongLoading}
                                 title="구/시 범위에서 목표를 10개 올려 이어서 스캔합니다(이미 본 건 건너뜀)"
                                 className="h-10 shrink-0 rounded-md border border-[#4338ca] bg-white px-3 text-sm font-bold text-[#4338ca] disabled:opacity-50">
                                 {kwLoading ? '찾는 중…' : `＋${MORE_STEP} 더 찾기`}
