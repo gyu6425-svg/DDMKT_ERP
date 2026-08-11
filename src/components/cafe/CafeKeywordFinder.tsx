@@ -129,7 +129,10 @@ export function CafeKeywordFinder({
             setKwResult(result);
             if (target > 10) setKwExpanded(true);
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '분석 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '분석 실패');
         } finally { setKwLoading(false); }
     };
 
@@ -256,7 +259,10 @@ export function CafeKeywordFinder({
             setKwResult(final);
             if (includeDong) setDongDone(true);
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '조회 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '조회 실패');
         } finally {
             setLoading(false); setScanNote(''); setStopping(false);
             stopRef.current = false; liveIdsRef.current = [];
@@ -354,7 +360,10 @@ export function CafeKeywordFinder({
             const base = ends.length > inSeed.length - ends.length ? ends : inSeed;
             setRelPicked(new Set(base.slice(0, 200).map((x) => x.kw)));
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '연관어 조회 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '연관어 조회 실패');
         } finally { setExtracting(''); }
     };
     // 연관 인기글 ② — 체크한 키워드를 지역 없이(전국) 인기탭 판정.
@@ -375,6 +384,10 @@ export function CafeKeywordFinder({
             // 전국 판정 + 지역형 찔러보기를 한 번에(process_related). 결과는 kind 로 갈라 온다.
             const { id, error } = await enqueueRelatedScan(seed, list);
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+            // 연관형은 지역 찔러보기까지 하느라 가장 오래 걸린다(제품 전수 × 4지역).
+            //   기록을 남겨야 시간초과·새로고침 뒤에도 이 요청에 다시 붙는다.
+            clearPendingScan();
+            savePendingScan(id, 'related', `연관 "${seed.trim()}" × ${list.length}개`);
             const { result } = await pollPlaceScan(id, {
                 timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => { lastNote = n; setScanNote(n); },
             });
@@ -398,9 +411,13 @@ export function CafeKeywordFinder({
             setRegionalCands(reg as (KwResult & { sample?: string[] })[]);
             if (notes.length) setKwErr(notes.join(' '));
             setKwResult([...nat].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+            savePendingProgress([], nat);
             setKeyword(seed.trim());
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '조회 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '조회 실패');
         } finally { setKwLoading(false); setScanNote(''); }
     };
 
@@ -553,6 +570,11 @@ export function CafeKeywordFinder({
     //   화면을 막지 않는다: 이게 도는 동안 다른 작업을 계속할 수 있다.
     const [pending, setPending] = useState<PendingScan | null>(null);
     const [pendNote, setPendNote] = useState('');
+    // ★ 폴링이 시간초과로 빠져도 여기에 다시 붙는다(2026-08-11).
+    //   예전엔 이 효과가 '화면을 처음 열 때' 한 번만 돌아서, 25분 폴링이 끝나면
+    //   워커는 계속 도는데 화면은 더 이상 안 채워졌다. 사장님이 새로고침을 해야 이어졌다.
+    //   이제 시간초과 시 resumeTick 을 올려 같은 루프를 다시 태운다 — 켜두면 끝까지 자동이다.
+    const [resumeTick, setResumeTick] = useState(0);
     useEffect(() => {
         const p = loadPendingScan();
         if (!p) return;
@@ -585,7 +607,7 @@ export function CafeKeywordFinder({
             }
         })();
         return () => { alive = false; };
-    }, []);
+    }, [resumeTick]);
     // 키워드형 — 추출한 키워드를 지역 없이(전국) 바로 인기탭 판정(워커 process_list).
     const extractAndScan = async () => {
         const top = await extractScored();
@@ -598,7 +620,10 @@ export function CafeKeywordFinder({
             if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — 붙여넣은 정보 기준 ${top.length}개 판정`); return; }
             setKwResult(result);
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '분석 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '분석 실패');
         } finally { setKwLoading(false); setScanNote(''); }
     };
 

@@ -176,6 +176,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //     지역형은 요청이 키워드마다 따로라 마지막 1건만 남는 문제도 같이 있었다(이제 ids 전부).
     const [pending, setPending] = useState<PendingScan | null>(null);
     const [pendNote, setPendNote] = useState('');
+    // ★ 폴링이 시간초과로 빠져도 여기에 다시 붙는다(2026-08-11).
+    //   예전엔 이 효과가 '화면을 처음 열 때' 한 번만 돌아서, 25분 폴링이 끝나면
+    //   워커는 계속 도는데 화면은 더 이상 안 채워졌다. 사장님이 새로고침을 해야 이어졌다.
+    //   이제 시간초과 시 resumeTick 을 올려 같은 루프를 다시 태운다 — 켜두면 끝까지 자동이다.
+    const [resumeTick, setResumeTick] = useState(0);
     useEffect(() => {
         const p = loadPendingScan();
         if (!p) return;
@@ -207,7 +212,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             }
         })();
         return () => { alive = false; };
-    }, []);
+    }, [resumeTick]);
     // 주소 → 원문을 붙여넣기 칸에 채운다. 줄바꿈/쉼표로 여러 개를 한 번에.
     //   ★ 사이트+블로그를 같이 넣는 게 가장 낫다(실측 2026-08-07 경기간호): 각각 28개인데 합치면 39개.
     //   ★ 덮어쓰지 않는다 — 직전 자동수집분만 걷어내고 다시 붙인다(안 그러면 두 번째 주소가 첫 번째를 지운다).
@@ -345,7 +350,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setCachedVia([...new Set(hits.map((h) => h.via))]);
             setCachedHits(hits.map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined })));
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '연관어 조회 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '연관어 조회 실패');
         } finally { setExtracting(false); }
     };
     // 연관형 ② — 전국 판정 + 지역형 찔러보기를 한 번에(process_related)
@@ -356,6 +364,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { id, error } = await enqueueRelatedScan(seed, list.slice(0, REL_MAX));
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+            // 연관형은 지역 찔러보기까지 하느라 가장 오래 걸린다 — 기록을 남겨야
+            //   시간초과·새로고침 뒤에도 이 요청에 다시 붙는다.
+            clearPendingScan();
+            savePendingScan(id, 'related', `연관 "${seed.trim()}" × ${list.length}개`);
             const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
             const reg = result.filter((r) => (r as KwResult & { kind?: string }).kind === 'regional');
             const nat = result.filter((r) => (r as KwResult & { kind?: string }).kind !== 'regional');
@@ -368,7 +380,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setKwResult([...nat].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
             if (!form.keyword) set('keyword', seed.trim());
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '조회 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '조회 실패');
         } finally { setKwLoading(false); setScanNote(''); }
     };
 
@@ -478,7 +493,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             }
             setKwResult(mergedPl);
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '분석 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '분석 실패');
         } finally {
             setKwLoading(false); setScanNote('');
         }
@@ -595,7 +613,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setKwResult(merged.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
             if (failNote) setKwErr(`${merged.length}건 찾았습니다.${failNote}`);
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '조회 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '조회 실패');
         } finally {
             setKwLoading(false); setScanNote(''); setStopping(false);
             stopRef.current = false; liveIdsRef.current = [];
