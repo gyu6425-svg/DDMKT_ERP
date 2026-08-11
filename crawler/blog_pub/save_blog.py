@@ -116,13 +116,21 @@ def _guard_report(page, tripped):
 
 # ── 에디터 조작 ──────────────────────────────────────────────────────────────
 def _clear_editor(ctx, page):
-    """본문을 완전히 비운다. **못 비우면 False(중단)** — fail-closed.
+    """문서를 완전히 비운다(제목 포함). **못 비우면 False(중단)** — fail-closed.
 
     ⚠️ 카페판(_clear_editor)은 컴포넌트를 못 찾으면 n=0/txt='' 이 되어 `n <= 1 and not txt` 로
-       **'비웠다'고 True 를 반환**한다. top-level 가정이 깨지는 순간(=iframe) 정확히 반대로 동작해
-       네이버가 복원해 둔 이전 임시저장분 위에 새 글이 겹쳐 써진다. 여기서는 에디터를 실제로
-       찾지 못하면 곧바로 False 를 돌려준다."""
-    PLACEHOLDERS = ("내용을 입력하세요.", "본문에 #을 이용하여 태그를 입력해보세요!")
+       **'비웠다'고 True 를 반환**한다. top-level 가정이 깨지는 순간 정확히 반대로 동작해
+       네이버가 복원해 둔 이전 임시저장분 위에 새 글이 겹쳐 써진다. 여기서는 못 찾으면 False.
+
+    ⚠️ '비었다'의 기준선이 카페와 다르다. 카페는 컴포넌트 1개면 빈 글이었지만, 블로그는
+       제목 섹션 + 본문 섹션이라 빈 문서에서도 2개 이상일 수 있다. 이 값을 잘못 잡으면
+       비우기가 **영원히 실패**해 모든 작업이 죽으므로 실측값(EMPTY_COMPONENT_COUNT)을 쓴다."""
+    PLACEHOLDERS = ("내용을 입력하세요.", "제목", "본문에 #을 이용하여 태그를 입력해보세요!")
+    empty_n = sel.EMPTY_COMPONENT_COUNT
+    if empty_n is None:
+        raise bc.SaveError(
+            "SELECTORS_UNCONFIRMED: EMPTY_COMPONENT_COUNT 미측정 — probe_editor.py 로 "
+            "빈 문서의 .se-component 개수를 재서 blog_selectors 에 넣으세요(비우기 오판 방지)")
 
     def _state():
         n = ctx.evaluate("() => document.querySelectorAll('.se-component').length")
@@ -134,7 +142,9 @@ def _clear_editor(ctx, page):
 
     for attempt in range(4):
         try:
-            ed = bc.first(ctx, sel.SEL_EDITOR, timeout=4000)
+            # 본문에 포커스를 두고 전체선택 — 편집영역이 문서 전체 하나라 제목도 함께 지워진다.
+            #   (그래서 save_draft 는 반드시 '비우기 → 제목 → 본문' 순서로 진행한다)
+            ed = bc.first(ctx, sel.SEL_BODY, timeout=4000) or bc.first(ctx, sel.SEL_EDITOR, timeout=4000)
             if not ed:
                 bc.log("  ! 에디터를 찾지 못해 비우기 실패로 처리(겹쳐쓰기 방지)")
                 return False
@@ -143,12 +153,12 @@ def _clear_editor(ctx, page):
             page.keyboard.press("Control+a"); page.wait_for_timeout(250)
             page.keyboard.press("Delete"); page.wait_for_timeout(500)
             n, txt = _state()
-            if n <= 1 and not txt:
+            if n <= empty_n and not txt:
                 return True
             page.keyboard.press("Control+a"); page.wait_for_timeout(200)
             page.keyboard.press("Backspace"); page.wait_for_timeout(500)
             n, txt = _state()
-            if n <= 1 and not txt:
+            if n <= empty_n and not txt:
                 return True
             bc.log(f"  에디터 비우기 재시도({attempt + 1}/4) — 컴포넌트 {n}개 남음")
             if attempt < 3:
@@ -246,6 +256,21 @@ def save_draft(page, title, blocks, dry_run=True):
     ctx, where = bc.resolve_ctx(page, sel.FRAME_HINT, sel.SEL_EDITOR)
     bc.log(f"에디터 컨텍스트: {where}")
 
+    # ⚠️ 순서 고정: **비우기 → 제목 → 본문**.
+    #    카페는 제목이 별도 textarea 라 '제목 → 비우기' 가 안전했지만, 블로그는 문서 전체가
+    #    단일 contenteditable 이라(실측 2026-08-11) 비우기의 Ctrl+A 가 **제목까지 선택**한다.
+    #    제목을 먼저 치면 그 직후 비우기에 통째로 지워진다. 순서를 바꾸지 말 것.
+    ed = bc.first(ctx, sel.SEL_EDITOR, timeout=6000)
+    if not ed:
+        raise bc.SaveError("에디터 영역 못 찾음 — diag_blog.py 로 SEL_EDITOR 확정 필요")
+    page.wait_for_timeout(300)
+    if not _clear_editor(ctx, page):
+        raise bc.SaveError("에디터를 비우지 못했습니다 — 이전 글이 남아 있어 저장을 중단합니다")
+
+    before_seq = _draft_count(ctx)
+    bc.log(f"저장 전 임시저장 개수: {before_seq if before_seq is not None else '(읽기 실패)'}")
+
+    # 제목 — 자체 입력칸이 아니라 문서 안의 제목 문단이라 fill() 이 안 먹는다. 클릭 후 타이핑.
     t = bc.first(ctx, sel.SEL_TITLE, timeout=6000)
     if not t:
         page.wait_for_timeout(2500)
@@ -253,19 +278,16 @@ def save_draft(page, title, blocks, dry_run=True):
     if not t:
         raise bc.SaveError("제목 입력칸 못 찾음(페이지 준비 지연/셀렉터 미확정)")
     t.click()
-    # 제목이 contenteditable 이면 fill() 이 안 먹으므로 타이핑으로 넣는다.
+    page.wait_for_timeout(200)
     page.keyboard.type(title, delay=bc.key_delay())
 
-    ed = bc.first(ctx, sel.SEL_EDITOR, timeout=6000)
-    if not ed:
-        raise bc.SaveError("에디터 영역 못 찾음 — diag_blog.py 로 SEL_EDITOR 확정 필요")
-    ed.click()
+    # 본문으로 포커스 이동 — ⚠️ SEL_EDITOR(.se-content) 를 쓰면 안 된다. 그 하위 첫 문단은
+    #    **제목**이라 본문이 제목칸에 이어붙는다(실측: .se-content .se-text-paragraph = 2개).
+    body = bc.first(ctx, sel.SEL_BODY, timeout=6000)
+    if not body:
+        raise bc.SaveError("본문 영역 못 찾음 — probe_editor.py 로 SEL_BODY 확정 필요")
+    body.click()
     page.wait_for_timeout(300)
-    if not _clear_editor(ctx, page):
-        raise bc.SaveError("에디터를 비우지 못했습니다 — 이전 글이 남아 있어 저장을 중단합니다")
-
-    before_seq = _draft_count(ctx)
-    bc.log(f"저장 전 임시저장 개수: {before_seq if before_seq is not None else '(읽기 실패)'}")
 
     # ── 본문 채우기 (페이싱: 총 작성시간 BLOG_MIN~MAX 초 확보) ──
     n_blocks = len(blocks)
