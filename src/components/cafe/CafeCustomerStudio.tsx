@@ -365,11 +365,24 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         return () => window.removeEventListener('keydown', onKey);
     }, [preview]);
 
+    // ★ 2026-08-11 수정(SUB2 신고 '새 배너를 저장했는데 옛 이미지가 나간다')의 진짜 원인이 여기였다.
+    //   상단 배너는 max=1 이다. 이미 1장(저장된 R2 URL)이 있는 상태에서 새 배너를 고르면
+    //     [...prev, ...urls].slice(0, 1) → [옛URL]  ← 새 이미지가 조용히 버려졌다.
+    //   화면엔 옛 썸네일이 그대로라 사장님은 '바뀐 줄' 알고 저장하고, 저장은 옛 경로를 그대로 다시 써서
+    //   updated_at 만 갱신됐다(R2 바이트는 그대로). 그래서 발행에도 옛 배너가 나갔다.
+    //   → 뒤에서 자른다(slice(-max)). 꽉 찬 칸에 새로 넣으면 '교체'가 된다 — 사람이 기대하는 동작.
+    //   (사용자 우회책이던 'X로 지우고 다시 추가'가 이제 필요 없다.)
     async function addFiles(setter: (u: (prev: string[]) => string[]) => void, files: FileList | null, max: number) {
         if (!files || !files.length) return;
         try {
             const urls = await Promise.all(Array.from(files).slice(0, max).map(fileToDataUrl));
-            setter((prev) => [...prev, ...urls].slice(0, max));
+            setter((prev) => {
+                const next = [...prev, ...urls].slice(-max);
+                if (prev.length + urls.length > max) {
+                    setSettingsMsg(`${max}장까지만 들어갑니다 — 새로 고른 사진으로 교체했습니다. '값 저장하기'를 눌러야 반영됩니다.`);
+                }
+                return next;
+            });
         } catch { /* 사진 변환 실패 무시 */ }
     }
 

@@ -70,7 +70,14 @@ export async function updateKeywordPool(clientId: string, pool: string[]) {
 // dataURL/URL(이미지 소스) → R2(cafe-images) 업로드 → {path, error}. (Egress 회피)
 //   실패 사유(error)를 그대로 반환 — 호출부에서 반드시 노출(무음 손실 금지).
 export async function uploadStudioImage(clientId: string, kind: 'photos' | 'banners' | 'main_banner', idx: number, src: string): Promise<UploadResult> {
-    const path = `studio-settings/${clientId}/${kind}_${idx}.jpg`;
+    // ★ 고정 이름(kind_idx.jpg)이 사고를 두 가지 냈다(2026-08-11 SUB2 신고 조사).
+    //   ① 목록을 편집하면 인덱스가 밀려 남의 파일을 덮어썼다 — 실사 0번을 지우고 새로 추가하면
+    //      새 사진이 photos_2.jpg 로 올라가 기존 2번 파일을 파괴한다(DB에도 같은 경로가 두 번 들어간다).
+    //   ② /api/img 가 1년 immutable 캐시라, 같은 URL 에 덮어써도 브라우저·CDN 이 옛 이미지를 계속 보여줬다.
+    //   → 업로드마다 고유 이름을 쓴다. 경로가 바뀌니 캐시 무효화가 공짜로 따라오고 덮어쓰기도 없다.
+    //   (옛 파일은 R2 에 남는다 — 업체당 몇 장 수준이라 비용 무시 가능. 정리는 나중에 일괄로.)
+    const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const path = `studio-settings/${clientId}/${kind}_${idx}_${stamp}.jpg`;
     return r2Upload('cafe-images', path, src);
 }
 

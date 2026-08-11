@@ -36,7 +36,15 @@ export async function onRequestGet({ params, env }: Ctx) {
     if (obj) {
         const headers = new Headers(cors);
         obj.writeHttpMetadata(headers);
-        headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+        // ★ immutable 은 '이 URL 의 내용은 절대 안 바뀐다'는 약속이다. 발행용 생성 이미지는 이름이
+        //   매번 달라 참이지만, 스튜디오 설정 이미지는 예전에 kind_idx.jpg 라는 고정 이름을 썼다.
+        //   그래서 새 배너를 덮어써도 브라우저·CDN 이 1년 동안 옛 이미지를 계속 내줬다
+        //   (2026-08-11 SUB2 신고). 지금은 업로드마다 고유 이름을 쓰지만, 이미 저장된 옛 고정이름
+        //   파일들이 남아 있으므로 이 경로만 짧게 잡고 ETag 로 재검증한다(304 라 비용 거의 0).
+        const mutable = key.includes('/studio-settings/');
+        headers.set('Cache-Control', mutable
+            ? 'public, max-age=300, must-revalidate'
+            : 'public, max-age=31536000, immutable');
         headers.set('ETag', obj.httpEtag);
         return new Response(obj.body, { headers });
     }
@@ -77,5 +85,7 @@ export async function onRequestPut({ request, params, env }: Ctx) {
     const buf = await request.arrayBuffer();
     if (!buf.byteLength) return new Response('empty', { status: 400, headers: cors });
     await env.IMG_BUCKET.put(key, buf, { httpMetadata: { contentType } });
-    return new Response(JSON.stringify({ ok: true, key }), { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } });
+    // 저장된 바이트 수를 돌려준다 — 호출부가 보낸 크기와 대조해 '올라간 척'을 걸러낸다(SUB2 요청).
+    return new Response(JSON.stringify({ ok: true, key, size: buf.byteLength }),
+        { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } });
 }
