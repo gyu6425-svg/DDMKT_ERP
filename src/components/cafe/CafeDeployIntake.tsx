@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { useAuth } from '../../hooks/useAuth';
@@ -176,6 +176,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //     지역형은 요청이 키워드마다 따로라 마지막 1건만 남는 문제도 같이 있었다(이제 ids 전부).
     const [pending, setPending] = useState<PendingScan | null>(null);
     const [pendNote, setPendNote] = useState('');
+    // ★ 폴링이 시간초과로 빠져도 여기에 다시 붙는다(2026-08-11).
+    //   예전엔 이 효과가 '화면을 처음 열 때' 한 번만 돌아서, 25분 폴링이 끝나면
+    //   워커는 계속 도는데 화면은 더 이상 안 채워졌다. 사장님이 새로고침을 해야 이어졌다.
+    //   이제 시간초과 시 resumeTick 을 올려 같은 루프를 다시 태운다 — 켜두면 끝까지 자동이다.
+    const [resumeTick, setResumeTick] = useState(0);
     useEffect(() => {
         const p = loadPendingScan();
         if (!p) return;
@@ -207,7 +212,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             }
         })();
         return () => { alive = false; };
-    }, []);
+    }, [resumeTick]);
     // 주소 → 원문을 붙여넣기 칸에 채운다. 줄바꿈/쉼표로 여러 개를 한 번에.
     //   ★ 사이트+블로그를 같이 넣는 게 가장 낫다(실측 2026-08-07 경기간호): 각각 28개인데 합치면 39개.
     //   ★ 덮어쓰지 않는다 — 직전 자동수집분만 걷어내고 다시 붙인다(안 그러면 두 번째 주소가 첫 번째를 지운다).
@@ -316,6 +321,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     // ★ 기본을 seed(씨앗어 포함)로 — near 기본이면 '창업'에 취업박람회·블로그·코인노래방 같은
     //   무관어가 섞인다(사장님 2026-08-11). 실측 993개 중 씨앗 미포함이 592개였다. 넓히려면 버튼으로.
     const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('seed');
+    // 씨앗 계열 필터 — 씨앗을 여러 개 넣으면 첫 씨앗이 목록을 뒤덮는다.
+    //   실측 2026-08-11(창업+가맹+사업+프렌차이즈): 보이는 338개 중 창업이 263개(78%)라
+    //   사장님이 '프렌차이즈·사업은 안 나온다'고 하셨다. 실제로는 있는데 파묻힌 것이었다.
+    const [seedFilter, setSeedFilter] = useState('');   // '' = 전체
+
     // '씨앗으로 끝나는 것만'(소자본창업·카페창업). 기본값은 씨앗별로 데이터가 정한다 —
     //   끝나는 게 더 많으면 켠다('창업' 끝230/앞67 → 켬, '보홀'은 보홀여행류가 많아 → 끔).
     const [endsOnly, setEndsOnly] = useState(false);
@@ -323,6 +333,63 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     // 캐시 우선 — 이미 판정된 인기탭. 스캔 0회로 즉시 나온다.
     const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
     const [cachedVia, setCachedVia] = useState<string[]>([]);   // 이 결과를 찾아낸 어간(씨앗어와 다를 수 있다)
+    // ── 씨앗 발굴기 ──────────────────────────────────────────────────────────
+    //   씨앗 하나로는 못 닿는다. 실측 2026-08-11: '창업' 993개 → 씨앗 8개 3,680개(3.7배).
+    //   '무인창업' 하나가 767개를 새로 물어왔다. 감이 아니라 실측으로 고른다.
+    //   ★ 연관어 조회는 검색광고 API 라 인기탭 차단 예산(CF)과 무관하다 — 넓혀도 위험이 없다.
+    const [seedCands, setSeedCands] = useState<SeedCand[] | null>(null);
+    const [seedPick, setSeedPick] = useState<Set<string>>(new Set());
+    const [seedBusy, setSeedBusy] = useState('');
+    const runDiscover = async () => {
+        const s = seed.trim();
+        if (!s) { setKwErr('먼저 대표 단어를 하나 넣으세요(예: 창업).'); return; }
+        setKwErr(''); setSeedCands(null); setSeedPick(new Set()); setSeedBusy('시작…');
+        try {
+            const list = await discoverSeeds(s, (n) => setSeedBusy(n));
+            setSeedCands(list);
+            // 같은 시장(겹침 기준 통과)이면서 새로 물어오는 게 있는 것만 기본 체크.
+            //   겹침이 낮은 건 남의 시장이라(블로그·코인노래방) 스캔만 늘린다.
+            setSeedPick(new Set(list.filter((c) => c.overlap >= SEED_OVERLAP_MIN && c.fresh >= 50).map((c) => c.seed)));
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '씨앗 발굴 실패');
+        } finally { setSeedBusy(''); }
+    };
+    const applySeeds = () => {
+        const cur = seed.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+        const next = [...new Set([...cur, ...seedPick])];
+        setSeed(next.join(', '));
+        setSeedCands(null);
+        setKwErr(`대표 단어 ${next.length}개로 넓혔습니다 — ‘① 연관어 펼치기’를 눌러 주세요.`);
+    };
+
+    // ── 이미 검증된 제품 ─────────────────────────────────────────────────────
+    //   판정이 끝난 것만 세므로 스캔 0콜. 고르면 그 제품의 지역 조합을 캐시에서 바로 꺼낸다.
+    const [proven, setProven] = useState<ProvenProduct[] | null>(null);
+    const [provenOpen, setProvenOpen] = useState(false);
+    const [provenQ, setProvenQ] = useState('');
+    const [provenBusy, setProvenBusy] = useState('');
+    const openProven = async () => {
+        setProvenOpen((o) => !o);
+        if (proven) return;
+        setProvenBusy('불러오는 중…');
+        try { setProven(await getProvenProducts()); } catch { setProven([]); }
+        setProvenBusy('');
+    };
+    const pullProven = async (prod: string) => {
+        setProvenBusy(`${prod} 불러오는 중…`);
+        try {
+            const hits = await searchCachedPopular([prod.replace(/\s/g, '')], 500);
+            const rows = hits
+                .filter((h) => h.keyword.replace(/\s/g, '').endsWith(prod.replace(/\s/g, '')))
+                .map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined }));
+            if (!rows.length) { setKwErr(`${prod} — 이미 확인된 지역 조합이 없습니다.`); return; }
+            pushLive(rows);
+            setKwErr(`${prod} — 이미 확인된 ${rows.length}건을 기다림 없이 불러왔습니다. 담고 싶은 것을 골라 주세요.`);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '불러오기 실패');
+        } finally { setProvenBusy(''); }
+    };
+
     const runExpandSeed = async () => {
         const s = seed.trim();
         if (!s) { setKwErr('씨앗 키워드를 입력하세요(예: 보홀 · 장기요양).'); return; }
@@ -345,7 +412,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setCachedVia([...new Set(hits.map((h) => h.via))]);
             setCachedHits(hits.map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined })));
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '연관어 조회 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '연관어 조회 실패');
         } finally { setExtracting(false); }
     };
     // 연관형 ② — 전국 판정 + 지역형 찔러보기를 한 번에(process_related)
@@ -356,6 +426,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { id, error } = await enqueueRelatedScan(seed, list.slice(0, REL_MAX));
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
+            // 연관형은 지역 찔러보기까지 하느라 가장 오래 걸린다 — 기록을 남겨야
+            //   시간초과·새로고침 뒤에도 이 요청에 다시 붙는다.
+            clearPendingScan();
+            savePendingScan(id, 'related', `연관 "${seed.trim()}" × ${list.length}개`);
             const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
             const reg = result.filter((r) => (r as KwResult & { kind?: string }).kind === 'regional');
             const nat = result.filter((r) => (r as KwResult & { kind?: string }).kind !== 'regional');
@@ -368,7 +442,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setKwResult([...nat].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
             if (!form.keyword) set('keyword', seed.trim());
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '조회 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '조회 실패');
         } finally { setKwLoading(false); setScanNote(''); }
     };
 
@@ -478,7 +555,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             }
             setKwResult(mergedPl);
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '분석 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '분석 실패');
         } finally {
             setKwLoading(false); setScanNote('');
         }
@@ -595,7 +675,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setKwResult(merged.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
             if (failNote) setKwErr(`${merged.length}건 찾았습니다.${failNote}`);
         } catch (e) {
-            setKwErr(e instanceof Error ? e.message : '조회 실패');
+            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '조회 실패');
         } finally {
             setKwLoading(false); setScanNote(''); setStopping(false);
             stopRef.current = false; liveIdsRef.current = [];
@@ -958,11 +1041,79 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             <div className="flex gap-2">
                                 <input className={inputCls} value={seed} onChange={(e) => setSeed(e.target.value)}
                                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void runExpandSeed(); } }}
-                                    placeholder="대표 단어 하나 (예: 보홀 · 장기요양 · 골프 · 창업)" />
+                                    placeholder="대표 단어 — 쉼표로 여러 개 (예: 창업, 프랜차이즈, 가맹)" />
+                                {/* 대표 단어 하나로는 못 닿는다. 실측: '창업' 993 → 8개 3,680(3.7배). */}
+                                <button type="button" onClick={() => void runDiscover()} disabled={!!seedBusy || extracting || kwLoading}
+                                    className="h-10 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50"
+                                    title="이 단어에서 출발해 '같이 넣으면 좋은 다른 단어'를 찾아 줍니다. 인기탭 확인은 안 합니다.">
+                                    {seedBusy ? '발굴 중…' : '🔎 단어 발굴'}
+                                </button>
                                 <button type="button" onClick={() => void runExpandSeed()} disabled={extracting || kwLoading}
                                     className="h-10 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">
                                     {extracting ? '조회 중…' : '① 연관어 펼치기'}
                                 </button>
+                            </div>
+                            {seedBusy ? <p className="m-0 mt-1 text-[11px] font-semibold text-[#6d28d9]">🔎 {seedBusy}</p> : null}
+                            {/* 발굴 결과 — '신규'는 실제로 조회해서 잰 값이다(추측 아님). */}
+                            {seedCands?.length ? (
+                                <div className="mt-2 rounded-md border border-[#c4b5fd] bg-white p-2">
+                                    <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
+                                        <span>추천 단어 {seedCands.length}개 — 선택 {seedPick.size}개</span>
+                                        <span className="font-normal text-[#94a3b8]">신규 = 이 단어를 더하면 새로 들어오는 키워드 수</span>
+                                        <button type="button" onClick={applySeeds} disabled={!seedPick.size}
+                                            className="ml-auto rounded bg-[#6d28d9] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+                                            선택한 {seedPick.size}개 넣기 →
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {seedCands.map((c) => {
+                                            const on = seedPick.has(c.seed);
+                                            return (
+                                                <button key={c.seed} type="button"
+                                                    onClick={() => { const n = new Set(seedPick); if (on) n.delete(c.seed); else n.add(c.seed); setSeedPick(n); }}
+                                                    className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold ${on ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#5b21b6]'}`}>
+                                                    {c.kind === 'other' ? '' : '↳ '}{on ? '✓ ' : '+ '}{c.seed}
+                                                    <span className={`ml-1 text-[10px] font-bold ${on ? 'text-[#ddd6fe]' : 'text-[#16a34a]'}`}>신규 {c.fresh.toLocaleString()}</span>
+                                                    {c.proven ? <span className={`ml-1 text-[10px] ${on ? 'text-[#ddd6fe]' : 'text-[#b45309]'}`}>✔확인 {c.proven}지역</span> : null}
+                                                    {c.overlap < SEED_OVERLAP_MIN ? <span className={`ml-1 text-[10px] ${on ? 'text-[#fecaca]' : 'text-[#dc2626]'}`}>⚠다른 분야</span> : null}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <p className="m-0 mt-1 text-[11px] text-[#a78bfa]">
+                                        맨 위는 <b>‘창업 → 프랜차이즈’ 처럼 결이 다른 단어</b>입니다. ↳ 는 대표 단어가 들어간 변형이고요.
+                                        ✔확인 = 이미 인기탭이 쌓여 있는 단어(더 잘 나옵니다) · ⚠다른 분야 = 관련이 멀어 권하지 않습니다.
+                                    </p>
+                                </div>
+                            ) : null}
+                            {/* 이미 확인된 제품 — 판정이 끝난 것만이라 기다림 없이 바로 나온다. */}
+                            <div className="mt-2 rounded-md border border-[#bbf7d0] bg-[#f0fdf4] p-2">
+                                <button type="button" onClick={() => void openProven()}
+                                    className="flex w-full items-center gap-2 text-[12px] font-bold text-[#15803d]">
+                                    <span className={`text-[9px] transition-transform ${provenOpen ? 'rotate-90' : ''}`}>▶</span>
+                                    ✔ 이미 확인된 키워드{proven ? ` ${proven.length}종` : ''} — 기다림 없이 바로
+                                    <span className="font-normal text-[#86efac]">{provenBusy || '이미 인기탭이 확인돼 있는 것들입니다'}</span>
+                                </button>
+                                {provenOpen ? (
+                                    <div className="mt-2">
+                                        <input className={`${inputCls} mb-1.5 h-8 text-[12px]`} value={provenQ}
+                                            onChange={(e) => setProvenQ(e.target.value)} placeholder="검색 (예: 창업 · 청소 · 누수)" />
+                                        <div className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
+                                            {(proven ?? [])
+                                                .filter((p) => !provenQ.trim() || p.product.includes(provenQ.trim()))
+                                                .slice(0, 120)
+                                                .map((p) => (
+                                                    <button key={p.product} type="button" onClick={() => void pullProven(p.product)}
+                                                        disabled={!!provenBusy}
+                                                        className="rounded-full border border-[#bbf7d0] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#15803d] disabled:opacity-50">
+                                                        {p.product}
+                                                        <span className="ml-1 text-[10px] font-bold text-[#16a34a]">{p.regions}지역</span>
+                                                    </button>
+                                                ))}
+                                            {proven && !proven.length ? <span className="text-[11px] text-[#86efac]">아직 없습니다.</span> : null}
+                                        </div>
+                                    </div>
+                                ) : null}
                             </div>
                             {/* 캐시 우선 — 스캔 없이 이미 확인된 것. 여기서 충분하면 스캔이 필요 없다. */}
                             {cachedHits && cachedHits.length ? (
@@ -991,6 +1142,30 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                     className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
                                             ))}
                                         </div>
+                                        {/* 단어 계열 — 여러 단어를 넣으면 첫 단어가 목록을 뒤덮는다. 계열별로 골라 본다. */}
+                                        {(() => {
+                                            const fam = new Map<string, number>();
+                                            for (const x of relCands) {
+                                                if (relTier === 'seed' && x.tier !== 'seed') continue;
+                                                if (relTier === 'near' && x.tier === 'far') continue;
+                                                if (endsOnly && !x.endsSeed) continue;
+                                                const k = x.seedOf || '기타';
+                                                fam.set(k, (fam.get(k) ?? 0) + 1);
+                                            }
+                                            if (fam.size < 2) return null;
+                                            const list = [...fam.entries()].sort((a, b) => b[1] - a[1]);
+                                            return (
+                                                <span className="inline-flex flex-wrap items-center gap-1">
+                                                    <span className="text-[11px] font-normal text-[#94a3b8]">계열</span>
+                                                    <button type="button" onClick={() => setSeedFilter('')}
+                                                        className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${seedFilter === '' ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>전체</button>
+                                                    {list.map(([k, n]) => (
+                                                        <button key={k} type="button" onClick={() => setSeedFilter(k)}
+                                                            className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${seedFilter === k ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>{k} {n}</button>
+                                                    ))}
+                                                </span>
+                                            );
+                                        })()}
                                         {/* '~~씨앗' 형태만 — 소자본창업·카페창업 같은 '업종+행위'만 남긴다.
                                             씨앗이 앞에 오는 형태(창업박람회·창업대출)는 정보성이라 결이 다르다. */}
                                         <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-[#c4b5fd] px-2 py-0.5 text-[11px] font-bold text-[#6d28d9]">
@@ -1001,7 +1176,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         {/* 보이는 층(relTier) 안에서 전체 선택/해제 — 237개를 하나씩 누를 수 없다. */}
                                         {(() => {
                                             const shown = relCands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
-                                                .filter((x) => !endsOnly || x.endsSeed).slice(0, 200);
+                                                .filter((x) => !endsOnly || x.endsSeed)
+                                                .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter).slice(0, 200);
                                             const allOn = shown.length > 0 && shown.every((x) => relPicked.has(x.kw));
                                             return (
                                                 <button type="button"
@@ -1021,6 +1197,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         {relCands
                                             .filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
                                             .filter((x) => !endsOnly || x.endsSeed)
+                                            .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter)
                                             .slice(0, 200)
                                             .map((x) => (
                                                 <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${relPicked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>
@@ -1051,14 +1228,33 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         📍 지역을 붙여야 나오는 키워드 {relRegional.length}건
                                     </div>
                                     {relRegional.map((r) => (
-                                        <div key={r.keyword} className="flex flex-wrap items-center gap-2 rounded border border-[#fde68a] bg-white px-2 py-1 text-[12px]">
-                                            <b className="text-[#b45309]">{r.keyword}</b>
-                                            <span className="text-[#94a3b8]">{r.theme}</span>
-                                            {r.sample?.length ? <span className="text-[11px] text-[#64748b]">예: {r.sample.join(' · ')}</span> : null}
+                                        <div key={r.keyword} className="rounded border border-[#fde68a] bg-white px-2 py-1.5 text-[12px]">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <b className="text-[#b45309]">{r.keyword}</b>
+                                                <span className="text-[#94a3b8]">{r.theme}</span>
+                                            </div>
+                                            {/* ★ 찔러보기에서 '이미 인기탭으로 확인된' 조합이다 — 예시가 아니라 바로 쓸 수 있는 키워드다.
+                                                눌러서 담으면 전수 스캔을 안 돌려도 그만큼은 확보된다(사장님 지시 2026-08-11). */}
+                                            {r.sample?.length ? (
+                                                <div className="mt-1 flex flex-wrap items-center gap-1">
+                                                    <span className="text-[11px] font-semibold text-[#16a34a]">확인됨 {r.sample.length}건 — 눌러서 담기</span>
+                                                    {r.sample.map((s) => {
+                                                        const on = kwPicked.some((p) => p.keyword === s);
+                                                        return (
+                                                            <button key={s} type="button"
+                                                                onClick={() => togglePick({ cafes: [], keyword: s, theme: r.theme, volume: r.volume })}
+                                                                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${on ? 'border-[#16a34a] bg-[#16a34a] text-white' : 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]'}`}>
+                                                                {on ? '✓ ' : '+ '}{s}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : null}
                                         </div>
                                     ))}
                                     <p className="mb-0 mt-1 text-[11px] text-[#a16207]">
-                                        이 키워드는 <b>지역형</b>으로 접수하시면 지역별 전수로 찾아 드립니다(위에서 ‘지역형’ 선택 후 제품키워드로 입력).
+                                        초록 칩은 <b>이미 인기탭이 확인된 키워드</b>입니다 — 눌러서 바로 담으세요.
+                                        더 찾으시려면 <b>지역형</b>으로 접수해 주세요(위에서 ‘지역형’ 선택 후 제품키워드로 입력) — 찔러본 4곳 말고 전 지역을 봅니다.
                                     </p>
                                 </div>
                             ) : null}

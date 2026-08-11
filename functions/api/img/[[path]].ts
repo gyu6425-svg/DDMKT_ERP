@@ -16,7 +16,13 @@ type Env = {
 };
 type Ctx = { request: Request; env: Env; params: { path?: string | string[] } };
 
-const ALLOW = new Set(['cafe-images', 'deploy-intake']);
+// ⚠️ 여기 이름들은 **R2 버킷이 아니라 키 접두어**다. R2 바인딩은 IMG_BUCKET 하나뿐이고
+//    실제 키는 "<prefix>/<path>" 로 저장된다. 그래서 접두어 추가는 인프라 작업이 아니라 이 줄 하나다.
+//    · cafe-images   카페 배너·실사·스튜디오 설정
+//    · deploy-intake 고객 배포 접수 첨부
+//    · blog-studio   블로그 스튜디오 설정 이미지(2026-08-11 추가, SUB1 요청).
+//      카페와 섞지 않는다 — 나중에 카페 이미지를 일괄 정리·마이그레이션할 때 블로그 자산이 딸려가지 않게.
+const ALLOW = new Set(['cafe-images', 'deploy-intake', 'blog-studio']);
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,PUT,OPTIONS', 'Access-Control-Allow-Headers': 'authorization, content-type, x-content-type' };
 
 function keyOf(params: { path?: string | string[] }): string {

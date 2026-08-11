@@ -895,6 +895,13 @@ def process_region(req, product):
     tokens = _region_tokens_for(sidos, include_dong)
     if not tokens:
         return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
+    # 제품 자체가 지명이면 지역을 곱하지 않는다 — '송도 대전창업' 같은 조합 방지(사장님 지시 2026-08-11).
+    #   대신 지역 없이 그 키워드 하나만 판정한다(대전 업체에겐 '대전창업'이 진짜 키워드다).
+    _ph = _product_place_head(product)
+    if _ph:
+        _run_scan(req, [("", product, product, False)], 1, "전국(제품이 지명)",
+                  extra={"biz_name": product}, tag=f"지명제품 '{product}'")
+        return
     # 후보 (tok, kw, product) — tok 은 오탐필터의 지역코어용. 중복 제거.
     kws, seen = [], set()
     for tok in tokens:
@@ -1001,6 +1008,11 @@ def process_menu(req, payload):
     sido_of = p._sido(addr, addr) if addr else ""
     known = set(wide) | set(_region_tokens_for([sido_of], True) if sido_of else [])
     kws, seen = [], set()
+    # 지명 제품은 지역을 곱하지 않는다('송도 대전창업' 방지). 지역 없이 단독 판정만 한다.
+    _place_prods = [x for x in products if _product_place_head(x)]
+    products = [x for x in products if x not in _place_prods]
+    for pr in _place_prods:
+        kws.append(("", pr, pr, False))
     for tok in tokens:
         strict = tok not in known
         for prod in products:
@@ -1047,6 +1059,40 @@ _PROBE_SEED = [
     "수원", "동탄", "판교", "성남",          # 굳은 신도시·시군구
     "부천", "고양", "인천", "안양",
 ]
+
+
+# ── 지역 × 지역 조합 금지 ────────────────────────────────────────────────────
+#   실측(#226, 2026-08-11): 씨앗 '창업' 지역형 후보 22건 중 5건이 제품 자체가 지명이었다.
+#     대전창업 → '송도 대전창업' · 청주창업 → '청라 청주창업' · 천안창업 · 경기창업 · 한국창업
+#   인천 송도에 대전을 붙이면 말이 안 된다. 발행하면 독자가 혼란스럽다.
+#   ★ 제품을 버리는 게 아니라 '지역 곱하기 대상에서만' 뺀다 — '대전창업'은 대전 업체에겐
+#     진짜 키워드다. 전국 판정은 그대로 태운다(사장님 지시 2026-08-11).
+#   ⚠️ 동·읍면·역세권 토큰(3,600여 개)은 검사에 쓰지 않는다 — 흔한 낱말과 겹쳐
+#     '고기창업'·'전수창업' 같은 정상 제품을 오폭한다. 시도·시군구·신도시·자치구만 본다(약 300개).
+_PLACE_KINDS = ("sido", "sigungu", "newtown", "district")
+_PLACE_HEADS = None
+
+
+def _place_heads():
+    """제품 앞머리가 지명인지 볼 때 쓰는 토큰 집합(광역 단위만)."""
+    global _PLACE_HEADS
+    if _PLACE_HEADS is None:
+        rows = _sb_page(f"{SB}/rest/v1/cafe_region_token?select=token,kind&active=is.true") or []
+        s = {r["token"] for r in rows if r.get("kind") in _PLACE_KINDS and r.get("token")}
+        s |= _SIDO_KEYS
+        s |= {"한국", "전국", "국내", "수도권", "충청", "호남", "영남", "제주도"}
+        _PLACE_HEADS = s
+    return _PLACE_HEADS
+
+
+def _product_place_head(prod):
+    """제품키워드가 지명으로 시작하면 그 지명을, 아니면 None. 긴 것부터 본다."""
+    n = _norm(prod)
+    heads = _place_heads()
+    for size in (4, 3, 2):
+        if len(n) > size + 1 and n[:size] in heads:   # 지명 뒤에 2자 이상 남아야 '지명+업종'이다
+            return n[:size]
+    return None
 
 
 def _probe_regions(k=8):
@@ -1200,7 +1246,11 @@ def process_related(req, payload):
     #   창업떡집 3/4 · 1인창업 2/4 로 높았다 — 안 찔러본 176개에 더 있었다고 보는 게 맞다.
     #   대신 ① 이미 판정된 조합은 캐시에서 공짜로 가져오고 ② 라이브 콜만 예산으로 끊는다.
     #   끊기면 note 에 남은 개수를 명시한다(조용한 절단 금지). 다시 조회하면 캐시분을 건너뛰고 이어서 본다.
-    todo = sorted(miss, key=lambda x: -(x.get("volume") or 0))
+    # 제품 자체가 지명인 것은 지역을 곱하지 않는다('송도 대전창업' 방지). 전국 판정은 이미 위에서 했다.
+    place_prod = [(x["keyword"], _product_place_head(x["keyword"])) for x in miss]
+    skipped_place = [k for k, h in place_prod if h]
+    todo = sorted([x for x in miss if not _product_place_head(x["keyword"])],
+                  key=lambda x: -(x.get("volume") or 0))
     PROBE_MAX_LIVE = 400                 # 약 17분(2.5초 간격). 캐시 히트는 여기 안 든다.
     pcache = _cache_get_many([f"{tok} {row['keyword']}" for row in todo for tok in probes])
     plive, pleft, pushed_r = 0, 0, -1
@@ -1243,7 +1293,11 @@ def process_related(req, payload):
             regional.append({
                 "kind": "regional", "keyword": prod, "volume": row.get("volume") or 0,
                 "theme": f"지역형 · {len(hits)}/{len(probes)} 지역에서 발견",
-                "cafes": [], "sample": [h["keyword"] for h in hits[:3]],
+                # ★ 찾은 조합을 '예시 3개'가 아니라 전부 준다(사장님 지시 2026-08-11).
+                #   1/4·2/4 라고만 하면 그 1~2개가 뭔지 알 수 없어 바로 못 쓴다.
+                #   이건 이미 판정된 진짜 인기탭이라 그대로 발행 키워드로 쓸 수 있다.
+                "cafes": [], "sample": [h["keyword"] for h in hits],
+                "hits": [{"keyword": h["keyword"], "volume": h.get("volume") or 0} for h in hits],
             })
 
     national.sort(key=lambda f: -(f.get("volume") or 0))
@@ -1252,7 +1306,8 @@ def process_related(req, payload):
     regional.sort(key=lambda f: -(f.get("volume") or 0))
     note = (f"전국형 {len(national)}건 · 지역형 후보 {len(regional)}건"
             f" · 지역 찔러보기 {len(todo) - pleft}/{len(todo)}개"
-            f"{' · 오류 ' + str(errs) if errs else ''}"
+            + (f" · 지명 제품 {len(skipped_place)}개는 지역 곱하기 제외" if skipped_place else "")
+            + f"{' · 오류 ' + str(errs) if errs else ''}"
             + (f" · 남은 {pleft}개(다시 조회하면 이어서 봅니다)" if pleft else "")
             + (f" · 판정 {min(len(kws), MAX_A)}/{len(kws)}(상한)" if len(kws) > MAX_A else ""))
     # 결과 배열 하나에 담고 kind 로 가른다 — cafe_kw_requests 에 별도 컬럼이 없다(extra 는 컬럼 업데이트라 실패한다).

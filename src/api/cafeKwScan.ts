@@ -172,7 +172,7 @@ export async function enqueueListScan(keywords: string[], target = 50) {
 //   기존 3모드는 '한국 행정지역 × 제품'이 전제라 해외지명·취미어 같은 씨앗을 다루지 못했다.
 //   endsSeed = 씨앗어로 '끝나는' 후보(소자본창업·카페창업). 씨앗이 뒤에 오는 형태가 곧 '업종+행위'라
 //   발행 키워드로 바로 쓸 수 있다. 앞에 오는 형태(창업박람회·창업대출)는 정보성이라 결이 다르다.
-export type RelatedCand = { kw: string; total: number; tier: 'seed' | 'near' | 'far'; intent: boolean; endsSeed: boolean };
+export type RelatedCand = { kw: string; total: number; tier: 'seed' | 'near' | 'far'; intent: boolean; endsSeed: boolean; seedOf: string };
 
 // '의도어' — 이게 붙은 키워드에서 인기글 섹션이 나온다. 지명·상품명 단독은 거의 안 나온다.
 //   실측(2026-08-07, 보홀 70조합 전수 판정 · 인기탭 35건):
@@ -274,14 +274,31 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
     //   '사설경호'→'서울 경호업체'. '창업'에선 이 문제가 0%라 씨앗 하나만 보면 안 보인다.
     const SEED_PREFIX = /^(방문|재가|노인|장기|긴급|주야간|셀프|무인|사설|입주|이사|출장|종합|전문)/;
     const SEED_SUFFIX = ['탐지', '업체', '전문', '서비스', '시공', '공사', '센터'];
-    const cores = [...new Set(seeds.flatMap((s) => {
+    // ★ 표기 쌍둥이 — 네이버에선 '프렌차이즈'(ㅔ)와 '프랜차이즈'(ㅐ)가 완전히 다른 키워드다.
+    //   실측 2026-08-11: 프랜차이즈 연관어 996개·검색량 10,680 vs 프렌차이즈 133개·90.
+    //   사장님이 오타 표기로 넣으시면 후보가 1/7 로 줄어든다(그래서 '고기집프렌차이즈'만 잡혔다).
+    //   글자 수가 같고 한 글자만 다르며 검색량이 5배 이상인 쌍둥이가 연관어에 있으면 코어로 같이 쓴다.
+    const twinOf = (s: string): string[] => {
+        const n = s.replace(/\s/g, '');
+        if (n.length < 3) return [];
+        const mine = rowMap.get(n)?.total ?? 0;
+        const out: string[] = [];
+        for (const k of rowMap.keys()) {
+            if (k.length !== n.length || k === n) continue;
+            let diff = 0;
+            for (let i = 0; i < k.length && diff < 2; i++) if (k[i] !== n[i]) diff += 1;
+            if (diff === 1 && (rowMap.get(k)?.total ?? 0) >= Math.max(mine * 5, 500)) out.push(k);
+        }
+        return out;
+    };
+    const cores = [...new Set(seeds.flatMap((s) => twinOf(s)).concat(seeds.flatMap((s) => {
         const n0 = s.replace(/\s/g, '');
         let c = n0.replace(SEED_PREFIX, '');
         for (const suf of SEED_SUFFIX) {
             if (c.endsWith(suf) && c.length - suf.length >= 2) { c = c.slice(0, -suf.length); break; }
         }
         return c.length >= 2 ? [n0, c] : [n0];
-    }))];
+    })))];
     const out: RelatedCand[] = rows
         .filter(({ kw }) => {
             const n = kw.replace(/\s/g, '');
@@ -295,7 +312,11 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
             //   교차 QA 실측: 간병인업체 6,420 · 누수탐지업체 · 입주청소업체가 전부 양성인데
             //   '끝나는 것만'에 걸려 사라졌다. 하필 그 업종의 최고검색량이다.
             const endsSeed = cores.some((c) => n.endsWith(c) || n.endsWith(`${c}업체`));
-            return { endsSeed, intent: INTENT_WORDS.some((w) => n.includes(w)), kw, tier, total };
+            // 어느 씨앗 계열인지 — 씨앗을 여러 개 넣으면 첫 씨앗이 목록을 뒤덮는다(실측 2026-08-11:
+            //   창업+가맹+사업+프렌차이즈 338개 중 창업이 263개=78%). 화면에서 계열별로 골라 보려고 붙인다.
+            //   여러 코어에 걸리면 가장 구체적인(긴) 것으로 귀속한다.
+            const matched = cores.filter((c) => n.includes(c)).sort((a2, b2) => b2.length - a2.length);
+            return { endsSeed, intent: INTENT_WORDS.some((w) => n.includes(w)), kw, seedOf: matched[0] || '', tier, total };
         });
     // 의도어가 붙은 것을 먼저 — 실측상 인기글 섹션이 여기서 나온다. 그 안에서 검색량 순.
     const order = { seed: 0, near: 1, far: 2 };
@@ -384,16 +405,195 @@ export function relatedStems(seed: string, related: { kw: string }[], n = 8): st
     return [seed.trim(), ...top];
 }
 
+// ── 이미 검증된 제품키워드 ───────────────────────────────────────────────────
+//   ★ 왜: 씨앗 하나로 닿는 범위가 좁다. 실측(2026-08-11) 캐시에 '지역형으로 판명이 끝난' 제품이
+//     112종 쌓여 있는데 씨앗 '창업' 하나로 닿는 건 19종뿐이었다. 나머지는 있는 줄도 모르고 지나간다.
+//     ('한식'은 40개 지역에서 이미 양성인데 사장님이 손으로 넣어 찾으셨다.)
+//   판정이 끝난 것만 세므로 스캔 0콜이다. 고르면 그 제품의 지역 조합을 캐시에서 바로 꺼낸다.
+export type ProvenProduct = { product: string; regions: number; volume: number };
+
+let _provenCache: ProvenProduct[] | null = null;
+
+export async function getProvenProducts(): Promise<ProvenProduct[]> {
+    if (_provenCache) return _provenCache;
+    // ① 지역 토큰 — 키워드 앞머리가 지역인지 보려고. PostgREST 1000행 상한이라 페이지네이션.
+    const toks = new Set<string>();
+    for (let off = 0; ; off += 1000) {
+        const { data, error } = await supabase.from('cafe_region_token')
+            .select('token').eq('active', true).range(off, off + 999);
+        if (error) break;
+        const page = (data ?? []) as { token: string }[];
+        page.forEach((t) => t.token && toks.add(t.token));
+        if (page.length < 1000) break;
+    }
+    // ② 양성 판정만 — verdict 조건을 DB 로 내려야 상한 1000칸을 오탐으로 안 채운다.
+    const agg = new Map<string, { regions: number; volume: number }>();
+    for (let off = 0; ; off += 1000) {
+        const { data, error } = await supabase.from('cafe_kw_targets')
+            .select('keyword,volume').eq('has_section', true)
+            .or('verdict.like.카페분산*,verdict.like.블로그섹션*')
+            .range(off, off + 999);
+        if (error) break;
+        const page = (data ?? []) as { keyword: string; volume: number | null }[];
+        for (const r of page) {
+            const parts = (r.keyword || '').trim().split(/\s+/);
+            if (parts.length < 2 || !toks.has(parts[0])) continue;   // 지역이 안 붙은 건 지역형 근거가 아니다
+            const prod = parts.slice(1).join(' ');
+            const cur = agg.get(prod) || { regions: 0, volume: 0 };
+            cur.regions += 1;
+            cur.volume = Math.max(cur.volume, r.volume ?? 0);
+            agg.set(prod, cur);
+        }
+        if (page.length < 1000) break;
+    }
+    _provenCache = [...agg.entries()]
+        .map(([product, v]) => ({ product, regions: v.regions, volume: v.volume }))
+        .sort((a, b) => b.regions - a.regions);
+    return _provenCache;
+}
+
+// ── 씨앗 발굴기 ──────────────────────────────────────────────────────────────
+//   ★ 왜: 씨앗 하나로 닿는 범위가 좁다. 실측(2026-08-11) 씨앗 '창업' 연관어 993개인데,
+//     씨앗을 8개로 늘리니 3,680개(3.7배)가 됐다. '무인창업' 하나가 767개를 새로 물어왔고
+//     '상권분석'이 663개였다 — 씨앗 하나로는 절대 못 닿는 영역이다.
+//   ★ 비용: 연관어 조회는 네이버 '검색광고' API 라 카페 인기탭을 긁는 CF 예산과 완전히 별개다.
+//     차단 위험이 없어 마음껏 넓혀도 된다. 비용은 그 뒤 스캔 단계에서만 나고 거긴 캐시가 걸러준다.
+//   후보 고르는 법: ① 캐시에서 이미 지역형으로 검증된 제품(수확이 보장됨) ② 검색량 상위.
+//     그리고 각 후보를 실제로 조회해 '새로 물어오는 개수(fresh)'를 재서 순위를 매긴다 —
+//     추측이 아니라 실측이라, 이름만 그럴싸하고 겹치기만 하는 후보가 위로 안 올라온다.
+//   ★ 사장님 의도(2026-08-11): "'창업'을 넣으면 '프랜차이즈' 같은 게 나왔으면 좋겠다".
+//     즉 '무인창업·소자본창업' 같은 변형이 아니라 '개념이 다른 형제 단어'가 핵심이다.
+//     그래서 씨앗을 포함하지 않는 후보(kind='other')를 먼저, 넉넉히 뽑는다.
+//   ★ 다만 검색량만 보면 잡음이 1등을 한다 — '창업'의 씨앗 미포함 상위가
+//     블로그 184,000 · 코인노래방 155,630 · 담가화로구이 142,920 이다(실측). 형제 단어가 아니다.
+//     그래서 '겹침(overlap)'을 같이 잰다: 후보의 연관어 중 원래 씨앗의 연관어와 겹치는 비율.
+//       프랜차이즈 → 겹침 높음(같은 시장)   블로그 → 겹침 낮음(남의 시장)
+//     겹침이 낮으면 새 키워드는 많이 물어와도 우리 업종이 아니다.
+export type SeedCand = { seed: string; total: number; fresh: number; proven: number; overlap: number; kind: 'other' | 'variant' };
+
+// 같은 시장으로 볼 최소 겹침 비율. 이보다 낮으면 '남의 시장'으로 보고 뒤로 보낸다(자동 체크도 안 함).
+export const SEED_OVERLAP_MIN = 0.2;
+
+export async function discoverSeeds(
+    seed: string, onProgress?: (note: string) => void,
+): Promise<SeedCand[]> {
+    const base = seed.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+    if (!base.length) return [];
+    const baseSet = new Set<string>();
+    const vol = new Map<string, number>();
+    for (const s of base) {
+        onProgress?.(`"${s}" 연관어 조회 중…`);
+        const r = await fetch(`/api/naver-keywords?q=${encodeURIComponent(s)}`);
+        const j = await r.json().catch(() => ({}));
+        for (const x of ((j as { keywords?: { keyword?: string; total?: number }[] }).keywords ?? [])) {
+            const k = String(x.keyword ?? '').replace(/\s/g, '');
+            if (!k) continue;
+            baseSet.add(k);
+            vol.set(k, Math.max(vol.get(k) ?? 0, Number(x.total ?? 0)));
+        }
+    }
+    if (!baseSet.size) throw new Error('연관어를 찾지 못했습니다.');
+
+    // 후보 추리기 — 이미 넣은 씨앗과 잡음은 뺀다.
+    const inBase = new Set(base.map((s) => s.replace(/\s/g, '')));
+    const NOISE = ['비용', '가격', '요금', '후기', '대출', '지원금', '자금', '지원', '정보', '순위',
+        '취업', '구직', '채용', '연봉', '자격증', '알바'];
+    const usable = (k: string) => k.length >= 2 && k.length <= 10 && !inBase.has(k)
+        && !NOISE.some((w) => k.includes(w)) && /[가-힣]/.test(k);
+
+    // ★ 씨앗을 포함하지 않는 것 = '형제 단어'(창업 → 프랜차이즈·가맹·상권분석). 이게 사장님이 원하신 것.
+    //   포함하는 것 = 변형(창업 → 무인창업·소자본창업). 새 키워드는 많이 물어오지만 결이 같다.
+    const isVariant = (k: string) => base.some((s) => k.includes(s.replace(/\s/g, '')));
+    // 이미 고른 것과 서로 포함관계면 건너뛴다 — '프랜차이즈'와 '프랜차이즈창업'을 둘 다 넣을 이유가 없다.
+    const takeInto = (arr: string[], k: string, cap: number) => {
+        if (arr.length >= cap) return false;
+        if (arr.some((p) => p.includes(k) || k.includes(p))) return false;
+        arr.push(k);
+        return true;
+    };
+
+    // ① 캐시에서 이미 지역형으로 검증된 제품이 연관어에 있으면 우선 — 수확이 보장된 씨앗이다.
+    let provenSet = new Map<string, number>();
+    try {
+        const pv = await getProvenProducts();
+        provenSet = new Map(pv.map((p) => [p.product.replace(/\s/g, ''), p.regions]));
+    } catch { /* 캐시 조회 실패해도 ②로 진행 */ }
+
+    // ★ 후보를 '검색량'으로 고르면 안 된다 — 실측(2026-08-11) '창업'의 검색량 상위 형제 단어는
+    //   블로그 184,000 · 코인노래방 155,630 · 담가화로구이 142,920 · 까페 42,490 … 전부 남의 시장이고,
+    //   정작 '프랜차이즈'(10,680)는 12위라 상위 10 컷에서 잘렸다. 사장님이 원하신 바로 그 단어였다.
+    //   대신 '중심성'으로 고른다 — 이 후보가 씨앗의 연관어 안에 조각으로 몇 번이나 들어 있나.
+    //     프랜차이즈 → 프랜차이즈창업·프랜차이즈카페창업… 153회 = 이 시장의 중심어
+    //     블로그 → 4회 = 우연히 섞인 남의 말
+    //   실측 결과 중심성 상위가 프랜차이즈 153 · 사업 65 · 체인 53 · 체인점 36 · 가맹 29 로 바뀌었고,
+    //   그 뒤 겹침 측정에서 프랜차이즈 60% · 가맹 67% · 사업 74% 로 전부 같은 시장 확인.
+    //   문자열 연산이라 추가 조회가 없다(공짜).
+    const keys = [...baseSet];
+    const cent = new Map<string, number>();
+    for (const k of keys) {
+        if (!usable(k)) continue;
+        let n = 0;
+        for (const b of keys) if (b !== k && b.includes(k)) n += 1;
+        cent.set(k, n);
+    }
+    const byCent = (a: string, b: string) => (cent.get(b) ?? 0) - (cent.get(a) ?? 0)
+        || (vol.get(b) ?? 0) - (vol.get(a) ?? 0);
+    const all = [...cent.keys()];
+    const others: string[] = [];
+    const variants: string[] = [];
+    // 형제 단어부터, 검증된 것 → 중심성 순. 형제를 넉넉히(10) 뽑고 변형은 적게(4).
+    for (const k of all.filter((k) => !isVariant(k) && provenSet.has(k)).sort(byCent)) takeInto(others, k, 10);
+    for (const k of all.filter((k) => !isVariant(k)).sort(byCent)) takeInto(others, k, 10);
+    for (const k of all.filter((k) => isVariant(k) && provenSet.has(k)).sort(byCent)) takeInto(variants, k, 4);
+    for (const k of all.filter(isVariant).sort(byCent)) takeInto(variants, k, 4);
+
+    // ② 후보마다 실제로 조회해 ⓐ 새로 물어오는 개수 ⓑ 원래 씨앗과 겹치는 비율을 잰다.
+    //    겹침이 낮으면 '남의 시장'이다 — 블로그·코인노래방이 여기서 걸러진다.
+    const cands = [...new Set([...others, ...variants])];
+    const out: SeedCand[] = [];
+    for (let i = 0; i < cands.length; i++) {
+        const c = cands[i];
+        onProgress?.(`후보 확인 ${i + 1}/${cands.length} — ${c}`);
+        try {
+            const r = await fetch(`/api/naver-keywords?q=${encodeURIComponent(c)}`);
+            const j = await r.json().catch(() => ({}));
+            const ks = ((j as { keywords?: { keyword?: string }[] }).keywords ?? [])
+                .map((x) => String(x.keyword ?? '').replace(/\s/g, '')).filter(Boolean);
+            if (!ks.length) continue;
+            const fresh = ks.filter((k) => !baseSet.has(k)).length;
+            out.push({
+                fresh,
+                kind: isVariant(c) ? 'variant' : 'other',
+                overlap: (ks.length - fresh) / ks.length,
+                proven: provenSet.get(c) ?? 0,
+                seed: c,
+                total: vol.get(c) ?? 0,
+            });
+        } catch { /* 이 후보만 실패 — 나머지 계속 */ }
+    }
+    // 같은 시장인 것(겹침 높음)을 먼저, 그 안에서 새로 물어오는 게 많은 순.
+    //   형제 단어를 변형보다 앞에 둔다 — 사장님이 원하신 게 그쪽이다.
+    const rank = (c: SeedCand) => (c.overlap >= SEED_OVERLAP_MIN ? 0 : 2) + (c.kind === 'other' ? 0 : 1);
+    return out.sort((a, b) => rank(a) - rank(b) || b.fresh - a.fresh);
+}
+
 export async function searchCachedPopular(terms: string[], limit = 200): Promise<CachedHit[]> {
     const words = [...new Set(terms.map((t) => t.trim().replace(/\s+/g, '')).filter((t) => t.length >= 2))];
     if (!words.length) return [];
     const out = new Map<string, CachedHit>();
     // 용어별로 부분일치 조회. PostgREST or() 로 한 번에 묶으면 URL 이 길어져 잘리므로 나눠 부른다.
     for (const w of words.slice(0, 12)) {
+        // ★ verdict 조건을 DB 로 내린다(2026-08-11, SUB4 발견에서 파생).
+        //   adjudicate 가 강등할 때 has_section 은 true 로 두고 verdict 만 바꾼다. 그래서
+        //   has_section=true 2,197건 안에 '비관련' 계열이 341건(16%) 섞여 있다.
+        //   예전엔 limit(200) 을 DB 에서 먼저 걸고 verdict 를 자바스크립트로 걸렀다 —
+        //   상한 200칸의 16%를 버릴 것으로 채운 뒤 버려서, 진짜 양성이 그만큼 덜 나왔다.
+        //   (오탐이 화면에 나온 적은 없다. 조용히 '덜 나오는' 누락 쪽 결함이다.)
         const { data } = await supabase.from('cafe_kw_targets')
             .select('keyword,has_section,theme,verdict,volume,cafes')
             .like('keyword', `%${w}%`)
             .eq('has_section', true)
+            .or('verdict.like.카페분산*,verdict.like.블로그섹션*')
             .limit(limit);
         for (const r of (data ?? []) as { keyword: string; verdict: string | null; theme: string | null; volume: number | null; cafes: unknown }[]) {
             // 워커의 _is_pop 과 같은 규약 — 카페분산·블로그섹션만 채택, 레시피 테마 제외.
@@ -655,6 +855,7 @@ export async function pollPlaceScan(
     //   (재조회는 캐시 히트라 스캔 없이 즉시 끝난다.)
     throw new Error(
         `아직 분석 중입니다${lastNote ? ` — ${lastNote}` : ''}. `
-        + '워커는 계속 돌고 있으니 잠시 후 같은 조건으로 다시 조회하세요(이미 본 건 캐시라 즉시 나옵니다).',
+        + '이 화면을 켜 두시면 끝날 때까지 자동으로 채워집니다(다시 누르지 않으셔도 됩니다). '
+        + '창을 닫으셨다면 나중에 같은 화면을 열기만 하면 이어서 붙습니다.',
     );
 }

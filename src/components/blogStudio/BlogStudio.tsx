@@ -54,8 +54,6 @@ export default function BlogStudio() {
 
     // 발행 계정·블로그
     const [naverId, setNaverId] = useState('');
-    const [showPw, setShowPw] = useState(false);
-    const [naverPw, setNaverPw] = useState('');
     const [blogName, setBlogName] = useState('');
     const [writeUrl, setWriteUrl] = useState('');
     const [dailyCap, setDailyCap] = useState(5);
@@ -330,12 +328,11 @@ export default function BlogStudio() {
                     <label className="grid gap-1 text-xs font-semibold text-[#475569]">네이버 아이디
                         <input className={inputCls} autoComplete="off" onChange={(e) => setNaverId(e.target.value)} placeholder="발행에 사용할 네이버 아이디" value={naverId} />
                     </label>
-                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">네이버 비밀번호 <span className="font-normal text-[#94a3b8]">(참고용 · 실제 접속은 발행PC 세션)</span>
-                        <span className="relative flex">
-                            <input className={`${inputCls} w-full pr-14`} autoComplete="new-password" type={showPw ? 'text' : 'password'} onChange={(e) => setNaverPw(e.target.value)} placeholder="비밀번호" value={naverPw} />
-                            <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#64748b]">{showPw ? '숨김' : '표시'}</button>
-                        </span>
-                    </label>
+                    {/* 네이버 비밀번호 입력칸을 두지 않는다 —
+                        저장도 전송도 하지 않는 칸이라(테이블에 컬럼 자체가 없음) 효용은 0인데,
+                        사용자는 실제 비밀번호를 입력하게 되고 브라우저 비밀번호 관리자에 남는다.
+                        블로그 로그인은 설계상 발행PC에서 사람이 1회 수동으로 한다(캡차/2FA/계정잠금 회피).
+                        아래 '네이버 로그인 (발행PC 수동)' 버튼과 안내 문구가 그 절차를 대신한다. */}
                     <label className="grid gap-1 text-xs font-semibold text-[#475569]">블로그 표시명
                         <input className={inputCls} onChange={(e) => setBlogName(e.target.value)} placeholder="예) 설고점 소방 블로그" value={blogName} />
                     </label>
