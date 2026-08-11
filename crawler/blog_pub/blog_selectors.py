@@ -86,12 +86,20 @@ EMPTY_COMPONENT_COUNT = 2
 #      그래서 _clear_editor 는 제목/본문을 각각 비우고, 비운 결과를 검증한다.
 SELECT_ALL_INCLUDES_TITLE = None
 
-# 🔴 '비어 있음' 판정 방식 — 플레이스홀더 **문자열 빼기 금지**.
-#   빈 문서의 innerText 실측: "제목 / 나를 돌아보는 회고, 뜻밖의 발견을 기다립니다. #모두의회고
-#   / 추가할 컴포넌트를 선택하세요." — 가운데 문구는 네이버가 **날마다 바꾸는 프롬프트**라
-#   목록으로 관리할 수 없다. 대신 DOM 에서 placeholder 요소를 제외하고 남는 텍스트로 판정한다.
-#   ⏳ placeholder 요소의 실제 마크업은 probe_placeholder.py 로 확인 후 이 목록을 확정할 것.
-PLACEHOLDER_CLASS_HINTS = ["placeholder", "se-placeholder", "se-ff-nanumgothic-placeholder"]
+# ✅ '비어 있음' 판정 — 실측 2026-08-11 로 확정된 마크업 기준.
+#   빈 문단은 이렇게 생겼다:
+#     <span class="se-ff-nanumgothic … __se-node"></span>       ← 내용 노드(빈칸)
+#     <span class="se-placeholder __se_placeholder">제목</span>  ← 플레이스홀더
+#   판정은 blog_common.CONTENT_TEXT_JS 가 `.se-text-paragraph .__se-node` 만 읽어서 한다.
+#
+#   ⚠️ 왜 이 경로로 왔는지(같은 실수 반복 방지):
+#     1차 시도 = 플레이스홀더를 **문자열로 빼기** → "#모두의회고" 처럼 네이버가 날마다 바꾸는
+#        프롬프트가 있어 목록으로 못 쫓아감.
+#     2차 시도 = `.se-content` innerText 에서 placeholder 요소만 제거 → 그 컨테이너 안에
+#        **편집기 UI 가 같이 들어있어** 빈 문서에서도 "위치이동/제목 배경/구분선1…인용구6"
+#        같은 툴바 텍스트가 남음(SUB1 실측). 스코프가 너무 넓었다.
+#     3차(현재) = 문단의 **내용 노드만** 읽기. 툴바·메뉴가 원천적으로 안 들어온다.
+PLACEHOLDER_CLASS_HINTS = ["placeholder", "__se_placeholder"]
 
 # ── 🔴 차단 전용 — 이 값들은 오직 '막기 위해' 존재한다. 클릭·goto 인자로 절대 쓰지 말 것. ──
 #    test_no_publish.py 가 이 상수들이 클릭 경로로 흘러가지 않는지 정적으로 검사한다.

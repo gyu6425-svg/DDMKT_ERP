@@ -132,25 +132,10 @@ def _clear_editor(ctx, page):
             "빈 문서의 .se-component 개수를 재서 blog_selectors 에 넣으세요(비우기 오판 방지)")
 
     def _state():
-        """(컴포넌트 수, 실내용 텍스트) — 실내용 = placeholder 요소를 **DOM 에서 제외**한 나머지.
-
-        ⚠️ 플레이스홀더를 문자열로 빼는 방식은 쓰지 않는다. 빈 문서의 innerText 실측이
-           "제목 / 나를 돌아보는 회고… #모두의회고 / 추가할 컴포넌트를 선택하세요." 였는데,
-           가운데 문구는 네이버가 날마다 바꾸는 프롬프트라 목록으로 못 쫓아간다.
-           목록에 없는 문구 하나만 나와도 '안 비워졌다'로 오판해 모든 작업이 죽는다."""
+        """(컴포넌트 수, 실내용 텍스트). 판정 JS 는 blog_common.CONTENT_TEXT_JS 한 벌만 쓴다
+        (probe_editor.py 도 같은 것을 호출하므로, probe 가 통과하면 엔진도 같은 판정을 한다)."""
         n = ctx.evaluate("() => document.querySelectorAll('.se-component').length")
-        t = ctx.evaluate("""(hints) => {
-            const root = document.querySelector('.se-content');
-            if (!root) return '';
-            const clone = root.cloneNode(true);
-            // placeholder 로 보이는 요소를 통째로 제거한 뒤 남는 텍스트만 센다.
-            clone.querySelectorAll('*').forEach(el => {
-                const c = (el.className || '').toString().toLowerCase();
-                if (hints.some(h => c.includes(h))) el.remove();
-            });
-            // 에디터가 빈 문단에 넣어두는 zero-width/개행만 남은 경우도 빈 것으로 본다.
-            return (clone.innerText || '').replace(/[\\u200b\\uFEFF]/g, '').trim();
-        }""", sel.PLACEHOLDER_CLASS_HINTS)
+        t = bc.content_text(ctx, sel.PLACEHOLDER_CLASS_HINTS)
         return n, (t or "").strip()
 
     def _wipe(cands, key):

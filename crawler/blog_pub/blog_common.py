@@ -335,6 +335,40 @@ def resolve_ctx(page, frame_hint, probe_selectors):
     raise SaveError("에디터를 어느 프레임에서도 찾지 못했습니다 — diag_blog.py 로 셀렉터/프레임 재확정 필요")
 
 
+# ── '문서에 실제 내용이 있는가' 판정 JS — 엔진과 probe 가 **이 한 벌을 공유**한다 ──────
+#   ⚠️ 복붙 두 벌로 두면 probe 는 통과하는데 엔진은 다른 걸 검사하는 상태가 된다(실제로 그랬다).
+#
+#   실측(2026-08-11, SUB1)으로 확정된 마크업:
+#     <p class="se-text-paragraph">
+#       <span class="se-ff-nanumgothic … __se-node"></span>          ← 내용 노드(빈 문서면 빈칸)
+#       <span class="se-placeholder __se_placeholder">제목</span>     ← 플레이스홀더
+#     </p>
+#
+#   🔴 .se-content 의 innerText 를 읽으면 안 된다. 그 안에 편집기 UI 가 같이 들어있어
+#      빈 문서에서도 "위치이동 제목 배경 사진 삭제…구분선1…인용구6" 같은 툴바 텍스트가 나온다.
+#      → 문단의 **내용 노드(.__se-node)** 만 읽는다.
+#
+#   🔴 fail-closed: 내용 노드를 하나도 못 찾으면 '' 를 돌려주면 안 된다. 그건 '비었다'로
+#      오인돼 이전 글 위에 겹쳐쓰기로 이어진다. 마크업이 바뀐 것이므로 센티널을 돌려
+#      비우기를 실패시키고 사람이 보게 한다.
+CONTENT_TEXT_JS = """(hints) => {
+    const nodes = document.querySelectorAll('.se-text-paragraph .__se-node');
+    if (!nodes.length) return '<NO_SE_NODE>';   // 마크업 변경 — 판정 불가 → 실패 처리
+    let t = '';
+    nodes.forEach(n => {
+        const c = (n.className || '').toString().toLowerCase();
+        if (hints.some(h => c.includes(h))) return;     // placeholder 계열 제외
+        t += (n.textContent || '');
+    });
+    return t.replace(/[\\u200b\\uFEFF]/g, '').trim();
+}"""
+
+
+def content_text(ctx, hints):
+    """문서의 '실제 내용' 텍스트. 빈 문서면 ''. 판정 불가면 '<NO_SE_NODE>'(비어있지 않음 취급)."""
+    return ctx.evaluate(CONTENT_TEXT_JS, hints)
+
+
 def first(ctx, selectors, timeout=4000):
     """후보 셀렉터 중 먼저 보이는 것 반환(없으면 None). ctx 는 page 또는 Frame."""
     for s in selectors:

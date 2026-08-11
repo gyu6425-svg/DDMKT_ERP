@@ -315,6 +315,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     // ★ 기본을 seed(씨앗어 포함)로 — near 기본이면 '창업'에 취업박람회·블로그·코인노래방 같은
     //   무관어가 섞인다(사장님 2026-08-11). 실측 993개 중 씨앗 미포함이 592개였다. 넓히려면 버튼으로.
     const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('seed');
+    // '씨앗으로 끝나는 것만'(소자본창업·카페창업). 기본값은 씨앗별로 데이터가 정한다 —
+    //   끝나는 게 더 많으면 켠다('창업' 끝230/앞67 → 켬, '보홀'은 보홀여행류가 많아 → 끔).
+    const [endsOnly, setEndsOnly] = useState(false);
     const [relRegional, setRelRegional] = useState<(KwResult & { sample?: string[] })[]>([]);
     // 캐시 우선 — 이미 판정된 인기탭. 스캔 0회로 즉시 나온다.
     const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
@@ -327,11 +330,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             const list = await expandRelated(s);
             if (!list.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
             setRelCands(list);
-            // 기본 체크 = 의도어(여행·숙소·패키지…)가 붙은 것. 실측상 여기서 인기글이 나온다(정확도 76%).
             // ★ 기본 체크 = 씨앗어를 포함한 것(tier==='seed'). 옛 '의도어' 규칙은 재현율 7%였다
             //   (독립검증 2026-08-10: 의도어 96개·재현율 7% vs tier==seed 1509개·재현율 77%).
             //   의도어는 여행 어휘 목록이라 창업·누수탐지·입주청소에서 양성을 0건 골랐다.
-            setRelPicked(new Set(list.filter((x) => x.tier === 'seed').slice(0, 200).map((x) => x.kw)));
+            //   여기에 더해 씨앗이 '뒤에' 붙는 형태가 더 많으면 그것만 고른다(소자본창업·카페창업).
+            const inSeed = list.filter((x) => x.tier === 'seed');
+            const ends = inSeed.filter((x) => x.endsSeed);
+            const endsWins = ends.length > inSeed.length - ends.length;
+            setEndsOnly(endsWins);
+            setRelPicked(new Set((endsWins ? ends : inSeed).slice(0, 200).map((x) => x.kw)));
             // ★ 스캔 전에 캐시부터 — 이미 판정된 게 1,000건 넘어 상당수는 긁지 않고 바로 준다.
             const hits = await searchCachedPopular(relatedStems(s, list));
             setCachedVia([...new Set(hits.map((h) => h.via))]);
@@ -953,9 +960,17 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                     className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
                                             ))}
                                         </div>
+                                        {/* '~~씨앗' 형태만 — 소자본창업·카페창업 같은 '업종+행위'만 남긴다.
+                                            씨앗이 앞에 오는 형태(창업박람회·창업대출)는 정보성이라 결이 다르다. */}
+                                        <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-[#c4b5fd] px-2 py-0.5 text-[11px] font-bold text-[#6d28d9]">
+                                            <input type="checkbox" className="h-3 w-3 accent-[#6d28d9]" checked={endsOnly}
+                                                onChange={(e) => setEndsOnly(e.target.checked)} />
+                                            “{seed.trim().split(',')[0].trim()}”으로 끝나는 것만
+                                        </label>
                                         {/* 보이는 층(relTier) 안에서 전체 선택/해제 — 237개를 하나씩 누를 수 없다. */}
                                         {(() => {
-                                            const shown = relCands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true)).slice(0, 200);
+                                            const shown = relCands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
+                                                .filter((x) => !endsOnly || x.endsSeed).slice(0, 200);
                                             const allOn = shown.length > 0 && shown.every((x) => relPicked.has(x.kw));
                                             return (
                                                 <button type="button"
@@ -974,6 +989,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     <div className="flex max-h-56 flex-wrap gap-1.5 overflow-y-auto">
                                         {relCands
                                             .filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
+                                            .filter((x) => !endsOnly || x.endsSeed)
                                             .slice(0, 200)
                                             .map((x) => (
                                                 <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${relPicked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>
