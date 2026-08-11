@@ -390,10 +390,17 @@ export async function searchCachedPopular(terms: string[], limit = 200): Promise
     const out = new Map<string, CachedHit>();
     // 용어별로 부분일치 조회. PostgREST or() 로 한 번에 묶으면 URL 이 길어져 잘리므로 나눠 부른다.
     for (const w of words.slice(0, 12)) {
+        // ★ verdict 조건을 DB 로 내린다(2026-08-11, SUB4 발견에서 파생).
+        //   adjudicate 가 강등할 때 has_section 은 true 로 두고 verdict 만 바꾼다. 그래서
+        //   has_section=true 2,197건 안에 '비관련' 계열이 341건(16%) 섞여 있다.
+        //   예전엔 limit(200) 을 DB 에서 먼저 걸고 verdict 를 자바스크립트로 걸렀다 —
+        //   상한 200칸의 16%를 버릴 것으로 채운 뒤 버려서, 진짜 양성이 그만큼 덜 나왔다.
+        //   (오탐이 화면에 나온 적은 없다. 조용히 '덜 나오는' 누락 쪽 결함이다.)
         const { data } = await supabase.from('cafe_kw_targets')
             .select('keyword,has_section,theme,verdict,volume,cafes')
             .like('keyword', `%${w}%`)
             .eq('has_section', true)
+            .or('verdict.like.카페분산*,verdict.like.블로그섹션*')
             .limit(limit);
         for (const r of (data ?? []) as { keyword: string; verdict: string | null; theme: string | null; volume: number | null; cafes: unknown }[]) {
             // 워커의 _is_pop 과 같은 규약 — 카페분산·블로그섹션만 채택, 레시피 테마 제외.
