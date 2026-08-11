@@ -151,6 +151,16 @@ def _clear_editor(ctx, page):
         page.wait_for_timeout(450)
         return True
 
+    # 비우기 '직전' 상태를 기록해 둔다 — 나중에 로그만 보고 '무엇을 지웠는지' 알 수 있어야 한다.
+    #   빈 화면이면 ''(정상). 내용이 있으면 네이버가 이전 글을 복원해 둔 것이고, 그게 우리가
+    #   반드시 지워야 하는 대상이다. (probe Q5 는 이 값이 non-empty 여야 검증이 유효하다 —
+    #   항상 빈 문자열을 내는 고장 상태에서 '비우기 성공'이 나오는 거짓 통과를 막기 위함)
+    try:
+        pre_n, pre_txt = _state()
+        bc.log(f"  비우기 전: component={pre_n} · 내용={'(없음)' if not pre_txt else repr(pre_txt[:60])}")
+    except Exception as e:
+        bc.log(f"  (비우기 전 상태 읽기 실패: {str(e)[:60]})")
+
     for attempt in range(4):
         try:
             # ⚠️ 제목과 본문을 **각각** 비운다.
