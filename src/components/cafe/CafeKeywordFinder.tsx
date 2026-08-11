@@ -73,6 +73,11 @@ export function CafeKeywordFinder({
     //   실측(연관어 993개): 씨앗 포함 401 · 미포함 592 — 절반 넘게가 잡음이다.
     //   near 는 '창업박람회'에서 뽑힌 조각 '박람회'로 '취업박람회'까지 끌어올린다. 필요하면 버튼으로 넓힌다.
     const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('seed');
+    // 씨앗 계열 필터 — 씨앗을 여러 개 넣으면 첫 씨앗이 목록을 뒤덮는다.
+    //   실측 2026-08-11(창업+가맹+사업+프렌차이즈): 보이는 338개 중 창업이 263개(78%)라
+    //   사장님이 '프렌차이즈·사업은 안 나온다'고 하셨다. 실제로는 있는데 파묻힌 것이었다.
+    const [seedFilter, setSeedFilter] = useState('');   // '' = 전체
+
     // '씨앗으로 끝나는 것만' — 소자본창업·카페창업 처럼 '업종+행위' 형태만 본다.
     //   ★ 기본값을 씨앗별로 데이터가 정한다: 끝나는 게 앞에 붙는 것보다 많으면 켠다.
     //     '창업'은 끝 230 vs 앞 67 이라 켜지고, '보홀'은 보홀여행·보홀호텔처럼 앞이 많아 꺼진다
@@ -836,6 +841,30 @@ export function CafeKeywordFinder({
                                             className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
                                     ))}
                                 </div>
+                                {/* 씨앗 계열 — 여러 씨앗을 넣으면 첫 씨앗이 목록을 뒤덮는다. 계열별로 골라 본다. */}
+                                {(() => {
+                                    const fam = new Map<string, number>();
+                                    for (const x of cands) {
+                                        if (relTier === 'seed' && x.tier !== 'seed') continue;
+                                        if (relTier === 'near' && x.tier === 'far') continue;
+                                        if (endsOnly && !x.endsSeed) continue;
+                                        const k = x.seedOf || '기타';
+                                        fam.set(k, (fam.get(k) ?? 0) + 1);
+                                    }
+                                    if (fam.size < 2) return null;
+                                    const list = [...fam.entries()].sort((a, b) => b[1] - a[1]);
+                                    return (
+                                        <span className="inline-flex flex-wrap items-center gap-1">
+                                            <span className="text-[11px] font-normal text-[#94a3b8]">계열</span>
+                                            <button type="button" onClick={() => setSeedFilter('')}
+                                                className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${seedFilter === '' ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>전체</button>
+                                            {list.map(([k, n]) => (
+                                                <button key={k} type="button" onClick={() => setSeedFilter(k)}
+                                                    className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${seedFilter === k ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>{k} {n}</button>
+                                            ))}
+                                        </span>
+                                    );
+                                })()}
                                 {/* '~~씨앗' 형태만 — 소자본창업·카페창업 같은 '업종+행위'만 남긴다.
                                     씨앗이 앞에 오는 형태(창업박람회·창업대출)는 정보성이라 결이 다르다. */}
                                 <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-[#c4b5fd] px-2 py-0.5 text-[11px] font-bold text-[#6d28d9]">
@@ -846,7 +875,8 @@ export function CafeKeywordFinder({
                                 {/* 보이는 층 안에서 전체 선택/해제 — 후보가 수백 개라 하나씩 못 누른다. */}
                                 {(() => {
                                     const shown = cands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
-                                        .filter((x) => !endsOnly || x.endsSeed).slice(0, 200);
+                                        .filter((x) => !endsOnly || x.endsSeed)
+                                        .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter).slice(0, 200);
                                     const allOn = shown.length > 0 && shown.every((x) => relPicked.has(x.kw));
                                     return (
                                         <button type="button"
@@ -863,6 +893,7 @@ export function CafeKeywordFinder({
                                     .filter((x) => (relTier === 'seed' ? x.tier === 'seed'
                                         : relTier === 'near' ? x.tier !== 'far' : true))
                                     .filter((x) => !endsOnly || x.endsSeed)
+                                    .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter)
                                     .slice(0, 200)
                                     .map((x) => (
                                         <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${relPicked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>

@@ -172,7 +172,7 @@ export async function enqueueListScan(keywords: string[], target = 50) {
 //   기존 3모드는 '한국 행정지역 × 제품'이 전제라 해외지명·취미어 같은 씨앗을 다루지 못했다.
 //   endsSeed = 씨앗어로 '끝나는' 후보(소자본창업·카페창업). 씨앗이 뒤에 오는 형태가 곧 '업종+행위'라
 //   발행 키워드로 바로 쓸 수 있다. 앞에 오는 형태(창업박람회·창업대출)는 정보성이라 결이 다르다.
-export type RelatedCand = { kw: string; total: number; tier: 'seed' | 'near' | 'far'; intent: boolean; endsSeed: boolean };
+export type RelatedCand = { kw: string; total: number; tier: 'seed' | 'near' | 'far'; intent: boolean; endsSeed: boolean; seedOf: string };
 
 // '의도어' — 이게 붙은 키워드에서 인기글 섹션이 나온다. 지명·상품명 단독은 거의 안 나온다.
 //   실측(2026-08-07, 보홀 70조합 전수 판정 · 인기탭 35건):
@@ -274,14 +274,31 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
     //   '사설경호'→'서울 경호업체'. '창업'에선 이 문제가 0%라 씨앗 하나만 보면 안 보인다.
     const SEED_PREFIX = /^(방문|재가|노인|장기|긴급|주야간|셀프|무인|사설|입주|이사|출장|종합|전문)/;
     const SEED_SUFFIX = ['탐지', '업체', '전문', '서비스', '시공', '공사', '센터'];
-    const cores = [...new Set(seeds.flatMap((s) => {
+    // ★ 표기 쌍둥이 — 네이버에선 '프렌차이즈'(ㅔ)와 '프랜차이즈'(ㅐ)가 완전히 다른 키워드다.
+    //   실측 2026-08-11: 프랜차이즈 연관어 996개·검색량 10,680 vs 프렌차이즈 133개·90.
+    //   사장님이 오타 표기로 넣으시면 후보가 1/7 로 줄어든다(그래서 '고기집프렌차이즈'만 잡혔다).
+    //   글자 수가 같고 한 글자만 다르며 검색량이 5배 이상인 쌍둥이가 연관어에 있으면 코어로 같이 쓴다.
+    const twinOf = (s: string): string[] => {
+        const n = s.replace(/\s/g, '');
+        if (n.length < 3) return [];
+        const mine = rowMap.get(n)?.total ?? 0;
+        const out: string[] = [];
+        for (const k of rowMap.keys()) {
+            if (k.length !== n.length || k === n) continue;
+            let diff = 0;
+            for (let i = 0; i < k.length && diff < 2; i++) if (k[i] !== n[i]) diff += 1;
+            if (diff === 1 && (rowMap.get(k)?.total ?? 0) >= Math.max(mine * 5, 500)) out.push(k);
+        }
+        return out;
+    };
+    const cores = [...new Set(seeds.flatMap((s) => twinOf(s)).concat(seeds.flatMap((s) => {
         const n0 = s.replace(/\s/g, '');
         let c = n0.replace(SEED_PREFIX, '');
         for (const suf of SEED_SUFFIX) {
             if (c.endsWith(suf) && c.length - suf.length >= 2) { c = c.slice(0, -suf.length); break; }
         }
         return c.length >= 2 ? [n0, c] : [n0];
-    }))];
+    })))];
     const out: RelatedCand[] = rows
         .filter(({ kw }) => {
             const n = kw.replace(/\s/g, '');
@@ -295,7 +312,11 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
             //   교차 QA 실측: 간병인업체 6,420 · 누수탐지업체 · 입주청소업체가 전부 양성인데
             //   '끝나는 것만'에 걸려 사라졌다. 하필 그 업종의 최고검색량이다.
             const endsSeed = cores.some((c) => n.endsWith(c) || n.endsWith(`${c}업체`));
-            return { endsSeed, intent: INTENT_WORDS.some((w) => n.includes(w)), kw, tier, total };
+            // 어느 씨앗 계열인지 — 씨앗을 여러 개 넣으면 첫 씨앗이 목록을 뒤덮는다(실측 2026-08-11:
+            //   창업+가맹+사업+프렌차이즈 338개 중 창업이 263개=78%). 화면에서 계열별로 골라 보려고 붙인다.
+            //   여러 코어에 걸리면 가장 구체적인(긴) 것으로 귀속한다.
+            const matched = cores.filter((c) => n.includes(c)).sort((a2, b2) => b2.length - a2.length);
+            return { endsSeed, intent: INTENT_WORDS.some((w) => n.includes(w)), kw, seedOf: matched[0] || '', tier, total };
         });
     // 의도어가 붙은 것을 먼저 — 실측상 인기글 섹션이 여기서 나온다. 그 안에서 검색량 순.
     const order = { seed: 0, near: 1, far: 2 };
