@@ -75,14 +75,23 @@ SEL_DRAFT_COUNT = [
     'button[class*=save_count_btn]',
 ]
 
-# 빈 문서의 .se-component 개수 — _clear_editor 가 '비었다'를 판정하는 기준선.
-#   ⚠️ 카페는 1 이었지만 블로그는 제목 섹션 + 본문 섹션이라 2 이상일 수 있다. 값이 틀리면
-#      비우기가 **영원히 실패**해 모든 작업이 죽는다. None = 미확정(probe_editor.py 로 측정).
-EMPTY_COMPONENT_COUNT = None
+# ✅ 빈 문서의 .se-component 개수 = 2 (documentTitle 1 + text 1). 실측 2026-08-11.
+#   ⚠️ 카페는 1 이었다. 그대로 뒀으면 `n <= 1` 이 영원히 거짓이라 비우기가 **항상 실패**하고
+#      모든 작업이 죽었을 것이다.
+EMPTY_COMPONENT_COUNT = 2
 
-# Ctrl+A 가 제목까지 선택하는가 — True 면 '비우기 → 제목' 순서여야 한다(제목 먼저 치면 지워짐).
-#   None = 미확정. save_blog 는 안전하게 **항상 비우기를 먼저** 하므로 이 값은 기록용이다.
+# Ctrl+A 가 제목까지 선택하는가 — ⏳ 미확정(빈 문서에서 재서 선택 텍스트가 ""라 저신뢰).
+#   ⚠️ 이게 False(=컴포넌트 단위 스코프)라면 더 큰 문제다: Ctrl+A 로는 **본문만** 지워지고
+#      복원된 이전 글의 **제목이 남는다** → 우리 제목이 그 뒤에 이어붙는다.
+#      그래서 _clear_editor 는 제목/본문을 각각 비우고, 비운 결과를 검증한다.
 SELECT_ALL_INCLUDES_TITLE = None
+
+# 🔴 '비어 있음' 판정 방식 — 플레이스홀더 **문자열 빼기 금지**.
+#   빈 문서의 innerText 실측: "제목 / 나를 돌아보는 회고, 뜻밖의 발견을 기다립니다. #모두의회고
+#   / 추가할 컴포넌트를 선택하세요." — 가운데 문구는 네이버가 **날마다 바꾸는 프롬프트**라
+#   목록으로 관리할 수 없다. 대신 DOM 에서 placeholder 요소를 제외하고 남는 텍스트로 판정한다.
+#   ⏳ placeholder 요소의 실제 마크업은 probe_placeholder.py 로 확인 후 이 목록을 확정할 것.
+PLACEHOLDER_CLASS_HINTS = ["placeholder", "se-placeholder", "se-ff-nanumgothic-placeholder"]
 
 # ── 🔴 차단 전용 — 이 값들은 오직 '막기 위해' 존재한다. 클릭·goto 인자로 절대 쓰지 말 것. ──
 #    test_no_publish.py 가 이 상수들이 클릭 경로로 흘러가지 않는지 정적으로 검사한다.
@@ -117,6 +126,14 @@ SAVE_URL_PARTS = [
     "rabbitautosave",
     "rabbittemp",
 ]
+
+# 🔴 저장 성공 판정용 — 이 둘을 **반드시 구분**해야 한다.
+#   네이버는 타이핑 중에도 RabbitAutoSaveWrite 로 **알아서 임시저장**을 만든다(실측:
+#   diag 때 저장카운터 "0" → probe 때 "1" 로 저절로 증가). 그래서 '카운터가 늘었다'를
+#   성공 근거로 쓰면 **저장 버튼을 안 눌러도 성공으로 기록**된다(거짓 성공).
+#   → 성공 판정은 '저장 버튼 클릭 이후 SAVE_CLICK_URL_PART 응답이 왔는가'로 한다.
+SAVE_CLICK_URL_PART = "rabbittemp"      # 저장 버튼이 쏘는 요청(RabbitTempPostWrite)
+AUTOSAVE_URL_PART = "rabbitautosave"    # 자동저장 — 성공 근거로 쓰면 안 됨
 
 # 저장 후 여기로 이동했다면 **발행된 것** — 최고 심각도 경보 + 중단.
 PUBLISHED_URL_PATTERNS = [

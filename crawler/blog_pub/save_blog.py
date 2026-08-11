@@ -125,7 +125,6 @@ def _clear_editor(ctx, page):
     ⚠️ '비었다'의 기준선이 카페와 다르다. 카페는 컴포넌트 1개면 빈 글이었지만, 블로그는
        제목 섹션 + 본문 섹션이라 빈 문서에서도 2개 이상일 수 있다. 이 값을 잘못 잡으면
        비우기가 **영원히 실패**해 모든 작업이 죽으므로 실측값(EMPTY_COMPONENT_COUNT)을 쓴다."""
-    PLACEHOLDERS = ("내용을 입력하세요.", "제목", "본문에 #을 이용하여 태그를 입력해보세요!")
     empty_n = sel.EMPTY_COMPONENT_COUNT
     if empty_n is None:
         raise bc.SaveError(
@@ -133,34 +132,57 @@ def _clear_editor(ctx, page):
             "빈 문서의 .se-component 개수를 재서 blog_selectors 에 넣으세요(비우기 오판 방지)")
 
     def _state():
+        """(컴포넌트 수, 실내용 텍스트) — 실내용 = placeholder 요소를 **DOM 에서 제외**한 나머지.
+
+        ⚠️ 플레이스홀더를 문자열로 빼는 방식은 쓰지 않는다. 빈 문서의 innerText 실측이
+           "제목 / 나를 돌아보는 회고… #모두의회고 / 추가할 컴포넌트를 선택하세요." 였는데,
+           가운데 문구는 네이버가 날마다 바꾸는 프롬프트라 목록으로 못 쫓아간다.
+           목록에 없는 문구 하나만 나와도 '안 비워졌다'로 오판해 모든 작업이 죽는다."""
         n = ctx.evaluate("() => document.querySelectorAll('.se-component').length")
-        t = ctx.evaluate("() => (document.querySelector('.se-content') || {}).innerText || ''")
-        t = (t or "").replace("​", "").strip()
-        for ph in PLACEHOLDERS:
-            t = t.replace(ph, "").strip()
-        return n, t
+        t = ctx.evaluate("""(hints) => {
+            const root = document.querySelector('.se-content');
+            if (!root) return '';
+            const clone = root.cloneNode(true);
+            // placeholder 로 보이는 요소를 통째로 제거한 뒤 남는 텍스트만 센다.
+            clone.querySelectorAll('*').forEach(el => {
+                const c = (el.className || '').toString().toLowerCase();
+                if (hints.some(h => c.includes(h))) el.remove();
+            });
+            // 에디터가 빈 문단에 넣어두는 zero-width/개행만 남은 경우도 빈 것으로 본다.
+            return (clone.innerText || '').replace(/[\\u200b\\uFEFF]/g, '').trim();
+        }""", sel.PLACEHOLDER_CLASS_HINTS)
+        return n, (t or "").strip()
+
+    def _wipe(cands, key):
+        """한 영역(제목 또는 본문)에 포커스를 두고 전체선택 후 삭제."""
+        el = bc.first(ctx, cands, timeout=4000)
+        if not el:
+            return False
+        el.click()
+        page.wait_for_timeout(200)
+        page.keyboard.press("Control+a")
+        page.wait_for_timeout(220)
+        page.keyboard.press(key)
+        page.wait_for_timeout(450)
+        return True
 
     for attempt in range(4):
         try:
-            # 본문에 포커스를 두고 전체선택 — 편집영역이 문서 전체 하나라 제목도 함께 지워진다.
-            #   (그래서 save_draft 는 반드시 '비우기 → 제목 → 본문' 순서로 진행한다)
-            ed = bc.first(ctx, sel.SEL_BODY, timeout=4000) or bc.first(ctx, sel.SEL_EDITOR, timeout=4000)
-            if not ed:
-                bc.log("  ! 에디터를 찾지 못해 비우기 실패로 처리(겹쳐쓰기 방지)")
+            # ⚠️ 제목과 본문을 **각각** 비운다.
+            #    Ctrl+A 가 문서 전체를 잡는지 컴포넌트 단위인지 아직 확정되지 않았다(실측 저신뢰).
+            #    컴포넌트 단위라면 본문만 지워지고 **복원된 이전 글의 제목이 남아**, 우리 제목이
+            #    그 뒤에 이어붙는다. 둘 다 비우면 어느 쪽이든 안전하다.
+            hit = False
+            for key in ("Delete", "Backspace"):
+                for cands in (sel.SEL_BODY, sel.SEL_TITLE):
+                    hit = _wipe(cands, key) or hit
+                n, txt = _state()
+                if n <= empty_n and not txt:
+                    return True
+            if not hit:
+                bc.log("  ! 제목/본문 영역을 찾지 못해 비우기 실패로 처리(겹쳐쓰기 방지)")
                 return False
-            ed.click()
-            page.wait_for_timeout(200)
-            page.keyboard.press("Control+a"); page.wait_for_timeout(250)
-            page.keyboard.press("Delete"); page.wait_for_timeout(500)
-            n, txt = _state()
-            if n <= empty_n and not txt:
-                return True
-            page.keyboard.press("Control+a"); page.wait_for_timeout(200)
-            page.keyboard.press("Backspace"); page.wait_for_timeout(500)
-            n, txt = _state()
-            if n <= empty_n and not txt:
-                return True
-            bc.log(f"  에디터 비우기 재시도({attempt + 1}/4) — 컴포넌트 {n}개 남음")
+            bc.log(f"  에디터 비우기 재시도({attempt + 1}/4) — 컴포넌트 {n}개 · 잔존 텍스트 {txt[:40]!r}")
             if attempt < 3:
                 page.goto(BLOG_WRITE_URL, wait_until="domcontentloaded")
                 page.wait_for_timeout(2500)
@@ -241,6 +263,24 @@ def save_draft(page, title, blocks, dry_run=True):
             bc.log(f"  (대화상자 처리 무시: {str(e)[:50]})")
 
     page.on("dialog", _on_dialog)
+
+    # 저장 요청 관측기 — 성공 판정의 유일한 근거. 자동저장(click=False)과 저장버튼(click=True)을 구분한다.
+    save_calls = []
+
+    def _on_response(resp):
+        try:
+            u = (resp.url or "").lower()
+            if any(p in u for p in sel.SAVE_URL_PARTS):
+                save_calls.append({
+                    "click": sel.SAVE_CLICK_URL_PART in u,
+                    "status": resp.status,
+                    "t": time.monotonic(),
+                    "url": resp.url,
+                })
+        except Exception:
+            pass
+
+    page.on("response", _on_response)
     _install_publish_guard(page, tripped)          # goto 전에 걸어야 한다
 
     page.goto(BLOG_WRITE_URL, wait_until="domcontentloaded")
@@ -327,32 +367,42 @@ def save_draft(page, title, blocks, dry_run=True):
     # 클릭 직전 URL 재확인 — 엉뚱한 페이지에서 누르는 사고 방지.
     if "postwrite" not in (page.url or "").lower() and "write" not in (page.url or "").lower():
         raise bc.SaveError(f"저장 직전 URL 이 글쓰기 페이지가 아닙니다({page.url[:90]}) — 중단")
+    clicked_at = time.monotonic()
     btn.click()
     page.wait_for_timeout(1500)
 
-    # 저장 확인: 카운터가 늘었는가. (URL 은 임시저장에서 바뀌지 않으므로 성공 신호로 쓰면 안 된다.)
-    seq = None
+    # ── 저장 확인 ──
+    # 🔴 '카운터가 늘었다'를 성공 근거로 쓰면 안 된다. 네이버가 타이핑 중에도 자동저장
+    #    (RabbitAutoSaveWrite)을 돌려 카운터를 스스로 올리기 때문에(실측: 0→1 저절로 증가),
+    #    저장 버튼을 누르지 않아도 조건이 충족돼 **거짓 성공**이 된다.
+    #    성공 근거는 '클릭 이후 저장 요청(RabbitTempPostWrite)이 OK 로 응답했는가' 하나뿐이다.
+    #    (URL 은 임시저장에서 바뀌지 않으므로 역시 성공 신호로 쓸 수 없다.)
+    ok_save = None
     end = time.monotonic() + BLOG_CONFIRM_SEC
     while time.monotonic() < end:
-        cur_seq = _draft_count(ctx)
-        if cur_seq is not None and before_seq is not None and cur_seq > before_seq:
-            seq = cur_seq
+        ok_save = next((s for s in save_calls
+                        if s["t"] >= clicked_at and s["click"] and s["status"] < 400), None)
+        if ok_save:
             break
-        if cur_seq is not None and before_seq is None:
-            seq = cur_seq
-            break
-        page.wait_for_timeout(700)
+        page.wait_for_timeout(500)
 
     _assert_not_published(page, "저장 클릭 후")
     hits = _guard_report(page, tripped)
     if hits:
         raise bc.GuardTripped(f"발행 가드 발동: {hits}")
 
-    if seq is None:
+    if not ok_save:
+        after = [s for s in save_calls if s["t"] >= clicked_at]
         raise bc.SaveError(
-            f"저장 확인 실패 — 임시저장 개수가 늘지 않았습니다(전 {before_seq}). "
+            f"저장 확인 실패 — 클릭 후 저장 요청({sel.SAVE_CLICK_URL_PART}) 응답이 없습니다. "
+            f"클릭 후 관측된 저장계열 요청 {len(after)}건: {[ (s['status'], s['url'][:60]) for s in after[:3] ]}. "
             f"{('alert: ' + alerts[-1]) if alerts else ''}")
-    bc.log(f"✔ 임시저장 완료 — 저장 {seq}")
+
+    # 카운터는 '참고용'으로만 읽는다(사람이 임시저장함에서 글을 찾는 단서).
+    seq = _draft_count(ctx)
+    n_auto = sum(1 for s in save_calls if not s["click"])
+    bc.log(f"✔ 임시저장 완료 — 저장요청 {ok_save['status']} · 저장카운터 {seq} "
+           f"(참고: 자동저장 {n_auto}회 발생, 성공판정에는 쓰지 않음)")
     return seq
 
 
