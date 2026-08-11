@@ -786,19 +786,40 @@ export function CafeKeywordFinder({
                             </div>
                             <div className="grid gap-1">
                                 {regionalCands.map((r) => (
-                                    <div key={r.keyword} className="flex flex-wrap items-center gap-2 rounded border border-[#fde68a] bg-white px-2 py-1 text-[12px]">
-                                        <b className="text-[#b45309]">{r.keyword}</b>
-                                        <span className="text-[#94a3b8]">{r.theme}</span>
-                                        {r.sample?.length ? <span className="text-[11px] text-[#64748b]">예: {r.sample.join(' · ')}</span> : null}
-                                        <button type="button" disabled={kwLoading || dongLoading}
-                                            onClick={() => { setKeyword(r.keyword); void runRegion(false, FIRST_TARGET); }}
-                                            className="ml-auto shrink-0 rounded bg-[#b45309] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-50">
-                                            지역 스캔 →
-                                        </button>
+                                    <div key={r.keyword} className="rounded border border-[#fde68a] bg-white px-2 py-1.5 text-[12px]">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <b className="text-[#b45309]">{r.keyword}</b>
+                                            <span className="text-[#94a3b8]">{r.theme}</span>
+                                            <button type="button" disabled={kwLoading || dongLoading}
+                                                onClick={() => { setKeyword(r.keyword); void runRegion(false, FIRST_TARGET); }}
+                                                className="ml-auto shrink-0 rounded bg-[#b45309] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+                                                지역 전수 스캔 →
+                                            </button>
+                                        </div>
+                                        {/* ★ 찔러보기에서 '이미 인기탭으로 확인된' 조합이다 — 예시가 아니라 바로 쓸 수 있는 키워드다.
+                                            눌러서 담으면 전수 스캔을 안 돌려도 그만큼은 확보된다(사장님 지시 2026-08-11). */}
+                                        {r.sample?.length ? (
+                                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                                                <span className="text-[11px] font-semibold text-[#16a34a]">확인됨 {r.sample.length}건 — 눌러서 담기</span>
+                                                {r.sample.map((s) => {
+                                                    const on = kwPicked.some((p) => p.keyword === s);
+                                                    return (
+                                                        <button key={s} type="button"
+                                                            onClick={() => togglePick({ cafes: [], keyword: s, theme: r.theme, volume: r.volume })}
+                                                            className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${on ? 'border-[#16a34a] bg-[#16a34a] text-white' : 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]'}`}>
+                                                            {on ? '✓ ' : '+ '}{s}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : null}
                                     </div>
                                 ))}
                             </div>
-                            <p className="mb-0 mt-1 text-[11px] text-[#a16207]">‘지역 스캔’을 누르면 위에서 고른 시도의 전 지역 × 이 키워드로 전수 확인합니다.</p>
+                            <p className="mb-0 mt-1 text-[11px] text-[#a16207]">
+                                초록 칩은 <b>이미 인기탭이 확인된 키워드</b>입니다 — 눌러서 바로 담으세요.
+                                ‘지역 전수 스캔’은 위에서 고른 시도의 전 지역까지 더 찾습니다(찔러본 4곳 말고 전부).
+                            </p>
                         </div>
                     ) : null}
                 </div>

@@ -1072,14 +1072,33 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         📍 지역을 붙여야 나오는 키워드 {relRegional.length}건
                                     </div>
                                     {relRegional.map((r) => (
-                                        <div key={r.keyword} className="flex flex-wrap items-center gap-2 rounded border border-[#fde68a] bg-white px-2 py-1 text-[12px]">
-                                            <b className="text-[#b45309]">{r.keyword}</b>
-                                            <span className="text-[#94a3b8]">{r.theme}</span>
-                                            {r.sample?.length ? <span className="text-[11px] text-[#64748b]">예: {r.sample.join(' · ')}</span> : null}
+                                        <div key={r.keyword} className="rounded border border-[#fde68a] bg-white px-2 py-1.5 text-[12px]">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <b className="text-[#b45309]">{r.keyword}</b>
+                                                <span className="text-[#94a3b8]">{r.theme}</span>
+                                            </div>
+                                            {/* ★ 찔러보기에서 '이미 인기탭으로 확인된' 조합이다 — 예시가 아니라 바로 쓸 수 있는 키워드다.
+                                                눌러서 담으면 전수 스캔을 안 돌려도 그만큼은 확보된다(사장님 지시 2026-08-11). */}
+                                            {r.sample?.length ? (
+                                                <div className="mt-1 flex flex-wrap items-center gap-1">
+                                                    <span className="text-[11px] font-semibold text-[#16a34a]">확인됨 {r.sample.length}건 — 눌러서 담기</span>
+                                                    {r.sample.map((s) => {
+                                                        const on = kwPicked.some((p) => p.keyword === s);
+                                                        return (
+                                                            <button key={s} type="button"
+                                                                onClick={() => togglePick({ cafes: [], keyword: s, theme: r.theme, volume: r.volume })}
+                                                                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${on ? 'border-[#16a34a] bg-[#16a34a] text-white' : 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]'}`}>
+                                                                {on ? '✓ ' : '+ '}{s}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : null}
                                         </div>
                                     ))}
                                     <p className="mb-0 mt-1 text-[11px] text-[#a16207]">
-                                        이 키워드는 <b>지역형</b>으로 접수하시면 지역별 전수로 찾아 드립니다(위에서 ‘지역형’ 선택 후 제품키워드로 입력).
+                                        초록 칩은 <b>이미 인기탭이 확인된 키워드</b>입니다 — 눌러서 바로 담으세요.
+                                        더 찾으시려면 <b>지역형</b>으로 접수해 주세요(위에서 ‘지역형’ 선택 후 제품키워드로 입력) — 찔러본 4곳 말고 전 지역을 봅니다.
                                     </p>
                                 </div>
                             ) : null}
