@@ -246,6 +246,24 @@ def t10_shared_empty_check():
           bad.group(0)[:60] if bad else "")
 
 
+# ── T11: CONFIRMED_ON 을 열었다면 실측값이 전부 채워져 있어야 한다 ───────────
+#   CONFIRMED_ON 만 채우고 EMPTY_COMPONENT_COUNT 를 안 채우면 저장이 런타임에서야 죽는다.
+def t11_confirmed_consistency():
+    sys.path.insert(0, HERE)
+    import blog_selectors as s3   # noqa: E402
+    if not s3.confirmed():
+        return check("T11 CONFIRMED_ON 미설정(저장 거부 상태) — 일관성 검사 생략", True)
+    ok = s3.EMPTY_COMPONENT_COUNT is not None
+    check("T11a CONFIRMED_ON 이면 EMPTY_COMPONENT_COUNT 확정됨", ok, str(s3.EMPTY_COMPONENT_COUNT))
+    for name in ("SEL_TITLE", "SEL_BODY", "SEL_SAVE", "SEL_DRAFT_COUNT", "SEL_IMG_BTN"):
+        v = getattr(s3, name, None)
+        check(f"T11b {name} 비어있지 않음", bool(v))
+    check("T11c 저장요청 판별자(SAVE_CLICK_URL_PART) 존재", bool(getattr(s3, "SAVE_CLICK_URL_PART", "")))
+    # 저장 예외 목록이 발행 차단 조각을 포함하면 발행이 통과해버린다.
+    bad = [s for s in s3.SAVE_URL_PARTS if any(b in s for b in s3.BLOCK_URL_PARTS)]
+    check("T11d SAVE_URL_PARTS 가 발행 차단 조각을 포함하지 않음", not bad, str(bad))
+
+
 def main():
     print("[blog_pub] 발행 경로 부재 정적검사")
     t1_block_consts_not_actionable()
@@ -258,6 +276,7 @@ def main():
     t8_clear_before_title()
     t9_body_target()
     t10_shared_empty_check()
+    t11_confirmed_consistency()
     print(f"\n결과: 통과 {len(_passes)} · 실패 {len(_fails)}")
     if _fails:
         print("실패 항목: " + ", ".join(_fails))
