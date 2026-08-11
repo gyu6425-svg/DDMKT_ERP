@@ -319,6 +319,24 @@ def t13_restore_popup_cancel_only():
           f"popup@{pop_lines} clear@{clr_lines}")
 
 
+# ── T14: job 의 블로그와 워커의 블로그를 대조한다 ───────────────────────────
+#   CLI 로 --job 을 직접 돌리면 리스너의 blog_id 필터가 없다 → A 블로그용 원고가 B 에 저장될 수 있다.
+def t14_job_blog_match():
+    tree = _tree(SAVE_PY)
+    fn = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef) and n.name == "save_job"), None)
+    if fn is None:
+        return check("T14 save_job 이 job 의 blog_id 를 대조", False, "save_job 없음")
+    src = ast.get_source_segment(_src(SAVE_PY), fn) or ""
+    ok = 'job.get("blog_id")' in src and "BLOG_ID_MISMATCH" in src
+    # 대조가 다운로드/타이핑보다 먼저여야 의미가 있다(엉뚱한 블로그에 이미지부터 올리면 안 됨).
+    dl = src.find("download_manifest")
+    mm = src.find("BLOG_ID_MISMATCH")
+    order_ok = mm >= 0 and (dl < 0 or mm < dl)
+    check("T14 save_job 이 다운로드 전에 job.blog_id 를 워커 blog 와 대조", ok and order_ok,
+          f"has={ok} order_ok={order_ok}")
+
+
 def main():
     print("[blog_pub] 발행 경로 부재 정적검사")
     t1_block_consts_not_actionable()
@@ -334,6 +352,7 @@ def main():
     t11_confirmed_consistency()
     t12_probe_validity_gate()
     t13_restore_popup_cancel_only()
+    t14_job_blog_match()
     print(f"\n결과: 통과 {len(_passes)} · 실패 {len(_fails)}")
     if _fails:
         print("실패 항목: " + ", ".join(_fails))

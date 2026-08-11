@@ -461,6 +461,17 @@ def save_draft(page, title, blocks, dry_run=True):
 
 def save_job(job, cdp_url=DEFAULT_CDP, dry_run=True):
     """큐 1건 저장 — 이미지 다운로드 + 본문 마커 파싱 → 저장. (draft_seq 또는 예외)"""
+    # 🔴 job 의 블로그 == 이 워커의 블로그인지 먼저 대조한다.
+    #    리스너는 blog_id 로 필터링해 claim 하므로 안전하지만, CLI 로 `--job <id>` 를 직접 돌리면
+    #    아무 필터도 없다 → **A 블로그용 원고가 B 블로그에 저장**될 수 있다.
+    #    계정을 교체하는 시점(구 계정 job 이 큐에 남아 있는 상태)이 정확히 이 사고가 나는 순간이다.
+    #    (save_draft 의 BLOG_ID_MISMATCH 는 '지금 열린 페이지'만 보므로 이걸 못 잡는다)
+    job_blog = (job.get("blog_id") or "").strip()
+    if BLOG_ID and job_blog and job_blog.lower() != BLOG_ID.lower():
+        raise bc.SaveError(
+            f"BLOG_ID_MISMATCH: 이 job 은 '{job_blog}' 용인데 이 워커는 '{BLOG_ID}' 입니다 — "
+            f"다른 블로그에 저장되는 사고를 막기 위해 중단합니다(.env 의 BLOG_ID 확인)")
+
     images, body, _tmp = bc.download_manifest(job.get("manifest") or [])
     blocks = bc.parse_body_to_blocks(body, images)
     bc.preflight(job.get("title"), blocks, body, images)
