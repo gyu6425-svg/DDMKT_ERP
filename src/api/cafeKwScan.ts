@@ -440,7 +440,18 @@ export async function getProvenProducts(): Promise<ProvenProduct[]> {
 //   후보 고르는 법: ① 캐시에서 이미 지역형으로 검증된 제품(수확이 보장됨) ② 검색량 상위.
 //     그리고 각 후보를 실제로 조회해 '새로 물어오는 개수(fresh)'를 재서 순위를 매긴다 —
 //     추측이 아니라 실측이라, 이름만 그럴싸하고 겹치기만 하는 후보가 위로 안 올라온다.
-export type SeedCand = { seed: string; total: number; fresh: number; proven: number };
+//   ★ 사장님 의도(2026-08-11): "'창업'을 넣으면 '프랜차이즈' 같은 게 나왔으면 좋겠다".
+//     즉 '무인창업·소자본창업' 같은 변형이 아니라 '개념이 다른 형제 단어'가 핵심이다.
+//     그래서 씨앗을 포함하지 않는 후보(kind='other')를 먼저, 넉넉히 뽑는다.
+//   ★ 다만 검색량만 보면 잡음이 1등을 한다 — '창업'의 씨앗 미포함 상위가
+//     블로그 184,000 · 코인노래방 155,630 · 담가화로구이 142,920 이다(실측). 형제 단어가 아니다.
+//     그래서 '겹침(overlap)'을 같이 잰다: 후보의 연관어 중 원래 씨앗의 연관어와 겹치는 비율.
+//       프랜차이즈 → 겹침 높음(같은 시장)   블로그 → 겹침 낮음(남의 시장)
+//     겹침이 낮으면 새 키워드는 많이 물어와도 우리 업종이 아니다.
+export type SeedCand = { seed: string; total: number; fresh: number; proven: number; overlap: number; kind: 'other' | 'variant' };
+
+// 같은 시장으로 볼 최소 겹침 비율. 이보다 낮으면 '남의 시장'으로 보고 뒤로 보낸다(자동 체크도 안 함).
+export const SEED_OVERLAP_MIN = 0.2;
 
 export async function discoverSeeds(
     seed: string, onProgress?: (note: string) => void,
@@ -469,28 +480,55 @@ export async function discoverSeeds(
     const usable = (k: string) => k.length >= 2 && k.length <= 10 && !inBase.has(k)
         && !NOISE.some((w) => k.includes(w)) && /[가-힣]/.test(k);
 
-    // ① 캐시에서 이미 지역형으로 검증된 제품이 연관어에 있으면 최우선 — 수확이 보장된 씨앗이다.
+    // ★ 씨앗을 포함하지 않는 것 = '형제 단어'(창업 → 프랜차이즈·가맹·상권분석). 이게 사장님이 원하신 것.
+    //   포함하는 것 = 변형(창업 → 무인창업·소자본창업). 새 키워드는 많이 물어오지만 결이 같다.
+    const isVariant = (k: string) => base.some((s) => k.includes(s.replace(/\s/g, '')));
+    // 이미 고른 것과 서로 포함관계면 건너뛴다 — '프랜차이즈'와 '프랜차이즈창업'을 둘 다 넣을 이유가 없다.
+    const takeInto = (arr: string[], k: string, cap: number) => {
+        if (arr.length >= cap) return false;
+        if (arr.some((p) => p.includes(k) || k.includes(p))) return false;
+        arr.push(k);
+        return true;
+    };
+
+    // ① 캐시에서 이미 지역형으로 검증된 제품이 연관어에 있으면 우선 — 수확이 보장된 씨앗이다.
     let provenSet = new Map<string, number>();
     try {
         const pv = await getProvenProducts();
         provenSet = new Map(pv.map((p) => [p.product.replace(/\s/g, ''), p.regions]));
     } catch { /* 캐시 조회 실패해도 ②로 진행 */ }
-    const provenPick = [...baseSet].filter((k) => usable(k) && provenSet.has(k))
-        .sort((a, b) => (provenSet.get(b) ?? 0) - (provenSet.get(a) ?? 0)).slice(0, 6);
 
-    // ② 검색량 상위 — 같은 어간이 겹치지 않게 하나씩만.
-    const takenStem = new Set(provenPick.map((k) => k.slice(0, 2)));
-    const volPick: string[] = [];
-    for (const k of [...baseSet].filter(usable).sort((a, b) => (vol.get(b) ?? 0) - (vol.get(a) ?? 0))) {
-        const st = k.slice(0, 2);
-        if (takenStem.has(st)) continue;
-        takenStem.add(st);
-        volPick.push(k);
-        if (volPick.length >= 8) break;
+    // ★ 후보를 '검색량'으로 고르면 안 된다 — 실측(2026-08-11) '창업'의 검색량 상위 형제 단어는
+    //   블로그 184,000 · 코인노래방 155,630 · 담가화로구이 142,920 · 까페 42,490 … 전부 남의 시장이고,
+    //   정작 '프랜차이즈'(10,680)는 12위라 상위 10 컷에서 잘렸다. 사장님이 원하신 바로 그 단어였다.
+    //   대신 '중심성'으로 고른다 — 이 후보가 씨앗의 연관어 안에 조각으로 몇 번이나 들어 있나.
+    //     프랜차이즈 → 프랜차이즈창업·프랜차이즈카페창업… 153회 = 이 시장의 중심어
+    //     블로그 → 4회 = 우연히 섞인 남의 말
+    //   실측 결과 중심성 상위가 프랜차이즈 153 · 사업 65 · 체인 53 · 체인점 36 · 가맹 29 로 바뀌었고,
+    //   그 뒤 겹침 측정에서 프랜차이즈 60% · 가맹 67% · 사업 74% 로 전부 같은 시장 확인.
+    //   문자열 연산이라 추가 조회가 없다(공짜).
+    const keys = [...baseSet];
+    const cent = new Map<string, number>();
+    for (const k of keys) {
+        if (!usable(k)) continue;
+        let n = 0;
+        for (const b of keys) if (b !== k && b.includes(k)) n += 1;
+        cent.set(k, n);
     }
+    const byCent = (a: string, b: string) => (cent.get(b) ?? 0) - (cent.get(a) ?? 0)
+        || (vol.get(b) ?? 0) - (vol.get(a) ?? 0);
+    const all = [...cent.keys()];
+    const others: string[] = [];
+    const variants: string[] = [];
+    // 형제 단어부터, 검증된 것 → 중심성 순. 형제를 넉넉히(10) 뽑고 변형은 적게(4).
+    for (const k of all.filter((k) => !isVariant(k) && provenSet.has(k)).sort(byCent)) takeInto(others, k, 10);
+    for (const k of all.filter((k) => !isVariant(k)).sort(byCent)) takeInto(others, k, 10);
+    for (const k of all.filter((k) => isVariant(k) && provenSet.has(k)).sort(byCent)) takeInto(variants, k, 4);
+    for (const k of all.filter(isVariant).sort(byCent)) takeInto(variants, k, 4);
 
-    // ③ 후보마다 실제로 조회해 '새로 물어오는 개수'를 잰다.
-    const cands = [...new Set([...provenPick, ...volPick])];
+    // ② 후보마다 실제로 조회해 ⓐ 새로 물어오는 개수 ⓑ 원래 씨앗과 겹치는 비율을 잰다.
+    //    겹침이 낮으면 '남의 시장'이다 — 블로그·코인노래방이 여기서 걸러진다.
+    const cands = [...new Set([...others, ...variants])];
     const out: SeedCand[] = [];
     for (let i = 0; i < cands.length; i++) {
         const c = cands[i];
@@ -500,11 +538,22 @@ export async function discoverSeeds(
             const j = await r.json().catch(() => ({}));
             const ks = ((j as { keywords?: { keyword?: string }[] }).keywords ?? [])
                 .map((x) => String(x.keyword ?? '').replace(/\s/g, '')).filter(Boolean);
+            if (!ks.length) continue;
             const fresh = ks.filter((k) => !baseSet.has(k)).length;
-            out.push({ fresh, proven: provenSet.get(c) ?? 0, seed: c, total: vol.get(c) ?? 0 });
+            out.push({
+                fresh,
+                kind: isVariant(c) ? 'variant' : 'other',
+                overlap: (ks.length - fresh) / ks.length,
+                proven: provenSet.get(c) ?? 0,
+                seed: c,
+                total: vol.get(c) ?? 0,
+            });
         } catch { /* 이 후보만 실패 — 나머지 계속 */ }
     }
-    return out.sort((a, b) => b.fresh - a.fresh);
+    // 같은 시장인 것(겹침 높음)을 먼저, 그 안에서 새로 물어오는 게 많은 순.
+    //   형제 단어를 변형보다 앞에 둔다 — 사장님이 원하신 게 그쪽이다.
+    const rank = (c: SeedCand) => (c.overlap >= SEED_OVERLAP_MIN ? 0 : 2) + (c.kind === 'other' ? 0 : 1);
+    return out.sort((a, b) => rank(a) - rank(b) || b.fresh - a.fresh);
 }
 
 export async function searchCachedPopular(terms: string[], limit = 200): Promise<CachedHit[]> {

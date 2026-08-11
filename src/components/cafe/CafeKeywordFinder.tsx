@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 
@@ -141,7 +141,9 @@ export function CafeKeywordFinder({
             const list = await discoverSeeds(s, (n) => setSeedBusy(n));
             setSeedCands(list);
             // 새로 물어오는 게 100개 이상인 것만 기본 체크 — 겹치기만 하는 후보는 스캔만 늘린다.
-            setSeedPick(new Set(list.filter((c) => c.fresh >= 100).map((c) => c.seed)));
+            // 같은 시장(겹침 기준 통과)이면서 새로 물어오는 게 있는 것만 기본 체크.
+            //   겹침이 낮은 건 남의 시장이라(블로그·코인노래방) 스캔만 늘린다.
+            setSeedPick(new Set(list.filter((c) => c.overlap >= SEED_OVERLAP_MIN && c.fresh >= 50).map((c) => c.seed)));
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '씨앗 발굴 실패');
         } finally { setSeedBusy(''); }
@@ -752,16 +754,18 @@ export function CafeKeywordFinder({
                                         <button key={c.seed} type="button"
                                             onClick={() => { const n = new Set(seedPick); if (on) n.delete(c.seed); else n.add(c.seed); setSeedPick(n); }}
                                             className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold ${on ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#5b21b6]'}`}>
-                                            {on ? '✓ ' : '+ '}{c.seed}
+                                            {c.kind === 'other' ? '' : '↳ '}{on ? '✓ ' : '+ '}{c.seed}
                                             <span className={`ml-1 text-[10px] font-bold ${on ? 'text-[#ddd6fe]' : 'text-[#16a34a]'}`}>신규 {c.fresh.toLocaleString()}</span>
                                             {/* 캐시에서 이미 지역형으로 검증된 제품 = 수확이 보장된 씨앗 */}
                                             {c.proven ? <span className={`ml-1 text-[10px] ${on ? 'text-[#ddd6fe]' : 'text-[#b45309]'}`}>✔검증 {c.proven}지역</span> : null}
+                                            {c.overlap < SEED_OVERLAP_MIN ? <span className={`ml-1 text-[10px] ${on ? 'text-[#fecaca]' : 'text-[#dc2626]'}`}>⚠다른 시장</span> : null}
                                         </button>
                                     );
                                 })}
                             </div>
                             <p className="m-0 mt-1 text-[11px] text-[#a78bfa]">
-                                ✔검증 = 캐시에 이미 지역형 인기탭이 쌓여 있는 제품입니다(수확이 보장됩니다). 신규 100 미만은 겹치기만 해서 기본 해제해 뒀습니다.
+                                맨 위는 <b>‘창업 → 프랜차이즈’ 처럼 결이 다른 형제 단어</b>입니다. ↳ 는 씨앗이 든 변형(무인창업 등)이고요.
+                                ✔검증 = 캐시에 이미 지역형 인기탭이 쌓여 있는 것(수확 보장). ⚠다른 시장 = 새 키워드는 많이 물어오지만 우리 업종이 아닙니다(블로그·코인노래방 류).
                             </p>
                         </div>
                     ) : null}

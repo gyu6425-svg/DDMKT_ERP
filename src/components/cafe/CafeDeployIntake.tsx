@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { useAuth } from '../../hooks/useAuth';
@@ -342,7 +342,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const list = await discoverSeeds(s, (n) => setSeedBusy(n));
             setSeedCands(list);
-            setSeedPick(new Set(list.filter((c) => c.fresh >= 100).map((c) => c.seed)));
+            // 같은 시장(겹침 기준 통과)이면서 새로 물어오는 게 있는 것만 기본 체크.
+            //   겹침이 낮은 건 남의 시장이라(블로그·코인노래방) 스캔만 늘린다.
+            setSeedPick(new Set(list.filter((c) => c.overlap >= SEED_OVERLAP_MIN && c.fresh >= 50).map((c) => c.seed)));
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '씨앗 발굴 실패');
         } finally { setSeedBusy(''); }
@@ -1065,14 +1067,18 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                 <button key={c.seed} type="button"
                                                     onClick={() => { const n = new Set(seedPick); if (on) n.delete(c.seed); else n.add(c.seed); setSeedPick(n); }}
                                                     className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold ${on ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#5b21b6]'}`}>
-                                                    {on ? '✓ ' : '+ '}{c.seed}
+                                                    {c.kind === 'other' ? '' : '↳ '}{on ? '✓ ' : '+ '}{c.seed}
                                                     <span className={`ml-1 text-[10px] font-bold ${on ? 'text-[#ddd6fe]' : 'text-[#16a34a]'}`}>신규 {c.fresh.toLocaleString()}</span>
                                                     {c.proven ? <span className={`ml-1 text-[10px] ${on ? 'text-[#ddd6fe]' : 'text-[#b45309]'}`}>✔확인 {c.proven}지역</span> : null}
+                                                    {c.overlap < SEED_OVERLAP_MIN ? <span className={`ml-1 text-[10px] ${on ? 'text-[#fecaca]' : 'text-[#dc2626]'}`}>⚠다른 분야</span> : null}
                                                 </button>
                                             );
                                         })}
                                     </div>
-                                    <p className="m-0 mt-1 text-[11px] text-[#a78bfa]">✔확인 = 이미 인기탭이 쌓여 있는 단어입니다(더 잘 나옵니다).</p>
+                                    <p className="m-0 mt-1 text-[11px] text-[#a78bfa]">
+                                        맨 위는 <b>‘창업 → 프랜차이즈’ 처럼 결이 다른 단어</b>입니다. ↳ 는 대표 단어가 들어간 변형이고요.
+                                        ✔확인 = 이미 인기탭이 쌓여 있는 단어(더 잘 나옵니다) · ⚠다른 분야 = 관련이 멀어 권하지 않습니다.
+                                    </p>
                                 </div>
                             ) : null}
                             {/* 이미 확인된 제품 — 판정이 끝난 것만이라 기다림 없이 바로 나온다. */}
