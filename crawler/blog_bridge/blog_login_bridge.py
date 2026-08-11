@@ -18,11 +18,30 @@ PROFILE_ROOT = os.path.join(HERE, "profiles")   # 업체별 크롬 프로필(전
 CHROME = os.environ.get("CHROME_EXE", r"C:\Program Files\Google\Chrome\Application\chrome.exe")
 LOGIN_URL = "https://nid.naver.com/nidlogin.login"
 
-CORS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers": "content-type",
+# 허용 오리진 — ⚠️ '*' 로 열면 **이 PC 에서 방문한 아무 웹페이지**가 이 브릿지에 POST 해서
+#   임의 포트(9200~9399)로 원격디버깅 크롬을 띄울 수 있다. 서버가 127.0.0.1 바인딩이어도
+#   브라우저는 로컬 주소로 요청을 보낼 수 있으므로 '외부 노출 없음'이 곧 안전은 아니다.
+#   이 브릿지는 같은 PC 의 dev UI(:5173) 전용이므로 그 오리진만 연다.
+#   (배포본 https://…pages.dev 에서는 어차피 mixed content 로 차단된다 — 아래 주석 참고)
+ALLOWED_ORIGINS = {
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 }
+_EXTRA = os.environ.get("BLOG_BRIDGE_ORIGINS", "").strip()
+if _EXTRA:
+    ALLOWED_ORIGINS |= {o.strip() for o in _EXTRA.split(",") if o.strip()}
+
+
+def _cors(origin):
+    """요청 오리진이 허용목록에 있을 때만 ACAO 를 돌려준다(없으면 브라우저가 응답을 못 읽는다)."""
+    h = {
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "content-type",
+        "Vary": "Origin",
+    }
+    if origin in ALLOWED_ORIGINS:
+        h["Access-Control-Allow-Origin"] = origin
+    return h
 
 
 def _cdp_alive(port):
@@ -41,7 +60,7 @@ class H(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         body = json.dumps(obj).encode("utf-8")
         self.send_response(code)
-        for k, v in CORS.items():
+        for k, v in _cors(self.headers.get("Origin", "")).items():
             self.send_header(k, v)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -53,7 +72,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(204)
-        for k, v in CORS.items():
+        for k, v in _cors(self.headers.get("Origin", "")).items():
             self.send_header(k, v)
         self.end_headers()
 
@@ -67,6 +86,11 @@ class H(BaseHTTPRequestHandler):
         return self._send(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
+        # ⚠️ CORS 는 '응답을 못 읽게' 할 뿐 요청 자체는 나간다. 크롬을 띄우는 건 부작용이 있는
+        #    동작이므로, 허용 오리진이 아니면 실행 전에 막는다(브라우저 밖 호출은 Origin 이 없어 통과).
+        origin = self.headers.get("Origin", "")
+        if origin and origin not in ALLOWED_ORIGINS:
+            return self._send(403, {"ok": False, "error": f"허용되지 않은 오리진: {origin}"})
         if not self.path.startswith("/api/blog/login"):
             return self._send(404, {"ok": False, "error": "not found"})
         try:
