@@ -20,11 +20,17 @@
   · 셀렉터를 추측으로 채우고 돌리면 '실패'가 아니라 '엉뚱한 클릭'이 된다.
 """
 
-# ── Phase 0 확정 표시 — 실측 후 'YYYY-MM-DD' 를 적을 것. 비어 있으면 저장 모드 거부. ──
-#   ⚠️ 아직 비워 둔다. Phase 0-A(2026-08-11, SUB1/dog6425)로 대부분 확정됐지만
-#      SEL_BODY 와 EMPTY_COMPONENT_COUNT 가 probe_editor.py 결과 대기 중이다.
-#      이 둘이 틀리면 '본문이 제목칸에 들어가거나' '비우기가 영원히 실패' 하므로 확정 전엔 열지 않는다.
-CONFIRMED_ON = ""
+# ── Phase 0 확정 (SUB1 / blog.naver.com/dog6425/postwrite / 신형 SmartEditor ONE) ──
+#   ✅ 2026-08-11 실측 완료. 확정 근거:
+#      · 프레임: top-level 렌더(#mainFrame 아님)
+#      · 엔드포인트: 저장/발행 분리 확인 → 네트워크 가드 사용 가능
+#      · 셀렉터: 제목/본문 분리 교차검증(제목섹션 안/밖) 통과
+#      · 빈 문서 판정: content_text == "" (내용노드 2 · placeholder 2)
+#      · 더티 사이클: 더미 입력 후 텍스트가 실제로 잡히는 것을 먼저 확인한 뒤,
+#        제목·본문 각각 비우기 → "" + component=2 도달. '항상 빈 문자열'이 아님을 확증.
+#   ⚠️ 이 값을 채웠다고 저장이 바로 되는 건 아니다. 리스너는 BLOG_SAVE_ENABLED=1,
+#      CLI 는 --save 가 각각 더 필요하다(게이트 3중).
+CONFIRMED_ON = "2026-08-11"
 
 # 글쓰기 페이지 프레임.
 #   ✅ 실측 2026-08-11: /postwrite 는 **top-level 렌더**(#mainFrame 아님). resolve_ctx 가 page 를
@@ -80,11 +86,13 @@ SEL_DRAFT_COUNT = [
 #      모든 작업이 죽었을 것이다.
 EMPTY_COMPONENT_COUNT = 2
 
-# Ctrl+A 가 제목까지 선택하는가 — ⏳ 미확정(빈 문서에서 재서 선택 텍스트가 ""라 저신뢰).
-#   ⚠️ 이게 False(=컴포넌트 단위 스코프)라면 더 큰 문제다: Ctrl+A 로는 **본문만** 지워지고
-#      복원된 이전 글의 **제목이 남는다** → 우리 제목이 그 뒤에 이어붙는다.
-#      그래서 _clear_editor 는 제목/본문을 각각 비우고, 비운 결과를 검증한다.
-SELECT_ALL_INCLUDES_TITLE = None
+# Ctrl+A 가 제목까지 선택하는가 — 🚫 **측정 불가로 결론**(2026-08-11 SUB1).
+#   SmartEditor ONE 은 네이티브 selection API 에 선택을 반영하지 않는다. 내용이 분명히 있는
+#   상태에서도 window.getSelection().toString() 이 "" 로 나온다. 따라서 이 값으로 무엇도
+#   판단하면 안 된다(선택이 안 된 것처럼 보이지만 실제로는 되어 있다).
+#   → _clear_editor 는 이 값에 의존하지 않는다. 제목·본문을 **각각** 비우고, 비워졌는지는
+#     content_text(내용 노드 기반, 신뢰 가능)로만 확인한다. 어느 쪽 동작이든 안전하다.
+SELECT_ALL_INCLUDES_TITLE = None   # 영구 None — 측정 수단이 없음. 되살리려 하지 말 것.
 
 # ✅ '비어 있음' 판정 — 실측 2026-08-11 로 확정된 마크업 기준.
 #   빈 문단은 이렇게 생겼다:
