@@ -802,6 +802,7 @@ create table if not exists public.blog_studio_settings (
     banners         jsonb not null default '[]'::jsonb,
     daily_cap       integer default 5,
     publish_gap_min integer default 30,
+    chrome_port     integer,
     keyword_pool    jsonb not null default '[]'::jsonb,
     naver_login_at  timestamptz,
     created_at      timestamptz not null default now(),
