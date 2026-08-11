@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, enqueueRecheckScan, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 
@@ -229,6 +229,12 @@ export function CafeKeywordFinder({
             setKwErr(e instanceof Error ? e.message : '재확인 실패');
         } finally { setRecheckBusy(''); }
     };
+
+    // 고객사 상호가 들어간 키워드는 결과에서 미리 거른다(SUB4 발견 2026-08-11:
+    //   캐시에 '경기 더반클린'·'안양더반클린' 이 양성으로 있었다). 팔 대상이 아니다 —
+    //   그 업체는 이미 자기 이름을 갖고 있고, 다른 업체게는 남의 브랜드다.
+    const [brands, setBrands] = useState<string[]>([]);
+    useEffect(() => { void getClientBrands().then(setBrands); }, []);
 
     const hideKw = (kw: string) => {
         setKwHidden((prev) => (prev.includes(kw) ? prev : [...prev, kw]));
@@ -748,7 +754,8 @@ export function CafeKeywordFinder({
         } finally { setKwLoading(false); setScanNote(''); }
     };
 
-    const visible = (kwResult || []).filter((k) => !kwHidden.includes(k.keyword));
+    // 고객사 상호가 들어간 키워드는 보이지 않게 한다 — 팔 대상이 아니다.
+    const visible = (kwResult || []).filter((k) => !kwHidden.includes(k.keyword) && !hasClientBrand(k.keyword, brands));
     // 기존에 했던 것 = 이미 발행/선택(usedKw) + 이번 세션에 고른 것(kwPicked). 둘 다 '이미 함'으로 제외.
     const pickedSet = new Set(kwPicked.map((p) => normKw(p.keyword)));
     const isUsed = (k: KwResult) => usedKw.has(normKw(k.keyword)) || pickedSet.has(normKw(k.keyword));

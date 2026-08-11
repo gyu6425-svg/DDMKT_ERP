@@ -350,6 +350,35 @@ export async function enqueueChainScan(products: string[], regions: string, targ
     return { id: (data as { id: number }).id, error: null };
 }
 
+// ── 자사·고객사 상호 필터 ────────────────────────────────────────────────────
+//   ★ 왜(SUB4 발견 2026-08-11): 캐시 양성에 '경기 더반클린'·'안양더반클린' 이 있었다.
+//     더반클린은 우리 입주청소 고객사 상호다. 상호 키워드는 팔 대상이 아니다 —
+//     그 업체는 이미 자기 이름을 갖고 있고, 다른 업체에겐 남의 브랜드다.
+//   워커가 아니라 화면에서 거른다: 워커에 상호 목록을 넣으면 고객이 늘 때마다
+//   워커를 재기동해야 한다(오늘만 6번 재기동했다). 화면은 조회 시점에 최신을 읽는다.
+let _brandCache: string[] | null = null;
+
+export async function getClientBrands(): Promise<string[]> {
+    if (_brandCache) return _brandCache;
+    const out = new Set<string>();
+    try {
+        const { data } = await supabase.from('cafe_studio_settings').select('brand').limit(1000);
+        for (const r of (data ?? []) as { brand: string | null }[]) {
+            const b = (r.brand || '').replace(/\s/g, '');
+            // 2자 미만은 흔한 낱말과 겹쳐 오폭한다. '대행사'처럼 일반명사인 것도 뺀다.
+            if (b.length >= 3 && !['대행사', '테스트'].includes(b)) out.add(b);
+        }
+    } catch { /* 조회 실패해도 필터만 안 걸릴 뿐 */ }
+    _brandCache = [...out];
+    return _brandCache;
+}
+
+// 키워드에 고객사 상호가 들어 있나(공백 무시).
+export function hasClientBrand(keyword: string, brands: string[]): boolean {
+    const n = (keyword || '').replace(/\s/g, '');
+    return brands.some((b) => n.includes(b));
+}
+
 // 발행 전 재확인 — 담아둔 키워드를 팔기 직전에 라이브로 다시 판정한다(워커 process_recheck).
 //   ★ 왜(SUB4 실측 2026-08-11): 5~6일 지난 양성 30건을 재판정하니 3건(10%)이 죽어 있었다.
 //     전부 '섹션없음'으로, 판정 규칙 문제가 아니라 네이버가 그 키워드에 인기글 섹션을
