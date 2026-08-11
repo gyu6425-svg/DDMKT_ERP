@@ -81,6 +81,29 @@ SEL_DRAFT_COUNT = [
     'button[class*=save_count_btn]',
 ]
 
+# ── 🔴 복원 팝업 ("작성 중인 글이 있습니다 … 이어서 작성하시겠습니까?") ──────────
+#   실측 2026-08-11(SUB1): 계정에 복원 가능한 작성분이 있으면 postwrite 진입 시 **매번** 뜬다.
+#   .se-popup-dim 이 전체화면을 덮어(z-index 51) 제목·본문 클릭이 전부 30초 타임아웃 →
+#   "에디터를 비우지 못했습니다" 로 모든 저장이 막힌다.
+#   ⚠️ 구조적 문제다. 저장이 한 번이라도 중단(크래시·세션만료·자동저장)되면 복원거리가 생기고,
+#      그때부터 그 계정의 모든 저장이 영구히 막힌다. 계정 특정 문제가 아니다.
+SEL_RESTORE_POPUP = [
+    '.se-popup.se-popup-alert',
+    '.se-popup-alert',
+]
+SEL_POPUP_DIM = [
+    '.se-popup-dim',
+]
+# 반드시 **[취소]**(=새로 작성)를 누른다. 텍스트로 확인하고 누른다.
+#   🔴 [확인]을 누르면 이전 글이 복원되고 우리 원고가 그 위에 덧붙는다 —
+#      정확히 우리가 _clear_editor 로 막으려던 오염이 팝업 한 번으로 되살아난다.
+#      그래서 '확인' 버튼 셀렉터는 **아예 상수로 두지 않는다**(복붙 사고 차단).
+SEL_RESTORE_CANCEL = [
+    '.se-popup-button-container button:has-text("취소")',
+    '.se-popup-alert button:has-text("취소")',
+    'button:has-text("취소")',
+]
+
 # ✅ 빈 문서의 .se-component 개수 = 2 (documentTitle 1 + text 1). 실측 2026-08-11.
 #   ⚠️ 카페는 1 이었다. 그대로 뒀으면 `n <= 1` 이 영원히 거짓이라 비우기가 **항상 실패**하고
 #      모든 작업이 죽었을 것이다.
