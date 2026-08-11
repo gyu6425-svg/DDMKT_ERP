@@ -5,6 +5,7 @@ import { useAuth } from './hooks/useAuth';
 import { ErpDataProvider } from './context/ErpDataContext';
 import AdminPage from './routes/AdminPage';
 import BlogPage from './routes/BlogPage';
+import BlogStudio from './components/blogStudio/BlogStudio';
 import CafePage from './routes/CafePage';
 import CafeCommentPage from './routes/CafeCommentPage';
 import BlogRankPage from './routes/BlogRankPage';
@@ -38,6 +39,7 @@ const routes = [
     { path: '/reports', element: <ReportsPage /> },
     { path: '/memos', element: <MemosPage /> },
     { path: '/blog', element: <BlogPage /> },
+    { path: '/blog-studio', element: <BlogStudio /> },
     { path: '/cafe', element: <CafePage /> },
     { path: '/cafe-comment', element: <CafeCommentPage /> },
     { path: '/place-rank', element: <PlaceRankPage /> },

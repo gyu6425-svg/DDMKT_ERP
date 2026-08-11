@@ -785,4 +785,33 @@ create policy "storage blog-save 내부" on storage.objects
 notify pgrst, 'reload schema';
 -- (위 blog-save-images 버킷도 private 로 생성됨)
 
+
+-- ── 블로그 발행 스튜디오 설정 (blog_studio_settings) — docs/blog-studio-settings.sql 와 동일 블록 (additive) ──
+--   blog_accounts(id) 당 1행. 업체정보·계정·이미지 프리셋 경로. 전제: is_internal() (위 Section A).
+create table if not exists public.blog_studio_settings (
+    blog_account_id uuid primary key references public.blog_accounts(id) on delete cascade,
+    brand           text,
+    business        text,
+    homepage        text,
+    kakao_url       text,
+    naver_id        text,
+    blog_name       text,
+    write_url       text,
+    main_banner     jsonb not null default '[]'::jsonb,
+    photos          jsonb not null default '[]'::jsonb,
+    banners         jsonb not null default '[]'::jsonb,
+    daily_cap       integer default 5,
+    publish_gap_min integer default 30,
+    keyword_pool    jsonb not null default '[]'::jsonb,
+    naver_login_at  timestamptz,
+    created_at      timestamptz not null default now(),
+    updated_at      timestamptz not null default now()
+);
+alter table public.blog_studio_settings enable row level security;
+drop policy if exists "bss 내부 전체" on public.blog_studio_settings;
+create policy "bss 내부 전체" on public.blog_studio_settings
+    for all to authenticated
+    using (public.is_internal()) with check (public.is_internal());
+notify pgrst, 'reload schema';
+
 -- ═══ 끝. Storage: blog-materials · cafe-images 버킷은 위 SQL로 생성됨(private). ═══
