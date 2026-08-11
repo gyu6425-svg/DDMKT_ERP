@@ -170,7 +170,9 @@ export async function enqueueListScan(keywords: string[], target = 50) {
 // ── 연관 인기글 찾기 ────────────────────────────────────────────────────────
 //   씨앗어 하나(보홀·하와이 등 자유 단어)에서 연관 키워드를 펼쳐 인기탭을 찾는다.
 //   기존 3모드는 '한국 행정지역 × 제품'이 전제라 해외지명·취미어 같은 씨앗을 다루지 못했다.
-export type RelatedCand = { kw: string; total: number; tier: 'seed' | 'near' | 'far'; intent: boolean };
+//   endsSeed = 씨앗어로 '끝나는' 후보(소자본창업·카페창업). 씨앗이 뒤에 오는 형태가 곧 '업종+행위'라
+//   발행 키워드로 바로 쓸 수 있다. 앞에 오는 형태(창업박람회·창업대출)는 정보성이라 결이 다르다.
+export type RelatedCand = { kw: string; total: number; tier: 'seed' | 'near' | 'far'; intent: boolean; endsSeed: boolean };
 
 // '의도어' — 이게 붙은 키워드에서 인기글 섹션이 나온다. 지명·상품명 단독은 거의 안 나온다.
 //   실측(2026-08-07, 보홀 70조합 전수 판정 · 인기탭 35건):
@@ -193,18 +195,34 @@ const INTENT_WORDS = [
 //     두마게티 같은 실제 필리핀 지명(관련 O)과, '하와이'의 far 에는 디트로이트·볼티모어(무관)가
 //     같이 들어온다. 그래서 자동 확정하지 않고 tier 만 붙여 사용자가 체크하게 한다.
 export async function expandRelated(seed: string): Promise<RelatedCand[]> {
-    const q = seed.trim();
-    if (!q) return [];
-    const r = await fetch(`/api/naver-keywords?q=${encodeURIComponent(q)}`);
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !Array.isArray((j as { keywords?: unknown }).keywords)) {
-        throw new Error((j as { message?: string }).message || `연관어 조회 실패(${r.status})`);
+    // ★ 씨앗을 쉼표로 여러 개 받는다(2026-08-11). 네이버가 씨앗 하나당 돌려주는 연관어는 약 1,000개가
+    //   끝이라, 그 목록에 없는 업종은 아예 안 나온다("전부 다 못 찾는 느낌"의 실제 원인).
+    //   '창업, 프랜차이즈, 가맹' 처럼 넣으면 각각 받아 합친다 — 커버리지가 배로 늘어난다.
+    const seeds = [...new Set(seed.split(/[,\n]/).map((s) => s.trim()).filter(Boolean))];
+    if (!seeds.length) return [];
+    const q = seeds[0];
+    const rowMap = new Map<string, { kw: string; total: number }>();
+    let lastErr = '';
+    for (const s of seeds) {
+        const r = await fetch(`/api/naver-keywords?q=${encodeURIComponent(s)}`);
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !Array.isArray((j as { keywords?: unknown }).keywords)) {
+            lastErr = (j as { message?: string }).message || `연관어 조회 실패(${r.status})`;
+            continue;   // 이 씨앗만 실패 — 나머지는 계속
+        }
+        for (const x of (j as { keywords: { keyword?: string; total?: number }[] }).keywords) {
+            const kw = String(x.keyword ?? '').trim();
+            if (!kw) continue;
+            const k = kw.replace(/\s/g, '');
+            const prev = rowMap.get(k);
+            const total = Number(x.total ?? 0);
+            if (!prev || total > prev.total) rowMap.set(k, { kw, total });
+        }
     }
+    if (!rowMap.size) throw new Error(lastErr || '연관어를 찾지 못했습니다.');
     const nq = q.replace(/\s/g, '');
     // near 판정용 조각 — 씨앗어를 포함한 키워드에서 씨앗을 뗀 나머지(여행·항공권·리조트…).
-    const rows = ((j as { keywords: { keyword?: string; total?: number }[] }).keywords)
-        .map((x) => ({ kw: String(x.keyword ?? '').trim(), total: Number(x.total ?? 0) }))
-        .filter((x) => x.kw);
+    const rows = [...rowMap.values()];
     // near 조각에서 '아무 데나 붙는 일반 수식어'를 뺀다.
     //   ★ 실측(2026-08-06): '골프'의 near 에 BMW인증중고차·중고자동차·미니쿠퍼가 올라왔다.
     //     원인은 '중고골프채' → 조각 '중고' → '중고'가 든 자동차 키워드가 전부 near 로 승격된 것.
@@ -228,17 +246,26 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
     //   ⚠️ 씨앗어 자체에 그 말이 있으면(예: 씨앗 '취업') 거르지 않는다 — 그때는 그게 주제다.
     const OFFTOPIC_FRAG = ['취업', '구직', '구인', '채용', '이직', '연봉', '알바', '아르바이트',
         '인턴', '공무원', '자격증', '기능사', '산업기사', '필기', '실기', '국가고시', '비전공'];
-    const offtopic = OFFTOPIC_FRAG.filter((w) => !nq.includes(w));
+    // ★ 정보·거래성 꼬리 — 인기글 섹션이 거의 안 나오고, 나와도 고객이 아니라 정보 찾는 사람이다.
+    //   실측(2026-08-07): 비용 0/3(인테리어·이사·결혼식) · 가격 0/2(임플란트·보톡스) · 후기 0/2(라식·도수치료).
+    //   사장님이 지목한 박람회·대출·지원금 계열도 같이 뺀다 — '창업대출'을 검색하는 사람은
+    //   정부지원금을 찾는 사람이지 가맹 상담을 원하는 사람이 아니다(2026-08-11).
+    //   실측: 씨앗 '창업' 401개 중 86개가 여기 걸린다(창업박람회 4,120 · 창업대출 3,810 · 창업지원금 2,420 …).
+    const NOISE_TAIL = ['비용', '가격', '요금', '경비', '후기', '박람회', '대출', '지원금',
+        '자금', '지원', '정보', '순위', '통계', '현황', '뉴스'];
+    const drop = [...OFFTOPIC_FRAG, ...NOISE_TAIL].filter((w) => !nq.includes(w));
     const out: RelatedCand[] = rows
         .filter(({ kw }) => {
             const n = kw.replace(/\s/g, '');
-            return !offtopic.some((w) => n.includes(w));
+            return !drop.some((w) => n.includes(w));
         })
         .map(({ kw, total }) => {
             const n = kw.replace(/\s/g, '');
             const tier: RelatedCand['tier'] = n.includes(nq) ? 'seed'
                 : ([...frags].some((f) => n.includes(f)) ? 'near' : 'far');
-            return { intent: INTENT_WORDS.some((w) => n.includes(w)), kw, tier, total };
+            // 여러 씨앗을 넣었으면 그중 아무 것으로든 끝나면 '업종+행위' 형태로 본다.
+            const endsSeed = seeds.some((s) => n.endsWith(s.replace(/\s/g, '')));
+            return { endsSeed, intent: INTENT_WORDS.some((w) => n.includes(w)), kw, tier, total };
         });
     // 의도어가 붙은 것을 먼저 — 실측상 인기글 섹션이 여기서 나온다. 그 안에서 검색량 순.
     const order = { seed: 0, near: 1, far: 2 };

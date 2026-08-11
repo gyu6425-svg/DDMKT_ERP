@@ -59,6 +59,11 @@ export function CafeKeywordFinder({
     //   실측(연관어 993개): 씨앗 포함 401 · 미포함 592 — 절반 넘게가 잡음이다.
     //   near 는 '창업박람회'에서 뽑힌 조각 '박람회'로 '취업박람회'까지 끌어올린다. 필요하면 버튼으로 넓힌다.
     const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('seed');
+    // '씨앗으로 끝나는 것만' — 소자본창업·카페창업 처럼 '업종+행위' 형태만 본다.
+    //   ★ 기본값을 씨앗별로 데이터가 정한다: 끝나는 게 앞에 붙는 것보다 많으면 켠다.
+    //     '창업'은 끝 230 vs 앞 67 이라 켜지고, '보홀'은 보홀여행·보홀호텔처럼 앞이 많아 꺼진다
+    //     (여기서 무조건 켜면 여행 씨앗은 후보가 거의 안 남는다).
+    const [endsOnly, setEndsOnly] = useState(false);
     // 지역형으로 판명된 제품키워드 — 지역을 붙여야 나오는 업종(간병인·입주청소 등).
     const [regionalCands, setRegionalCands] = useState<(KwResult & { sample?: string[] })[]>([]);
     // 캐시 우선 조회 결과 — 스캔 0회로 즉시 나오는 것들.
@@ -311,6 +316,9 @@ export function CafeKeywordFinder({
             const list = await expandRelated(s);
             if (!list.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
             setCands(list);
+            // '끝나는 것만' 기본값을 데이터가 정한다 — 씨앗이 뒤에 붙는 형태가 더 많을 때만 켠다.
+            const inSeed = list.filter((x) => x.tier === 'seed');
+            setEndsOnly(inSeed.filter((x) => x.endsSeed).length > inSeed.filter((x) => !x.endsSeed).length);
             // ★ 스캔 전에 캐시부터 본다 — 이미 판정된 인기탭이 1,000건 넘게 쌓여 있어
             //   상당수는 긁지 않고 바로 줄 수 있다(실측: '방문요양' → 53건 즉시).
             //   검색어는 씨앗어 + 연관어 상위 몇 개(부분일치라 '간병인'으로 '수원 간병인'도 잡힌다).
@@ -328,9 +336,9 @@ export function CafeKeywordFinder({
             //   원인: 전체 양성 중 의도어를 가진 것이 5.6%뿐이고 그중 40건이 '맛집'이다.
             //   그래서 창업은 '유명맛집·포항두호동맛집'이 체크되고 실제 양성 122건은 0건 선택됐다.
             //   far 는 무관어(하와이→디트로이트)가 섞이므로 여전히 제외한다.
-            setRelPicked(new Set(
-                list.filter((x) => x.tier === 'seed').slice(0, 200).map((x) => x.kw),
-            ));
+            const ends = inSeed.filter((x) => x.endsSeed);
+            const base = ends.length > inSeed.length - ends.length ? ends : inSeed;
+            setRelPicked(new Set(base.slice(0, 200).map((x) => x.kw)));
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '연관어 조회 실패');
         } finally { setExtracting(''); }
@@ -616,7 +624,7 @@ export function CafeKeywordFinder({
                         <input className={`${inputCls} flex-1 min-w-[200px]`} value={seed}
                             onChange={(e) => setSeed(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void runExpand(); } }}
-                            placeholder="씨앗 키워드 (예: 보홀 · 하와이 · 골프 · 캠핑)" />
+                            placeholder="씨앗 키워드 — 쉼표로 여러 개 (예: 창업, 프랜차이즈, 가맹)" />
                         <button type="button" onClick={() => void runExpand()} disabled={!!extracting || kwLoading}
                             className="h-10 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">
                             {extracting ? '조회 중…' : '① 연관어 펼치기'}
@@ -659,9 +667,17 @@ export function CafeKeywordFinder({
                                             className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
                                     ))}
                                 </div>
+                                {/* '~~씨앗' 형태만 — 소자본창업·카페창업 같은 '업종+행위'만 남긴다.
+                                    씨앗이 앞에 오는 형태(창업박람회·창업대출)는 정보성이라 결이 다르다. */}
+                                <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-[#c4b5fd] px-2 py-0.5 text-[11px] font-bold text-[#6d28d9]">
+                                    <input type="checkbox" className="h-3 w-3 accent-[#6d28d9]" checked={endsOnly}
+                                        onChange={(e) => setEndsOnly(e.target.checked)} />
+                                    “{seed.trim().split(',')[0].trim()}”으로 끝나는 것만
+                                </label>
                                 {/* 보이는 층 안에서 전체 선택/해제 — 후보가 수백 개라 하나씩 못 누른다. */}
                                 {(() => {
-                                    const shown = cands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true)).slice(0, 200);
+                                    const shown = cands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
+                                        .filter((x) => !endsOnly || x.endsSeed).slice(0, 200);
                                     const allOn = shown.length > 0 && shown.every((x) => relPicked.has(x.kw));
                                     return (
                                         <button type="button"
@@ -677,6 +693,7 @@ export function CafeKeywordFinder({
                                 {cands
                                     .filter((x) => (relTier === 'seed' ? x.tier === 'seed'
                                         : relTier === 'near' ? x.tier !== 'far' : true))
+                                    .filter((x) => !endsOnly || x.endsSeed)
                                     .slice(0, 200)
                                     .map((x) => (
                                         <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${relPicked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>
