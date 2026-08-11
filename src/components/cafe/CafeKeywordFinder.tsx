@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
+import { downloadCsv, todayTag } from '../../lib/exportCsv';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
 
@@ -45,7 +46,20 @@ export function CafeKeywordFinder({
     const [kwExpanded, setKwExpanded] = useState(false);
     const [kwErr, setKwErr] = useState('');
     const [kwHidden, setKwHidden] = useState<string[]>([]);
+    // 담아둔 키워드(보관함) — 조회를 새로 해도 비우지 않고, 새로고침해도 남는다(2026-08-11 사장님 요청).
+    //   '창업'으로 뽑고 '프랜차이즈'로 또 뽑고 정보형으로도 뽑아 쌓는 게 정상 사용법이다.
     const [kwPicked, setKwPicked] = useState<KwResult[]>([]);
+    const pickedLoadedRef = useRef(false);
+    useEffect(() => {
+        pickedLoadedRef.current = false;
+        const saved = loadPickedKw(clientId || 'me');
+        if (saved.length) setKwPicked(saved);
+        pickedLoadedRef.current = true;
+    }, [clientId]);
+    useEffect(() => {
+        if (!pickedLoadedRef.current) return;
+        savePickedKw(clientId || 'me', kwPicked);
+    }, [kwPicked, clientId]);
     const [usedKw, setUsedKw] = useState<Set<string>>(new Set());
     // 정보입력형(플레이스 없는 업체) — 위치 직접입력 + 붙여넣기 추출 결과를 체크박스로 확정.
     //   ★ 자동 채우기를 쓰지 않는 이유: GPT 추출엔 늘 군더더기가 섞이는데, 자동 확정하면
@@ -107,7 +121,7 @@ export function CafeKeywordFinder({
         if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
         setKwErr(''); setKwLoading(true);
         // 스튜디오 top-up(접수 선택분 시딩)에선 재조회해도 기존 선택 유지 — 그 위에 더 고른다.
-        if (target <= 10) { setKwResult(null); setKwExpanded(false); setKwHidden([]); if (!initialPicked?.length) setKwPicked([]); }
+        if (target <= 10) { setKwResult(null); setKwExpanded(false); setKwHidden([]); }
         try {
             const { id, error } = await enqueuePlaceScan(u, target, regionSel.length ? regionSel.join(',') : '서울,경기,인천');
             if (error || !id) throw new Error(error?.message || '요청 실패');
@@ -167,7 +181,7 @@ export function CafeKeywordFinder({
         const setLoading = includeDong ? setDongLoading : setKwLoading;
         setKwErr(''); setLoading(true); setScanNote('');
         // 새 스캔이면 저장해 둔 직전 결과도 버린다 — 안 그러면 옛 결과가 새 조건에 섞인다.
-        if (!includeDong && target === FIRST_TARGET) { clearPendingScan(); setKwResult(null); setKwExpanded(false); setKwHidden([]); setDongDone(false); if (!initialPicked?.length) setKwPicked([]); }
+        if (!includeDong && target === FIRST_TARGET) { clearPendingScan(); setKwResult(null); setKwExpanded(false); setKwHidden([]); setDongDone(false); }
         setRegionTarget(target);
         const dedup = (arr: KwResult[]) => {
             const seen = new Set<string>(); const out: KwResult[] = [];
@@ -576,7 +590,7 @@ export function CafeKeywordFinder({
     const extractAndScan = async () => {
         const top = await extractScored();
         if (!top) return;
-        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwExpanded(false); setKwHidden([]); if (!initialPicked?.length) setKwPicked([]);
+        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwExpanded(false); setKwHidden([]);
         try {
             const { id, error } = await enqueueListScan(top.map((t) => t.keyword));
             if (error || !id) throw new Error(error?.message || '분석 등록 실패');
@@ -956,7 +970,17 @@ export function CafeKeywordFinder({
             {/* 선택 패널 */}
             {kwPicked.length ? (
                 <div className="mt-2 rounded-lg border border-[#c7d2fe] bg-[#eef2ff] p-2">
-                    <div className="mb-1 text-[11px] font-semibold text-[#4338ca]">선택한 발행 키워드 {kwPicked.length}개</div>
+                    <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-[#4338ca]">
+                        <span>담아둔 키워드 {kwPicked.length}개 — 다시 조회해도 지워지지 않습니다</span>
+                        <button type="button"
+                            onClick={() => downloadCsv(`담은키워드_${todayTag()}`, ['키워드', '검색량', '테마'],
+                                kwPicked.map((p) => [p.keyword, p.volume ?? '', p.theme ?? '']))}
+                            className="rounded border border-[#c7d2fe] bg-white px-2 py-0.5 text-[11px] font-bold text-[#4338ca]">⬇ 엑셀로 받기</button>
+                        <button type="button"
+                            onClick={() => { if (confirm(`담아둔 ${kwPicked.length}개를 모두 비웁니다. 계속할까요?`)) setKwPicked([]); }}
+                            className="rounded border border-[#fca5a5] bg-white px-2 py-0.5 text-[11px] font-bold text-[#dc2626]">전부 비우기</button>
+                        <span className="font-normal text-[#818cf8]">다른 조건으로 계속 조회해 쌓으세요 — 30일 보관.</span>
+                    </div>
                     <div className="flex flex-wrap gap-1.5">
                         {kwPicked.map((p) => (
                             <span key={p.keyword} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">

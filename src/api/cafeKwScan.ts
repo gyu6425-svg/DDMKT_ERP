@@ -515,6 +515,33 @@ export function clearPendingScan(): void {
     } catch { /* 무시 */ }
 }
 
+// ── 담아둔 키워드(보관함) ────────────────────────────────────────────────────
+//   ★ 왜: 조회 한 번에 다 나오지 않는다. '창업'으로 뽑고 '프랜차이즈'로 또 뽑고 정보형으로도 뽑아
+//     쌓아야 계약 건수를 채운다. 그런데 새로 조회할 때마다 고른 칩이 초기화돼서, 다시 조회하면
+//     앞에서 고른 게 사라졌다(2026-08-11 사장님 요청). 그래서 고른 것은 조회와 무관하게 남긴다.
+//   업체(client_id)별로 따로 보관한다 — 담당자가 여러 업체를 오가며 작업한다.
+const PICKED_KEY = (who: string) => `ddmkt.cafeKw.picked.${who || 'me'}`;
+
+export function loadPickedKw(who: string): KwResult[] {
+    try {
+        const raw = localStorage.getItem(PICKED_KEY(who));
+        if (!raw) return [];
+        const v = JSON.parse(raw) as { at?: number; rows?: KwResult[] };
+        // 30일 지난 보관함은 버린다 — 옛 계약 잔재가 새 건에 섞이지 않게.
+        if (!v?.rows?.length || Date.now() - (v.at || 0) > 30 * 24 * 3600 * 1000) return [];
+        return v.rows;
+    } catch {
+        return [];
+    }
+}
+
+export function savePickedKw(who: string, rows: KwResult[]): void {
+    try {
+        if (!rows.length) localStorage.removeItem(PICKED_KEY(who));
+        else localStorage.setItem(PICKED_KEY(who), JSON.stringify({ at: Date.now(), rows }));
+    } catch { /* 무시 */ }
+}
+
 // 스캔 취소 — 아직 워커가 집지 않은(queued) 요청만 끈다.
 //   ★ 왜 queued 만인가: 이미 claimed 면 워커 루프가 돌고 있어 상태만 바꿔도 안 멈춘다.
 //     대신 지역형은 키워드마다 요청을 따로 만들므로(제품 25개 = 요청 25건), 뒤쪽 대기분을
