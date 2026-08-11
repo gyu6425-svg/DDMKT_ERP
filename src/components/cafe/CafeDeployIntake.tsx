@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, subCategories, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { useAuth } from '../../hooks/useAuth';
@@ -325,6 +325,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   실측 2026-08-11(창업+가맹+사업+프렌차이즈): 보이는 338개 중 창업이 263개(78%)라
     //   사장님이 '프렌차이즈·사업은 안 나온다'고 하셨다. 실제로는 있는데 파묻힌 것이었다.
     const [seedFilter, setSeedFilter] = useState('');   // '' = 전체
+    const [subFilter, setSubFilter] = useState('');    // 2단 세부 분야('' = 전체)
 
     // '씨앗으로 끝나는 것만'(소자본창업·카페창업). 기본값은 씨앗별로 데이터가 정한다 —
     //   끝나는 게 더 많으면 켠다('창업' 끝230/앞67 → 켬, '보홀'은 보홀여행류가 많아 → 끔).
@@ -1217,27 +1218,30 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                     className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
                                             ))}
                                         </div>
-                                        {/* 단어 계열 — 여러 단어를 넣으면 첫 단어가 목록을 뒤덮는다. 계열별로 골라 본다. */}
+                                        {/* 분야 · 세부 드롭다운 — 계열만으로는 454개라 너무 광범위하다(사장님 요청 2026-08-11).
+                                            세부는 사전이 아니라 실제 후보에서 뽑는다 — 업종마다 다르고, 미리 짜면 그 순간 추측이다. */}
                                         {(() => {
+                                            const base = relCands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
+                                                .filter((x) => !endsOnly || x.endsSeed);
                                             const fam = new Map<string, number>();
-                                            for (const x of relCands) {
-                                                if (relTier === 'seed' && x.tier !== 'seed') continue;
-                                                if (relTier === 'near' && x.tier === 'far') continue;
-                                                if (endsOnly && !x.endsSeed) continue;
-                                                const k = x.seedOf || '기타';
-                                                fam.set(k, (fam.get(k) ?? 0) + 1);
-                                            }
-                                            if (fam.size < 2) return null;
-                                            const list = [...fam.entries()].sort((a, b) => b[1] - a[1]);
+                                            for (const x of base) { const k = x.seedOf || '기타'; fam.set(k, (fam.get(k) ?? 0) + 1); }
+                                            const inFam = base.filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter).filter((x) => !subFilter || x.kw.replace(/\s/g, '').includes(subFilter));
+                                            const pool = new Set(relCands.map((x) => x.kw.replace(/\s/g, '')));
+                                            const subs = seedFilter ? subCategories(inFam.map((x) => x.kw), seedFilter, pool) : [];
+                                            const sel = 'h-7 rounded border border-[#c4b5fd] bg-white px-1.5 text-[11px] font-bold text-[#6d28d9]';
                                             return (
                                                 <span className="inline-flex flex-wrap items-center gap-1">
-                                                    <span className="text-[11px] font-normal text-[#94a3b8]">계열</span>
-                                                    <button type="button" onClick={() => setSeedFilter('')}
-                                                        className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${seedFilter === '' ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>전체</button>
-                                                    {list.map(([k, n]) => (
-                                                        <button key={k} type="button" onClick={() => setSeedFilter(k)}
-                                                            className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${seedFilter === k ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>{k} {n}</button>
-                                                    ))}
+                                                    <select className={sel} value={seedFilter} onChange={(e) => { setSeedFilter(e.target.value); setSubFilter(''); }}>
+                                                        <option value="">분야 전체 ({base.length})</option>
+                                                        {[...fam.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => (
+                                                            <option key={k} value={k}>{k} ({n})</option>
+                                                        ))}
+                                                    </select>
+                                                    <select className={sel} value={subFilter} disabled={!subs.length}
+                                                        onChange={(e) => setSubFilter(e.target.value)}>
+                                                        <option value="">{subs.length ? `세부 전체 (${inFam.length})` : '세부 — 분야 먼저'}</option>
+                                                        {subs.map((sc) => <option key={sc.label} value={sc.label}>{sc.label} ({sc.count})</option>)}
+                                                    </select>
                                                 </span>
                                             );
                                         })()}
@@ -1252,7 +1256,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         {(() => {
                                             const shown = relCands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
                                                 .filter((x) => !endsOnly || x.endsSeed)
-                                                .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter).slice(0, 200);
+                                                .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter).filter((x) => !subFilter || x.kw.replace(/\s/g, '').includes(subFilter)).slice(0, 200);
                                             const allOn = shown.length > 0 && shown.every((x) => relPicked.has(x.kw));
                                             return (
                                                 <button type="button"
@@ -1272,7 +1276,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         {relCands
                                             .filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
                                             .filter((x) => !endsOnly || x.endsSeed)
-                                            .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter)
+                                            .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter).filter((x) => !subFilter || x.kw.replace(/\s/g, '').includes(subFilter))
                                             .slice(0, 200)
                                             .map((x) => (
                                                 <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${relPicked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>

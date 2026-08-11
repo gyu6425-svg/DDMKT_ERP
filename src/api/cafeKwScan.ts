@@ -350,6 +350,47 @@ export async function enqueueChainScan(products: string[], regions: string, targ
     return { id: (data as { id: number }).id, error: null };
 }
 
+// ── 세부 분야 자동 추출 ──────────────────────────────────────────────────────
+//   ★ 왜(사장님 요청 2026-08-11): 계열(창업)만으로는 454개라 너무 광범위하다.
+//     '음식점 창업 / 노래방 창업' 처럼 한 단계 더 좁히고 싶다.
+//   ★ 사전을 미리 짜면 틀린다 — 업종마다 세부가 다르고, 내가 짜면 그 순간 추측이다.
+//     그래서 실제 후보에서 뽑는다: 계열어를 뗀 나머지에서 2~5자 조각을 세고,
+//     3개 이상 키워드에 공통으로 나오는 것만 남긴다.
+//   ★ 깨진 조각 배제가 핵심이다(실측): 그냥 세면 '차이즈'(35)·'래방'(12)·'페비용'(8)이 올라온다.
+//     조건 = 그 조각이 '그 자체로 실제 키워드'이거나 '조각+계열'이 실제 키워드일 것.
+//       카페 → 카페창업 ✓   무인 → 무인창업 ✓   차이즈 → 차이즈창업 ✗
+//     이 규칙을 넣으니 132개(잡음 포함) → 58개(전부 말이 되는 단위)로 정리됐다.
+export type SubCat = { label: string; count: number };
+
+export function subCategories(keywords: string[], core: string, pool: Set<string>, max = 40): SubCat[] {
+    const c = core.replace(/\s/g, '');
+    const cnt = new Map<string, number>();
+    for (const kw of keywords) {
+        const rem = kw.replace(/\s/g, '').split(c).join('');
+        if (rem.length < 2) continue;
+        const seen = new Set<string>();
+        for (let L = 2; L <= Math.min(5, rem.length); L++) {
+            for (let i = 0; i + L <= rem.length; i++) {
+                const f = rem.slice(i, i + L);
+                if (seen.has(f)) continue;
+                seen.add(f);
+                cnt.set(f, (cnt.get(f) ?? 0) + 1);
+            }
+        }
+    }
+    const ok = [...cnt.entries()]
+        .filter(([f, n]) => n >= 3 && (pool.has(f) || pool.has(f + c) || pool.has(c + f)))
+        .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length);
+    // 같은 개수면 긴 쪽만 남긴다 — '무점포'와 '점포'가 같은 7개면 '무점포'가 더 정확하다.
+    const out: SubCat[] = [];
+    for (const [f, n] of ok) {
+        if (out.some((p) => p.label.includes(f) && p.count === n)) continue;
+        out.push({ count: n, label: f });
+        if (out.length >= max) break;
+    }
+    return out;
+}
+
 // ── 자사·고객사 상호 필터 ────────────────────────────────────────────────────
 //   ★ 왜(SUB4 발견 2026-08-11): 캐시 양성에 '경기 더반클린'·'안양더반클린' 이 있었다.
 //     더반클린은 우리 입주청소 고객사 상호다. 상호 키워드는 팔 대상이 아니다 —
