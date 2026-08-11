@@ -312,7 +312,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [seed, setSeed] = useState('');
     const [relCands, setRelCands] = useState<RelatedCand[] | null>(null);
     const [relPicked, setRelPicked] = useState<Set<string>>(new Set());
-    const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('near');
+    // ★ 기본을 seed(씨앗어 포함)로 — near 기본이면 '창업'에 취업박람회·블로그·코인노래방 같은
+    //   무관어가 섞인다(사장님 2026-08-11). 실측 993개 중 씨앗 미포함이 592개였다. 넓히려면 버튼으로.
+    const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('seed');
     const [relRegional, setRelRegional] = useState<(KwResult & { sample?: string[] })[]>([]);
     // 캐시 우선 — 이미 판정된 인기탭. 스캔 0회로 즉시 나온다.
     const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);

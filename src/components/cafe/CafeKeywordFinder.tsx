@@ -54,7 +54,11 @@ export function CafeKeywordFinder({
     const [seed, setSeed] = useState('');
     const [cands, setCands] = useState<RelatedCand[] | null>(null);
     const [relPicked, setRelPicked] = useState<Set<string>>(new Set());
-    const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('near');   // 어디까지 보여줄지
+    // 어디까지 보여줄지. ★ 기본을 seed(씨앗어 포함)로 둔다 — near 를 기본으로 뒀더니
+    //   '창업'에 취업박람회·블로그·코인노래방·담가화로구이 같은 무관어가 섞여 나왔다(사장님 2026-08-11).
+    //   실측(연관어 993개): 씨앗 포함 401 · 미포함 592 — 절반 넘게가 잡음이다.
+    //   near 는 '창업박람회'에서 뽑힌 조각 '박람회'로 '취업박람회'까지 끌어올린다. 필요하면 버튼으로 넓힌다.
+    const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('seed');
     // 지역형으로 판명된 제품키워드 — 지역을 붙여야 나오는 업종(간병인·입주청소 등).
     const [regionalCands, setRegionalCands] = useState<(KwResult & { sample?: string[] })[]>([]);
     // 캐시 우선 조회 결과 — 스캔 0회로 즉시 나오는 것들.

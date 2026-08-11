@@ -221,12 +221,25 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
         const rest = n.split(nq).join(' ').trim();
         for (const w of rest.split(/\s+/)) if (w.length >= 2 && !GENERIC_FRAG.has(w)) frags.add(w);
     }
-    const out: RelatedCand[] = rows.map(({ kw, total }) => {
-        const n = kw.replace(/\s/g, '');
-        const tier: RelatedCand['tier'] = n.includes(nq) ? 'seed'
-            : ([...frags].some((f) => n.includes(f)) ? 'near' : 'far');
-        return { intent: INTENT_WORDS.some((w) => n.includes(w)), kw, tier, total };
-    });
+    // ★ 의도가 반대인 계열은 뺀다 — '창업'을 넣었는데 취업비용·취업박람회가 올라온다(사장님 2026-08-11).
+    //   네이버 연관어는 창업과 취업을 같은 묶음으로 준다. 게다가 '창업박람회'에서 뽑힌 조각 '박람회'
+    //   때문에 '취업박람회'가 near 로 승격까지 된다 — 조각 규칙만으로는 절대 못 거른다.
+    //   워커의 _offtopic_career 가 인기글 '제목'에 대해 하는 일을, 여기선 '후보' 단계에서 미리 한다.
+    //   ⚠️ 씨앗어 자체에 그 말이 있으면(예: 씨앗 '취업') 거르지 않는다 — 그때는 그게 주제다.
+    const OFFTOPIC_FRAG = ['취업', '구직', '구인', '채용', '이직', '연봉', '알바', '아르바이트',
+        '인턴', '공무원', '자격증', '기능사', '산업기사', '필기', '실기', '국가고시', '비전공'];
+    const offtopic = OFFTOPIC_FRAG.filter((w) => !nq.includes(w));
+    const out: RelatedCand[] = rows
+        .filter(({ kw }) => {
+            const n = kw.replace(/\s/g, '');
+            return !offtopic.some((w) => n.includes(w));
+        })
+        .map(({ kw, total }) => {
+            const n = kw.replace(/\s/g, '');
+            const tier: RelatedCand['tier'] = n.includes(nq) ? 'seed'
+                : ([...frags].some((f) => n.includes(f)) ? 'near' : 'far');
+            return { intent: INTENT_WORDS.some((w) => n.includes(w)), kw, tier, total };
+        });
     // 의도어가 붙은 것을 먼저 — 실측상 인기글 섹션이 여기서 나온다. 그 안에서 검색량 순.
     const order = { seed: 0, near: 1, far: 2 };
     return out.sort((a, b) => (Number(b.intent) - Number(a.intent))
