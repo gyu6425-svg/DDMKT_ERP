@@ -188,20 +188,18 @@ def main():
                 bc.log(f"  {label} outerHTML: {html}")
             except Exception as e:
                 bc.log(f"  {label} 실패: {str(e)[:60]}")
+        # ⚠️ 엔진과 **같은 함수**를 부른다(blog_common.CONTENT_TEXT_JS). 복붙 두 벌이면
+        #    probe 는 통과하는데 엔진은 다른 걸 검사하는 상태가 된다 — 실제로 그랬다.
         try:
-            engine_txt = ctx.evaluate("""(hints) => {
-                const root = document.querySelector('.se-content');
-                if (!root) return '<no .se-content>';
-                const clone = root.cloneNode(true);
-                clone.querySelectorAll('*').forEach(el => {
-                    const c = (el.className || '').toString().toLowerCase();
-                    if (hints.some(h => c.includes(h))) el.remove();
-                });
-                return (clone.innerText || '').replace(/[\\u200b\\uFEFF]/g, '').trim();
-            }""", sel.PLACEHOLDER_CLASS_HINTS)
+            engine_txt = bc.content_text(ctx, sel.PLACEHOLDER_CLASS_HINTS)
             ok = (engine_txt == "")
             bc.log(f"  ⭐ 엔진 판정 텍스트 = {json.dumps(engine_txt[:120], ensure_ascii=False)}")
             bc.log(f"     빈 문서에서 '' 인가: {ok}  ← False 면 비우기가 영원히 실패한다")
+            if engine_txt == "<NO_SE_NODE>":
+                bc.log("     🔴 .se-text-paragraph .__se-node 를 못 찾음 = 마크업 변경. 셀렉터 재확정 필요")
+            n_node = count(ctx, '.se-text-paragraph .__se-node')
+            n_ph = count(ctx, '.se-text-paragraph .se-placeholder')
+            bc.log(f"     내용노드(.__se-node)={n_node} · placeholder={n_ph}  (빈 문서면 노드는 있고 텍스트만 비어야 정상)")
         except Exception as e:
             bc.log(f"  엔진 판정 JS 실패: {str(e)[:80]}")
 
@@ -240,15 +238,7 @@ def main():
                         except Exception:
                             pass
                 n2 = count(ctx, '.se-component')
-                t2 = ctx.evaluate("""(hints) => {
-                    const root = document.querySelector('.se-content');
-                    const clone = root.cloneNode(true);
-                    clone.querySelectorAll('*').forEach(el => {
-                        const c = (el.className || '').toString().toLowerCase();
-                        if (hints.some(h => c.includes(h))) el.remove();
-                    });
-                    return (clone.innerText || '').replace(/[\\u200b\\uFEFF]/g, '').trim();
-                }""", sel.PLACEHOLDER_CLASS_HINTS)
+                t2 = bc.content_text(ctx, sel.PLACEHOLDER_CLASS_HINTS)
                 bc.log(f"  ⭐ 비우기 후: component={n2} · 엔진텍스트={json.dumps(t2[:120], ensure_ascii=False)}")
                 bc.log(f"     성공 조건(component<=2 and 텍스트==''): {n2 <= 2 and t2 == ''}")
             except Exception as e:

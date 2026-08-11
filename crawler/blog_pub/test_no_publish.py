@@ -226,6 +226,26 @@ def t9_body_target():
     check("T9c SEL_BODY 와 SEL_TITLE 이 겹치지 않음", not overlap, str(overlap))
 
 
+# ── T10: '비었나' 판정 JS 를 엔진과 probe 가 한 벌만 공유 ────────────────────
+#   복붙 두 벌이면 probe 는 통과하는데 엔진은 다른 걸 검사하는 상태가 된다(실제로 발생).
+#   또 .se-content innerText 를 읽으면 편집기 UI(툴바·컴포넌트 메뉴)까지 삼켜 빈 문서가
+#   비어 보이지 않는다 — 그 패턴이 다시 들어오지 못하게 막는다.
+def t10_shared_empty_check():
+    common = _src(os.path.join(HERE, "blog_common.py"))
+    check("T10a blog_common 에 CONTENT_TEXT_JS 단일 정의", "CONTENT_TEXT_JS" in common)
+    check("T10b 판정 실패 시 센티널(<NO_SE_NODE>) 로 fail-closed", "<NO_SE_NODE>" in common)
+    for p in (SAVE_PY, os.path.join(HERE, "probe_editor.py")):
+        name = os.path.basename(p)
+        src = _src(p)
+        check(f"T10c {name} 이 bc.content_text 사용", "bc.content_text(" in src)
+    # .se-content innerText 직독 금지는 **판정하는 쪽(엔진)에만** 건다.
+    #   probe 는 그 원본 innerText 를 사람에게 보여주는 게 목적이고(이 문제를 발견한 것도 그 출력이다),
+    #   판정 자체는 bc.content_text 로 하므로 예외다.
+    bad = re.search(r"querySelector\('\.se-content'\)[^\n]*innerText", _src(SAVE_PY))
+    check("T10d save_blog 이 .se-content innerText 로 판정하지 않음", not bad,
+          bad.group(0)[:60] if bad else "")
+
+
 def main():
     print("[blog_pub] 발행 경로 부재 정적검사")
     t1_block_consts_not_actionable()
@@ -237,6 +257,7 @@ def main():
     t7_no_cafe_import()
     t8_clear_before_title()
     t9_body_target()
+    t10_shared_empty_check()
     print(f"\n결과: 통과 {len(_passes)} · 실패 {len(_fails)}")
     if _fails:
         print("실패 항목: " + ", ".join(_fails))
