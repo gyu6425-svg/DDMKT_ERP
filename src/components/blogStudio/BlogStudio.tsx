@@ -4,8 +4,9 @@ import { generateBlog, type GenerateBlogInput } from '../../api/aiBlog';
 import { parseBlogTitle } from '../../api/blogOutputs';
 import {
     getBlogStudioSettings, saveBlogStudioSettings, uploadBlogStudioImage,
-    signedBlogStudioUrls, blogStudioSavedPath, markBlogNaverLogin,
+    signedBlogStudioUrls, blogStudioSavedPath,
 } from '../../api/blogStudioSettings';
+import { blogLogin, blogLoginPing } from '../../api/blogLoginBridge';
 import { CafeKeywordFinder } from '../cafe/CafeKeywordFinder';
 
 // 블로그 발행 스튜디오 — 카페 CafeCustomerStudio 미러(계정·키워드·원고·이미지 프리셋 → 임시저장 큐).
@@ -59,7 +60,9 @@ export default function BlogStudio() {
     const [writeUrl, setWriteUrl] = useState('');
     const [dailyCap, setDailyCap] = useState(5);
     const [gapMin, setGapMin] = useState(30);
-    const [naverLoginAt, setNaverLoginAt] = useState<string | null>(null);
+    const [chromePort, setChromePort] = useState(9235); // 이 블로그 전용 로그인/발행 크롬 포트(업체마다 다른 크롬)
+    const [loginBusy, setLoginBusy] = useState(false);
+    const [loginAlive, setLoginAlive] = useState(false); // 그 포트에 로그인 크롬이 떠 있나
 
     // 이미지 프리셋
     const [mainBanner, setMainBanner] = useState<string[]>([]);
@@ -81,6 +84,7 @@ export default function BlogStudio() {
     // 큐
     const [jobs, setJobs] = useState<QueueJob[]>([]);
     const [savingSettings, setSavingSettings] = useState(false);
+    const [hasSaved, setHasSaved] = useState(false); // 한 번 저장(또는 저장분 복원)되면 버튼이 '재저장'
     const [msg, setMsg] = useState('');
     const [enqueuing, setEnqueuing] = useState(false);
 
@@ -113,10 +117,11 @@ export default function BlogStudio() {
             setWriteUrl(data?.write_url ?? (row ? `https://blog.naver.com/${row.blog_id}/postwrite` : ''));
             setDailyCap(data?.daily_cap ?? 5);
             setGapMin(data?.publish_gap_min ?? 30);
-            setNaverLoginAt(data?.naver_login_at ?? null);
+            setChromePort(data?.chrome_port ?? 9235);
             setMainBanner(signedBlogStudioUrls(data?.main_banner ?? []));
             setPhotos(signedBlogStudioUrls(data?.photos ?? []));
             setBanners(signedBlogStudioUrls(data?.banners ?? []));
+            setHasSaved(!!data); // 저장된 설정이 있으면 '재저장' 상태로 시작
         });
         return () => { alive = false; };
     }, [accountId, blogs]);
@@ -128,6 +133,33 @@ export default function BlogStudio() {
         const t = window.setInterval(refreshJobs, 8000);
         return () => window.clearInterval(t);
     }, []);
+
+    // 이 블로그 전용 포트에 로그인 크롬이 떠 있는지 확인(브릿지 ping).
+    useEffect(() => {
+        let alive = true;
+        const check = () => void blogLoginPing(chromePort).then((a) => { if (alive) setLoginAlive(a); });
+        check();
+        const t = window.setInterval(check, 10000);
+        return () => { alive = false; window.clearInterval(t); };
+    }, [chromePort]);
+
+    // '네이버 로그인' — 브릿지가 이 블로그 전용 크롬(포트·프로필)을 띄운다. 담당자가 그 창에서 직접 로그인.
+    async function doLogin() {
+        if (!selected) { setMsg('담당 블로그를 먼저 선택하세요.'); return; }
+        setLoginBusy(true); setMsg('발행 PC에서 로그인 크롬 실행 중…');
+        const r = await blogLogin(selected.blog_id, chromePort);
+        setLoginBusy(false);
+        if (!r.reached) {
+            setMsg('로그인 브릿지에 연결 실패 — 발행 PC(SUB1)에서 run_blog_login_bridge.bat 을 먼저 켜세요.');
+        } else if (!r.ok) {
+            setMsg(`크롬 실행 실패: ${r.error || '알 수 없음'}`);
+        } else {
+            setMsg(r.already
+                ? `이미 로그인 크롬이 떠 있습니다(포트 ${chromePort}). 그 창에서 로그인하세요.`
+                : `전용 크롬을 띄웠습니다(포트 ${chromePort}). 뜬 창에서 이 블로그로 직접 로그인하세요(자동입력 없음).`);
+            void blogLoginPing(chromePort).then(setLoginAlive);
+        }
+    }
 
     async function addFiles(setter: (u: (prev: string[]) => string[]) => void, files: FileList | null, max: number) {
         if (!files || !files.length) return;
@@ -185,9 +217,9 @@ export default function BlogStudio() {
                 blog_account_id: accountId, brand, business, homepage: linkUrl, kakao_url: kakaoUrl,
                 naver_id: naverId, blog_name: blogName, write_url: writeUrl,
                 main_banner: mb, photos: ph, banners: bn,
-                daily_cap: dailyCap, publish_gap_min: gapMin,
+                daily_cap: dailyCap, publish_gap_min: gapMin, chrome_port: chromePort,
             });
-            setMsg(error ? `저장 실패: ${error.message}` : '저장했습니다.');
+            if (error) { setMsg(`저장 실패: ${error.message}`); } else { setMsg('저장했습니다.'); setHasSaved(true); }
         } catch (e) {
             setMsg(e instanceof Error ? e.message : '저장 실패');
         } finally {
@@ -256,8 +288,9 @@ export default function BlogStudio() {
                     <a className="mt-4 text-xs font-semibold text-[#2563eb] hover:underline" href={`https://blog.naver.com/${selected.blog_id}/postwrite`} target="_blank" rel="noreferrer">글쓰기 열기 ↗</a>
                 ) : null}
                 <button type="button" onClick={() => void saveSettings()} disabled={savingSettings || !accountId}
-                    className="mb-1 ml-auto shrink-0 self-end rounded-md bg-[#4338ca] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#3730a3] disabled:opacity-50">
-                    {savingSettings ? '저장 중…' : '값 저장하기'}
+                    title={hasSaved ? '변경 내용을 다시 저장합니다' : '현재 입력한 내용을 저장합니다'}
+                    className={`mb-1 ml-auto shrink-0 self-end rounded-lg px-4 py-2 text-sm font-bold text-white disabled:opacity-50 ${hasSaved ? 'bg-[#15803d] hover:bg-[#166534]' : 'bg-[#4338ca] hover:bg-[#3730a3]'}`}>
+                    {savingSettings ? '저장 중…' : hasSaved ? '↻ 재저장' : '저장'}
                 </button>
             </div>
 
@@ -318,14 +351,11 @@ export default function BlogStudio() {
                             {[0, 30, 60, 90, 120, 150, 180].map((v) => <option key={v} value={v}>{v === 0 ? '제한 없음' : `${v}분에 1건`}</option>)}
                         </select>
                     </label>
-                </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <button type="button"
-                        className={`h-10 rounded-lg px-5 text-sm font-bold ${naverLoginAt ? 'border-2 border-[#15803d] bg-white text-[#15803d]' : 'bg-[#03c75a] text-white'}`}
-                        onClick={() => { if (accountId) { void markBlogNaverLogin(accountId).then(() => setNaverLoginAt(new Date().toISOString())); } setMsg('발행 PC(SUB1)에서 run_chrome_blog_login.bat 으로 이 블로그에 1회 로그인하세요(자동입력 없음 · 봇 차단 방지). 로그인 후 이 버튼으로 확인 시각을 기록합니다.'); }}>
-                        {naverLoginAt ? '✓ 로그인 확인됨' : '네이버 로그인 (발행PC 수동)'}
-                    </button>
-                    <span className="text-[11px] text-[#94a3b8]">블로그는 발행 PC(9235 크롬 프로필)에서 사람이 직접 로그인합니다. 비밀번호는 자동입력하지 않습니다.</span>
+                    <label className="grid gap-1 text-xs font-semibold text-[#475569]">전용 크롬 포트 <span className="font-normal text-[#94a3b8]">(업체마다 다른 크롬)</span>
+                        <input className={inputCls} type="number" min={9200} max={9399} value={chromePort}
+                            onChange={(e) => setChromePort(Math.min(9399, Math.max(9200, Number(e.target.value) || 9235)))} placeholder="예) 9235" />
+                        <span className="text-[11px] font-normal text-[#94a3b8]">이 블로그 로그인·발행이 쓰는 크롬 포트. 업체마다 다른 값(예: 9235·9241·9242…). 댓글 9224~9229·카카오 9222는 피하세요.</span>
+                    </label>
                 </div>
             </div>
 
@@ -399,6 +429,21 @@ export default function BlogStudio() {
                 </button>
                 <textarea className="mt-3 min-h-[220px] w-full resize-y whitespace-pre-wrap rounded-md border border-[#e2e8f0] bg-[#f8fafc] px-3 py-2 text-sm leading-relaxed text-[#1f2937]"
                     placeholder="생성된 원고가 여기에 표시됩니다. 편집 가능 · 「사진 N」 마커 위치대로 이미지가 삽입됩니다." value={result} onChange={(e) => setResult(e.target.value)} />
+            </div>
+
+            {/* 네이버 로그인 (발행 PC) — 브릿지가 이 블로그 전용 크롬(포트·프로필)을 띄운다 */}
+            <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                <div className="mb-3 text-[13px] font-bold text-[#334155]">네이버 로그인 (발행 PC) <span className="font-normal text-[#94a3b8]">— 업체마다 전용 크롬(포트 {chromePort})으로 로그인</span></div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={() => void doLogin()} disabled={loginBusy || !selected}
+                        className="h-11 rounded-lg bg-[#03c75a] px-6 text-sm font-bold text-white hover:bg-[#02b350] disabled:opacity-50">
+                        {loginBusy ? '실행 중…' : '네이버 로그인'}
+                    </button>
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-bold ${loginAlive ? 'bg-[#dcfce7] text-[#166534]' : 'bg-[#f1f5f9] text-[#64748b]'}`}>
+                        <span className={`h-2 w-2 rounded-full ${loginAlive ? 'bg-[#16a34a]' : 'bg-[#94a3b8]'}`} />{loginAlive ? `로그인 크롬 켜짐 (포트 ${chromePort})` : '로그인 크롬 꺼짐'}
+                    </span>
+                </div>
+                <p className="m-0 mt-2 text-[11px] text-[#94a3b8]">누르면 발행 PC에서 <b>이 블로그 전용 크롬</b>이 뜹니다 — 그 창에서 <b>직접 로그인</b>하세요(자동입력 없음 · 봇 차단 방지). 발행 PC에서 <b>run_blog_login_bridge.bat</b> 이 켜져 있어야 합니다.</p>
             </div>
 
             {/* 발행(임시저장) 큐 넣기 + 현황 */}

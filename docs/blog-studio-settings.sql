@@ -18,6 +18,7 @@ create table if not exists public.blog_studio_settings (
     banners         jsonb not null default '[]'::jsonb,  -- 끝 배너 경로(≤2)
     daily_cap       integer default 5,  -- 하루 최대 임시저장 수
     publish_gap_min integer default 30, -- 최소 간격(분)
+    chrome_port     integer,            -- 이 블로그 전용 로그인/발행 크롬 포트(업체마다 다른 크롬)
     keyword_pool    jsonb not null default '[]'::jsonb,  -- 키워드 보관함
     naver_login_at  timestamptz,        -- 발행PC 로그인 확인 시각(표시용)
     created_at      timestamptz not null default now(),

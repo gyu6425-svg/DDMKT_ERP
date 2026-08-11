@@ -19,11 +19,16 @@ export type BlogStudioSettings = {
     banners: string[] | null;     // 끝 배너 저장 경로(≤2)
     daily_cap?: number | null;
     publish_gap_min?: number | null;
+    chrome_port?: number | null;    // 이 블로그 전용 로그인/발행 크롬 포트(업체마다 다른 크롬)
     keyword_pool?: string[] | null;
     naver_login_at?: string | null;
 };
 
-const BUCKET = 'cafe-images'; // /api/img 가 허용하는 이미지 버킷(cafe-images|deploy-intake). blog 은 경로로 분리.
+// /api/img 키 프리픽스(단일 R2 IMG_BUCKET 안). blog-studio 로 분리 → 카페 자산과 안 섞임.
+//   ⚠️ functions/api/img 의 ALLOW 에 'blog-studio' 가 있어야 함(main 이 추가). 경로에 반드시
+//      '/studio-settings/' 를 유지할 것 — 그래야 mutable(300s) 캐시가 걸려 배너 교체가 즉시 반영된다
+//      (안 그러면 1년 immutable → 옛 배너가 계속 나옴).
+const BUCKET = 'blog-studio';
 
 export async function getBlogStudioSettings(blogAccountId: string) {
     const { data, error } = await supabase
@@ -34,9 +39,9 @@ export async function getBlogStudioSettings(blogAccountId: string) {
 export async function saveBlogStudioSettings(s: BlogStudioSettings) {
     const payload = { ...s, updated_at: new Date().toISOString() };
     const { error } = await supabase.from('blog_studio_settings').upsert(payload, { onConflict: 'blog_account_id' });
-    // 발행텀·상한 컬럼이 아직 없으면(SQL 미실행) 그 필드만 빼고 재시도 — 나머지 설정은 정상 저장.
-    if (error && /daily_cap|publish_gap_min|column|schema cache/i.test(error.message || '')) {
-        const { daily_cap: _dc, publish_gap_min: _pg, ...rest } = payload;
+    // 추가 컬럼이 아직 없으면(SQL 미실행) 그 필드만 빼고 재시도 — 나머지 설정은 정상 저장.
+    if (error && /daily_cap|publish_gap_min|chrome_port|column|schema cache/i.test(error.message || '')) {
+        const { daily_cap: _dc, publish_gap_min: _pg, chrome_port: _cp, ...rest } = payload;
         const retry = await supabase.from('blog_studio_settings').upsert(rest, { onConflict: 'blog_account_id' });
         return { error: retry.error, gapColumnsMissing: !retry.error as boolean };
     }
