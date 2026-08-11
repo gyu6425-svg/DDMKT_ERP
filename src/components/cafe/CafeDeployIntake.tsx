@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, enqueueRecheckScan, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { useAuth } from '../../hooks/useAuth';
@@ -554,6 +554,32 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             const have = new Set(prev.map((p) => p.keyword));
             return [...prev, ...rows.filter((r) => !have.has(r.keyword))];
         });
+    // 발행 전 재확인 — 담아둔 키워드를 팔기 직전에 라이브로 다시 판정한다.
+    //   SUB4 실측 2026-08-11: 5~6일 지난 양성 30건 중 3건(10%)이 죽어 있었다.
+    //   전부 '섹션없음' — 네이버가 그 키워드에 인기글 섹션을 더 이상 안 주는 경우다.
+    const [recheckBusy, setRecheckBusy] = useState('');
+    const [recheckDead, setRecheckDead] = useState<string[]>([]);
+    const runRecheck = async () => {
+        if (!kwPicked.length) return;
+        setRecheckBusy('재확인 준비…'); setRecheckDead([]);
+        try {
+            const kws = kwPicked.map((p) => p.keyword);
+            const { id, error } = await enqueueRecheckScan(kws);
+            if (error || !id) throw new Error(error?.message || '등록 실패');
+            const { result } = await pollPlaceScan(id, {
+                timeoutSec: 1500, onProgress: (n) => setRecheckBusy(n),
+            });
+            const alive = new Set(result.map((r) => r.keyword.replace(/\s/g, '')));
+            const dead = kws.filter((k) => !alive.has(k.replace(/\s/g, '')));
+            setRecheckDead(dead);
+            setKwErr(dead.length
+                ? `재확인 완료 — ${kws.length}건 중 ${dead.length}건은 지금 인기탭이 없습니다. 아래에서 빨간 것을 빼주세요.`
+                : `재확인 완료 — ${kws.length}건 전부 살아있습니다.`);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '재확인 실패');
+        } finally { setRecheckBusy(''); }
+    };
+
     const hideKw = (kw: string) => {
         setKwHidden((prev) => (prev.includes(kw) ? prev : [...prev, kw]));
         setKwPicked((prev) => prev.filter((p) => p.keyword !== kw)); // 숨기면 선택도 해제
@@ -835,16 +861,31 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 className="rounded border border-[#c7d2fe] bg-white px-2 py-0.5 text-[11px] font-bold text-[#4338ca]">
                                 ⬇ 엑셀로 받기
                             </button>
+                            {/* 발행 전 재확인 — 5~6일 지난 것의 10%가 이미 안 된다(실측). 접수 직전에 한 번. */}
+                            <button type="button" onClick={() => void runRecheck()} disabled={!!recheckBusy}
+                                className="rounded border border-[#16a34a] bg-white px-2 py-0.5 text-[11px] font-bold text-[#16a34a] disabled:opacity-50"
+                                title="지금도 인기탭이 있는지 다시 봅니다. 접수 직전에 한 번 눌러 주세요.">
+                                {recheckBusy ? '확인 중…' : '✅ 접수 전 재확인'}
+                            </button>
                             <button type="button"
                                 onClick={() => { if (confirm(`담아둔 ${kwPicked.length}개를 모두 비웁니다. 계속할까요?`)) setKwPicked([]); }}
                                 className="rounded border border-[#fca5a5] bg-white px-2 py-0.5 text-[11px] font-bold text-[#dc2626]">
                                 전부 비우기
                             </button>
-                            <span className="text-[11px] text-[#818cf8]">다른 조건으로 계속 조회해 쌓으세요 — 30일 보관됩니다.</span>
+                            {recheckDead.length ? (
+                                <button type="button"
+                                    onClick={() => { setKwPicked((prev) => prev.filter((p) => !recheckDead.includes(p.keyword))); setRecheckDead([]); }}
+                                    className="rounded bg-[#dc2626] px-2 py-0.5 text-[11px] font-bold text-white">
+                                    안 되는 {recheckDead.length}건 빼기
+                                </button>
+                            ) : null}
+                            <span className="text-[11px] text-[#818cf8]">
+                                {recheckBusy ? `🔎 ${recheckBusy}` : '다른 조건으로 계속 조회해 쌓으세요 — 30일 보관됩니다.'}
+                            </span>
                         </div>
                         <div className="flex flex-wrap gap-1.5">
                             {kwPicked.map((p) => (
-                                <span key={p.keyword} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
+                                <span key={p.keyword} className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[12px] font-semibold ring-1 ${recheckDead.includes(p.keyword) ? 'bg-[#fef2f2] text-[#dc2626] ring-[#fca5a5] line-through' : 'bg-white text-[#3730a3] ring-[#c7d2fe]'}`}>
                                     {p.keyword}
                                     {p.volume != null ? <span className="text-[10px] font-normal text-[#94a3b8]">{p.volume.toLocaleString()}</span> : null}
                                     <button type="button" onClick={() => togglePick(p)} className="text-[#818cf8] hover:text-[#4338ca]" title="선택 해제">×</button>

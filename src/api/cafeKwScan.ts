@@ -350,6 +350,26 @@ export async function enqueueChainScan(products: string[], regions: string, targ
     return { id: (data as { id: number }).id, error: null };
 }
 
+// 발행 전 재확인 — 담아둔 키워드를 팔기 직전에 라이브로 다시 판정한다(워커 process_recheck).
+//   ★ 왜(SUB4 실측 2026-08-11): 5~6일 지난 양성 30건을 재판정하니 3건(10%)이 죽어 있었다.
+//     전부 '섹션없음'으로, 판정 규칙 문제가 아니라 네이버가 그 키워드에 인기글 섹션을
+//     더 이상 안 주는 경우였다. 30건이면 30콜(데몬 3분치)이라 팔기 직전에 보는 게 가장 싸다.
+//   result 에는 '살아있는 것'만 온다 — 죽은 건 호출부가 차집합으로 안다.
+export async function enqueueRecheckScan(keywords: string[]) {
+    const { data: u } = await supabase.auth.getUser();
+    const uid = u.user?.id ?? null;
+    const kws = [...new Set(keywords.map((k) => k.trim()).filter(Boolean))].slice(0, 200);
+    if (!kws.length) return { id: null as number | null, error: { message: '확인할 키워드 없음' } };
+    const { data, error } = await supabase.from('cafe_kw_requests')
+        .insert({
+            deploy_type: '재확인', place_url: `recheck:${JSON.stringify({ kws })}`, regions: '',
+            requested_by: uid, status: 'queued', target: kws.length,
+        })
+        .select('id').single();
+    if (error || !data) return { id: null as number | null, error };
+    return { id: (data as { id: number }).id, error: null };
+}
+
 export async function enqueueRelatedScan(seed: string, keywords: string[], probe = 8) {
     const { data: u } = await supabase.auth.getUser();
     const uid = u.user?.id ?? null;

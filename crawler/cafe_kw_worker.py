@@ -1168,6 +1168,75 @@ def process_reviews(req, payload):
     print(f"[{_ts()}][{req['id']}] 리뷰수집 {info.get('name')} — {len(blob)}자", flush=True)
 
 
+_ALL_TOKENS = None
+
+
+def _all_region_tokens():
+    """지역 토큰 전체(활성) — 키워드 앞머리에서 지역을 떼어낼 때 쓴다."""
+    global _ALL_TOKENS
+    if _ALL_TOKENS is None:
+        rows = _sb_page(f"{SB}/rest/v1/cafe_region_token?select=token&active=is.true") or []
+        _ALL_TOKENS = {r["token"] for r in rows if r.get("token")}
+    return _ALL_TOKENS
+
+
+def process_recheck(req, payload):
+    """발행 전 재확인 — 담아둔 키워드를 팔기 직전에 라이브로 다시 판정한다.
+       payload = JSON {"kws": ["청라 여자창업", ...]}
+
+       ★ 왜(SUB4 실측 2026-08-11): 5~6일 지난 양성 30건을 재판정하니 3건(10%)이 죽어 있었다.
+         고촌 입주청소 · 경기 더반클린 · 강동 사설경호 — 전부 '섹션없음'으로, 규칙 경계가 아니라
+         네이버가 그 키워드에 인기글 섹션을 더 이상 안 주는 경우였다.
+         30건이면 30콜(데몬 3분치)이라, 팔기 직전에 한 번 보는 게 가장 싸고 확실한 해결이다.
+       ★ 캐시를 믿지 않는다 — 무조건 라이브. 그게 이 라우트의 존재 이유다.
+       결과(result)에는 '살아있는 것'만 담는다. 죽은 건 화면이 차집합으로 안다."""
+    try:
+        d = json.loads(payload or "{}")
+    except Exception:
+        return _finish(req["id"], "failed", note="재확인 payload 파싱 실패")
+    kws = [str(x).strip() for x in (d.get("kws") or []) if str(x).strip()][:200]
+    if not kws:
+        return _finish(req["id"], "failed", note="확인할 키워드 없음")
+    cf = bool(p._USE_CF)
+    gap = 2.5 if cf else SCAN_GAP
+    master = _all_region_tokens()
+    alive, dead, errs, streak = [], [], 0, 0
+    for i, kw in enumerate(kws, 1):
+        if i % 5 == 1:
+            try:
+                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                               json={"note": f"재확인 {i}/{len(kws)} · 살아있음 {len(alive)} · 죽음 {len(dead)}",
+                                     "result": alive}, timeout=10)
+            except Exception:
+                pass
+        parts = kw.split()
+        tok = parts[0] if len(parts) >= 2 and parts[0] in master else ""
+        product = " ".join(parts[1:]) if tok else kw
+        r = p.classify(kw)
+        _budget_note(1)
+        if r.get("err"):
+            errs += 1
+            streak += 1
+            if streak >= BLOCK_STREAK:      # 연속 실패 = 차단. 남은 건 판정 못 한 것으로 남긴다.
+                return _finish(req["id"], "failed", result=alive,
+                               note=f"⚠ 스캔 차단 — {len(kws) - i}건 확인 못 함. 잠시 후 다시 확인하세요.")
+            continue
+        streak = 0
+        r2, ok, v = adjudicate(kw, r, tok, product, {tok} if tok else set())
+        _cache_put(kw, r2, v if ok else None)
+        time.sleep(gap)
+        if ok:
+            alive.append({"keyword": kw, "volume": v or 0, "theme": _disp_theme(r2),
+                          "cafes": [x for x in (r2.get("rows") or []) if x.get("kind") == "카페"][:5]})
+        else:
+            dead.append(kw)
+    note = (f"재확인 {len(kws)}건 · 살아있음 {len(alive)} · 더 이상 안 나옴 {len(dead)}"
+            + (f" · 오류 {errs}" if errs else "")
+            + (f" — 빼야 할 것: {', '.join(dead[:8])}{'…' if len(dead) > 8 else ''}" if dead else ""))
+    _finish(req["id"], "done", result=alive, note=note)
+    print(f"[{_ts()}][{req['id']}] 재확인 {len(kws)} → 생존 {len(alive)} · 사망 {len(dead)}", flush=True)
+
+
 def process_chain(req, payload):
     """목표 채우기 — 키워드를 하나씩 끝까지 파고, 목표(target)를 채우면 즉시 멈춘다.
        payload = JSON {"products": ["여자창업", ...], "regions": "서울,경기,인천"}
@@ -1473,6 +1542,8 @@ def process(req):
         return process_related(req, pu[len("related:"):])
     if pu.startswith("chain:"):         # 목표 채우기 — 키워드를 하나씩 끝까지 파고 target 채우면 종료
         return process_chain(req, pu[len("chain:"):])
+    if pu.startswith("recheck:"):       # 발행 전 재확인 — 담아둔 키워드를 라이브로 다시 판정(캐시 무시)
+        return process_recheck(req, pu[len("recheck:"):])
     if pu.startswith("reviews:"):       # 리뷰 수집 — 메뉴판 없는 업체의 제품키워드 원천
         return process_reviews(req, pu[len("reviews:"):])
     pid = p.parse_place_id(pu)
