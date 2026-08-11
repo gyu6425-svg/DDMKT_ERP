@@ -124,3 +124,55 @@ def reply_account_for(url):
         if tok.lower() in u:
             return acc
     return None
+
+
+# 카페별 '댓글 제외' 계정 — 그 계정이 그 카페에 (미가입 등으로) 댓글을 달면 안 될 때.
+#   reply_account_for 와 별개다: reply 로 넣으면 대댓글을 시도하지만(가입 안 된 계정은 실패),
+#   여기 넣으면 댓글·대댓글 어디에도 안 쓰인다(그냥 그 카페에서 제외).
+#   rlawhddls25(=저스트): 설고점/더맨시스템엔 가입 안 함 → 두 카페 댓글에서 제외.
+COMMENT_EXCLUDE_BY_CAFE = {
+    "ojh097": {"rlawhddls25"},       "31764966": {"rlawhddls25"},   # 설고점
+    "themansys": {"rlawhddls25"},    "31764949": {"rlawhddls25"},   # 더맨시스템
+    "limebuffet": {"rlawhddls25"},   "31767649": {"rlawhddls25"},   # 라임뷔페
+    "dirtyclinic": {"rlawhddls25"},  "31768059": {"rlawhddls25"},   # 더티클리닉
+    "loveyumi0926": {"rlawhddls25"}, "31768221": {"rlawhddls25"},   # 러브유미(방문요양/재활)
+}
+
+
+def comment_exclude_for(url):
+    """그 카페에서 댓글 대상에서 빼야 할 계정명 집합(소문자). 없으면 빈 set."""
+    u = (url or "").lower()
+    out = set()
+    for tok, names in COMMENT_EXCLUDE_BY_CAFE.items():
+        if tok.lower() in u:
+            out |= {n.lower() for n in names}
+    return out
+
+
+# 카페별 '글당 최대 댓글 수' — 전 계정을 다 달지 않고 일부만(글번호로 회전 선택).
+#   더맨시스템(사설경호): 사장님 요청으로 글당 2~3개만 + 넉넉한 텀. 없으면 전 계정.
+MAX_COMMENTS_BY_CAFE = {
+    "themansys": 3, "31764949": 3,   # 더맨시스템 = 글당 최대 3
+}
+# 카페별 댓글 간격(분) — 같은 글의 계정 간 시차. 없으면 기본(STAGGER_MIN=8).
+STAGGER_MIN_BY_CAFE = {
+    "themansys": 25, "31764949": 25,  # 더맨시스템 = 넉넉히 25분 간격
+}
+
+
+def max_comments_for(url):
+    """그 카페 글당 최대 댓글 수. 지정 없으면 None(전 계정)."""
+    u = (url or "").lower()
+    for tok, n in MAX_COMMENTS_BY_CAFE.items():
+        if tok.lower() in u:
+            return n
+    return None
+
+
+def stagger_min_for(url, default):
+    """그 카페의 계정 간 시차(분). 지정 없으면 default."""
+    u = (url or "").lower()
+    for tok, n in STAGGER_MIN_BY_CAFE.items():
+        if tok.lower() in u:
+            return n
+    return default
