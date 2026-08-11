@@ -251,9 +251,33 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
     //   사장님이 지목한 박람회·대출·지원금 계열도 같이 뺀다 — '창업대출'을 검색하는 사람은
     //   정부지원금을 찾는 사람이지 가맹 상담을 원하는 사람이 아니다(2026-08-11).
     //   실측: 씨앗 '창업' 401개 중 86개가 여기 걸린다(창업박람회 4,120 · 창업대출 3,810 · 창업지원금 2,420 …).
-    const NOISE_TAIL = ['비용', '가격', '요금', '경비', '후기', '박람회', '대출', '지원금',
+    //   ⚠️ 교차 QA(2026-08-11, 32업종 연관어 + 캐시 19,305행 + 라이브 판정 57건)로 단어별 검증했다.
+    //     기저 양성률 9.0% 대비:
+    //       비용 186건 중 1건(0.5%)  ← 가장 잘 듣는 필터. 유지.
+    //       지원 36 · 대출 26 · 후기 17 · 정보 9 · 지원금 8 · 자금 7 · 순위 6 → 전부 양성 0건. 유지.
+    //     빼야 했던 것:
+    //       경비 10건 중 1건(10%) = 판별력 0. 이 코퍼스의 '경비'는 전부 경비원·경비업체(경호 업종어)라
+    //         '비용' 의미가 0건이었고, 경호업체 씨앗의 후보 23%를 통째로 잘랐다('경비업체' 양성 확인).
+    //       가격 16건 중 1건(6.3%) = 기저와 차이 없음. 근거였던 '0/2(임플란트·보톡스)'는 표본 2건이었고,
+    //         우리 출장뷔페 계열의 '커피차가격'(5,790·양성)을 죽였다.
+    const NOISE_TAIL = ['비용', '요금', '후기', '박람회', '대출', '지원금',
         '자금', '지원', '정보', '순위', '통계', '현황', '뉴스'];
     const drop = [...OFFTOPIC_FRAG, ...NOISE_TAIL].filter((w) => !nq.includes(w));
+    // ★ 씨앗의 '코어' — 수식 접두/접미를 떼어 축약형까지 씨앗층으로 본다.
+    //   실측(교차 QA 2026-08-11): 문자열을 그대로 포함하는 것만 씨앗층으로 보면 양성의 22%가 사라졌다.
+    //   방문요양 16/16(100%) · 사설경호 3/3(100%) · 누수탐지 12/18(67%) 손실.
+    //   서비스업은 양성이 축약형으로 나온다 — '누수탐지'→'파주 누수', '입주청소'→'강남 청소업체',
+    //   '사설경호'→'서울 경호업체'. '창업'에선 이 문제가 0%라 씨앗 하나만 보면 안 보인다.
+    const SEED_PREFIX = /^(방문|재가|노인|장기|긴급|주야간|셀프|무인|사설|입주|이사|출장|종합|전문)/;
+    const SEED_SUFFIX = ['탐지', '업체', '전문', '서비스', '시공', '공사', '센터'];
+    const cores = [...new Set(seeds.flatMap((s) => {
+        const n0 = s.replace(/\s/g, '');
+        let c = n0.replace(SEED_PREFIX, '');
+        for (const suf of SEED_SUFFIX) {
+            if (c.endsWith(suf) && c.length - suf.length >= 2) { c = c.slice(0, -suf.length); break; }
+        }
+        return c.length >= 2 ? [n0, c] : [n0];
+    }))];
     const out: RelatedCand[] = rows
         .filter(({ kw }) => {
             const n = kw.replace(/\s/g, '');
@@ -261,10 +285,12 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
         })
         .map(({ kw, total }) => {
             const n = kw.replace(/\s/g, '');
-            const tier: RelatedCand['tier'] = n.includes(nq) ? 'seed'
+            const tier: RelatedCand['tier'] = cores.some((c) => n.includes(c)) ? 'seed'
                 : ([...frags].some((f) => n.includes(f)) ? 'near' : 'far');
-            // 여러 씨앗을 넣었으면 그중 아무 것으로든 끝나면 '업종+행위' 형태로 본다.
-            const endsSeed = seeds.some((s) => n.endsWith(s.replace(/\s/g, '')));
+            // 씨앗(또는 코어)으로 끝나면 '업종+행위' 형태. '~업체'는 예외로 살린다 —
+            //   교차 QA 실측: 간병인업체 6,420 · 누수탐지업체 · 입주청소업체가 전부 양성인데
+            //   '끝나는 것만'에 걸려 사라졌다. 하필 그 업종의 최고검색량이다.
+            const endsSeed = cores.some((c) => n.endsWith(c) || n.endsWith(`${c}업체`));
             return { endsSeed, intent: INTENT_WORDS.some((w) => n.includes(w)), kw, tier, total };
         });
     // 의도어가 붙은 것을 먼저 — 실측상 인기글 섹션이 여기서 나온다. 그 안에서 검색량 순.
