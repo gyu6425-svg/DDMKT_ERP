@@ -49,5 +49,13 @@ export async function r2Upload(bucket: string, path: string, src: string | Blob,
             : `업로드 실패 (HTTP ${r.status}${body ? ` · ${body.slice(0, 120)}` : ''})`;
         return { path: null, error };
     }
+    // ④ 저장된 바이트 수 대조 — 200 만 믿지 않는다(SUB2 요청 2026-08-11).
+    //   'DB엔 경로가 남았는데 R2엔 옛 파일'이 실제로 있었던 사고라, 크기가 어긋나면 실패로 본다.
+    try {
+        const j = (await r.json()) as { size?: number };
+        if (typeof j.size === 'number' && j.size !== blob.size) {
+            return { path: null, error: `업로드 검증 실패 — 보낸 ${blob.size}B, 저장된 ${j.size}B. 다시 시도해 주세요.` };
+        }
+    } catch { /* 옛 배포본은 size 를 안 준다 — 그때는 200 을 그대로 믿는다 */ }
     return { path, error: null };
 }

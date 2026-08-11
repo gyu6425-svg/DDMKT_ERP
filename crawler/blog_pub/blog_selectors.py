@@ -21,25 +21,41 @@
 """
 
 # ── Phase 0 확정 표시 — 실측 후 'YYYY-MM-DD' 를 적을 것. 비어 있으면 저장 모드 거부. ──
+#   ⚠️ 아직 비워 둔다. Phase 0-A(2026-08-11, SUB1/dog6425)로 대부분 확정됐지만
+#      SEL_BODY 와 EMPTY_COMPONENT_COUNT 가 probe_editor.py 결과 대기 중이다.
+#      이 둘이 틀리면 '본문이 제목칸에 들어가거나' '비우기가 영원히 실패' 하므로 확정 전엔 열지 않는다.
 CONFIRMED_ON = ""
 
-# 글쓰기 페이지가 iframe 안이면 그 프레임 URL/이름에 매칭할 정규식(top-level 이면 "" 로 둘 것).
-#   네이버 블로그는 blog.naver.com/<id>?Redirect=Write 진입 시 #mainFrame 안에서 렌더되는 경우가 있다.
+# 글쓰기 페이지 프레임.
+#   ✅ 실측 2026-08-11: /postwrite 는 **top-level 렌더**(#mainFrame 아님). resolve_ctx 가 page 를
+#      먼저 검사하므로 이 힌트는 실제로 쓰이지 않는다. 구형 `?Redirect=Write` 진입(=#mainFrame)
+#      호환을 위해 남겨 둔다. 프레임 3개 중 input_buffer(about:blank)·wtm.pstatic.net(광고)는 무관.
 FRAME_HINT = r"mainFrame|PostWriteForm|editor"
 
-# ── 아래는 전부 '후보'. Phase 0 로 확정할 것. ──
+# ── ✅ 실측 확정 2026-08-11 (SUB1, blog.naver.com/dog6425/postwrite, 신형 SmartEditor ONE) ──
+# 제목 — ⚠️ 제목은 **자체 contenteditable 이 아니다**. 문서 전체가 단일 편집영역이고
+#   [contenteditable=true] 는 문서에 딱 1개뿐이다. 그래서 예전 후보 3종은 전부 0개였다.
 SEL_TITLE = [
-    '.se-documentTitle [contenteditable="true"]',
-    '.se-title-text [contenteditable="true"]',
-    'textarea[placeholder*="제목"]',
+    '.se-section-documentTitle .se-text-paragraph',
+    '.se-title-text',
 ]
+
+# 🔴 본문 — 제목과 반드시 분리해야 한다.
+#   `.se-content .se-text-paragraph` 는 **제목+본문 2개**가 잡히고, DOM 순서상 제목이 먼저라
+#   first() 를 쓰면 **본문이 제목칸에 들어간다**. 그래서 본문 전용 셀렉터를 따로 둔다.
+#   ⏳ probe_editor.py 로 확정 대기 — 확정 전엔 CONFIRMED_ON 을 채우지 말 것.
+SEL_BODY = [
+    '.se-section-text .se-text-paragraph',
+    '.se-component.se-text .se-text-paragraph',
+]
+
+# 에디터 컨테이너 — 프레임 판별·존재 확인용(타이핑 타깃 아님. 타이핑은 SEL_TITLE/SEL_BODY 로).
 SEL_EDITOR = [
-    '.se-content .se-text-paragraph',
     '.se-content',
-    '.se-container [contenteditable="true"]',
+    '.se-container',
 ]
 SEL_IMG_BTN = [
-    'button[data-log="dot.img"]',
+    'button[data-log="dot.img"]',        # ✅ =1
     'button.se-image-toolbar-button',
 ]
 SEL_QUOTE_BTN = [
@@ -47,38 +63,60 @@ SEL_QUOTE_BTN = [
     'button.se-quotation-toolbar-button',
 ]
 
-# 🟢 저장(임시저장) 버튼 — **반드시 텍스트 제약 포함**. 클래스만 보는 폴백은 넣지 말 것.
+# 🟢 저장(임시저장) 버튼 — ✅ =1 (실제 클래스 save_btn__bzc5B).
+#   클래스가 빌드마다 바뀌는 **해시 클래스**라 텍스트 매칭이 오히려 정답이다.
+#   **반드시 텍스트 제약 포함**. 클래스만 보는 폴백은 넣지 말 것(옆이 발행 버튼이다).
 SEL_SAVE = [
     'button:has-text("저장")',
     'a:has-text("저장")',
 ]
-# 저장 개수 표시("저장 3") — 저장 성공 판정의 근거. 없으면 판정을 다른 신호로 대체해야 한다.
+# 저장 개수 — ✅ 별도 버튼(save_count_btn), 현재 "0". 예전 후보(.text__count)는 0개였다.
 SEL_DRAFT_COUNT = [
-    'button:has-text("저장") .text__count',
-    '.header__save .text__count',
+    'button[class*=save_count_btn]',
 ]
+
+# 빈 문서의 .se-component 개수 — _clear_editor 가 '비었다'를 판정하는 기준선.
+#   ⚠️ 카페는 1 이었지만 블로그는 제목 섹션 + 본문 섹션이라 2 이상일 수 있다. 값이 틀리면
+#      비우기가 **영원히 실패**해 모든 작업이 죽는다. None = 미확정(probe_editor.py 로 측정).
+EMPTY_COMPONENT_COUNT = None
+
+# Ctrl+A 가 제목까지 선택하는가 — True 면 '비우기 → 제목' 순서여야 한다(제목 먼저 치면 지워짐).
+#   None = 미확정. save_blog 는 안전하게 **항상 비우기를 먼저** 하므로 이 값은 기록용이다.
+SELECT_ALL_INCLUDES_TITLE = None
 
 # ── 🔴 차단 전용 — 이 값들은 오직 '막기 위해' 존재한다. 클릭·goto 인자로 절대 쓰지 말 것. ──
 #    test_no_publish.py 가 이 상수들이 클릭 경로로 흘러가지 않는지 정적으로 검사한다.
+#   ✅ 실측 2026-08-11: 발행=publish_btn__m9KHH / 예약발행=reserve_btn__Km5Xh (둘 다 해시 클래스).
+#      해시는 빌드마다 바뀌므로 텍스트 + [class*=] 부분매칭을 함께 건다.
 BLOCK_CLICK_SELECTORS = [
     'button:has-text("발행")',
     'a:has-text("발행")',
-    '.publish_btn__ounNb',
-    '[class*="publish"]',
     'button:has-text("예약")',
+    '[class*="publish_btn"]',
+    '[class*="reserve_btn"]',
+    '[class*="publish"]',
 ]
-# 발행 POST 엔드포인트 URL 조각(소문자 비교). page.route 로 abort 한다.
-#   ⚠️ Phase 0 에서 '저장'과 '발행'이 **같은 엔드포인트**를 쓰는 것으로 확인되면,
-#      이 목록을 비우고(저장까지 막히므로) DOM 가드(#2)와 사후 RSS 검증(#4)에만 의존해야 한다.
-#      그 경우 selectors.py 주석에 그 사실을 반드시 기록할 것.
+
+# 🟢 발행 POST 엔드포인트 — ✅ 실측으로 **저장과 분리 확인**(2026-08-11). 가드 #1 사용 가능.
+#      발행(공개)        POST blog.naver.com/RabbitWrite.naver          ← 차단 대상
+#      저장(자동저장)     POST blog.naver.com/RabbitAutoSaveWrite.naver
+#      저장(저장버튼)     POST blog.naver.com/RabbitTempPostWrite.naver
+#   ⚠️ 부분문자열 함정: 셋 다 "Write" 를 포함한다. 그래서 "write" 같은 조각으로 막으면 저장까지 죽는다.
+#      "rabbitwrite.naver" 는 AutoSaveWrite/TempPostWrite 의 부분문자열이 **아니므로** 유니크하다
+#      (rabbit 다음이 각각 autosave/temppost 라 연속 매칭이 성립하지 않음). 이 조각만 신뢰한다.
 BLOCK_URL_PARTS = [
-    "/blogpostpublish",
+    "rabbitwrite.naver",     # ✅ 실측 확정
+    # 아래는 미확인 추정(모바일/구버전 대비). 위 저장 엔드포인트와 겹치지 않는 것만 남긴다.
     "postwritepublish",
-    "rabbitwrite.naver",
     "publishpost",
 ]
-# 저장 요청으로 확인된 엔드포인트(차단 예외). Phase 0 --record 로 채운다.
-SAVE_URL_PARTS = []
+# 저장 요청(차단 예외). ⚠️ 정확한 철자를 외워 쓰지 말고 **모호하지 않은 접두어**만 쓴다 —
+#   'RabbitTempPostWrite' 를 손으로 옮기다 p 하나를 빠뜨리는 실수가 실제로 있었다(SUB1 회신).
+#   'rabbitautosave'/'rabbittemp' 는 발행 엔드포인트와 절대 겹치지 않으면서 오타 위험이 없다.
+SAVE_URL_PARTS = [
+    "rabbitautosave",
+    "rabbittemp",
+]
 
 # 저장 후 여기로 이동했다면 **발행된 것** — 최고 심각도 경보 + 중단.
 PUBLISHED_URL_PATTERNS = [

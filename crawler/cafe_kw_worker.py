@@ -417,6 +417,13 @@ HOST_TAG = "/m"
 # 차단 감지 시 백오프(초). 실측(2026-08-06): 차단 후 회복까지 212초·272초 → 150초 재시도는 거의 항상 실패했다.
 BLOCK_BACKOFF = 300
 
+# 차단으로 판정하기까지 필요한 '연속 실패' 횟수.
+#   ★ PAR=1 이라 청크=1건이다. 1회 실패로 차단이라 보면 일시 오류 하나가 스캔 전체를 죽인다
+#     (실측 #198: 11/120 에서 중단, 그때 CF 10분 롤링 170 — 한도 300의 57%로 차단이 아니었다).
+#   진짜 차단은 연속으로 실패하므로 3회면 충분히 잡힌다. 그 사이 오류는 errs 로 세고
+#   _err_budget(25건) 이 완성도를 따로 지킨다.
+BLOCK_STREAK = 3
+
 # 요청(스캔 1건) 사이 휴식(초). 회당 속도가 아니라 누적량이 차단을 부르므로 건 사이를 띄운다.
 #   회당 목표: 164조합 ≈ 3~4분(사장님 기준 10분 이내). 연속 처리 시에도 시간당 콜수를 낮춘다.
 REQ_REST = 45
@@ -744,7 +751,7 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
     cache = _cache_get_many([kw for _, kw, _, _ in kws])  # 배치 캐시(재스캔 즉시)
 
     found, scraped, errs, capped = [], 0, 0, False
-    dead_chunks, aborted = 0, False   # 차단 감지(청크 전멸)·중단 여부
+    err_streak, aborted = 0, False    # 연속 실패 횟수(차단 감지)·중단 여부
     lowyield = False                  # 저수익 조기 중단(이 업종은 지역형이 안 맞음)
     # ① 캐시 패스(네트워크 0) — 신뢰 캐시로 이미 결론난 건 즉시 채택/스킵하고, 남은 것만 라이브 대상으로.
     to_scan = []
@@ -804,19 +811,24 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
             results = list(ex.map(_scan_one, chunk)) if ex else [_scan_one(x) for x in chunk]
             # 청크가 통째로 실패 = 차단 신호. 백오프 후 1회 재시도하고, 그래도 전멸이면 중단한다.
             #   ★ 차단인데 '0건 완료'로 반환하면 고객에겐 '인기탭 없음'과 구별되지 않는다(조용한 미달).
+            #   ⚠️ 2026-08-10 과민반응 수정. 이 규칙은 PAR=6(병렬) 시절 '청크 6건 전멸'을 보려고 만든 건데,
+            #      지금 PAR=1 이라 '한 건 실패'가 곧 '청크 전멸'이 됐다. 그래서 일시적 오류 하나에
+            #      300초를 쉬고, 재시도도 실패하면 120조합짜리 스캔을 통째로 '차단'으로 죽였다.
+            #      실측 #198(2026-08-10 17:42): 11/120 에서 중단·결과 0건인데 CF 10분 롤링은 170
+            #      (한도 300의 57%)로 여유가 있었다 — 차단이 아니라 그냥 한 번 실패한 것이었다.
+            #      → 연속 BLOCK_STREAK 회 실패해야 차단으로 본다. 진짜 차단은 계속 실패하므로 여전히 잡힌다.
             if all(k == "err" for k, _ in results):
-                dead_chunks += 1
-                if dead_chunks == 1:
+                err_streak += 1
+                if err_streak >= BLOCK_STREAK:
+                    errs += len(results)               # 재시도 결과로 덮이기 전에 장부에 남긴다
                     time.sleep(BLOCK_BACKOFF)          # 실측: CF 차단은 100초 이상 지속 → 충분히 쉬고 재시도
                     results = list(ex.map(_scan_one, chunk)) if ex else [_scan_one(x) for x in chunk]
                     if all(k == "err" for k, _ in results):
                         aborted = True
                     else:
-                        dead_chunks = 0
-                else:
-                    aborted = True
+                        err_streak = 0
             else:
-                dead_chunks = 0
+                err_streak = 0
             _budget_note(len(results))      # 오류 포함 — 차단당한 콜도 CF 버킷은 똑같이 소모한다
             for kind, item in results:
                 if kind == "err":

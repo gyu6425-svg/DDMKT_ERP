@@ -191,6 +191,41 @@ def t7_no_cafe_import():
     check("T7 cafe_pub 모듈을 import 하지 않음(복사해 자립 — MERGE-SAFETY §3.2)", not bad, "; ".join(bad))
 
 
+# ── T8: 비우기가 제목 입력보다 먼저 ──────────────────────────────────────────
+#   블로그는 문서 전체가 단일 contenteditable 이라 비우기의 Ctrl+A 가 제목까지 선택한다.
+#   '제목 → 비우기' 순서면 방금 친 제목이 통째로 지워진다(2026-08-11 실측으로 드러난 버그).
+def t8_clear_before_title():
+    tree = _tree(SAVE_PY)
+    fn = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef) and n.name == "save_draft"), None)
+    if fn is None:
+        return check("T8 save_draft 가 제목보다 먼저 에디터를 비움", False, "save_draft 없음")
+    clear_lines = [n.lineno for n in ast.walk(fn)
+                   if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                   and n.func.id == "_clear_editor"]
+    title_lines = [n.lineno for n in ast.walk(fn)
+                   if isinstance(n, ast.Attribute) and n.attr == "SEL_TITLE"]
+    ok = bool(clear_lines) and bool(title_lines) and min(clear_lines) < min(title_lines)
+    check("T8 save_draft 가 제목 입력보다 먼저 _clear_editor 호출", ok,
+          f"clear@{clear_lines} title@{title_lines}")
+
+
+# ── T9: 본문 타이핑 타깃이 SEL_BODY (제목 혼입 방지) ─────────────────────────
+#   .se-content .se-text-paragraph 는 제목+본문 2개가 잡히고 first() 는 제목을 집는다.
+def t9_body_target():
+    sys.path.insert(0, HERE)
+    import blog_selectors as s2   # noqa: E402
+    has_body = bool(getattr(s2, "SEL_BODY", None))
+    check("T9a blog_selectors.SEL_BODY 정의됨", has_body)
+    # SEL_EDITOR 는 타이핑 타깃이면 안 된다 — 본문 포커스는 SEL_BODY 로.
+    src = _src(SAVE_PY)
+    body_focus = "sel.SEL_BODY" in src
+    check("T9b save_blog 이 SEL_BODY 로 본문 포커스", body_focus)
+    # 제목 셀렉터와 본문 셀렉터가 같으면 제목칸에 본문이 들어간다.
+    overlap = set(getattr(s2, "SEL_BODY", []) or []) & set(getattr(s2, "SEL_TITLE", []) or [])
+    check("T9c SEL_BODY 와 SEL_TITLE 이 겹치지 않음", not overlap, str(overlap))
+
+
 def main():
     print("[blog_pub] 발행 경로 부재 정적검사")
     t1_block_consts_not_actionable()
@@ -200,6 +235,8 @@ def main():
     t5_save_selectors_have_text()
     t6_only_saved_terminal()
     t7_no_cafe_import()
+    t8_clear_before_title()
+    t9_body_target()
     print(f"\n결과: 통과 {len(_passes)} · 실패 {len(_fails)}")
     if _fails:
         print("실패 항목: " + ", ".join(_fails))

@@ -312,7 +312,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [seed, setSeed] = useState('');
     const [relCands, setRelCands] = useState<RelatedCand[] | null>(null);
     const [relPicked, setRelPicked] = useState<Set<string>>(new Set());
-    const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('near');
+    // ★ 기본을 seed(씨앗어 포함)로 — near 기본이면 '창업'에 취업박람회·블로그·코인노래방 같은
+    //   무관어가 섞인다(사장님 2026-08-11). 실측 993개 중 씨앗 미포함이 592개였다. 넓히려면 버튼으로.
+    const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('seed');
     const [relRegional, setRelRegional] = useState<(KwResult & { sample?: string[] })[]>([]);
     // 캐시 우선 — 이미 판정된 인기탭. 스캔 0회로 즉시 나온다.
     const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
@@ -524,28 +526,52 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             }
             // ② 항상 라이브 지역 스캔 — 캐시 양성만 믿고 멈추면 prescan 음성·미스캔분 누락(워커 내부 배치캐시로 판정된 건 즉시).
             // 남은 키워드를 미리 등록해 둔다 — 중단 시 '아직 안 돈 것'을 한 번에 끌 수 있어야 한다.
+            // 키워드 하나 스캔. ★ 실패해도 예외를 밖으로 던지지 않는다 —
+            //   예전엔 여기서 예외가 튀어 남은 키워드가 통째로 안 돌았다(실측 #198 2026-08-10:
+            //   칩 7개 중 6번째 '무철거창업'이 죽으면서 뒤의 '동태탕 가맹'·'창업 상담'이 아예 실행 안 됨).
+            const scanOne = async (pk: string, tag: string): Promise<boolean> => {
+                const { id, error } = await enqueueRegionScan(pk, sidos.join(','), target);
+                if (error || !id) return false;
+                liveIdsRef.current = [...liveIdsRef.current, id];
+                savePendingScan(id, 'region', `${sidos.join('·')} × ${pk}`);
+                try {
+                    const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
+                    for (const r of result) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
+                    // 키워드 하나 끝날 때마다 저장 — 25개 중 3개째에서 새로고침해도 앞 2개 결과가 남는다.
+                    setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+                    savePendingProgress([], merged);
+                    return true;
+                } catch {
+                    return false;   // 이 키워드만 실패 — 나머지는 계속 간다
+                }
+            };
+            const failed: string[] = [];
             for (let i = 0; i < kws.length; i++) {
                 const pk = kws[i];
                 if (stopRef.current) break;                       // 중단 눌림
                 // ★ 화면에서 X 로 뺀 제품키워드는 건너뛴다 — 스캔이 실제로 줄어든다.
                 const stillWanted = (productKws.length ? productKws : kws).includes(pk);
                 if (!stillWanted) { setScanNote(`${pk} 건너뜀(제외됨)`); continue; }
-                const { id, error } = await enqueueRegionScan(pk, sidos.join(','), target);
-                if (error || !id) continue;
-                liveIdsRef.current = [...liveIdsRef.current, id];
-                const tag = kws.length > 1 ? ` (${i + 1}/${kws.length})` : '';
-                savePendingScan(id, 'region', `${sidos.join('·')} × ${pk}`);
-                const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
-                for (const r of result) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
-                // 키워드 하나 끝날 때마다 저장 — 25개 중 3개째에서 새로고침해도 앞 2개 결과가 남는다.
-                setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
-                savePendingProgress([], merged);
+                if (!await scanOne(pk, kws.length > 1 ? ` (${i + 1}/${kws.length})` : '')) {
+                    failed.push(pk);
+                    setScanNote(`${pk} 실패 — 나머지 계속 진행합니다`);
+                }
             }
+            // 실패분만 한 번 더 — 일시 오류였다면 여기서 붙는다(이미 판정한 조합은 캐시라 금방 지나간다).
+            const stillFailed: string[] = [];
+            for (let i = 0; i < failed.length; i++) {
+                if (stopRef.current) break;
+                const pk = failed[i];
+                if (!await scanOne(pk, ` 재시도 (${i + 1}/${failed.length})`)) stillFailed.push(pk);
+            }
+            const failNote = stillFailed.length
+                ? ` ⚠ ${stillFailed.join(', ')} 은(는) 두 번 다 실패했습니다 — 그 키워드만 나중에 다시 돌려주세요.` : '';
             if (!merged.length) {
-                setKwErr(`인기탭 확인된 키워드가 없습니다 — ${sidos.join('·')} × [${kws.join(', ')}] (인기탭 없음)`);
+                setKwErr(`인기탭 확인된 키워드가 없습니다 — ${sidos.join('·')} × [${kws.join(', ')}] (인기탭 없음)${failNote}`);
                 return;
             }
             setKwResult(merged.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+            if (failNote) setKwErr(`${merged.length}건 찾았습니다.${failNote}`);
         } catch (e) {
             setKwErr(e instanceof Error ? e.message : '조회 실패');
         } finally {
