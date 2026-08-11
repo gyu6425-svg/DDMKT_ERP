@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 
@@ -96,6 +96,64 @@ export function CafeKeywordFinder({
         seededRef.current = true;
         setKwPicked(initialPicked.map((p) => ({ keyword: p.keyword, volume: p.volume ?? undefined, theme: p.theme ?? undefined, cafes: [] })));
     }, [initialPicked]);
+    // ── 이미 검증된 제품 ─────────────────────────────────────────────────────
+    //   판정이 끝난 것만 세므로 스캔 0콜. 고르면 그 제품의 지역 조합을 캐시에서 바로 꺼낸다.
+    //   실측 2026-08-11: 검증된 제품 112종인데 씨앗 '창업'으로 닿는 건 19종뿐이었다.
+    const [proven, setProven] = useState<ProvenProduct[] | null>(null);
+    const [provenOpen, setProvenOpen] = useState(false);
+    const [provenQ, setProvenQ] = useState('');
+    const [provenBusy, setProvenBusy] = useState('');
+    const openProven = async () => {
+        setProvenOpen((o) => !o);
+        if (proven) return;
+        setProvenBusy('불러오는 중…');
+        try { setProven(await getProvenProducts()); } catch { setProven([]); }
+        setProvenBusy('');
+    };
+    // 제품 하나를 고르면 그 제품의 '지역 × 제품' 양성 조합을 캐시에서 꺼내 결과로 올린다(스캔 0콜).
+    const pullProven = async (prod: string) => {
+        setProvenBusy(`${prod} 불러오는 중…`);
+        try {
+            const hits = await searchCachedPopular([prod.replace(/\s/g, '')], 500);
+            const rows = hits
+                .filter((h) => h.keyword.replace(/\s/g, '').endsWith(prod.replace(/\s/g, '')))
+                .map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined }));
+            if (!rows.length) { setKwErr(`${prod} — 캐시에서 지역 조합을 찾지 못했습니다.`); return; }
+            pushLive(rows);
+            setKeyword(prod);
+            setKwErr(`${prod} — 이미 확인된 ${rows.length}건을 스캔 없이 불러왔습니다. 더 찾으려면 지역을 고르고 ‘지역 키워드 생성’.`);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '불러오기 실패');
+        } finally { setProvenBusy(''); }
+    };
+
+    // ── 씨앗 발굴기 ──────────────────────────────────────────────────────────
+    //   씨앗 하나로는 못 닿는다. 실측 2026-08-11: '창업' 993개 → 씨앗 8개 3,680개(3.7배).
+    //   '무인창업' 하나가 767개를 새로 물어왔다. 그걸 사람이 감으로 고르지 말고 실측으로 고른다.
+    const [seedCands, setSeedCands] = useState<SeedCand[] | null>(null);
+    const [seedPick, setSeedPick] = useState<Set<string>>(new Set());
+    const [seedBusy, setSeedBusy] = useState('');
+    const runDiscover = async () => {
+        const s = seed.trim();
+        if (!s) { setKwErr('먼저 씨앗을 하나 넣으세요(예: 창업).'); return; }
+        setKwErr(''); setSeedCands(null); setSeedPick(new Set()); setSeedBusy('시작…');
+        try {
+            const list = await discoverSeeds(s, (n) => setSeedBusy(n));
+            setSeedCands(list);
+            // 새로 물어오는 게 100개 이상인 것만 기본 체크 — 겹치기만 하는 후보는 스캔만 늘린다.
+            setSeedPick(new Set(list.filter((c) => c.fresh >= 100).map((c) => c.seed)));
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '씨앗 발굴 실패');
+        } finally { setSeedBusy(''); }
+    };
+    const applySeeds = () => {
+        const cur = seed.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+        const next = [...new Set([...cur, ...seedPick])];
+        setSeed(next.join(', '));
+        setSeedCands(null);
+        setKwErr(`씨앗 ${next.length}개로 확장했습니다 — ‘연관어 펼치기’를 눌러 주세요.`);
+    };
+
     const extraKey = (extraUsed ?? []).join('|');
     useEffect(() => {
         let alive = true;
@@ -664,10 +722,78 @@ export function CafeKeywordFinder({
                             onChange={(e) => setSeed(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void runExpand(); } }}
                             placeholder="씨앗 키워드 — 쉼표로 여러 개 (예: 창업, 프랜차이즈, 가맹)" />
+                        {/* 씨앗 발굴 — 씨앗 하나로는 못 닿는다. 실측: '창업' 993 → 씨앗 8개 3,680(3.7배). */}
+                        <button type="button" onClick={() => void runDiscover()} disabled={!!seedBusy || !!extracting || kwLoading}
+                            className="h-10 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50"
+                            title="이 씨앗에서 출발해 '씨앗으로 쓸 만한 다른 키워드'를 찾아 줍니다. 인기탭 스캔은 안 합니다.">
+                            {seedBusy ? '발굴 중…' : '🔎 씨앗 발굴'}
+                        </button>
                         <button type="button" onClick={() => void runExpand()} disabled={!!extracting || kwLoading}
                             className="h-10 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">
                             {extracting ? '조회 중…' : '① 연관어 펼치기'}
                         </button>
+                    </div>
+                    {seedBusy ? <p className="m-0 text-[11px] font-semibold text-[#6d28d9]">🔎 {seedBusy} <span className="font-normal text-[#94a3b8]">— 검색광고 API라 인기탭 차단 예산과 무관합니다.</span></p> : null}
+                    {/* 발굴 결과 — '새로 물어오는 개수'는 실제로 조회해서 잰 값이다(추측 아님). */}
+                    {seedCands?.length ? (
+                        <div className="rounded-md border border-[#c4b5fd] bg-[#faf5ff] p-2">
+                            <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
+                                <span>씨앗 후보 {seedCands.length}개 — 선택 {seedPick.size}개</span>
+                                <span className="font-normal text-[#94a3b8]">신규 = 이 씨앗을 더하면 새로 들어오는 연관어 수(실측)</span>
+                                <button type="button" onClick={applySeeds} disabled={!seedPick.size}
+                                    className="ml-auto rounded bg-[#6d28d9] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+                                    선택한 {seedPick.size}개를 씨앗에 추가 →
+                                </button>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {seedCands.map((c) => {
+                                    const on = seedPick.has(c.seed);
+                                    return (
+                                        <button key={c.seed} type="button"
+                                            onClick={() => { const n = new Set(seedPick); if (on) n.delete(c.seed); else n.add(c.seed); setSeedPick(n); }}
+                                            className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold ${on ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#5b21b6]'}`}>
+                                            {on ? '✓ ' : '+ '}{c.seed}
+                                            <span className={`ml-1 text-[10px] font-bold ${on ? 'text-[#ddd6fe]' : 'text-[#16a34a]'}`}>신규 {c.fresh.toLocaleString()}</span>
+                                            {/* 캐시에서 이미 지역형으로 검증된 제품 = 수확이 보장된 씨앗 */}
+                                            {c.proven ? <span className={`ml-1 text-[10px] ${on ? 'text-[#ddd6fe]' : 'text-[#b45309]'}`}>✔검증 {c.proven}지역</span> : null}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="m-0 mt-1 text-[11px] text-[#a78bfa]">
+                                ✔검증 = 캐시에 이미 지역형 인기탭이 쌓여 있는 제품입니다(수확이 보장됩니다). 신규 100 미만은 겹치기만 해서 기본 해제해 뒀습니다.
+                            </p>
+                        </div>
+                    ) : null}
+                    {/* 이미 검증된 제품 — 판정이 끝난 것만 세므로 스캔 0콜. 고르면 캐시에서 바로 꺼낸다.
+                        실측 2026-08-11: 검증 제품 112종인데 씨앗 '창업'으로 닿는 건 19종뿐이었다. */}
+                    <div className="rounded-md border border-[#bbf7d0] bg-[#f0fdf4] p-2">
+                        <button type="button" onClick={() => void openProven()}
+                            className="flex w-full items-center gap-2 text-[12px] font-bold text-[#15803d]">
+                            <span className={`text-[9px] transition-transform ${provenOpen ? 'rotate-90' : ''}`}>▶</span>
+                            ✔ 이미 검증된 제품{proven ? ` ${proven.length}종` : ''} — 스캔 없이 바로 꺼내기
+                            <span className="font-normal text-[#86efac]">{provenBusy || '판정이 끝나 캐시에 쌓인 것들입니다(CF 0콜)'}</span>
+                        </button>
+                        {provenOpen ? (
+                            <div className="mt-2">
+                                <input className={`${inputCls} mb-1.5 h-8 text-[12px]`} value={provenQ}
+                                    onChange={(e) => setProvenQ(e.target.value)} placeholder="제품 검색 (예: 창업 · 청소 · 누수)" />
+                                <div className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
+                                    {(proven ?? [])
+                                        .filter((p) => !provenQ.trim() || p.product.includes(provenQ.trim()))
+                                        .slice(0, 120)
+                                        .map((p) => (
+                                            <button key={p.product} type="button" onClick={() => void pullProven(p.product)}
+                                                disabled={!!provenBusy}
+                                                className="rounded-full border border-[#bbf7d0] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#15803d] disabled:opacity-50">
+                                                {p.product}
+                                                <span className="ml-1 text-[10px] font-bold text-[#16a34a]">{p.regions}지역</span>
+                                            </button>
+                                        ))}
+                                    {proven && !proven.length ? <span className="text-[11px] text-[#86efac]">아직 없습니다.</span> : null}
+                                </div>
+                            </div>
+                        ) : null}
                     </div>
                     {/* 실측(2026-08-06, 30조합)으로 확인된 패턴 — 미리 알려야 "5만 검색인데 왜 없냐"는 오해가 없다. */}
                     <p className="m-0 text-[11px] text-[#7c3aed]">

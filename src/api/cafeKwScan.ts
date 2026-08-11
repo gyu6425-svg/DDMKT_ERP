@@ -384,6 +384,129 @@ export function relatedStems(seed: string, related: { kw: string }[], n = 8): st
     return [seed.trim(), ...top];
 }
 
+// ── 이미 검증된 제품키워드 ───────────────────────────────────────────────────
+//   ★ 왜: 씨앗 하나로 닿는 범위가 좁다. 실측(2026-08-11) 캐시에 '지역형으로 판명이 끝난' 제품이
+//     112종 쌓여 있는데 씨앗 '창업' 하나로 닿는 건 19종뿐이었다. 나머지는 있는 줄도 모르고 지나간다.
+//     ('한식'은 40개 지역에서 이미 양성인데 사장님이 손으로 넣어 찾으셨다.)
+//   판정이 끝난 것만 세므로 스캔 0콜이다. 고르면 그 제품의 지역 조합을 캐시에서 바로 꺼낸다.
+export type ProvenProduct = { product: string; regions: number; volume: number };
+
+let _provenCache: ProvenProduct[] | null = null;
+
+export async function getProvenProducts(): Promise<ProvenProduct[]> {
+    if (_provenCache) return _provenCache;
+    // ① 지역 토큰 — 키워드 앞머리가 지역인지 보려고. PostgREST 1000행 상한이라 페이지네이션.
+    const toks = new Set<string>();
+    for (let off = 0; ; off += 1000) {
+        const { data, error } = await supabase.from('cafe_region_token')
+            .select('token').eq('active', true).range(off, off + 999);
+        if (error) break;
+        const page = (data ?? []) as { token: string }[];
+        page.forEach((t) => t.token && toks.add(t.token));
+        if (page.length < 1000) break;
+    }
+    // ② 양성 판정만 — verdict 조건을 DB 로 내려야 상한 1000칸을 오탐으로 안 채운다.
+    const agg = new Map<string, { regions: number; volume: number }>();
+    for (let off = 0; ; off += 1000) {
+        const { data, error } = await supabase.from('cafe_kw_targets')
+            .select('keyword,volume').eq('has_section', true)
+            .or('verdict.like.카페분산*,verdict.like.블로그섹션*')
+            .range(off, off + 999);
+        if (error) break;
+        const page = (data ?? []) as { keyword: string; volume: number | null }[];
+        for (const r of page) {
+            const parts = (r.keyword || '').trim().split(/\s+/);
+            if (parts.length < 2 || !toks.has(parts[0])) continue;   // 지역이 안 붙은 건 지역형 근거가 아니다
+            const prod = parts.slice(1).join(' ');
+            const cur = agg.get(prod) || { regions: 0, volume: 0 };
+            cur.regions += 1;
+            cur.volume = Math.max(cur.volume, r.volume ?? 0);
+            agg.set(prod, cur);
+        }
+        if (page.length < 1000) break;
+    }
+    _provenCache = [...agg.entries()]
+        .map(([product, v]) => ({ product, regions: v.regions, volume: v.volume }))
+        .sort((a, b) => b.regions - a.regions);
+    return _provenCache;
+}
+
+// ── 씨앗 발굴기 ──────────────────────────────────────────────────────────────
+//   ★ 왜: 씨앗 하나로 닿는 범위가 좁다. 실측(2026-08-11) 씨앗 '창업' 연관어 993개인데,
+//     씨앗을 8개로 늘리니 3,680개(3.7배)가 됐다. '무인창업' 하나가 767개를 새로 물어왔고
+//     '상권분석'이 663개였다 — 씨앗 하나로는 절대 못 닿는 영역이다.
+//   ★ 비용: 연관어 조회는 네이버 '검색광고' API 라 카페 인기탭을 긁는 CF 예산과 완전히 별개다.
+//     차단 위험이 없어 마음껏 넓혀도 된다. 비용은 그 뒤 스캔 단계에서만 나고 거긴 캐시가 걸러준다.
+//   후보 고르는 법: ① 캐시에서 이미 지역형으로 검증된 제품(수확이 보장됨) ② 검색량 상위.
+//     그리고 각 후보를 실제로 조회해 '새로 물어오는 개수(fresh)'를 재서 순위를 매긴다 —
+//     추측이 아니라 실측이라, 이름만 그럴싸하고 겹치기만 하는 후보가 위로 안 올라온다.
+export type SeedCand = { seed: string; total: number; fresh: number; proven: number };
+
+export async function discoverSeeds(
+    seed: string, onProgress?: (note: string) => void,
+): Promise<SeedCand[]> {
+    const base = seed.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+    if (!base.length) return [];
+    const baseSet = new Set<string>();
+    const vol = new Map<string, number>();
+    for (const s of base) {
+        onProgress?.(`"${s}" 연관어 조회 중…`);
+        const r = await fetch(`/api/naver-keywords?q=${encodeURIComponent(s)}`);
+        const j = await r.json().catch(() => ({}));
+        for (const x of ((j as { keywords?: { keyword?: string; total?: number }[] }).keywords ?? [])) {
+            const k = String(x.keyword ?? '').replace(/\s/g, '');
+            if (!k) continue;
+            baseSet.add(k);
+            vol.set(k, Math.max(vol.get(k) ?? 0, Number(x.total ?? 0)));
+        }
+    }
+    if (!baseSet.size) throw new Error('연관어를 찾지 못했습니다.');
+
+    // 후보 추리기 — 이미 넣은 씨앗과 잡음은 뺀다.
+    const inBase = new Set(base.map((s) => s.replace(/\s/g, '')));
+    const NOISE = ['비용', '가격', '요금', '후기', '대출', '지원금', '자금', '지원', '정보', '순위',
+        '취업', '구직', '채용', '연봉', '자격증', '알바'];
+    const usable = (k: string) => k.length >= 2 && k.length <= 10 && !inBase.has(k)
+        && !NOISE.some((w) => k.includes(w)) && /[가-힣]/.test(k);
+
+    // ① 캐시에서 이미 지역형으로 검증된 제품이 연관어에 있으면 최우선 — 수확이 보장된 씨앗이다.
+    let provenSet = new Map<string, number>();
+    try {
+        const pv = await getProvenProducts();
+        provenSet = new Map(pv.map((p) => [p.product.replace(/\s/g, ''), p.regions]));
+    } catch { /* 캐시 조회 실패해도 ②로 진행 */ }
+    const provenPick = [...baseSet].filter((k) => usable(k) && provenSet.has(k))
+        .sort((a, b) => (provenSet.get(b) ?? 0) - (provenSet.get(a) ?? 0)).slice(0, 6);
+
+    // ② 검색량 상위 — 같은 어간이 겹치지 않게 하나씩만.
+    const takenStem = new Set(provenPick.map((k) => k.slice(0, 2)));
+    const volPick: string[] = [];
+    for (const k of [...baseSet].filter(usable).sort((a, b) => (vol.get(b) ?? 0) - (vol.get(a) ?? 0))) {
+        const st = k.slice(0, 2);
+        if (takenStem.has(st)) continue;
+        takenStem.add(st);
+        volPick.push(k);
+        if (volPick.length >= 8) break;
+    }
+
+    // ③ 후보마다 실제로 조회해 '새로 물어오는 개수'를 잰다.
+    const cands = [...new Set([...provenPick, ...volPick])];
+    const out: SeedCand[] = [];
+    for (let i = 0; i < cands.length; i++) {
+        const c = cands[i];
+        onProgress?.(`후보 확인 ${i + 1}/${cands.length} — ${c}`);
+        try {
+            const r = await fetch(`/api/naver-keywords?q=${encodeURIComponent(c)}`);
+            const j = await r.json().catch(() => ({}));
+            const ks = ((j as { keywords?: { keyword?: string }[] }).keywords ?? [])
+                .map((x) => String(x.keyword ?? '').replace(/\s/g, '')).filter(Boolean);
+            const fresh = ks.filter((k) => !baseSet.has(k)).length;
+            out.push({ fresh, proven: provenSet.get(c) ?? 0, seed: c, total: vol.get(c) ?? 0 });
+        } catch { /* 이 후보만 실패 — 나머지 계속 */ }
+    }
+    return out.sort((a, b) => b.fresh - a.fresh);
+}
+
 export async function searchCachedPopular(terms: string[], limit = 200): Promise<CachedHit[]> {
     const words = [...new Set(terms.map((t) => t.trim().replace(/\s+/g, '')).filter((t) => t.length >= 2))];
     if (!words.length) return [];
