@@ -174,6 +174,13 @@ export function CafeKeywordFinder({
 
     const togglePick = (k: KwResult) =>
         setKwPicked((prev) => (prev.some((p) => p.keyword === k.keyword) ? prev.filter((p) => p.keyword !== k.keyword) : [...prev, k]));
+    // 여러 건을 한 번에 담는다 — 확인된 조합이 수십 개라 하나씩 누를 수 없다(사장님 지시 2026-08-11).
+    //   이미 담긴 건 건너뛴다(토글이 아니라 '추가'여야 전부 담기가 생각대로 동작한다).
+    const addPicks = (rows: KwResult[]) =>
+        setKwPicked((prev) => {
+            const have = new Set(prev.map((p) => p.keyword));
+            return [...prev, ...rows.filter((r) => !have.has(r.keyword))];
+        });
     const hideKw = (kw: string) => {
         setKwHidden((prev) => (prev.includes(kw) ? prev : [...prev, kw]));
         setKwPicked((prev) => prev.filter((p) => p.keyword !== kw));
@@ -937,6 +944,20 @@ export function CafeKeywordFinder({
                                     {kwLoading ? '스캔 중…' : `전부 지역 스캔 (${regionalCands.length}개) →`}
                                 </button>
                             </div>
+                            {/* 확인된 조합이 수십 개라 하나씩 누를 수 없다 — 한 번에 담는다. */}
+                            {(() => {
+                                const all = regionalCands.flatMap((r) => (r.sample ?? []).map((s) => ({
+                                    cafes: [] as KwResult['cafes'], keyword: s, theme: r.theme, volume: r.volume,
+                                })));
+                                const left = all.filter((r) => !kwPicked.some((p) => p.keyword === r.keyword));
+                                if (!all.length) return null;
+                                return (
+                                    <button type="button" onClick={() => addPicks(all)} disabled={!left.length}
+                                        className="mb-1.5 rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-40">
+                                        {left.length ? `확인된 ${left.length}건 전부 담기` : `전부 담김 (${all.length}건)`}
+                                    </button>
+                                );
+                            })()}
                             {/* 지역 스캔에는 시도 선택이 필요하다 — 연관 모드엔 없으므로 여기서 고르게 한다. */}
                             <div className="mb-1.5 flex flex-wrap items-center gap-1">
                                 <span className="mr-1 text-[11px] font-semibold text-[#a16207]">지역 범위</span>
@@ -961,7 +982,11 @@ export function CafeKeywordFinder({
                                             눌러서 담으면 전수 스캔을 안 돌려도 그만큼은 확보된다(사장님 지시 2026-08-11). */}
                                         {r.sample?.length ? (
                                             <div className="mt-1 flex flex-wrap items-center gap-1">
-                                                <span className="text-[11px] font-semibold text-[#16a34a]">확인됨 {r.sample.length}건 — 눌러서 담기</span>
+                                                <button type="button"
+                                                    onClick={() => addPicks((r.sample ?? []).map((s) => ({ cafes: [], keyword: s, theme: r.theme, volume: r.volume })))}
+                                                    className="rounded bg-[#16a34a] px-2 py-0.5 text-[11px] font-bold text-white">
+                                                    확인됨 {r.sample.length}건 전부 담기
+                                                </button>
                                                 {r.sample.map((s) => {
                                                     const on = kwPicked.some((p) => p.keyword === s);
                                                     return (

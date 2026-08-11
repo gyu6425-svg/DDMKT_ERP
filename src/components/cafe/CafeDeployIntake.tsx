@@ -523,6 +523,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [placeDetail, setPlaceDetail] = useState(''); // 키워드형 '상세 정보 입력' — 플레이스에 메뉴/정보 없을 때 붙여넣기(비고 [상세정보]로 저장)
     const togglePick = (k: KwResult) =>
         setKwPicked((prev) => (prev.some((p) => p.keyword === k.keyword) ? prev.filter((p) => p.keyword !== k.keyword) : [...prev, k]));
+    // 여러 건을 한 번에 담는다 — 확인된 조합이 수십 개라 하나씩 누를 수 없다(사장님 지시 2026-08-11).
+    //   이미 담긴 건 건너뛴다(토글이 아니라 '추가'여야 전부 담기가 생각대로 동작한다).
+    const addPicks = (rows: KwResult[]) =>
+        setKwPicked((prev) => {
+            const have = new Set(prev.map((p) => p.keyword));
+            return [...prev, ...rows.filter((r) => !have.has(r.keyword))];
+        });
     const hideKw = (kw: string) => {
         setKwHidden((prev) => (prev.includes(kw) ? prev : [...prev, kw]));
         setKwPicked((prev) => prev.filter((p) => p.keyword !== kw)); // 숨기면 선택도 해제
@@ -1224,8 +1231,22 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             ) : null}
                             {relRegional.length ? (
                                 <div className="mt-2 rounded-md border border-[#f59e0b] bg-[#fffbeb] p-2">
-                                    <div className="mb-1 text-[12px] font-bold text-[#b45309]">
-                                        📍 지역을 붙여야 나오는 키워드 {relRegional.length}건
+                                    <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#b45309]">
+                                        <span>📍 지역을 붙여야 나오는 키워드 {relRegional.length}건</span>
+                                        {/* 확인된 조합이 수십 개라 하나씩 누를 수 없다 — 한 번에 담는다. */}
+                                        {(() => {
+                                            const all = relRegional.flatMap((r) => (r.sample ?? []).map((s) => ({
+                                                cafes: [] as KwResult['cafes'], keyword: s, theme: r.theme, volume: r.volume,
+                                            })));
+                                            const left = all.filter((r) => !kwPicked.some((p) => p.keyword === r.keyword));
+                                            if (!all.length) return null;
+                                            return (
+                                                <button type="button" onClick={() => addPicks(all)} disabled={!left.length}
+                                                    className="ml-auto rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-40">
+                                                    {left.length ? `확인된 ${left.length}건 전부 담기` : `전부 담김 (${all.length}건)`}
+                                                </button>
+                                            );
+                                        })()}
                                     </div>
                                     {relRegional.map((r) => (
                                         <div key={r.keyword} className="rounded border border-[#fde68a] bg-white px-2 py-1.5 text-[12px]">
@@ -1237,7 +1258,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                 눌러서 담으면 전수 스캔을 안 돌려도 그만큼은 확보된다(사장님 지시 2026-08-11). */}
                                             {r.sample?.length ? (
                                                 <div className="mt-1 flex flex-wrap items-center gap-1">
-                                                    <span className="text-[11px] font-semibold text-[#16a34a]">확인됨 {r.sample.length}건 — 눌러서 담기</span>
+                                                    <button type="button"
+                                                        onClick={() => addPicks((r.sample ?? []).map((s) => ({ cafes: [], keyword: s, theme: r.theme, volume: r.volume })))}
+                                                        className="rounded bg-[#16a34a] px-2 py-0.5 text-[11px] font-bold text-white">
+                                                        확인됨 {r.sample.length}건 전부 담기
+                                                    </button>
                                                     {r.sample.map((s) => {
                                                         const on = kwPicked.some((p) => p.keyword === s);
                                                         return (
