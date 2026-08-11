@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 
@@ -153,6 +153,29 @@ export function CafeKeywordFinder({
             setKwErr(e instanceof Error ? e.message : '씨앗 발굴 실패');
         } finally { setSeedBusy(''); }
     };
+    // 목표 채우기 — 지역형 후보들을 순서대로 끝까지 파서 목표 건수를 채운다(워커 process_chain).
+    //   ★ 사장님 설계: 첫 키워드에서 30개를 채우면 오히려 좋다 — 제품 우선으로 깊게 판다.
+    //     각 키워드의 '단독(지역 없음)' 판정도 맨 앞에서 같이 본다.
+    const runChain = async (products: string[], target = FIRST_TARGET) => {
+        if (!products.length) { setKwErr('먼저 키워드가 있어야 합니다.'); return; }
+        if (!regionSel.length) { setKwErr('지역 범위를 하나 이상 고르세요.'); return; }
+        setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…');
+        clearPendingScan();
+        try {
+            const { id, error } = await enqueueChainScan(products, regionSel.join(','), target);
+            if (error || !id) throw new Error(error?.message || '등록 실패');
+            savePendingScan(id, 'chain', `목표 ${target}건 · ${products.slice(0, 3).join(', ')}${products.length > 3 ? ` 외 ${products.length - 3}` : ''}`);
+            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
+            savePendingProgress([], result);
+            if (!result.length) { setKwErr('인기탭이 확인된 키워드가 없습니다.'); return; }
+            setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+        } catch (e) {
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '조회 실패');
+        } finally { setKwLoading(false); setScanNote(''); }
+    };
+
     const applySeeds = () => {
         const cur = seed.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
         const next = [...new Set([...cur, ...seedPick])];
@@ -958,6 +981,20 @@ export function CafeKeywordFinder({
                                     </button>
                                 );
                             })()}
+                            {/* 목표 채우기 — 후보를 순서대로 끝까지 파서 30건을 채우면 멈춘다.
+                                하나씩 '지역 전수 스캔'을 누를 필요가 없다(사장님 설계 2026-08-11). */}
+                            <div className="mb-1.5 flex flex-wrap items-center gap-2 rounded-md border border-[#16a34a] bg-[#f0fdf4] px-2 py-1.5">
+                                <span className="text-[12px] font-bold text-[#15803d]">🎯 {FIRST_TARGET}건 채울 때까지 알아서 찾기</span>
+                                <span className="text-[11px] text-[#4d7c0f]">
+                                    위 {regionalCands.length}개를 순서대로 끝까지 팝니다 — 단독 + 전 지역({regionSel.join('·') || '지역 선택 필요'}).
+                                    첫 키워드에서 다 채우면 거기서 멈춥니다.
+                                </span>
+                                <button type="button" disabled={kwLoading || dongLoading || !regionSel.length}
+                                    onClick={() => void runChain(regionalCands.map((r) => r.keyword))}
+                                    className="ml-auto shrink-0 rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+                                    {kwLoading ? '찾는 중…' : `시작 →`}
+                                </button>
+                            </div>
                             {/* 지역 스캔에는 시도 선택이 필요하다 — 연관 모드엔 없으므로 여기서 고르게 한다. */}
                             <div className="mb-1.5 flex flex-wrap items-center gap-1">
                                 <span className="mr-1 text-[11px] font-semibold text-[#a16207]">지역 범위</span>

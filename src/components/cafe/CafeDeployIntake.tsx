@@ -14,7 +14,7 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { useAuth } from '../../hooks/useAuth';
@@ -354,6 +354,30 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setKwErr(e instanceof Error ? e.message : '씨앗 발굴 실패');
         } finally { setSeedBusy(''); }
     };
+    // 목표 채우기 — 후보를 순서대로 끝까지 파서 목표 건수를 채운다(워커 process_chain).
+    //   ★ 사장님 설계: 첫 키워드에서 다 채우면 오히려 좋다 — 제품 우선으로 깊게 판다.
+    //     각 키워드의 '단독(지역 없음)' 판정도 맨 앞에서 같이 본다.
+    const runChain = async (products: string[], target = FIRST_TARGET) => {
+        if (!products.length) { setKwErr('먼저 키워드가 있어야 합니다.'); return; }
+        const sidos = form.region_sets || [];
+        if (!sidos.length) { setKwErr('위에서 지역을 하나 이상 고르세요.'); return; }
+        setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…');
+        clearPendingScan();
+        try {
+            const { id, error } = await enqueueChainScan(products, sidos.join(','), target);
+            if (error || !id) throw new Error(error?.message || '등록 실패');
+            savePendingScan(id, 'chain', `목표 ${target}건 · ${products.slice(0, 3).join(', ')}${products.length > 3 ? ` 외 ${products.length - 3}` : ''}`);
+            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
+            savePendingProgress([], result);
+            if (!result.length) { setKwErr('인기탭이 확인된 키워드가 없습니다.'); return; }
+            setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+        } catch (e) {
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '조회 실패');
+        } finally { setKwLoading(false); setScanNote(''); }
+    };
+
     const applySeeds = () => {
         const cur = seed.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
         const next = [...new Set([...cur, ...seedPick])];
@@ -1279,8 +1303,21 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     ))}
                                     <p className="mb-0 mt-1 text-[11px] text-[#a16207]">
                                         초록 칩은 <b>이미 인기탭이 확인된 키워드</b>입니다 — 눌러서 바로 담으세요.
-                                        더 찾으시려면 <b>지역형</b>으로 접수해 주세요(위에서 ‘지역형’ 선택 후 제품키워드로 입력) — 찔러본 4곳 말고 전 지역을 봅니다.
                                     </p>
+                                    {/* 목표 채우기 — 후보를 순서대로 끝까지 파서 목표 건수를 채우면 멈춘다.
+                                        하나씩 지역형으로 다시 접수할 필요가 없다(사장님 설계 2026-08-11). */}
+                                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[#16a34a] bg-[#f0fdf4] px-2 py-1.5">
+                                        <span className="text-[12px] font-bold text-[#15803d]">🎯 {FIRST_TARGET}건 채울 때까지 알아서 찾기</span>
+                                        <span className="text-[11px] text-[#4d7c0f]">
+                                            위 {relRegional.length}개를 순서대로 끝까지 팝니다 — 키워드 단독 + 전 지역
+                                            ({(form.region_sets || []).join('·') || '위에서 지역을 골라 주세요'}).
+                                        </span>
+                                        <button type="button" disabled={kwLoading || !(form.region_sets || []).length}
+                                            onClick={() => void runChain(relRegional.map((r) => r.keyword))}
+                                            className="ml-auto shrink-0 rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+                                            {kwLoading ? '찾는 중…' : '시작 →'}
+                                        </button>
+                                    </div>
                                 </div>
                             ) : null}
                         </div>

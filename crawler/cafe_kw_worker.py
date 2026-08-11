@@ -1168,6 +1168,57 @@ def process_reviews(req, payload):
     print(f"[{_ts()}][{req['id']}] 리뷰수집 {info.get('name')} — {len(blob)}자", flush=True)
 
 
+def process_chain(req, payload):
+    """목표 채우기 — 키워드를 하나씩 끝까지 파고, 목표(target)를 채우면 즉시 멈춘다.
+       payload = JSON {"products": ["여자창업", ...], "regions": "서울,경기,인천"}
+
+       ★ 사장님 설계(2026-08-11). 기존 경로와 두 군데가 다르다.
+         ① 제품 우선 순회 — 한 키워드의 전 지역을 다 보고 나서 다음 키워드로 간다.
+            (process_menu 는 '지역 우선'이라 제품이 섞인다. 조기종료 때 특정 제품에 안 몰리게 한
+             설계였는데, 여기선 반대로 '첫 키워드에서 30개를 채우면 오히려 좋다'가 요구사항이다.)
+         ② 단독 판정을 각 키워드 맨 앞에 넣는다 — 지역을 안 붙여도 인기탭이면 그것부터 챙긴다.
+            기존 연관형은 '전국에서 되면 지역은 안 붙인다'라 둘 다 되는 경우를 못 봤다.
+            캐시로는 검증이 안 된다(해본 적이 없어 조합 자체가 없다). 제품당 몇 콜이라 싸다.
+       조기종료·차단감지·캐시규약은 _run_scan 공통이라 다른 경로와 갈리지 않는다."""
+    try:
+        d = json.loads(payload or "{}")
+    except Exception:
+        return _finish(req["id"], "failed", note="목표채우기 payload 파싱 실패")
+    products = [str(x).strip() for x in (d.get("products") or []) if str(x).strip()]
+    if not products:
+        return _finish(req["id"], "failed", note="키워드 없음 — 1개 이상 선택하세요")
+    sidos = [s for s in ((d.get("regions") or req.get("regions") or "")).replace(" ", "").split(",") if s]
+    if not sidos:
+        sidos = ["서울", "경기", "인천"]
+    dt = (req.get("deploy_type") or "")
+    include_dong = ("동" in dt) or ("dong" in dt.lower())
+    tokens = _region_tokens_for(sidos, include_dong)
+    if not tokens:
+        return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
+    known = set(tokens)
+
+    kws, seen = [], set()
+    for prod in products:
+        # ① 단독(지역 없음) — 이 키워드 블록의 맨 앞.
+        nk0 = prod.replace(" ", "")
+        if nk0 not in seen:
+            seen.add(nk0)
+            kws.append(("", prod, prod, False))
+        # ② 제품이 지명이면 지역을 곱하지 않는다('송도 대전창업' 방지). 단독만 보고 넘어간다.
+        if _product_place_head(prod):
+            continue
+        for tok in tokens:
+            kw = f"{tok} {prod}"
+            nk = kw.replace(" ", "")
+            if nk in seen:
+                continue
+            seen.add(nk)
+            kws.append((tok, kw, prod, tok not in known))
+    target = int(req.get("target") or 30)
+    _run_scan(req, kws, target, f"목표채우기 {len(products)}개 키워드",
+              extra={"biz_name": products[0]}, tag=f"목표채우기 {products[:3]}")
+
+
 def process_related(req, payload):
     """연관 인기글 — payload = JSON {"seed": "장기요양", "kws": [...], "probe": 8}
        ① kws 를 지역 없이 판정(전국형)  ② 안 되는 것만 지역 K개로 찔러 지역형인지 본다.
@@ -1412,6 +1463,8 @@ def process(req):
         return process_menu(req, pu[len("menu:"):])
     if pu.startswith("related:"):       # 연관 인기글 — 씨앗어에서 전국형·지역형을 한 번에
         return process_related(req, pu[len("related:"):])
+    if pu.startswith("chain:"):         # 목표 채우기 — 키워드를 하나씩 끝까지 파고 target 채우면 종료
+        return process_chain(req, pu[len("chain:"):])
     if pu.startswith("reviews:"):       # 리뷰 수집 — 메뉴판 없는 업체의 제품키워드 원천
         return process_reviews(req, pu[len("reviews:"):])
     pid = p.parse_place_id(pu)

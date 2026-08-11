@@ -327,6 +327,29 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
 // 연관 인기글 스캔 — 씨앗어 후보들을 ① 지역 없이(전국) 판정하고 ② 안 되는 건 지역 몇 곳을 찔러
 //   '지역형 업종'인지까지 알아낸다. 결과는 result 배열 하나에 kind='national'|'regional' 로 섞여 온다.
 //   place_url='related:{JSON}' → 워커 process_related.
+// 목표 채우기 — 키워드를 하나씩 끝까지 파고, 목표 건수를 채우면 즉시 멈춘다(워커 process_chain).
+//   ★ 사장님 설계(2026-08-11): "첫 키워드에서 30개를 찾으면 오히려 좋다."
+//     기존 경로와 두 군데가 다르다.
+//       ① 제품 우선 — 한 키워드의 전 지역을 다 보고 다음 키워드로. (기존은 지역 우선이라 제품이 섞인다)
+//       ② 각 키워드의 '단독(지역 없음)' 판정을 맨 앞에 넣는다 — 지역 없이도 인기탭이면 그것부터 챙긴다.
+//         기존 연관형은 '전국에서 되면 지역은 안 붙인다'라 둘 다 되는 경우를 못 봤다.
+//   한 회차 상한(120콜)은 그대로다. 못 채우면 note 에 남은 조합이 명시되고 다시 눌러 이어 본다.
+export async function enqueueChainScan(products: string[], regions: string, target = FIRST_TARGET) {
+    const { data: u } = await supabase.auth.getUser();
+    const uid = u.user?.id ?? null;
+    const list = [...new Set(products.map((k) => k.trim()).filter(Boolean))];
+    if (!list.length) return { id: null as number | null, error: { message: '키워드 없음' } };
+    const payload = JSON.stringify({ products: list, regions });
+    const { data, error } = await supabase.from('cafe_kw_requests')
+        .insert({
+            deploy_type: '지역', place_url: `chain:${payload}`, regions,
+            requested_by: uid, status: 'queued', target,
+        })
+        .select('id').single();
+    if (error || !data) return { id: null as number | null, error };
+    return { id: (data as { id: number }).id, error: null };
+}
+
 export async function enqueueRelatedScan(seed: string, keywords: string[], probe = 8) {
     const { data: u } = await supabase.auth.getUser();
     const uid = u.user?.id ?? null;
