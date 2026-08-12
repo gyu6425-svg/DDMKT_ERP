@@ -64,9 +64,13 @@ SEL_IMG_BTN = [
     'button[data-log="dot.img"]',        # ✅ =1
     'button.se-image-toolbar-button',
 ]
+# 인용구(부제목) 버튼 — ⏳ **미검증**. Phase 0 diag/probe 목록에 없었다.
+#   못 찾아도 저장은 계속된다(부제목이 일반 문단으로 남을 뿐). 확정 전까지는 그 폴백으로 돈다.
+#   diag_blog.py / probe_editor.py 출력에서 개수를 확인하고 맞는 값으로 교체할 것.
 SEL_QUOTE_BTN = [
     'button[data-log="dot.quota"]',
     'button.se-quotation-toolbar-button',
+    'button[data-name="quotation"]',
 ]
 
 # 🟢 저장(임시저장) 버튼 — ✅ =1 (실제 클래스 save_btn__bzc5B).

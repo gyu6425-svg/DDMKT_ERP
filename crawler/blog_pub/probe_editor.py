@@ -159,7 +159,7 @@ def main():
 
         # ── 저장/발행 버튼 재확인 ─────────────────────────────────────────
         bc.log("── 저장/발행 버튼 ──")
-        for label, cands in [("SEL_SAVE", sel.SEL_SAVE),
+        for label, cands in [("SEL_SAVE", sel.SEL_SAVE), ("SEL_QUOTE_BTN", sel.SEL_QUOTE_BTN),
                              ("SEL_DRAFT_COUNT", sel.SEL_DRAFT_COUNT),
                              ("BLOCK(발행)", sel.BLOCK_CLICK_SELECTORS)]:
             for s in cands:

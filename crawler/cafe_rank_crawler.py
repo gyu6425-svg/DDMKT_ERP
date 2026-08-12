@@ -105,6 +105,14 @@ def main():
     _before = len(posts)
     posts = [p for p in posts if (p.get("cafe_name") or "").strip() != "ddmkt2"]
     _skipped_mk = _before - len(posts)
+    # 하드스톱(09:00)에 잘리는 꼬리가 매일 같은 글이 되지 않게 — '오래 안 잰 글' 먼저 측정한다.
+    #   published_date.desc 고정 순서면 항상 가장 오래된 발행글이 잘린다.
+    #   실측 2026-08-11: 269글 중 17글이 09:00 컷오프로 미측정 → 같은 글이 매일 빠질 수 있었다.
+    #   정렬은 안정정렬이라 마지막 측정일이 같으면 기존 순서(발행 최신순)가 유지된다.
+    def _last_seen(p):
+        ms = p.get("measurements") or []
+        return max((r.get("date") or "") for r in ms) if ms else ""   # 한 번도 안 잰 글 = "" = 최우선
+    posts.sort(key=_last_seen)
     try:
         account_rows = c.sb_get("cafe_accounts", {"select": "id,company_key,display_name", "active": "eq.true"})
     except Exception:

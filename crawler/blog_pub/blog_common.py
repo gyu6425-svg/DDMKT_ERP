@@ -32,7 +32,9 @@ except Exception:
 requests.packages.urllib3.disable_warnings()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BLOG_BUCKET = "blog-save-images"
+# /api/img 키 프리픽스 — src/api/blogSaveQueue.BLOG_SAVE_BUCKET 과 **반드시 같은 값**.
+#   (Supabase 버킷명이 아니다. R2 IMG_BUCKET 안의 접두어)
+BLOG_BUCKET = os.environ.get("BLOG_IMG_PREFIX", "blog-save")
 
 
 class ContentError(RuntimeError):
@@ -71,6 +73,11 @@ def supabase_url():
     return os.environ.get("SUPABASE_URL", "").rstrip("/")
 
 
+def site_url():
+    """이미지를 내려받을 사이트 주소(/api/img 가 붙어 있는 곳). 배포본 기본값."""
+    return os.environ.get("BLOG_SITE_URL", "https://ddmkt-erp.pages.dev").rstrip("/")
+
+
 def _headers():
     return sb_auth.headers("application/json")
 
@@ -105,9 +112,20 @@ def sb_patch(path, params, payload, expect=None, ret=False):
 
 
 def storage_download(path, dest):
-    r = requests.get(f"{supabase_url()}/storage/v1/object/{BLOG_BUCKET}/{path}",
-                     headers=_headers(), timeout=120, verify=False)
+    """이미지 1장 내려받기 — **R2(/api/img)** 에서. Supabase Storage 아니다.
+
+    ⚠️ 2026-08-12 전환: Supabase 용량/Egress 초과로 이미지를 R2 로 옮겼다. 웹 업로드
+       (src/api/blogSaveQueue.createSaveJob)와 **반드시 짝을 이룬다** — 한쪽만 바뀌면
+       그 사이에 적재된 작업의 이미지가 통째로 깨진다. 그래서 같은 커밋으로 바꿨다.
+
+    · GET 은 인증 불필요(공개·CDN 캐시). 경로가 jobId 기반이라 추측 불가하지만,
+      '비공개 보장'은 아니다 — 어차피 블로그에 실릴 이미지라 카페와 같은 수준으로 둔다.
+    · 옛 Supabase 경로로 저장된 작업이 남아 있으면 R2 에 없어 404 → download_manifest 가
+      ContentError 로 중단시킨다(사진 빠진 글이 나가는 것보다 낫다)."""
+    url = f"{site_url()}/api/img/{BLOG_BUCKET}/{path.lstrip('/')}"
+    r = requests.get(url, timeout=120, verify=False)
     if not r.ok:
+        log(f"  ! 이미지 조회 실패 {r.status_code}: {url[:110]}")
         return None
     pathlib.Path(dest).write_bytes(r.content)
     return dest

@@ -1053,11 +1053,19 @@ def process_menu(req, payload):
 #     신형 신도시(청라·송도·위례·고촌·고덕·광교) 앞세우면 4곳만으로 5/5 판명
 #   그래서 ① 신형 신도시를 맨 앞에 ② 역세권(강남역·홍대입구역)과 시도('경기')는 뒤로/제거
 #   동탄·판교는 오래된 신도시라 시군구처럼 굳었다 — 앞자리에서 뺀다.
+#   ★ 순서 재정렬(2026-08-11, 독립검증 실측). 16곳이 모두 스캔된 제품 20개로 공정 비교한 적중 수:
+#       고덕 8 · 동탄 7 · 광교 6 · 성남 6 · 부천 6 · 청라 6 · 송도 5 · 위례 5 · 미사 5 · 서울 5
+#       수원 5 · 판교 5 · … · 고촌 3(16곳 중 꼴찌)
+#     '신형 신도시가 최상'은 표본 5개로 만든 값이었고 91개 모집단에서 재현되지 않았다.
+#     특히 '고촌'이 앞 4자리에 있었는데 실측 꼴찌였다. 그리디 셋커버로는 수원 하나가 신규 24개로
+#     현행 4곳 합계(16개)보다 많았다(다만 캐시 편중이 있어 그대로 채택하진 않는다).
+#   ⚠️ 빼지 않고 '순서만' 바꾼다 — 지우면 그 지역의 양성을 영영 못 본다(누락 금지).
+#     앞자리가 곧 우선순위이고, 아래 K_ADAPT 가 앞에서 몇 개를 쓸지 정한다.
 _PROBE_SEED = [
-    "청라", "송도", "위례", "고촌",          # 신형 신도시 — 적중밀도 최상
-    "고덕", "광교", "미사", "서울",
-    "수원", "동탄", "판교", "성남",          # 굳은 신도시·시군구
-    "부천", "고양", "인천", "안양",
+    "고덕", "동탄", "광교", "성남",          # 실측 적중 상위
+    "부천", "청라", "수원", "송도",
+    "위례", "미사", "서울", "판교",
+    "고양", "인천", "안양", "고촌",          # 고촌은 실측 꼴찌 → 뒤로
 ]
 
 
@@ -1160,6 +1168,126 @@ def process_reviews(req, payload):
     print(f"[{_ts()}][{req['id']}] 리뷰수집 {info.get('name')} — {len(blob)}자", flush=True)
 
 
+_ALL_TOKENS = None
+
+
+def _all_region_tokens():
+    """지역 토큰 전체(활성) — 키워드 앞머리에서 지역을 떼어낼 때 쓴다."""
+    global _ALL_TOKENS
+    if _ALL_TOKENS is None:
+        rows = _sb_page(f"{SB}/rest/v1/cafe_region_token?select=token&active=is.true") or []
+        _ALL_TOKENS = {r["token"] for r in rows if r.get("token")}
+    return _ALL_TOKENS
+
+
+def process_recheck(req, payload):
+    """발행 전 재확인 — 담아둔 키워드를 팔기 직전에 라이브로 다시 판정한다.
+       payload = JSON {"kws": ["청라 여자창업", ...]}
+
+       ★ 왜(SUB4 실측 2026-08-11): 5~6일 지난 양성 30건을 재판정하니 3건(10%)이 죽어 있었다.
+         고촌 입주청소 · 경기 더반클린 · 강동 사설경호 — 전부 '섹션없음'으로, 규칙 경계가 아니라
+         네이버가 그 키워드에 인기글 섹션을 더 이상 안 주는 경우였다.
+         30건이면 30콜(데몬 3분치)이라, 팔기 직전에 한 번 보는 게 가장 싸고 확실한 해결이다.
+       ★ 캐시를 믿지 않는다 — 무조건 라이브. 그게 이 라우트의 존재 이유다.
+       결과(result)에는 '살아있는 것'만 담는다. 죽은 건 화면이 차집합으로 안다."""
+    try:
+        d = json.loads(payload or "{}")
+    except Exception:
+        return _finish(req["id"], "failed", note="재확인 payload 파싱 실패")
+    kws = [str(x).strip() for x in (d.get("kws") or []) if str(x).strip()][:200]
+    if not kws:
+        return _finish(req["id"], "failed", note="확인할 키워드 없음")
+    cf = bool(p._USE_CF)
+    gap = 2.5 if cf else SCAN_GAP
+    master = _all_region_tokens()
+    alive, dead, errs, streak = [], [], 0, 0
+    for i, kw in enumerate(kws, 1):
+        if i % 5 == 1:
+            try:
+                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                               json={"note": f"재확인 {i}/{len(kws)} · 살아있음 {len(alive)} · 죽음 {len(dead)}",
+                                     "result": alive}, timeout=10)
+            except Exception:
+                pass
+        parts = kw.split()
+        tok = parts[0] if len(parts) >= 2 and parts[0] in master else ""
+        product = " ".join(parts[1:]) if tok else kw
+        r = p.classify(kw)
+        _budget_note(1)
+        if r.get("err"):
+            errs += 1
+            streak += 1
+            if streak >= BLOCK_STREAK:      # 연속 실패 = 차단. 남은 건 판정 못 한 것으로 남긴다.
+                return _finish(req["id"], "failed", result=alive,
+                               note=f"⚠ 스캔 차단 — {len(kws) - i}건 확인 못 함. 잠시 후 다시 확인하세요.")
+            continue
+        streak = 0
+        r2, ok, v = adjudicate(kw, r, tok, product, {tok} if tok else set())
+        _cache_put(kw, r2, v if ok else None)
+        time.sleep(gap)
+        if ok:
+            alive.append({"keyword": kw, "volume": v or 0, "theme": _disp_theme(r2),
+                          "cafes": [x for x in (r2.get("rows") or []) if x.get("kind") == "카페"][:5]})
+        else:
+            dead.append(kw)
+    note = (f"재확인 {len(kws)}건 · 살아있음 {len(alive)} · 더 이상 안 나옴 {len(dead)}"
+            + (f" · 오류 {errs}" if errs else "")
+            + (f" — 빼야 할 것: {', '.join(dead[:8])}{'…' if len(dead) > 8 else ''}" if dead else ""))
+    _finish(req["id"], "done", result=alive, note=note)
+    print(f"[{_ts()}][{req['id']}] 재확인 {len(kws)} → 생존 {len(alive)} · 사망 {len(dead)}", flush=True)
+
+
+def process_chain(req, payload):
+    """목표 채우기 — 키워드를 하나씩 끝까지 파고, 목표(target)를 채우면 즉시 멈춘다.
+       payload = JSON {"products": ["여자창업", ...], "regions": "서울,경기,인천"}
+
+       ★ 사장님 설계(2026-08-11). 기존 경로와 두 군데가 다르다.
+         ① 제품 우선 순회 — 한 키워드의 전 지역을 다 보고 나서 다음 키워드로 간다.
+            (process_menu 는 '지역 우선'이라 제품이 섞인다. 조기종료 때 특정 제품에 안 몰리게 한
+             설계였는데, 여기선 반대로 '첫 키워드에서 30개를 채우면 오히려 좋다'가 요구사항이다.)
+         ② 단독 판정을 각 키워드 맨 앞에 넣는다 — 지역을 안 붙여도 인기탭이면 그것부터 챙긴다.
+            기존 연관형은 '전국에서 되면 지역은 안 붙인다'라 둘 다 되는 경우를 못 봤다.
+            캐시로는 검증이 안 된다(해본 적이 없어 조합 자체가 없다). 제품당 몇 콜이라 싸다.
+       조기종료·차단감지·캐시규약은 _run_scan 공통이라 다른 경로와 갈리지 않는다."""
+    try:
+        d = json.loads(payload or "{}")
+    except Exception:
+        return _finish(req["id"], "failed", note="목표채우기 payload 파싱 실패")
+    products = [str(x).strip() for x in (d.get("products") or []) if str(x).strip()]
+    if not products:
+        return _finish(req["id"], "failed", note="키워드 없음 — 1개 이상 선택하세요")
+    sidos = [s for s in ((d.get("regions") or req.get("regions") or "")).replace(" ", "").split(",") if s]
+    if not sidos:
+        sidos = ["서울", "경기", "인천"]
+    dt = (req.get("deploy_type") or "")
+    include_dong = ("동" in dt) or ("dong" in dt.lower())
+    tokens = _region_tokens_for(sidos, include_dong)
+    if not tokens:
+        return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
+    known = set(tokens)
+
+    kws, seen = [], set()
+    for prod in products:
+        # ① 단독(지역 없음) — 이 키워드 블록의 맨 앞.
+        nk0 = prod.replace(" ", "")
+        if nk0 not in seen:
+            seen.add(nk0)
+            kws.append(("", prod, prod, False))
+        # ② 제품이 지명이면 지역을 곱하지 않는다('송도 대전창업' 방지). 단독만 보고 넘어간다.
+        if _product_place_head(prod):
+            continue
+        for tok in tokens:
+            kw = f"{tok} {prod}"
+            nk = kw.replace(" ", "")
+            if nk in seen:
+                continue
+            seen.add(nk)
+            kws.append((tok, kw, prod, tok not in known))
+    target = int(req.get("target") or 30)
+    _run_scan(req, kws, target, f"목표채우기 {len(products)}개 키워드",
+              extra={"biz_name": products[0]}, tag=f"목표채우기 {products[:3]}")
+
+
 def process_related(req, payload):
     """연관 인기글 — payload = JSON {"seed": "장기요양", "kws": [...], "probe": 8}
        ① kws 를 지역 없이 판정(전국형)  ② 안 되는 것만 지역 K개로 찔러 지역형인지 본다.
@@ -1186,7 +1314,6 @@ def process_related(req, payload):
     #     전부 '정보성 키워드'라 지역을 붙여도 인기탭이 없다 → 48콜 쓰고 0건.
     #     진짜 지역형은 9위(욕창)와 20위(간병인)에 있었다. 상위 N개 컷 자체가 구조적으로 헛콜이었다.
     #   그래서 제품 수 상한(옛 MAX_PROBE_PROD=24)은 없앴다 — 아래 PROBE_MAX_LIVE(콜 예산)로만 끊는다.
-    probes = _probe_regions(min(K, 4))
     known = set(_region_tokens_for(["서울", "경기", "인천"], True))
 
     national, miss, errs = [], [], 0
@@ -1251,7 +1378,25 @@ def process_related(req, payload):
     skipped_place = [k for k, h in place_prod if h]
     todo = sorted([x for x in miss if not _product_place_head(x["keyword"])],
                   key=lambda x: -(x.get("volume") or 0))
-    PROBE_MAX_LIVE = 400                 # 약 17분(2.5초 간격). 캐시 히트는 여기 안 든다.
+    # ★ 지역 폭을 제품 수에 맞춰 늘린다(사장님 지시 2026-08-11: "넓게 봐라 — 지금 도시 말고 더 있다").
+    #   고정 4곳은 좁았다. 독립검증 실측(91개 제품): 현행 4곳(청라·송도·위례·고촌) 재현율 59.3%
+    #   — 지역형인 제품의 40%가 4곳에서 안 걸려 '지역형 아님'으로 지나갔다.
+    #   제품이 적으면 지역을 더 넓게 본다. 같은 콜 예산에서 커버리지가 가장 커지는 배분이다.
+    #     제품 ≤40 → 14곳 · ≤120 → 10곳 · 그 이상 → 8곳
+    #   (제품이 많아도 8곳은 확보 — 옛 4곳의 두 배다. 판정된 조합은 캐시라 다음 회차가 훨씬 빠르다.)
+    K_ADAPT = 14 if len(todo) <= 40 else (10 if len(todo) <= 120 else 8)
+    probes = _probe_regions(min(max(K, K_ADAPT), len(_PROBE_SEED)))
+    PROBE_MAX_LIVE = 450                 # 약 19분(2.5초 간격). 캐시 히트는 여기 안 든다.
+    #   400 → 600 으로 올렸다가 450 으로 내렸다(SUB4 예산 계산 2026-08-11).
+    #     600 × 2.5초 = 25분 → 분당 24콜 → 10분 롤링 240콜. 연관형 한 건이 혼자 CAP 을 다 쓴다.
+    #     데몬은 예산이 없으면 0콜로 물러나므로(2abb8bf) 차단선 300 까지 가진 않지만,
+    #     그 25분간 데몬이 완전히 굶고 두 번째 온디맨드가 겹치면 둘 다 느려진다.
+    #     450 → 10분 롤링 180콜. 데몬 90 을 남기면서(270 < 300) 재현율 개선은 대부분 가져간다.
+    #   ★ 판정 품질 때문이 아니다 — '콜을 많이 쏘면 섹션이 마른다'는 가설은 SUB4 3라운드 실측으로
+    #     반증됐다(순번 효과 없음 · 부하 136/89/140콜에서 음성률 30.0/27.5/27.5% 동일).
+    #     재현율 개선의 주 효과는 지역 폭 확대(4→8~14곳)지 이 상한이 아니다.
+    #   화면은 시간초과돼도 자동으로 이어붙으므로(172f342) 길어지는 것 자체는 문제가 아니다.
+    #   남은 것은 note 에 명시하고 다음 조회가 캐시를 건너뛰고 이어 본다.
     pcache = _cache_get_many([f"{tok} {row['keyword']}" for row in todo for tok in probes])
     plive, pleft, pushed_r = 0, 0, -1
     for j, row in enumerate(todo, 1):
@@ -1395,6 +1540,10 @@ def process(req):
         return process_menu(req, pu[len("menu:"):])
     if pu.startswith("related:"):       # 연관 인기글 — 씨앗어에서 전국형·지역형을 한 번에
         return process_related(req, pu[len("related:"):])
+    if pu.startswith("chain:"):         # 목표 채우기 — 키워드를 하나씩 끝까지 파고 target 채우면 종료
+        return process_chain(req, pu[len("chain:"):])
+    if pu.startswith("recheck:"):       # 발행 전 재확인 — 담아둔 키워드를 라이브로 다시 판정(캐시 무시)
+        return process_recheck(req, pu[len("recheck:"):])
     if pu.startswith("reviews:"):       # 리뷰 수집 — 메뉴판 없는 업체의 제품키워드 원천
         return process_reviews(req, pu[len("reviews:"):])
     pid = p.parse_place_id(pu)

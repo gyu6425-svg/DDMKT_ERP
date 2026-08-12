@@ -327,6 +327,119 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
 // 연관 인기글 스캔 — 씨앗어 후보들을 ① 지역 없이(전국) 판정하고 ② 안 되는 건 지역 몇 곳을 찔러
 //   '지역형 업종'인지까지 알아낸다. 결과는 result 배열 하나에 kind='national'|'regional' 로 섞여 온다.
 //   place_url='related:{JSON}' → 워커 process_related.
+// 목표 채우기 — 키워드를 하나씩 끝까지 파고, 목표 건수를 채우면 즉시 멈춘다(워커 process_chain).
+//   ★ 사장님 설계(2026-08-11): "첫 키워드에서 30개를 찾으면 오히려 좋다."
+//     기존 경로와 두 군데가 다르다.
+//       ① 제품 우선 — 한 키워드의 전 지역을 다 보고 다음 키워드로. (기존은 지역 우선이라 제품이 섞인다)
+//       ② 각 키워드의 '단독(지역 없음)' 판정을 맨 앞에 넣는다 — 지역 없이도 인기탭이면 그것부터 챙긴다.
+//         기존 연관형은 '전국에서 되면 지역은 안 붙인다'라 둘 다 되는 경우를 못 봤다.
+//   한 회차 상한(120콜)은 그대로다. 못 채우면 note 에 남은 조합이 명시되고 다시 눌러 이어 본다.
+export async function enqueueChainScan(products: string[], regions: string, target = FIRST_TARGET) {
+    const { data: u } = await supabase.auth.getUser();
+    const uid = u.user?.id ?? null;
+    const list = [...new Set(products.map((k) => k.trim()).filter(Boolean))];
+    if (!list.length) return { id: null as number | null, error: { message: '키워드 없음' } };
+    const payload = JSON.stringify({ products: list, regions });
+    const { data, error } = await supabase.from('cafe_kw_requests')
+        .insert({
+            deploy_type: '지역', place_url: `chain:${payload}`, regions,
+            requested_by: uid, status: 'queued', target,
+        })
+        .select('id').single();
+    if (error || !data) return { id: null as number | null, error };
+    return { id: (data as { id: number }).id, error: null };
+}
+
+// ── 세부 분야 자동 추출 ──────────────────────────────────────────────────────
+//   ★ 왜(사장님 요청 2026-08-11): 계열(창업)만으로는 454개라 너무 광범위하다.
+//     '음식점 창업 / 노래방 창업' 처럼 한 단계 더 좁히고 싶다.
+//   ★ 사전을 미리 짜면 틀린다 — 업종마다 세부가 다르고, 내가 짜면 그 순간 추측이다.
+//     그래서 실제 후보에서 뽑는다: 계열어를 뗀 나머지에서 2~5자 조각을 세고,
+//     3개 이상 키워드에 공통으로 나오는 것만 남긴다.
+//   ★ 깨진 조각 배제가 핵심이다(실측): 그냥 세면 '차이즈'(35)·'래방'(12)·'페비용'(8)이 올라온다.
+//     조건 = 그 조각이 '그 자체로 실제 키워드'이거나 '조각+계열'이 실제 키워드일 것.
+//       카페 → 카페창업 ✓   무인 → 무인창업 ✓   차이즈 → 차이즈창업 ✗
+//     이 규칙을 넣으니 132개(잡음 포함) → 58개(전부 말이 되는 단위)로 정리됐다.
+export type SubCat = { label: string; count: number };
+
+export function subCategories(keywords: string[], core: string, pool: Set<string>, max = 40): SubCat[] {
+    const c = core.replace(/\s/g, '');
+    const cnt = new Map<string, number>();
+    for (const kw of keywords) {
+        const rem = kw.replace(/\s/g, '').split(c).join('');
+        if (rem.length < 2) continue;
+        const seen = new Set<string>();
+        for (let L = 2; L <= Math.min(5, rem.length); L++) {
+            for (let i = 0; i + L <= rem.length; i++) {
+                const f = rem.slice(i, i + L);
+                if (seen.has(f)) continue;
+                seen.add(f);
+                cnt.set(f, (cnt.get(f) ?? 0) + 1);
+            }
+        }
+    }
+    const ok = [...cnt.entries()]
+        .filter(([f, n]) => n >= 3 && (pool.has(f) || pool.has(f + c) || pool.has(c + f)))
+        .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length);
+    // 같은 개수면 긴 쪽만 남긴다 — '무점포'와 '점포'가 같은 7개면 '무점포'가 더 정확하다.
+    const out: SubCat[] = [];
+    for (const [f, n] of ok) {
+        if (out.some((p) => p.label.includes(f) && p.count === n)) continue;
+        out.push({ count: n, label: f });
+        if (out.length >= max) break;
+    }
+    return out;
+}
+
+// ── 자사·고객사 상호 필터 ────────────────────────────────────────────────────
+//   ★ 왜(SUB4 발견 2026-08-11): 캐시 양성에 '경기 더반클린'·'안양더반클린' 이 있었다.
+//     더반클린은 우리 입주청소 고객사 상호다. 상호 키워드는 팔 대상이 아니다 —
+//     그 업체는 이미 자기 이름을 갖고 있고, 다른 업체에겐 남의 브랜드다.
+//   워커가 아니라 화면에서 거른다: 워커에 상호 목록을 넣으면 고객이 늘 때마다
+//   워커를 재기동해야 한다(오늘만 6번 재기동했다). 화면은 조회 시점에 최신을 읽는다.
+let _brandCache: string[] | null = null;
+
+export async function getClientBrands(): Promise<string[]> {
+    if (_brandCache) return _brandCache;
+    const out = new Set<string>();
+    try {
+        const { data } = await supabase.from('cafe_studio_settings').select('brand').limit(1000);
+        for (const r of (data ?? []) as { brand: string | null }[]) {
+            const b = (r.brand || '').replace(/\s/g, '');
+            // 2자 미만은 흔한 낱말과 겹쳐 오폭한다. '대행사'처럼 일반명사인 것도 뺀다.
+            if (b.length >= 3 && !['대행사', '테스트'].includes(b)) out.add(b);
+        }
+    } catch { /* 조회 실패해도 필터만 안 걸릴 뿐 */ }
+    _brandCache = [...out];
+    return _brandCache;
+}
+
+// 키워드에 고객사 상호가 들어 있나(공백 무시).
+export function hasClientBrand(keyword: string, brands: string[]): boolean {
+    const n = (keyword || '').replace(/\s/g, '');
+    return brands.some((b) => n.includes(b));
+}
+
+// 발행 전 재확인 — 담아둔 키워드를 팔기 직전에 라이브로 다시 판정한다(워커 process_recheck).
+//   ★ 왜(SUB4 실측 2026-08-11): 5~6일 지난 양성 30건을 재판정하니 3건(10%)이 죽어 있었다.
+//     전부 '섹션없음'으로, 판정 규칙 문제가 아니라 네이버가 그 키워드에 인기글 섹션을
+//     더 이상 안 주는 경우였다. 30건이면 30콜(데몬 3분치)이라 팔기 직전에 보는 게 가장 싸다.
+//   result 에는 '살아있는 것'만 온다 — 죽은 건 호출부가 차집합으로 안다.
+export async function enqueueRecheckScan(keywords: string[]) {
+    const { data: u } = await supabase.auth.getUser();
+    const uid = u.user?.id ?? null;
+    const kws = [...new Set(keywords.map((k) => k.trim()).filter(Boolean))].slice(0, 200);
+    if (!kws.length) return { id: null as number | null, error: { message: '확인할 키워드 없음' } };
+    const { data, error } = await supabase.from('cafe_kw_requests')
+        .insert({
+            deploy_type: '재확인', place_url: `recheck:${JSON.stringify({ kws })}`, regions: '',
+            requested_by: uid, status: 'queued', target: kws.length,
+        })
+        .select('id').single();
+    if (error || !data) return { id: null as number | null, error };
+    return { id: (data as { id: number }).id, error: null };
+}
+
 export async function enqueueRelatedScan(seed: string, keywords: string[], probe = 8) {
     const { data: u } = await supabase.auth.getUser();
     const uid = u.user?.id ?? null;

@@ -1,5 +1,6 @@
 import { hasSupabaseConfig, supabase } from '../lib/supabase';
 import { varyImage } from '../components/cafe/cafeExport';
+import { r2Upload } from './imageStore';
 
 // 블로그 자동 '임시저장' 대기열 — 웹 작성기 '블로그에 저장 요청' → blog-save-images 업로드 +
 //   blog_save_queue 적재. SUB1 데몬(crawler/blog_pub/blog_save_listener.py)이 폴링해
@@ -8,7 +9,14 @@ import { varyImage } from '../components/cafe/cafeExport';
 // ⚠️ 카페(cafePublishQueue.ts)와 큐/버킷을 절대 공유하지 않는다.
 //    cafe_publish_queue 는 board 가 NULL 인 행을 CAFE_CLAIM_NULL_BOARD=1 인 PC 가 집어가므로,
 //    블로그 원고를 거기 넣으면 카페에 발행되는 사고 경로가 된다.
-export const BLOG_SAVE_BUCKET = 'blog-save-images';
+// /api/img 키 프리픽스(단일 R2 IMG_BUCKET 안). Supabase Storage 가 아니라 **R2** 다.
+//   ⚠️ 2026-08-12 전환: Supabase 용량/Egress 초과로 이미지를 전부 R2 로 옮겼다.
+//      웹 업로드(여기)와 리스너 다운로드(crawler/blog_pub/blog_common.storage_download)는
+//      **반드시 같이** 바뀌어야 한다 — 한쪽만 바뀌면 그 사이 작업의 이미지가 깨진다.
+//   ⚠️ functions/api/img 의 ALLOW 에 이 프리픽스가 있어야 한다.
+//   ⚠️ 경로에 '/studio-settings/' 를 넣지 않는다 — 발행용 이미지는 매번 새 jobId 라 내용이
+//      안 바뀌므로 immutable(1년) 캐시가 맞다.
+export const BLOG_SAVE_BUCKET = 'blog-save';
 
 // 저장기(crawler/blog_pub/blog_common.download_manifest)가 해석하는 블록.
 //   ⚠️ 카페의 link/tags/board 는 없다. 네이버 블로그는 카테고리·태그·공개설정이 '발행' 레이어
@@ -99,10 +107,10 @@ export async function createSaveJob(input: {
             const varied = await varyImage(images[i], seedBase + i * 7919 + 1);
             const blob = await toBlob(varied);
             const path = `${jobId}/${String(i).padStart(2, '0')}.jpg`;
-            const { error } = await supabase.storage
-                .from(BLOG_SAVE_BUCKET)
-                .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
-            if (error) throw error;
+            // R2 업로드 — r2Upload 는 200 만 믿지 않고 저장된 바이트 수까지 대조한다
+            //   ('DB엔 경로가 남았는데 파일은 없음' 사고 방지).
+            const { error } = await r2Upload(BLOG_SAVE_BUCKET, path, blob);
+            if (error) throw new Error(error);
             blocks.push({ path, type: 'image' });
         }
         // 본문에 이미 마커가 있으면 그대로, 없으면 사진1=상단 + 나머지는 문단 사이로.
@@ -125,11 +133,9 @@ export async function createSaveJob(input: {
         if (error) throw error;
         return { error: null, jobId };
     } catch (e) {
-        // 실패 시 업로드된 이미지 정리(카페 경로와 같은 패턴).
-        const paths = blocks
-            .filter((b): b is { type: 'image'; path: string } => b.type === 'image')
-            .map((b) => b.path);
-        if (paths.length) await supabase.storage.from(BLOG_SAVE_BUCKET).remove(paths);
+        // ⚠️ R2 에는 삭제 API 가 없다(/api/img 는 GET/PUT 만). 실패해도 올라간 이미지는 남는데,
+        //    경로가 jobId 기준이라 다른 작업과 충돌하지 않고 참조되지도 않는다(고아 객체).
+        //    R2 는 저장비만 들고 egress 가 없어 실무상 무해하다. 필요하면 나중에 일괄 정리.
         return { error: e as { message: string }, jobId: null };
     }
 }

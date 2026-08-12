@@ -14,10 +14,11 @@ import {
     type DeployPhotos,
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
-import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, enqueueRelatedScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
+import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, subCategories, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { useAuth } from '../../hooks/useAuth';
+import { supabase } from '../../lib/supabase';
 
 const REGION_KEYS = ['서울', '경기', '인천', '대전', '세종', '충북', '충남', '강원', '전북', '전남', '광주', '대구', '경북', '경남', '부산', '울산', '제주'] as const; // 지역형 지역셋(전국)
 
@@ -74,11 +75,35 @@ async function compressImage(file: File, maxDim = 1600, quality = 0.85): Promise
 
 export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const { profile } = useAuth();
-    const bizName = profile?.name || ''; // 로그인한 고객의 업체명(회원가입/발급 시 지정)
-    const [form, setForm] = useState<CafeDeployInput>({ ...empty, company_name: bizName });
-    // 업체명 자동기입 — 프로필(업체명) 로드되면 비어있는 업체명 칸을 채운다.
+    // 업체명 — 보고 있는 '그 업체'의 이름이어야 한다.
+    //   ★ 예전엔 profile.name(로그인한 사람 이름)만 썼다. 고객이 직접 로그인하면 그게 곧 업체명이라
+    //     맞았지만, 담당자가 미리보기(?as=<client_id>)로 남의 화면을 볼 때는
+    //     '장규진' 처럼 담당자 본인 이름이 업체명 칸에 박혔다(사장님 신고 2026-08-12).
+    //     화면 데이터 자체는 clientId 스코프라 옳았고, 이 칸만 어긋난 것이다.
+    //   그래서 clientId 로 clients.company 를 읽어 그 값을 우선한다. 못 읽으면 옛 동작으로 폴백.
+    const [clientName, setClientName] = useState('');
     useEffect(() => {
-        if (bizName) setForm((f) => (f.company_name ? f : { ...f, company_name: bizName }));
+        if (!clientId) { setClientName(''); return; }
+        let alive = true;
+        void (async () => {
+            const { data } = await supabase.from('clients').select('company,advertiser_name').eq('id', clientId).maybeSingle();
+            if (!alive) return;
+            const c = data as { company?: string | null; advertiser_name?: string | null } | null;
+            setClientName((c?.company || c?.advertiser_name || '').trim());
+        })();
+        return () => { alive = false; };
+    }, [clientId]);
+    const bizName = clientName || profile?.name || '';
+    const [form, setForm] = useState<CafeDeployInput>({ ...empty, company_name: '' });
+    // 업체명 자동기입 — 업체가 정해지면 그 업체명으로 채운다.
+    //   ★ 이미 다른 업체 이름이 들어 있으면 덮어쓴다 — 업체를 바꿔 보는데 앞 업체명이 남아 있으면
+    //     그대로 접수돼 남의 이름으로 발행된다. 사장님이 직접 고쳐 적은 값은 건드리지 않는다.
+    const autoNameRef = useRef('');
+    useEffect(() => {
+        if (!bizName) return;
+        setForm((f) => (!f.company_name || f.company_name === autoNameRef.current
+            ? { ...f, company_name: bizName } : f));
+        autoNameRef.current = bizName;
     }, [bizName]);
     const [files, setFiles] = useState<Record<Grp, File[]>>({ main: [], real: [], banner: [] });
     const [rows, setRows] = useState<CafeDeployRequest[]>([]);
@@ -325,6 +350,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   실측 2026-08-11(창업+가맹+사업+프렌차이즈): 보이는 338개 중 창업이 263개(78%)라
     //   사장님이 '프렌차이즈·사업은 안 나온다'고 하셨다. 실제로는 있는데 파묻힌 것이었다.
     const [seedFilter, setSeedFilter] = useState('');   // '' = 전체
+    const [subFilter, setSubFilter] = useState('');    // 2단 세부 분야('' = 전체)
 
     // '씨앗으로 끝나는 것만'(소자본창업·카페창업). 기본값은 씨앗별로 데이터가 정한다 —
     //   끝나는 게 더 많으면 켠다('창업' 끝230/앞67 → 켬, '보홀'은 보홀여행류가 많아 → 끔).
@@ -354,6 +380,31 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setKwErr(e instanceof Error ? e.message : '씨앗 발굴 실패');
         } finally { setSeedBusy(''); }
     };
+    // 목표 채우기 — 후보를 순서대로 끝까지 파서 목표 건수를 채운다(워커 process_chain).
+    //   ★ 사장님 설계: 첫 키워드에서 다 채우면 오히려 좋다 — 제품 우선으로 깊게 판다.
+    //     각 키워드의 '단독(지역 없음)' 판정도 맨 앞에서 같이 본다.
+    const runChain = async (products: string[], target = FIRST_TARGET) => {
+        if (!products.length) { setKwErr('먼저 키워드가 있어야 합니다.'); return; }
+        const sidos = form.region_sets || [];
+        if (!sidos.length) { setKwErr('위에서 지역을 하나 이상 고르세요.'); return; }
+        setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…'); setScanTarget(target);
+        lastScanRef.current = { kind: 'chain', products };
+        clearPendingScan();
+        try {
+            const { id, error } = await enqueueChainScan(products, sidos.join(','), target);
+            if (error || !id) throw new Error(error?.message || '등록 실패');
+            savePendingScan(id, 'chain', `목표 ${target}건 · ${products.slice(0, 3).join(', ')}${products.length > 3 ? ` 외 ${products.length - 3}` : ''}`);
+            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
+            savePendingProgress([], result);
+            if (!result.length) { setKwErr('인기탭이 확인된 키워드가 없습니다.'); return; }
+            setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+        } catch (e) {
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '조회 실패');
+        } finally { setKwLoading(false); setScanNote(''); }
+    };
+
     const applySeeds = () => {
         const cur = seed.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
         const next = [...new Set([...cur, ...seedPick])];
@@ -419,36 +470,6 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         } finally { setExtracting(false); }
     };
     // 연관형 ② — 전국 판정 + 지역형 찔러보기를 한 번에(process_related)
-    const runRelatedScan = async () => {
-        const list = [...relPicked];
-        if (!list.length) { setKwErr('스캔할 키워드를 1개 이상 체크하세요.'); return; }
-        setKwErr(''); setKwLoading(true); setScanNote(''); setKwResult(null); setKwHidden([]);
-        try {
-            const { id, error } = await enqueueRelatedScan(seed, list.slice(0, REL_MAX));
-            if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-            // 연관형은 지역 찔러보기까지 하느라 가장 오래 걸린다 — 기록을 남겨야
-            //   시간초과·새로고침 뒤에도 이 요청에 다시 붙는다.
-            clearPendingScan();
-            savePendingScan(id, 'related', `연관 "${seed.trim()}" × ${list.length}개`);
-            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
-            const reg = result.filter((r) => (r as KwResult & { kind?: string }).kind === 'regional');
-            const nat = result.filter((r) => (r as KwResult & { kind?: string }).kind !== 'regional');
-            setRelRegional(reg as (KwResult & { sample?: string[] })[]);
-            if (!nat.length && !reg.length) {
-                setKwErr(`체크한 ${list.length}개 중 인기탭이 확인된 키워드가 없습니다. `
-                    + `일반 배포로 접수하시면 인기탭 확인 없이 그대로 발행됩니다.`);
-                return;
-            }
-            setKwResult([...nat].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
-            if (!form.keyword) set('keyword', seed.trim());
-        } catch (e) {
-            // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
-            const m = e instanceof Error ? e.message : '';
-            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
-            setKwErr(m || '조회 실패');
-        } finally { setKwLoading(false); setScanNote(''); }
-    };
-
     const checkPopManual = async () => {
         const list = popManualKws.length ? popManualKws : [(form.keyword || '').trim()].filter(Boolean);
         if (!list.length) { setKwErr('확인할 키워드를 입력하세요(입력 후 엔터/추가).'); return; }
@@ -523,6 +544,45 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [placeDetail, setPlaceDetail] = useState(''); // 키워드형 '상세 정보 입력' — 플레이스에 메뉴/정보 없을 때 붙여넣기(비고 [상세정보]로 저장)
     const togglePick = (k: KwResult) =>
         setKwPicked((prev) => (prev.some((p) => p.keyword === k.keyword) ? prev.filter((p) => p.keyword !== k.keyword) : [...prev, k]));
+    // 여러 건을 한 번에 담는다 — 확인된 조합이 수십 개라 하나씩 누를 수 없다(사장님 지시 2026-08-11).
+    //   이미 담긴 건 건너뛴다(토글이 아니라 '추가'여야 전부 담기가 생각대로 동작한다).
+    const addPicks = (rows: KwResult[]) =>
+        setKwPicked((prev) => {
+            const have = new Set(prev.map((p) => p.keyword));
+            return [...prev, ...rows.filter((r) => !have.has(r.keyword))];
+        });
+    // 발행 전 재확인 — 담아둔 키워드를 팔기 직전에 라이브로 다시 판정한다.
+    //   SUB4 실측 2026-08-11: 5~6일 지난 양성 30건 중 3건(10%)이 죽어 있었다.
+    //   전부 '섹션없음' — 네이버가 그 키워드에 인기글 섹션을 더 이상 안 주는 경우다.
+    const [recheckBusy, setRecheckBusy] = useState('');
+    const [recheckDead, setRecheckDead] = useState<string[]>([]);
+    const runRecheck = async () => {
+        if (!kwPicked.length) return;
+        setRecheckBusy('재확인 준비…'); setRecheckDead([]);
+        try {
+            const kws = kwPicked.map((p) => p.keyword);
+            const { id, error } = await enqueueRecheckScan(kws);
+            if (error || !id) throw new Error(error?.message || '등록 실패');
+            const { result } = await pollPlaceScan(id, {
+                timeoutSec: 1500, onProgress: (n) => setRecheckBusy(n),
+            });
+            const alive = new Set(result.map((r) => r.keyword.replace(/\s/g, '')));
+            const dead = kws.filter((k) => !alive.has(k.replace(/\s/g, '')));
+            setRecheckDead(dead);
+            setKwErr(dead.length
+                ? `재확인 완료 — ${kws.length}건 중 ${dead.length}건은 지금 인기탭이 없습니다. 아래에서 빨간 것을 빼주세요.`
+                : `재확인 완료 — ${kws.length}건 전부 살아있습니다.`);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '재확인 실패');
+        } finally { setRecheckBusy(''); }
+    };
+
+    // 고객사 상호가 들어간 키워드는 결과에서 미리 거른다(SUB4 발견 2026-08-11:
+    //   캐시에 '경기 더반클린'·'안양더반클린' 이 양성으로 있었다). 팔 대상이 아니다 —
+    //   그 업체는 이미 자기 이름을 갖고 있고, 다른 업체게는 남의 브랜드다.
+    const [brands, setBrands] = useState<string[]>([]);
+    useEffect(() => { void getClientBrands().then(setBrands); }, []);
+
     const hideKw = (kw: string) => {
         setKwHidden((prev) => (prev.includes(kw) ? prev : [...prev, kw]));
         setKwPicked((prev) => prev.filter((p) => p.keyword !== kw)); // 숨기면 선택도 해제
@@ -535,10 +595,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   숫자는 cafeKwScan 에서만 정한다. 예전엔 이 화면이 플레이스형 10→50, 지역형 300 이라
     //   같은 기능인데 화면마다 결과 개수가 달랐다.
     const [scanTarget, setScanTarget] = useState(FIRST_TARGET);
+    // ★ '＋더 찾기'가 어느 경로로 나온 결과인지 알아야 이어서 돌릴 수 있다.
+    //   실측 2026-08-11: 연관형·목표채우기로 나온 결과에서 ＋더 찾기를 누르면
+    //   지역형 경로로 가서 '제품 키워드를 추가하세요'로 막혔다(칩이 비어 있으니까).
+    const lastScanRef = useRef<{ kind: 'place' | 'region' | 'chain'; products: string[] } | null>(null);
     const runPlaceScan = async (target = FIRST_TARGET) => {
         const u = (form.url || '').trim();
         if (!u) { setKwErr('플레이스 주소를 입력하세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote('인기탭 분석 준비 중…'); setScanTarget(target);
+        lastScanRef.current = { kind: 'place', products: [] };
         // 첫 회차만 초기화 — '＋더 찾기'는 기존 결과에 이어붙인다(이미 판정된 건 캐시라 즉시 통과).
         const prev = target > FIRST_TARGET ? (kwResult ?? []) : [];
         if (target <= FIRST_TARGET) { setKwResult(null); setKwHidden([]); }
@@ -590,6 +655,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         }
         if (!sidos.length && !ownAddr.trim()) { setKwErr('지역을 선택하거나 위치를 직접 입력하세요. 지역이 없는 업체면 아래 ‘지역 없음’을 체크하세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote('지역 인기탭 조회 준비 중…'); setScanTarget(target);
+        lastScanRef.current = { kind: 'region', products: kws };
         // 첫 회차만 초기화 — '＋더 찾기'는 기존 결과 위에 이어붙인다.
         //   저장해 둔 직전 결과도 같이 버린다(안 그러면 옛 결과가 새 조건에 섞인다).
         const prev = target > FIRST_TARGET ? (kwResult ?? []) : [];
@@ -804,16 +870,31 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 className="rounded border border-[#c7d2fe] bg-white px-2 py-0.5 text-[11px] font-bold text-[#4338ca]">
                                 ⬇ 엑셀로 받기
                             </button>
+                            {/* 발행 전 재확인 — 5~6일 지난 것의 10%가 이미 안 된다(실측). 접수 직전에 한 번. */}
+                            <button type="button" onClick={() => void runRecheck()} disabled={!!recheckBusy}
+                                className="rounded border border-[#16a34a] bg-white px-2 py-0.5 text-[11px] font-bold text-[#16a34a] disabled:opacity-50"
+                                title="지금도 인기탭이 있는지 다시 봅니다. 접수 직전에 한 번 눌러 주세요.">
+                                {recheckBusy ? '확인 중…' : '✅ 접수 전 재확인'}
+                            </button>
                             <button type="button"
                                 onClick={() => { if (confirm(`담아둔 ${kwPicked.length}개를 모두 비웁니다. 계속할까요?`)) setKwPicked([]); }}
                                 className="rounded border border-[#fca5a5] bg-white px-2 py-0.5 text-[11px] font-bold text-[#dc2626]">
                                 전부 비우기
                             </button>
-                            <span className="text-[11px] text-[#818cf8]">다른 조건으로 계속 조회해 쌓으세요 — 30일 보관됩니다.</span>
+                            {recheckDead.length ? (
+                                <button type="button"
+                                    onClick={() => { setKwPicked((prev) => prev.filter((p) => !recheckDead.includes(p.keyword))); setRecheckDead([]); }}
+                                    className="rounded bg-[#dc2626] px-2 py-0.5 text-[11px] font-bold text-white">
+                                    안 되는 {recheckDead.length}건 빼기
+                                </button>
+                            ) : null}
+                            <span className="text-[11px] text-[#818cf8]">
+                                {recheckBusy ? `🔎 ${recheckBusy}` : '다른 조건으로 계속 조회해 쌓으세요 — 30일 보관됩니다.'}
+                            </span>
                         </div>
                         <div className="flex flex-wrap gap-1.5">
                             {kwPicked.map((p) => (
-                                <span key={p.keyword} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[12px] font-semibold text-[#3730a3] ring-1 ring-[#c7d2fe]">
+                                <span key={p.keyword} className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[12px] font-semibold ring-1 ${recheckDead.includes(p.keyword) ? 'bg-[#fef2f2] text-[#dc2626] ring-[#fca5a5] line-through' : 'bg-white text-[#3730a3] ring-[#c7d2fe]'}`}>
                                     {p.keyword}
                                     {p.volume != null ? <span className="text-[10px] font-normal text-[#94a3b8]">{p.volume.toLocaleString()}</span> : null}
                                     <button type="button" onClick={() => togglePick(p)} className="text-[#818cf8] hover:text-[#4338ca]" title="선택 해제">×</button>
@@ -825,7 +906,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 </div>
             ) : null}
             {kwResult && (() => {
-                const visible = kwResult.filter((k) => !kwHidden.includes(k.keyword));
+                // 고객사 상호가 들어간 키워드는 보이지 않게 한다 — 팔 대상이 아니다.
+                const visible = kwResult.filter((k) => !kwHidden.includes(k.keyword) && !hasClientBrand(k.keyword, brands));
                 const fresh = visible.filter((k) => !usedKw.has(normKw(k.keyword)));
                 const used = visible.filter((k) => usedKw.has(normKw(k.keyword)));
                 return (
@@ -888,7 +970,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     {/* ＋더 찾기 — 회차당 30건에서 멈추므로 부족하면 ＋10 씩 이어서 본다(사무실 화면과 동일).
                         결과가 적을수록 더 필요하다 — 3건만 나왔을 때 더 찾고 싶지, 30건 나왔을 때만이 아니다.
                         이미 판정된 조합은 캐시 히트라 즉시 통과하므로 이어찾기는 처음보다 빠르다. */}
-                    <button type="button" onClick={() => void (isKw ? runPlaceScan(scanTarget + MORE_STEP) : genRegionKeywords(scanTarget + MORE_STEP))}
+                    <button type="button" onClick={() => {
+                        const t = scanTarget + MORE_STEP;
+                        const ls = lastScanRef.current;
+                        if (ls?.kind === 'chain') { void runChain(ls.products, t); return; }
+                        if (ls?.kind === 'place' || isKw) { void runPlaceScan(t); return; }
+                        void genRegionKeywords(t);
+                    }}
                         disabled={kwLoading}
                         className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50"
                         title="이번 회차는 30건에서 멈춥니다. 부족하면 10건씩 이어서 찾습니다(이미 본 조합은 건너뜁니다).">
@@ -1054,6 +1142,19 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 </button>
                             </div>
                             {seedBusy ? <p className="m-0 mt-1 text-[11px] font-semibold text-[#6d28d9]">🔎 {seedBusy}</p> : null}
+                            {/* ★ 지역을 여기서 고른다 — '③ 인기탭 찾기'가 곧바로 이 지역 전수를 돌기 때문이다.
+                                예전엔 지역 선택 UI 가 지역형·정보형에만 있어서, 연관형에선 고를 방법이 없는데
+                                버튼만 비활성이었다(사장님 신고 2026-08-11). */}
+                            <div className="mt-2 flex flex-wrap items-center gap-1 rounded-md border border-[#c4b5fd] bg-white px-2 py-1.5">
+                                <span className="mr-1 text-[11px] font-bold text-[#6d28d9]">발행할 지역</span>
+                                {REGION_KEYS.map((r) => (
+                                    <button key={r} type="button" onClick={() => toggleRegion(r)}
+                                        className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${regionSel.includes(r) ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>{r}</button>
+                                ))}
+                                <span className="ml-1 text-[11px] text-[#94a3b8]">
+                                    {regionSel.length ? '이 지역의 전 지역을 봅니다' : '하나 이상 골라야 ③ 인기탭 찾기가 됩니다'}
+                                </span>
+                            </div>
                             {/* 발굴 결과 — '신규'는 실제로 조회해서 잰 값이다(추측 아님). */}
                             {seedCands?.length ? (
                                 <div className="mt-2 rounded-md border border-[#c4b5fd] bg-white p-2">
@@ -1142,27 +1243,30 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                     className={`rounded px-2 py-0.5 text-[11px] font-bold ${relTier === t ? 'bg-[#6d28d9] text-white' : 'text-[#6d28d9]'}`}>{lbl}</button>
                                             ))}
                                         </div>
-                                        {/* 단어 계열 — 여러 단어를 넣으면 첫 단어가 목록을 뒤덮는다. 계열별로 골라 본다. */}
+                                        {/* 분야 · 세부 드롭다운 — 계열만으로는 454개라 너무 광범위하다(사장님 요청 2026-08-11).
+                                            세부는 사전이 아니라 실제 후보에서 뽑는다 — 업종마다 다르고, 미리 짜면 그 순간 추측이다. */}
                                         {(() => {
+                                            const base = relCands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
+                                                .filter((x) => !endsOnly || x.endsSeed);
                                             const fam = new Map<string, number>();
-                                            for (const x of relCands) {
-                                                if (relTier === 'seed' && x.tier !== 'seed') continue;
-                                                if (relTier === 'near' && x.tier === 'far') continue;
-                                                if (endsOnly && !x.endsSeed) continue;
-                                                const k = x.seedOf || '기타';
-                                                fam.set(k, (fam.get(k) ?? 0) + 1);
-                                            }
-                                            if (fam.size < 2) return null;
-                                            const list = [...fam.entries()].sort((a, b) => b[1] - a[1]);
+                                            for (const x of base) { const k = x.seedOf || '기타'; fam.set(k, (fam.get(k) ?? 0) + 1); }
+                                            const inFam = base.filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter).filter((x) => !subFilter || x.kw.replace(/\s/g, '').includes(subFilter));
+                                            const pool = new Set(relCands.map((x) => x.kw.replace(/\s/g, '')));
+                                            const subs = seedFilter ? subCategories(inFam.map((x) => x.kw), seedFilter, pool) : [];
+                                            const sel = 'h-7 rounded border border-[#c4b5fd] bg-white px-1.5 text-[11px] font-bold text-[#6d28d9]';
                                             return (
                                                 <span className="inline-flex flex-wrap items-center gap-1">
-                                                    <span className="text-[11px] font-normal text-[#94a3b8]">계열</span>
-                                                    <button type="button" onClick={() => setSeedFilter('')}
-                                                        className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${seedFilter === '' ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>전체</button>
-                                                    {list.map(([k, n]) => (
-                                                        <button key={k} type="button" onClick={() => setSeedFilter(k)}
-                                                            className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${seedFilter === k ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>{k} {n}</button>
-                                                    ))}
+                                                    <select className={sel} value={seedFilter} onChange={(e) => { setSeedFilter(e.target.value); setSubFilter(''); }}>
+                                                        <option value="">분야 전체 ({base.length})</option>
+                                                        {[...fam.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => (
+                                                            <option key={k} value={k}>{k} ({n})</option>
+                                                        ))}
+                                                    </select>
+                                                    <select className={sel} value={subFilter} disabled={!subs.length}
+                                                        onChange={(e) => setSubFilter(e.target.value)}>
+                                                        <option value="">{subs.length ? `세부 전체 (${inFam.length})` : '세부 — 분야 먼저'}</option>
+                                                        {subs.map((sc) => <option key={sc.label} value={sc.label}>{sc.label} ({sc.count})</option>)}
+                                                    </select>
                                                 </span>
                                             );
                                         })()}
@@ -1177,7 +1281,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         {(() => {
                                             const shown = relCands.filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
                                                 .filter((x) => !endsOnly || x.endsSeed)
-                                                .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter).slice(0, 200);
+                                                .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter).filter((x) => !subFilter || x.kw.replace(/\s/g, '').includes(subFilter)).slice(0, 200);
                                             const allOn = shown.length > 0 && shown.every((x) => relPicked.has(x.kw));
                                             return (
                                                 <button type="button"
@@ -1197,7 +1301,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         {relCands
                                             .filter((x) => (relTier === 'seed' ? x.tier === 'seed' : relTier === 'near' ? x.tier !== 'far' : true))
                                             .filter((x) => !endsOnly || x.endsSeed)
-                                            .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter)
+                                            .filter((x) => !seedFilter || (x.seedOf || '기타') === seedFilter).filter((x) => !subFilter || x.kw.replace(/\s/g, '').includes(subFilter))
                                             .slice(0, 200)
                                             .map((x) => (
                                                 <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${relPicked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>
@@ -1210,9 +1314,16 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                             ))}
                                     </div>
                                     <div className="mt-2 flex items-center gap-2">
-                                        <button type="button" onClick={() => void runRelatedScan()} disabled={kwLoading || !relPicked.size}
-                                            className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">
-                                            {kwLoading ? '찾는 중…' : '③ 인기탭 찾기'}
+                                        {/* ★ 체크한 순서대로 하나씩 끝까지 파고 30건 채우면 멈춘다(process_chain).
+                                            각 키워드마다 단독 판정 → 위에서 고른 지역 전수. 사장님 설계 2026-08-11. */}
+                                        <button type="button" disabled={kwLoading || !relPicked.size || !(form.region_sets || []).length}
+                                            onClick={() => void runChain((relCands || []).filter((c) => relPicked.has(c.kw)).map((c) => c.kw))}
+                                            className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50"
+                                            title="체크한 키워드를 순서대로 하나씩 팍니다 — 단독 + 고른 지역 전수. 30건 채우면 멈춥니다.">
+                                            {kwLoading ? '찾는 중…'
+                                                : !(form.region_sets || []).length ? '↑ 먼저 지역을 고르세요'
+                                                    : !relPicked.size ? '↑ 키워드를 체크하세요'
+                                                        : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
                                         </button>
                                         <span className="text-[11px] text-[#64748b]">
                                             {relPicked.size > REL_MAX
@@ -1224,8 +1335,22 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             ) : null}
                             {relRegional.length ? (
                                 <div className="mt-2 rounded-md border border-[#f59e0b] bg-[#fffbeb] p-2">
-                                    <div className="mb-1 text-[12px] font-bold text-[#b45309]">
-                                        📍 지역을 붙여야 나오는 키워드 {relRegional.length}건
+                                    <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#b45309]">
+                                        <span>📍 지역을 붙여야 나오는 키워드 {relRegional.length}건</span>
+                                        {/* 확인된 조합이 수십 개라 하나씩 누를 수 없다 — 한 번에 담는다. */}
+                                        {(() => {
+                                            const all = relRegional.flatMap((r) => (r.sample ?? []).map((s) => ({
+                                                cafes: [] as KwResult['cafes'], keyword: s, theme: r.theme, volume: r.volume,
+                                            })));
+                                            const left = all.filter((r) => !kwPicked.some((p) => p.keyword === r.keyword));
+                                            if (!all.length) return null;
+                                            return (
+                                                <button type="button" onClick={() => addPicks(all)} disabled={!left.length}
+                                                    className="ml-auto rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-40">
+                                                    {left.length ? `확인된 ${left.length}건 전부 담기` : `전부 담김 (${all.length}건)`}
+                                                </button>
+                                            );
+                                        })()}
                                     </div>
                                     {relRegional.map((r) => (
                                         <div key={r.keyword} className="rounded border border-[#fde68a] bg-white px-2 py-1.5 text-[12px]">
@@ -1237,7 +1362,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                 눌러서 담으면 전수 스캔을 안 돌려도 그만큼은 확보된다(사장님 지시 2026-08-11). */}
                                             {r.sample?.length ? (
                                                 <div className="mt-1 flex flex-wrap items-center gap-1">
-                                                    <span className="text-[11px] font-semibold text-[#16a34a]">확인됨 {r.sample.length}건 — 눌러서 담기</span>
+                                                    <button type="button"
+                                                        onClick={() => addPicks((r.sample ?? []).map((s) => ({ cafes: [], keyword: s, theme: r.theme, volume: r.volume })))}
+                                                        className="rounded bg-[#16a34a] px-2 py-0.5 text-[11px] font-bold text-white">
+                                                        확인됨 {r.sample.length}건 전부 담기
+                                                    </button>
                                                     {r.sample.map((s) => {
                                                         const on = kwPicked.some((p) => p.keyword === s);
                                                         return (
@@ -1254,8 +1383,21 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     ))}
                                     <p className="mb-0 mt-1 text-[11px] text-[#a16207]">
                                         초록 칩은 <b>이미 인기탭이 확인된 키워드</b>입니다 — 눌러서 바로 담으세요.
-                                        더 찾으시려면 <b>지역형</b>으로 접수해 주세요(위에서 ‘지역형’ 선택 후 제품키워드로 입력) — 찔러본 4곳 말고 전 지역을 봅니다.
                                     </p>
+                                    {/* 목표 채우기 — 후보를 순서대로 끝까지 파서 목표 건수를 채우면 멈춘다.
+                                        하나씩 지역형으로 다시 접수할 필요가 없다(사장님 설계 2026-08-11). */}
+                                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[#16a34a] bg-[#f0fdf4] px-2 py-1.5">
+                                        <span className="text-[12px] font-bold text-[#15803d]">🎯 {FIRST_TARGET}건 채울 때까지 알아서 찾기</span>
+                                        <span className="text-[11px] text-[#4d7c0f]">
+                                            위 {relRegional.length}개를 순서대로 끝까지 팝니다 — 키워드 단독 + 전 지역
+                                            ({(form.region_sets || []).join('·') || '위에서 지역을 골라 주세요'}).
+                                        </span>
+                                        <button type="button" disabled={kwLoading || !(form.region_sets || []).length}
+                                            onClick={() => void runChain(relRegional.map((r) => r.keyword))}
+                                            className="ml-auto shrink-0 rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+                                            {kwLoading ? '찾는 중…' : '시작 →'}
+                                        </button>
+                                    </div>
                                 </div>
                             ) : null}
                         </div>
@@ -1298,7 +1440,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 {/* data-deploy-type — 사용 가이드(CustomerGuide)가 읽어 방식별 안내로 바꾼다. */}
                 <div data-tour="cafe-deploy-basic" data-deploy-type={form.deploy_type} className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="md:col-span-2">
-                        <label className={labelCls}>업체명 *</label>
+                        <label className={labelCls}>
+                        업체명 *
+                        {/* 담당자가 미리보기로 남의 화면을 볼 때 어느 업체인지 분명히 보이게 한다. */}
+                        {clientName ? <span className="ml-1 font-normal text-[#4338ca]">— 지금 <b>{clientName}</b> 화면입니다</span> : null}
+                    </label>
                         <input className={inputCls} value={form.company_name} onChange={(e) => set('company_name', e.target.value)} placeholder="test" />
                     </div>
                     {!isManual ? (
