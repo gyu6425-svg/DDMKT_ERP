@@ -322,6 +322,18 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         set('product_keywords', [...productKws, ...add]);
         setExtracted(null); setPicked(new Set()); setKwErr('');
     };
+    // ②주소로 찾기의 마무리 — 체크한 키워드를 제품키워드로 넣고 그 자리에서 바로 인기탭까지 본다.
+    //   ★ 왜(2026-08-12): 예전엔 '제품키워드로 추가'까지만 하고, 인기탭 찾기 버튼은 한참 아래
+    //     '제품 키워드' 섹션에 있었다. 체크 → 추가 → 스크롤 → 찾기 로 흐름이 끊겼다.
+    //   ★ product_keywords 세팅은 그대로 한다 — 스캔 입력일 뿐 아니라 접수 레코드에 저장되는 값이다.
+    const confirmAndScan = () => {
+        const checked = (extracted || []).map((x) => x.kw).filter((k) => picked.has(k));
+        if (!checked.length) { setKwErr('찾을 키워드를 체크하세요.'); return; }
+        const add = checked.filter((k) => !productKws.includes(k));
+        if (add.length) set('product_keywords', [...productKws, ...add]);
+        setExtracted(null); setPicked(new Set()); setKwErr('');
+        void runChain(checked);
+    };
     // 직접형 — 입력한 키워드를 인기탭 확인 없이 바로 선택 키워드(kwPicked)로. 최대 50개·중복 제거.
     const addManualKw = () => {
         const v = (form.keyword || '').trim().replace(/\s+/g, ' ');
@@ -1443,8 +1455,18 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                     </label>
                                                 ))}
                                             </div>
-                                            <button type="button" onClick={confirmExtracted} disabled={!picked.size}
-                                                className="mt-2 h-9 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white disabled:opacity-50">③ 제품키워드로 추가</button>
+                                            {/* ①과 같은 자리에서 끝낸다 — 체크 → 인기탭 찾기 → 위 적재함에 누적. */}
+                                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                <button type="button" onClick={confirmAndScan} disabled={!picked.size || kwLoading}
+                                                    className="h-9 rounded-md bg-[#16a34a] px-4 text-sm font-bold text-white disabled:opacity-50"
+                                                    title="① 체크한 키워드를 지역 없이 전부 판정 → ② 그 뒤 지역 전수. 찾은 건 위 적재함에 쌓입니다.">
+                                                    {kwLoading ? '찾는 중…' : `③ 인기탭 찾기 (${picked.size}개 · ${FIRST_TARGET}건 채우면 멈춤)`}
+                                                </button>
+                                                <button type="button" onClick={confirmExtracted} disabled={!picked.size || kwLoading}
+                                                    className="h-9 rounded-md border border-[#c7d2fe] bg-white px-3 text-[12px] font-bold text-[#4338ca] disabled:opacity-50"
+                                                    title="스캔하지 않고 제품키워드 칩으로만 넣습니다.">제품키워드로만 추가</button>
+                                                <span className="text-[11px] text-[#64748b]">찾은 건 맨 위 적재함에 쌓입니다 — ①에서 찾은 것과 합쳐집니다.</span>
+                                            </div>
                                         </div>
                                     ) : null}
                                 </div>
