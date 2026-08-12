@@ -140,11 +140,17 @@ PLACEHOLDER_CLASS_HINTS = ["placeholder", "__se_placeholder"]
 #    test_no_publish.py 가 이 상수들이 클릭 경로로 흘러가지 않는지 정적으로 검사한다.
 #   ✅ 실측 2026-08-11: 발행=publish_btn__m9KHH / 예약발행=reserve_btn__Km5Xh (둘 다 해시 클래스).
 #      해시는 빌드마다 바뀌므로 텍스트 + [class*=] 부분매칭을 함께 건다.
+#   🔴 실측 2026-08-12(Phase 0-C): 발행은 **2단계**다.
+#      1단계 publish_btn__m9KHH "발행"  → 발행 설정 레이어를 연다(아직 발행 아님)
+#      2단계 confirm_btn__WEaBq "발행"  → **실제 발행**(POST RabbitWrite.naver)
+#      ⚠️ 최종 버튼의 클래스는 confirm_btn 이라 `[class*="publish"]` 에 **안 걸린다**.
+#         지금까지는 텍스트 셀렉터 하나에만 의존하고 있었다 — 클래스 매칭도 함께 건다.
 BLOCK_CLICK_SELECTORS = [
     'button:has-text("발행")',
     'a:has-text("발행")',
     'button:has-text("예약")',
     '[class*="publish_btn"]',
+    '[class*="confirm_btn"]',   # ← 2단계 최종 발행 버튼(실측). se-popup-button-confirm 과는 다름
     '[class*="reserve_btn"]',
     '[class*="publish"]',
 ]
@@ -179,10 +185,40 @@ SAVE_CLICK_URL_PART = "rabbittemp"      # 저장 버튼이 쏘는 요청(RabbitT
 AUTOSAVE_URL_PART = "rabbitautosave"    # 자동저장 — 성공 근거로 쓰면 안 됨
 
 # 저장 후 여기로 이동했다면 **발행된 것** — 최고 심각도 경보 + 중단.
+#   (발행 모드에서는 반대로 이 패턴이 '성공' 신호다)
 PUBLISHED_URL_PATTERNS = [
     r"logNo=",
     r"/PostView\.naver",
 ]
+
+# ══════════════════════════════════════════════════════════════════════════
+# 발행 모드 전용 셀렉터 (mode='publish' 일 때만 쓴다) — 실측 2026-08-12 Phase 0-C, SUB1
+#   ⚠️ 위 BLOCK_* 와 **역할이 정반대**다. BLOCK_* 는 '막기 위해', 아래는 '누르기 위해' 있다.
+#      그래서 이름을 SEL_PUB_* 로 완전히 분리했다 — 실수로 저장 모드에 흘러들면 안 된다.
+#      test_no_publish.py 가 SEL_PUB_* 는 오직 _publish_now() 안에서만 쓰이는지 검사한다.
+# ══════════════════════════════════════════════════════════════════════════
+
+# 1단계 — 발행 설정 레이어 열기. 이걸 눌러도 아직 발행되지 않는다.
+SEL_PUB_OPEN_LAYER = [
+    'button[class*="publish_btn"]:has-text("발행")',
+    'button:has-text("발행")',
+]
+# 2단계 — 🔴 **여기가 진짜 발행이다.** 누르는 순간 RabbitWrite.naver 가 나가고 되돌릴 수 없다.
+SEL_PUB_CONFIRM = [
+    'button[class*="confirm_btn"]:has-text("발행")',
+]
+# 공개설정 라디오 — ⚠️ value(0~3)를 추측하지 않는다. 라벨 텍스트로 고른다(SUB1 권고).
+#   값 순서가 바뀌면 '비공개로 발행하려다 전체공개'가 되고 그건 되돌릴 수 없다.
+SEL_PUB_OPEN_TYPE_RADIO = 'input[type=radio][name="open_type"]'
+PUB_OPEN_TYPE_LABELS = {
+    "public": "전체공개",
+    "neighbor": "이웃공개",
+    "mutual": "서로이웃공개",
+    "private": "비공개",
+}
+SEL_PUB_TAG_INPUT = ['input[class*="tag_input"]']
+# 발행 시각 — '현재' 가 기본. 예약은 이번 범위 밖(예약 발행은 무인 발행이라 별도 승인 필요).
+PUB_TIME_NOW_LABEL = "현재"
 
 
 def confirmed():

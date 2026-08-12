@@ -70,6 +70,12 @@ def _is_blocked_url(url):
     return any(p in u for p in sel.BLOCK_URL_PARTS)
 
 
+def _is_publish_url(url):
+    """발행 요청인가 — 발행 모드의 '올라갔다' 판정에 쓴다(저장 모드에선 사고 감지용)."""
+    u = (url or "").lower()
+    return any(p in u for p in sel.BLOCK_URL_PARTS)
+
+
 def _install_publish_guard(page, tripped):
     """발행을 네트워크·DOM 두 층에서 막는다. 발동하면 tripped 에 기록해 **시끄럽게 실패**시킨다.
     (조용히 막기만 하면 버그가 그대로 남아 다음에 다른 경로로 터진다.)"""
@@ -112,6 +118,107 @@ def _guard_report(page, tripped):
     except Exception:
         pass
     return hits
+
+
+# ── 발행 모드 (mode='publish' 전용) ──────────────────────────────────────────
+# 🔴 이 파일에서 유일하게 '발행'을 하는 함수다. SEL_PUB_* 상수는 오직 여기서만 쓴다
+#    (test_no_publish.T15 가 그 격리를 강제한다).
+#
+#    저장과 발행은 성공 판정이 **정반대**다:
+#      저장 → URL 이 안 바뀌어야 정상, logNo 로 전이하면 사고
+#      발행 → logNo 로 전이해야 성공
+#    그래서 두 경로를 한 함수에 섞지 않는다.
+BLOG_PUBLISH_ENABLED = os.environ.get("BLOG_PUBLISH_ENABLED", "0") == "1"
+
+
+def _pick_open_type(ctx, page, kind):
+    """공개설정 라디오를 **라벨 텍스트로** 고른다.
+
+    ⚠️ value(0~3)로 고르지 않는다. 네이버가 값 순서를 바꾸면 '비공개로 발행하려다 전체공개'가
+       되고 그건 되돌릴 수 없다(SUB1 실측 회신에서도 라벨 선택을 권고).
+       라벨을 못 찾으면 **발행하지 않는다** — 공개 범위를 모르는 채 공개하느니 실패가 낫다."""
+    label = sel.PUB_OPEN_TYPE_LABELS.get(kind)
+    if not label:
+        raise bc.SaveError(f"PUBLISH_OPEN_TYPE: 알 수 없는 공개설정 '{kind}'")
+    try:
+        loc = ctx.locator(f'label:has-text("{label}")').first
+        if not loc.count():
+            loc = ctx.locator(f'{sel.SEL_PUB_OPEN_TYPE_RADIO} + *:has-text("{label}")').first
+        if not loc.count():
+            raise bc.SaveError(
+                f"PUBLISH_OPEN_TYPE: 공개설정 '{label}' 을 찾지 못했습니다 — "
+                f"공개 범위를 확인하지 못한 채 발행하지 않습니다")
+        loc.click()
+        page.wait_for_timeout(400)
+        bc.log(f"  공개설정: {label}")
+    except bc.SaveError:
+        raise
+    except Exception as e:
+        raise bc.SaveError(f"PUBLISH_OPEN_TYPE: 공개설정 선택 실패 — {str(e)[:80]}")
+
+
+def _publish_now(ctx, page, open_type, tags, pub_calls, confirm_sec):
+    """발행 설정 레이어를 열고 → 공개설정을 정하고 → **최종 발행**한다. 되돌릴 수 없다.
+
+    실측 2026-08-12(Phase 0-C, SUB1):
+      1단계 publish_btn__m9KHH "발행" → 레이어 열림(아직 발행 아님)
+      2단계 confirm_btn__WEaBq "발행" → 실제 발행(POST RabbitWrite.naver)
+
+    반환: 발행된 글 URL. 확정 못 하면 예외."""
+    if not BLOG_PUBLISH_ENABLED:
+        raise bc.SaveError(
+            "PUBLISH_DISABLED: 발행 모드가 꺼져 있습니다 — .env 에 BLOG_PUBLISH_ENABLED=1 이 필요합니다")
+
+    # 1단계 — 레이어 열기
+    opener = bc.first(ctx, sel.SEL_PUB_OPEN_LAYER, timeout=6000)
+    if not opener:
+        raise bc.SaveError("PUBLISH_LAYER: 발행 버튼(1단계)을 찾지 못했습니다")
+    opener.click()
+    page.wait_for_timeout(1200)
+
+    # 공개설정 — 못 고르면 여기서 중단(레이어만 열린 상태, 아직 발행 안 됨)
+    _pick_open_type(ctx, page, open_type)
+
+    # 태그(선택) — 실패해도 발행은 계속(서식성 정보)
+    if tags:
+        try:
+            ti = bc.first(ctx, sel.SEL_PUB_TAG_INPUT, timeout=3000)
+            if ti:
+                ti.click()
+                for t in tags[:30]:
+                    page.keyboard.type(str(t), delay=bc.key_delay())
+                    page.keyboard.press("Enter")
+                    page.wait_for_timeout(150)
+        except Exception as e:
+            bc.log(f"  ! 태그 입력 실패(무시): {str(e)[:60]}")
+
+    # 2단계 — 🔴 여기서부터 되돌릴 수 없다
+    confirm = bc.first(ctx, sel.SEL_PUB_CONFIRM, timeout=6000)
+    if not confirm:
+        raise bc.SaveError("PUBLISH_CONFIRM: 최종 발행 버튼(2단계)을 찾지 못했습니다 — 발행하지 않았습니다")
+    bc.log("  🔴 최종 발행 클릭 — 이 시점부터 되돌릴 수 없습니다")
+    clicked_at = time.monotonic()
+    confirm.click()
+
+    # 발행 확정: RabbitWrite 응답 + logNo URL. 둘 중 하나라도 잡히면 '올라갔다'로 본다
+    #   (저장과 달리 '못 잡았으니 재시도'가 위험하다 — 중복 발행이 된다).
+    end = time.monotonic() + confirm_sec
+    url = None
+    while time.monotonic() < end:
+        cur = page.url or ""
+        if any(re.search(p, cur) for p in sel.PUBLISHED_URL_PATTERNS):
+            url = cur
+            break
+        if any(c["t"] >= clicked_at and c["status"] < 400 for c in pub_calls):
+            url = cur or "(발행 요청 200 · URL 미확정)"
+            break
+        page.wait_for_timeout(500)
+    if not url:
+        # 눌렀는데 확인이 안 됐다 → 올라갔을 수 있다. 재시도하면 중복 발행이므로 절대 금지.
+        raise bc.PostClickError(
+            "발행을 클릭했으나 확인하지 못했습니다 — 글이 올라갔을 수 있어 재시도하지 않습니다. 사람이 확인 필요")
+    bc.log(f"  ✔ 발행 완료: {url[:110]}")
+    return url
 
 
 # ── 복원 팝업 처리 ───────────────────────────────────────────────────────────
@@ -328,7 +435,7 @@ def _assert_not_published(page, where):
 
 
 # ── 공개 진입점: 저장만 한다 ─────────────────────────────────────────────────
-def save_draft(page, title, blocks, dry_run=True):
+def save_draft(page, title, blocks, dry_run=True, mode="save", open_type="public", tags=None):
     """글쓰기 → 제목/본문/이미지 채움 → **'저장'(임시저장)**. 반환: draft_seq(int) 또는 None.
 
     dry_run=True(기본)면 저장 버튼을 **찾기만 하고 누르지 않는다**."""
@@ -336,6 +443,8 @@ def save_draft(page, title, blocks, dry_run=True):
         raise bc.SaveError(
             "SELECTORS_UNCONFIRMED: blog_selectors.CONFIRMED_ON 이 비어 있습니다 — "
             "Phase 0(diag_blog.py) 실측 전에는 저장하지 않습니다(엉뚱한 버튼 클릭 방지)")
+    if mode not in ("save", "publish"):
+        raise bc.SaveError(f"MODE_INVALID: 알 수 없는 모드 '{mode}' — 'save' 또는 'publish' 만 허용")
     if not BLOG_WRITE_URL:
         raise bc.SaveError("BLOG_URL_MISSING: BLOG_WRITE_URL 미설정 — 열려 있는 아무 페이지에 쓰는 사고 방지로 중단")
 
@@ -373,8 +482,23 @@ def save_draft(page, title, blocks, dry_run=True):
         except Exception:
             pass
 
+    # 발행 요청 관측 — 발행 모드의 성공 판정에 쓴다(저장 모드에서는 '사고 감지'용으로만 본다).
+    pub_calls = []
+
+    def _on_pub_response(resp):
+        try:
+            if _is_publish_url(resp.url):
+                pub_calls.append({"status": resp.status, "t": time.monotonic(), "url": resp.url})
+        except Exception:
+            pass
+
     page.on("response", _on_response)
-    _install_publish_guard(page, tripped)          # goto 전에 걸어야 한다
+    page.on("response", _on_pub_response)
+    # ⚠️ 발행 차단 가드는 **저장 모드에서만** 건다. 발행 모드에서 걸면 자기 요청을 자기가 막는다.
+    if mode == "save":
+        _install_publish_guard(page, tripped)      # goto 전에 걸어야 한다
+    else:
+        bc.log("⚠️ 발행 모드 — 발행 차단 가드를 걸지 않습니다(이 작업은 실제로 공개 발행됩니다)")
 
     page.goto(BLOG_WRITE_URL, wait_until="domcontentloaded")
     page.wait_for_timeout(3000)
@@ -457,7 +581,16 @@ def save_draft(page, title, blocks, dry_run=True):
         done = sum(1 for s in subtitles if _convert_paragraph_to_quote(ctx, page, s))
         bc.log(f"인용구 변환: {done}/{len(subtitles)}")
 
-    _assert_not_published(page, "본문 작성 후")
+    if mode == "save":
+        _assert_not_published(page, "본문 작성 후")
+
+    # ── 발행 모드 ── (저장 버튼 경로를 타지 않는다)
+    if mode == "publish":
+        if dry_run:
+            btn = bc.first(ctx, sel.SEL_PUB_OPEN_LAYER, timeout=6000)
+            bc.log(f"[DRY] 발행 모드 — 1단계 버튼 {'발견' if btn else '못 찾음'}. 누르지 않고 종료합니다.")
+            return None
+        return _publish_now(ctx, page, open_type, tags, pub_calls, BLOG_CONFIRM_SEC)
 
     # ── 저장 ──
     btn = bc.first(ctx, sel.SEL_SAVE, timeout=6000)
@@ -513,6 +646,7 @@ def save_draft(page, title, blocks, dry_run=True):
 
 
 def save_job(job, cdp_url=DEFAULT_CDP, dry_run=True):
+    """job['mode'] 가 'publish' 면 발행, 아니면(기본) 저장. mode 가 없으면 'save' 로 떨어진다."""
     """큐 1건 저장 — 이미지 다운로드 + 본문 마커 파싱 → 저장. (draft_seq 또는 예외)"""
     # 🔴 job 의 블로그 == 이 워커의 블로그인지 먼저 대조한다.
     #    리스너는 blog_id 로 필터링해 claim 하므로 안전하지만, CLI 로 `--job <id>` 를 직접 돌리면
@@ -533,7 +667,12 @@ def save_job(job, cdp_url=DEFAULT_CDP, dry_run=True):
            f"인용구 {sum(1 for b in blocks if b['type']=='quote')}")
     with sync_playwright() as p:
         page = bc.connect(p, cdp_url)
-        return save_draft(page, job.get("title") or "제목", blocks, dry_run=dry_run)
+        mode = (job.get("mode") or "save").strip().lower()
+        if mode == "publish":
+            bc.log("🔴 이 작업은 **발행(공개)** 모드입니다 — 되돌릴 수 없습니다")
+        return save_draft(page, job.get("title") or "제목", blocks, dry_run=dry_run,
+                          mode=mode, open_type=(job.get("open_type") or "public"),
+                          tags=job.get("tags"))
 
 
 def session_ping(cdp_url=DEFAULT_CDP):

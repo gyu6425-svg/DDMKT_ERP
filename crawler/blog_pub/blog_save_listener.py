@@ -85,8 +85,8 @@ def _saved_today():
     today0 = datetime.datetime.now().strftime("%Y-%m-%dT00:00:00")
     try:
         rows = bc.sb_get("blog_save_queue",
-                         {"status": "eq.saved", **_owned_filter(),
-                          "saved_at": f"gte.{today0}", "select": "id"})
+                         {"status": "in.(saved,posted)", **_owned_filter(),
+                          "or": f"(saved_at.gte.{today0},posted_at.gte.{today0})", "select": "id"})
         return len(rows)
     except Exception:
         return 0
@@ -258,17 +258,28 @@ def main():
 
         print(f"[{datetime.datetime.now():%H:%M:%S}] 저장 처리: {job.get('title')}", flush=True)
         try:
-            seq = sv.save_job(job, sv.DEFAULT_CDP, dry_run=not SAVE_ENABLED)
+            is_publish = (job.get("mode") or "save").strip().lower() == "publish"
+            result = sv.save_job(job, sv.DEFAULT_CDP, dry_run=not SAVE_ENABLED)
             _last_save[0] = time.time()
             _last_touch[0] = time.time()
             g = _roll_gap()
             print(f"  다음 저장 간격 {g:.0f}분 → {datetime.datetime.now() + datetime.timedelta(minutes=g):%H:%M} 이후", flush=True)
-            if SAVE_ENABLED:
-                _safe_mark(jid, {"status": "saved", "saved_at": _now_iso(), "draft_seq": seq, "reason": None})
-                print(f"  ✅ 임시저장 완료(저장 {seq}) — 블로그 임시저장함에서 검수 후 사람이 발행하세요", flush=True)
+            if SAVE_ENABLED and is_publish:
+                # 발행 완료 — DB CHECK 가 'mode=publish 인 행만 posted 가 될 수 있다'를 보증한다.
+                _safe_mark(jid, {"status": "posted", "posted_at": _now_iso(),
+                                 "posted_url": result, "reason": None})
+                print(f"  🔴 발행 완료(공개): {result}", flush=True)
+            elif SAVE_ENABLED:
+                _safe_mark(jid, {"status": "saved", "saved_at": _now_iso(), "draft_seq": result, "reason": None})
+                print(f"  ✅ 임시저장 완료(저장 {result}) — 임시저장함에서 검수 후 사람이 발행하세요", flush=True)
             else:
                 _safe_mark(jid, {"status": "fail", "reason": "dry_run(저장 안 함) — BLOG_SAVE_ENABLED=1 필요"})
                 print("  ⓘ DRY-RUN: 저장 버튼을 찾기만 하고 누르지 않았습니다.", flush=True)
+        except bc.PostClickError as e:
+            # 발행을 이미 클릭했다 → 글이 올라갔을 수 있다. **절대 재시도하지 않는다**(중복 발행).
+            #   사람이 블로그를 확인하고 정리해야 한다. 저장 모드에는 이 경로가 없다.
+            _safe_mark(jid, {"status": "posted", "posted_at": _now_iso(), "reason": str(e)[:300]})
+            print(f"  ⚠️ 발행됐을 수 있음 — 재시도 안 함(사람 확인 필요): {str(e)[:110]}", flush=True)
         except bc.GuardTripped as e:
             # 발행 가드가 실제로 발동 = 어딘가에 발행 경로가 생겼다는 뜻. 조용히 넘기면 안 된다.
             _safe_mark(jid, {"status": "fail", "reason": f"🔴 {str(e)[:280]}"})
