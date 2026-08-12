@@ -389,15 +389,19 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (!sidos.length) { setKwErr('위에서 지역을 하나 이상 고르세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…'); setScanTarget(target);
         lastScanRef.current = { kind: 'chain', products };
-        clearPendingScan();
+        // 누적이므로 직전 저장분을 지우지 않는다 — 지우면 이 시점에 새로고침한 사장님이 앞선 결과를 잃는다.
+        //   savePendingScan 은 기존 기록 위에 이어 붙인다.
         try {
             const { id, error } = await enqueueChainScan(products, sidos.join(','), target);
             if (error || !id) throw new Error(error?.message || '등록 실패');
             savePendingScan(id, 'chain', `목표 ${target}건 · ${products.slice(0, 3).join(', ')}${products.length > 3 ? ` 외 ${products.length - 3}` : ''}`);
             const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
-            savePendingProgress([], result);
-            if (!result.length) { setKwErr('인기탭이 확인된 키워드가 없습니다.'); return; }
-            setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
+            // ⚠️ 여기서 result 로 덮으면 안 된다 — pushLive 가 스캔 내내 쌓아 둔 앞선 조회분이
+            //   끝나는 순간 사라진다(실측 2026-08-12: 화면 33개 → 이번 요청 6개로 줄어듦).
+            //   '창업으로 뽑고 정보형으로 또 뽑아 쌓는' 것이 정상 사용법이라 누적이 맞다.
+            //   pushLive 와 같은 규칙(공백 무시 중복 제거 · 검색량 내림차순)으로 합친다.
+            pushLive(result);
+            if (!kwResultRef.current.length) { setKwErr('인기탭이 확인된 키워드가 없습니다.'); return; }
         } catch (e) {
             const m = e instanceof Error ? e.message : '';
             if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
