@@ -45,6 +45,7 @@ export function CafeSheetTab({
     const [busy, setBusy] = useState(false);
     const [reqs, setReqs] = useState<CafeRequest[]>([]);   // 고객 발행 신청(대기) — 내부만
     const [linkedReq, setLinkedReq] = useState<{ id: string; client_id: string; cafe_url: string | null } | null>(null); // 신청→등록 연결
+    const [q, setQ] = useState('');   // 업체명 검색(업체명·게시판명·업체키·카페주소)
 
     const reload = async () => {
         setLoading(true);
@@ -102,17 +103,25 @@ export function CafeSheetTab({
         () => new Set(accounts.filter((a) => a.cafe_name !== 'ddmkt2' && a.client_id).map((a) => a.client_id)),
         [accounts],
     );
+    // 업체명 검색 — 업체명·게시판명(짧은/전체)·업체키·카페 주소를 모두 본다(대소문자 무시).
+    //   업체가 늘면서 눈으로 훑기 어려워져 추가. 검색은 화면 필터일 뿐 데이터는 그대로다.
     const rows = useMemo(
         () => accounts
             .filter((a) => !scopeCompanyKey || (Array.isArray(scopeCompanyKey) ? scopeCompanyKey.includes(a.company_key) : a.company_key === scopeCompanyKey))
             .filter((a) => !scopeClientId || a.client_id === scopeClientId)
             .filter((a) => !(a.cafe_name === 'ddmkt2' && a.client_id && clientsWithOwnCafe.has(a.client_id)))
+            .filter((a) => {
+                const s = q.trim().toLowerCase();
+                if (!s) return true;
+                return [a.display_name, a.board_short, a.board_name, a.company_key, a.cafe_name, cafeNameLabel(a.cafe_name)]
+                    .some((v) => (v || '').toLowerCase().includes(s));
+            })
             .sort(
                 (a, b) => cafeNameRank(a.cafe_name) - cafeNameRank(b.cafe_name)
                     || cafeCompanyRank(a.company_key) - cafeCompanyRank(b.company_key)
                     || a.display_name.localeCompare(b.display_name),
             ),
-        [accounts, scopeCompanyKey, scopeClientId, clientsWithOwnCafe],
+        [accounts, scopeCompanyKey, scopeClientId, clientsWithOwnCafe, q],
     );
 
     // 숨긴 마이클(ddmkt2) 카페의 실적을 같은 업체(client)의 자체 카페 행에 합산 — 회사 총 실적 표시.
@@ -192,7 +201,16 @@ export function CafeSheetTab({
                     <h2 className="m-0 text-base font-bold text-[#0f172a]">카페 관리시트</h2>
                     <p className="m-0 mt-0.5 text-xs text-[#64748b]">카페별 업체(게시판)의 계약·발행 진행·순위를 한눈에. (브랜드블로그 관리시트와 동일 구조)</p>
                 </div>
-                <span className="ml-auto text-xs text-[#64748b]">업체 {rows.length}</span>
+                <input
+                    className="ml-auto h-9 w-[220px] rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="업체명 검색..."
+                    value={q}
+                />
+                {q ? (
+                    <button className="h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs text-[#64748b]" onClick={() => setQ('')} type="button">✕</button>
+                ) : null}
+                <span className="text-xs text-[#64748b]">업체 {rows.length}</span>
                 <button className="h-9 rounded-md border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#475569]" onClick={() => void reload()} type="button">새로고침</button>
                 {!readOnly ? (
                     <button className="h-9 rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white" onClick={() => setShowAdd((v) => !v)} type="button">업체 등록</button>

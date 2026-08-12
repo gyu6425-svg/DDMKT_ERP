@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import {
     cafeTiStatus,
     excludeCafeRankPost,
@@ -20,10 +20,6 @@ const cafeLabel = (vanity?: string | null) => (vanity && CAFE_LABEL[vanity]) || 
 
 // 게시판(board) — 동일 카페 안에서 게시판별 구분. 표시 순서·색. 새 게시판은 자동으로 뒤에 붙는다.
 const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템', '더반클린', '누수상담소'];
-// 관리시트 '순위 보기'(?company=)로 진입 시, 그 업체의 게시판 탭을 초기 선택.
-const COMPANY_BOARD: Record<string, string> = {
-    leak: '누수', dirty: '더티클리닉', seolgo: '설고점', theman: '더맨시스템', theban: '더반클린', nusu: '누수상담소',
-};
 const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
     누수: { bg: '#eff6ff', fg: '#1d4ed8' },
     더티클리닉: { bg: '#f0fdfa', fg: '#0d9488' },
@@ -98,8 +94,14 @@ export function CafeTrackerTab({
     const [search, setSearch] = useState('');
     const [showAdd, setShowAdd] = useState(false);
     const [deleting, setDeleting] = useState<string | null>(null);
-    const [boardFilter, setBoardFilter] = useState(
-        () => COMPANY_BOARD[new URLSearchParams(window.location.search).get('company') || ''] || '전체',
+    const [boardFilter, setBoardFilter] = useState('전체');
+    // 관리시트에서 '순위 보기'(?company=company_key)로 들어오면 그 업체 글만 남긴다.
+    //   ★ 예전엔 업체키→게시판 이름을 손으로 적어둔 표(6곳)로 게시판 탭만 골랐다. 표에 없는
+    //     새 업체(출장뷔페·재활요양 등)는 전부 '전체'로 떨어져 남의 글까지 보였다.
+    //     이제 cafe_accounts.company_key 로 직접 거른다 — 표를 고칠 일이 없고,
+    //     한 업체가 카페를 둘 쓰는 경우(더맨시스템+더맨자체)도 같이 나온다.
+    const [companyFilter, setCompanyFilter] = useState(
+        () => new URLSearchParams(window.location.search).get('company') || '',
     );
     const [cafeFilter, setCafeFilter] = useState('전체'); // 카페(vanity)별 필터
 
@@ -162,8 +164,27 @@ export function CafeTrackerTab({
     // 관리 시트에서 업체 클릭(?q=업체명) 시 그 업체만 필터. 업체명/카페명(vanity) 둘 다 매칭.
     const params = new URLSearchParams(window.location.search);
     const q = params.get('q') || '';
+
+    // 업체 매칭 기준 — client_id 우선, 없으면 company_key.
+    //   ★ company_key 하나로는 모자란다: 설고점·더맨시스템은 카페가 둘이라 계정도 둘이고
+    //     업체키가 서로 다르다(seolgo/seolgo2, theman/theman2). 업체키로만 거르면
+    //     같은 회사 글이 절반씩 잘려 나간다(실측 설고 8+21, 더맨 18+28).
+    //     두 계정은 client_id 가 같으므로 그걸로 묶어야 회사 단위가 맞는다.
+    const companyClientId = useMemo(() => {
+        if (!companyFilter) return null;
+        const hit = posts.find((p) => (p.cafe_accounts?.company_key ?? '') === companyFilter);
+        return hit?.cafe_accounts?.client_id || null;
+    }, [posts, companyFilter]);
+    const matchCompany = useCallback(
+        (p: CafeRankPost) => (companyClientId
+            ? p.cafe_accounts?.client_id === companyClientId
+            : (p.cafe_accounts?.company_key ?? '') === companyFilter),
+        [companyClientId, companyFilter],
+    );
+
     const rows = useMemo(() => {
         let r = [...posts];
+        if (companyFilter) r = r.filter(matchCompany);
         if (cafeFilter !== '전체') r = r.filter((p) => (p.cafe_name || '기타') === cafeFilter);
         if (q) {
             const qq = q.trim();
@@ -186,26 +207,45 @@ export function CafeTrackerTab({
                 (b.created_at || '').localeCompare(a.created_at || '') ||
                 String(a.id).localeCompare(String(b.id)),
         );
-    }, [posts, q, search, cafeFilter]);
+    }, [posts, q, search, cafeFilter, companyFilter, matchCompany]);
+
+    // 업체 필터 표시 이름 + 해제. 해제하면 주소의 ?company= 도 지워 새로고침해도 안 돌아온다.
+    const companyName = useMemo(() => {
+        if (!companyFilter) return '';
+        const hit = posts.find((p) => (p.cafe_accounts?.company_key ?? '') === companyFilter);
+        return hit?.cafe_accounts?.display_name || companyFilter;
+    }, [posts, companyFilter]);
+    const clearCompany = () => {
+        setCompanyFilter('');
+        const u = new URL(window.location.href);
+        u.searchParams.delete('company');
+        window.history.replaceState(null, '', u.pathname + u.search);
+    };
+
+    // 업체를 골라 들어왔으면 카페·게시판 탭도 그 업체 것만 — 남의 게시판 탭이 깔리지 않게.
+    const scopedPosts = useMemo(
+        () => (companyFilter ? posts.filter(matchCompany) : posts),
+        [posts, companyFilter, matchCompany],
+    );
 
     // 카페(vanity) 필터 목록 — 전체 + 데이터에 있는 카페. 순서는 cafeNameRank.
     const cafes = useMemo(() => {
         const cnt = new Map<string, number>();
-        for (const p of posts) { const k = p.cafe_name || '기타'; cnt.set(k, (cnt.get(k) || 0) + 1); }
+        for (const p of scopedPosts) { const k = p.cafe_name || '기타'; cnt.set(k, (cnt.get(k) || 0) + 1); }
         return [...cnt.entries()].sort((a, b) => cafeNameRank(a[0]) - cafeNameRank(b[0]) || a[0].localeCompare(b[0]));
-    }, [posts]);
+    }, [scopedPosts]);
 
     // 게시판 탭은 선택한 카페의 게시판만 보인다. 전체 카페일 때만 기본 게시판(0건)도 함께 노출.
     const boards = useMemo(() => {
-        const scoped = cafeFilter === '전체' ? posts : posts.filter((p) => (p.cafe_name || '기타') === cafeFilter);
+        const scoped = cafeFilter === '전체' ? scopedPosts : scopedPosts.filter((p) => (p.cafe_name || '기타') === cafeFilter);
         const cnt = new Map<string, number>();
         for (const p of scoped) cnt.set(boardKey(p), (cnt.get(boardKey(p)) || 0) + 1);
         // 마이클의 정보 세상(ddmkt2)에서는 '누수' 게시판 탭을 숨긴다(글은 보존 · 표시만 제외).
         if (cafeFilter === 'ddmkt2') cnt.delete('누수');
-        // 고객 뷰(lockCompany)·스코프 뷰(누수 ERP 등)에선 경쟁사 게시판 0건 탭을 깔지 않는다 — 스코프 안 게시판만.
-        if (cafeFilter === '전체' && !lockCompany && !scopeClientId) for (const b of BOARD_ORDER) if (!cnt.has(b)) cnt.set(b, 0);
+        // 고객 뷰(lockCompany)·스코프 뷰(누수 ERP 등)·업체 지정 진입에선 남의 0건 탭을 깔지 않는다.
+        if (cafeFilter === '전체' && !lockCompany && !scopeClientId && !companyFilter) for (const b of BOARD_ORDER) if (!cnt.has(b)) cnt.set(b, 0);
         return [...cnt.entries()].sort((a, b) => boardRank(a[0]) - boardRank(b[0]) || a[0].localeCompare(b[0]));
-    }, [posts, cafeFilter, lockCompany, scopeClientId]);
+    }, [scopedPosts, cafeFilter, lockCompany, scopeClientId, companyFilter]);
 
     // 게시판별 그룹 — 검색/필터 적용 후 게시판 순서대로 묶는다. '다 구분되어서' 보기 위함.
     const groups = useMemo(() => {
@@ -267,6 +307,16 @@ export function CafeTrackerTab({
 
     return (
         <div className="grid gap-3">
+            {/* 관리시트에서 업체를 눌러 들어온 상태 — 지금 누구 것만 보고 있는지 알리고, 한 번에 풀 수 있게. */}
+            {companyFilter && !lockCompany ? (
+                <div className="flex items-center gap-2 rounded-lg border border-[#c7d2fe] bg-[#eef2ff] px-3 py-2 text-[12px] text-[#3730a3]">
+                    <b>{companyName}</b> 글만 보는 중 · {scopedPosts.length}건
+                    <button type="button" onClick={clearCompany}
+                        className="ml-auto rounded border border-[#c7d2fe] bg-white px-2 py-0.5 text-[11px] font-bold text-[#4338ca] hover:bg-[#f5f3ff]">
+                        전체 보기 ✕
+                    </button>
+                </div>
+            ) : null}
             {/* 상단 안내 + 액션 바 (블로그 관리시트 스타일) */}
             <div className="flex flex-wrap items-center gap-2">
                 <input
@@ -380,7 +430,7 @@ export function CafeTrackerTab({
             {boards.length > 1 ? (
                 <div className="flex flex-wrap items-center gap-1.5">
                     <span className="mr-1 text-[11px] font-semibold text-[#94a3b8]">게시판</span>
-                    {[['전체', cafeFilter === '전체' ? posts.length : (cafes.find(([c]) => c === cafeFilter)?.[1] ?? 0)] as [string, number], ...boards].map(([b, c]) => {
+                    {[['전체', cafeFilter === '전체' ? scopedPosts.length : (cafes.find(([c]) => c === cafeFilter)?.[1] ?? 0)] as [string, number], ...boards].map(([b, c]) => {
                         const on = boardFilter === b;
                         const st = b === '전체' ? { bg: '#1e293b', fg: '#ffffff' } : boardStyle(b);
                         return (
