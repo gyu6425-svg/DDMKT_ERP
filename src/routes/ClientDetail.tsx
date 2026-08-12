@@ -10,7 +10,8 @@ import {
     type RewardWeeklyLog,
 } from '../api/clientContracts';
 import { ensureClientBlogAccount, getBlogAccounts, syncBlogAccountFromContract, updateBlogAccount } from '../api/blogRank';
-import { enablePublishByClient, getCafeAccounts, type CafeAccount } from '../api/cafeAccounts';
+import { enablePublishByClient, getCafeAccounts, updateCafeAccount, type CafeAccount } from '../api/cafeAccounts';
+import { seedAchievedPostsForClient } from '../api/cafeRank';
 import { syncTokensToContract } from '../api/cafeTokens';
 import { getStudioSettings } from '../api/cafeStudioSettings';
 import { fmtWon } from '../components/blogRank/lib/helpers';
@@ -1489,12 +1490,26 @@ function ContractEditModal({
             const en = await enablePublishByClient(contract.client_id, companyName);
             // 토큰은 '더하기'가 아니라 '계약 건수에 맞추기' — 재계약을 두 번 눌러도 잔액이 계약과 같아진다.
             const tk = await syncTokensToContract(contract.client_id, reQty, `재계약 ${s} · ${companyName} · 계약 ${reQty}건에 맞춤`);
+            // 카페 관리시트는 client_contracts 가 아니라 cafe_accounts 의 계약 필드를 읽는다 — 여기도 새 계약으로 갱신.
+            //   (안 하면 시트가 옛 목표·계약일 그대로여서 '재계약했는데 화면 그대로'가 된다.)
+            const { data: allAccs } = await getCafeAccounts();
+            const mine = allAccs.filter((a) => a.client_id === contract.client_id);
+            const withGoal = mine.filter((a) => a.goal_count != null);
+            const targets = withGoal.length ? withGoal : mine.slice(0, 1);
+            for (const a of targets) {
+                await updateCafeAccount(a.id, {
+                    goal_count: reQty, done_count: 0, amount: reSales || null, contract_date: s,
+                });
+            }
+            // 이전 계약 달성분은 기준선으로 이월 → 새 계약 진행률 0부터.
+            const seeded = await seedAchievedPostsForClient(contract.client_id);
             // 키워드 풀이 비어 있으면 토큰이 있어도 발행 예정 큐가 비어 아무것도 안 나간다 — 다음 할 일을 알려 준다.
             const { data: ss } = await getStudioSettings(contract.client_id);
             const poolN = (ss?.keyword_pool ?? []).length;
+            const sheetMsg = ` · 관리시트 갱신(목표 ${reQty}건 · 진행률 0부터${seeded.count ? ` · 이전 달성 ${seeded.count}건 기준선 이월` : ''})`;
             cafeMsg = en.error || tk.error
                 ? ` · ⚠ 발행 활성화 실패(${en.error?.message || tk.error?.message}) — 카페 관리시트에서 '발행 세팅' 확인 필요`
-                : ` · 자동화 발행 재개(토큰 ${tk.before} → ${reQty}건)`
+                : ` · 자동화 발행 재개(토큰 ${tk.before} → ${reQty}건)` + sheetMsg
                   + (poolN ? ` · 키워드 풀 ${poolN}개` : ' · ⚠ 키워드 풀 0개 — 자동화 발행 탭에서 키워드를 채워야 발행이 시작됩니다');
         }
         onToast(`재계약 — 새 계약 카드 생성(${reQty.toLocaleString('ko-KR')}건 · 매출 ${fmtWon(reSales)}원). 기존 계약은 만료 처리.${cafeMsg}`);

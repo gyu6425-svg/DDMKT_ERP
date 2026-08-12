@@ -76,6 +76,17 @@ export async function getCafeRankPostsForClient(clientId: string): Promise<CafeR
     );
 }
 
+// 재계약 — 이전 계약에서 달성(5위 24h)한 글을 '기준선(top5_seeded)'으로 넘긴다.
+//   그래야 새 계약 진행률이 0부터 시작한다(안 하면 옛 글 39건이 새 계약 실적으로 그대로 잡힌다).
+//   기준선 글은 관리시트·대시보드·계약 sync 모두 자동 카운트에서 빠진다.
+export async function seedAchievedPostsForClient(clientId: string) {
+    const posts = await getCafeRankPostsForClient(clientId);
+    const ids = posts.filter((p) => p.top5_achieved_at && !p.top5_seeded).map((p) => p.id);
+    if (!ids.length) return { error: null, count: 0 };
+    const { error } = await supabase.from('cafe_rank_posts').update({ top5_seeded: true }).in('id', ids);
+    return { error, count: error ? 0 : ids.length };
+}
+
 // 측정 배열에서 가장 최근(날짜 큰) 1건.
 export function latestCafeMeasure(ms: CafeMeasurement[] | null | undefined): CafeMeasurement | null {
     if (!ms?.length) return null;
