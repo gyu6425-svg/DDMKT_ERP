@@ -23,6 +23,8 @@ import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 
 const REGION_KEYS = ['서울', '경기', '인천', '대전', '세종', '충북', '충남', '강원', '전북', '전남', '광주', '대구', '경북', '경남', '부산', '울산', '제주'] as const; // 지역형 지역셋(전국)
+// 목표채우기에서 지역을 안 골랐을 때 쓰는 기본 지역 — 화면에도 이 값을 그대로 적는다.
+const CHAIN_DEFAULT_REGIONS = ['서울', '경기', '인천'];
 
 // 카페 배포 '접수' — 고객이 로그인 후 접수 폼 작성 + 사진(메인배너/실사사진/배너) 업로드 → 제출.
 //   사진은 업로드 시 1600px 로 압축(용량·대역폭↓), deploy-intake 버킷의 본인 client_id 폴더에 저장.
@@ -388,8 +390,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   regionsOverride: 적재함 패널이 자기 지역 칩으로 돌릴 때 쓴다(접수 폼의 지역과 별개).
     const runChain = async (products: string[], target = FIRST_TARGET, regionsOverride?: string[]) => {
         if (!products.length) { setKwErr('먼저 키워드가 있어야 합니다.'); return; }
-        const sidos = regionsOverride?.length ? regionsOverride : (form.region_sets || []);
-        if (!sidos.length) { setKwErr('지역을 하나 이상 고르세요.'); return; }
+        // ★ 지역을 안 골라도 시작할 수 있다(2026-08-12) — 1단계가 '전 키워드 단독 판정'이라
+        //   지역이 개입하지 않는다. 씨앗 200개면 1~2회차가 통째로 단독이라 지역은 그 뒤에나 쓰인다.
+        //   미선택이면 서울·경기·인천으로 간다. 버튼 옆에 그 값을 그대로 적어 둔다(조용한 기본값 금지).
+        const picked = form.region_sets || [];
+        const sidos = regionsOverride?.length ? regionsOverride : (picked.length ? picked : CHAIN_DEFAULT_REGIONS);
         setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…'); setScanTarget(target);
         lastScanRef.current = { kind: 'chain', products };
         // 누적이므로 직전 저장분을 지우지 않는다 — 지우면 이 시점에 새로고침한 사장님이 앞선 결과를 잃는다.
@@ -1193,7 +1198,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${regionSel.includes(r) ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>{r}</button>
                                 ))}
                                 <span className="ml-1 text-[11px] text-[#94a3b8]">
-                                    {regionSel.length ? '이 지역의 전 지역을 봅니다' : '하나 이상 골라야 ③ 인기탭 찾기가 됩니다'}
+                                    {regionSel.length ? '이 지역의 전 지역을 봅니다' : `안 고르면 ${CHAIN_DEFAULT_REGIONS.join('·')}로 봅니다 — 지역은 2단계에서만 쓰입니다`}
                                 </span>
                             </div>
                             {/* 발굴 결과 — '신규'는 실제로 조회해서 잰 값이다(추측 아님). */}
@@ -1357,15 +1362,19 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     <div className="mt-2 flex items-center gap-2">
                                         {/* ★ 체크한 순서대로 하나씩 끝까지 파고 30건 채우면 멈춘다(process_chain).
                                             각 키워드마다 단독 판정 → 위에서 고른 지역 전수. 사장님 설계 2026-08-11. */}
-                                        <button type="button" disabled={kwLoading || !relPicked.size || !(form.region_sets || []).length}
+                                        {/* 지역 미선택이어도 막지 않는다 — 1단계가 전 키워드 단독 판정이라 지역이 안 쓰인다. */}
+                                        <button type="button" disabled={kwLoading || !relPicked.size}
                                             onClick={() => void runChain((relCands || []).filter((c) => relPicked.has(c.kw)).map((c) => c.kw))}
                                             className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50"
-                                            title="체크한 키워드를 순서대로 하나씩 팍니다 — 단독 + 고른 지역 전수. 30건 채우면 멈춥니다.">
+                                            title="① 체크한 키워드를 지역 없이 전부 판정 → ② 그 뒤 지역 전수. 30건 채우면 멈춥니다.">
                                             {kwLoading ? '찾는 중…'
-                                                : !(form.region_sets || []).length ? '↑ 먼저 지역을 고르세요'
-                                                    : !relPicked.size ? '↑ 키워드를 체크하세요'
-                                                        : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
+                                                : !relPicked.size ? '↑ 키워드를 체크하세요'
+                                                    : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
                                         </button>
+                                        <span className="text-[11px] text-[#64748b]">
+                                            ① 지역 없이 먼저 · ② 그 뒤 <b>{((form.region_sets || []).length ? (form.region_sets || []) : CHAIN_DEFAULT_REGIONS).join('·')}</b>
+                                            {(form.region_sets || []).length ? '' : ' (기본값)'}
+                                        </span>
                                         <span className="text-[11px] text-[#64748b]">
                                             {relPicked.size > REL_MAX
                                                 ? `⚠ 한 번에 ${REL_MAX}개까지 확인됩니다 — ${relPicked.size - REL_MAX}개는 이번에 안 재집니다.`
@@ -1628,7 +1637,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 ))}
                             </div>
                         ) : null}
-                        {isRegionLike ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]"><b className="text-[#15803d]">🎯 인기탭 찾기</b> = 키워드마다 ① 지역 없이 먼저(예 <b>공장청소</b>) → ② 그 뒤 선택 지역 전수(<b>수원 공장청소</b>…) → 30건 채우면 멈춤, 부족하면 ＋10으로 이어서. 지역 없이도 되는 전국형을 놓치지 않습니다.</p> : null}
+                        {isRegionLike ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]"><b className="text-[#15803d]">🎯 인기탭 찾기</b> = ① 넣은 키워드를 <b>전부 지역 없이 먼저</b> 판정(예 <b>공장청소</b>) → ② 그 뒤 지역 전수(<b>{((form.region_sets || []).length ? (form.region_sets || []) : CHAIN_DEFAULT_REGIONS).join('·')}</b>) → 30건 채우면 멈춤, 부족하면 ＋10으로 이어서. <b>지역은 ②에서만 쓰이니 먼저 안 골라도 시작됩니다.</b></p> : null}
                         {isManual ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">입력한 키워드가 아래 '선택한 발행 키워드'에 그대로 담깁니다 — 인기탭 확인 없이 접수됩니다(최대 50개).</p> : null}
                         {/* ⚠️ 이 블록은 직접입력형·연관형일 때 hidden 이다(입력칸 중복 방지).
                             결과 패널까지 같이 숨으면 '인기탭 확인'을 눌러도 아무 반응이 없어 보인다

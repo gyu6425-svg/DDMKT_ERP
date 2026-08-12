@@ -5,6 +5,9 @@ import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { addToPool, loadPoolKw } from '../../api/cafeKwScan';
 import { CafeKwPool } from './CafeKwPool';
 
+// 목표채우기에서 지역을 안 골랐을 때 쓰는 기본 지역 — 화면에도 이 값을 그대로 적는다.
+const CHAIN_DEFAULT_REGIONS = ['서울', '경기', '인천'];
+
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
 
 // 공용 '인기탭 키워드 찾기' — 접수(CafeDeployIntake)와 동일 UX.
@@ -171,8 +174,11 @@ export function CafeKeywordFinder({
     //   regionsOverride: 적재함 패널이 자기 지역 칩으로 돌릴 때 쓴다(아래 지역 선택과 별개).
     const runChain = async (products: string[], target = FIRST_TARGET, regionsOverride?: string[]) => {
         if (!products.length) { setKwErr('먼저 키워드가 있어야 합니다.'); return; }
-        const sidos = regionsOverride?.length ? regionsOverride : regionSel;
-        if (!sidos.length) { setKwErr('지역 범위를 하나 이상 고르세요.'); return; }
+        // ★ 지역을 안 골라도 시작할 수 있다(2026-08-12) — 1단계가 '전 키워드 단독 판정'이라
+        //   지역이 개입하지 않는다. 씨앗 200개면 1~2회차가 통째로 단독이라 지역은 그 뒤에나 쓰인다.
+        //   그래서 미선택이면 서울·경기·인천으로 간다. 버튼·문구에 그 값을 그대로 적어 둔다(조용한 기본값 금지).
+        //   2단계 지역은 적재함 패널에서 칩으로 다시 골라 돌릴 수 있다.
+        const sidos = regionsOverride?.length ? regionsOverride : (regionSel.length ? regionSel : CHAIN_DEFAULT_REGIONS);
         setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…'); setRegionTarget(target);
         lastScanRef.current = { kind: 'chain', products };
         // 누적이므로 직전 저장분을 지우지 않는다 — 지우면 이 시점에 새로고침한 사장님이 앞선 결과를 잃는다.
@@ -964,15 +970,20 @@ export function CafeKeywordFinder({
                                     각 키워드마다 단독 판정 → 선택한 지역 전수. 사장님 설계 2026-08-11.
                                     예전엔 process_related(전국 판정 + 지역 4~14곳 찔러보기)로 후보만 내고
                                     그 다음에 다시 전수를 돌려야 해서 두 번 눌렀다. */}
-                                <button type="button" disabled={kwLoading || !relPicked.size || !regionSel.length}
+                                {/* 지역 미선택이어도 막지 않는다 — 1단계가 전 키워드 단독 판정이라 지역이 안 쓰인다.
+                                    2단계에 쓸 지역만 표시해 두고, 필요하면 적재함 패널에서 다시 골라 돌린다. */}
+                                <button type="button" disabled={kwLoading || !relPicked.size}
                                     onClick={() => void runChain((cands || []).filter((c) => relPicked.has(c.kw)).map((c) => c.kw))}
                                     className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50"
-                                    title="체크한 키워드를 순서대로 하나씩 팍니다 — 단독 + 선택한 지역 전수. 30건 채우면 멈춥니다.">
+                                    title="① 체크한 키워드를 지역 없이 전부 판정 → ② 그 뒤 지역 전수. 30건 채우면 멈춥니다.">
                                     {kwLoading ? '찾는 중…'
-                                        : !regionSel.length ? '↑ 먼저 지역을 고르세요'
-                                            : !relPicked.size ? '↑ 키워드를 체크하세요'
-                                                : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
+                                        : !relPicked.size ? '↑ 키워드를 체크하세요'
+                                            : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
                                 </button>
+                                <span className="text-[11px] text-[#64748b]">
+                                    ① 지역 없이 먼저 · ② 그 뒤 <b>{(regionSel.length ? regionSel : CHAIN_DEFAULT_REGIONS).join('·')}</b>
+                                    {regionSel.length ? '' : ' (기본값 — 위에서 바꿀 수 있습니다)'}
+                                </span>
                                 <span className="text-[11px] text-[#64748b]">
                                     {relPicked.size > REL_MAX
                                         ? `⚠ 한 번에 ${REL_MAX}개까지 확인됩니다 — ${relPicked.size - REL_MAX}개는 이번에 안 재집니다.`
@@ -1185,10 +1196,10 @@ export function CafeKeywordFinder({
                             '지역 키워드 생성'(region: 경로)은 단독 판정이 없어 전국형을 통째로 놓쳤다. */}
                         <button type="button"
                             onClick={() => void runChain(keyword.split(',').map((k) => k.trim()).filter(Boolean))}
-                            disabled={kwLoading || dongLoading || !keyword.trim() || !regionSel.length}
+                            disabled={kwLoading || dongLoading || !keyword.trim()}
                             className="h-10 shrink-0 rounded-md bg-[#16a34a] px-4 text-sm font-bold text-white disabled:opacity-50"
-                            title="키워드마다 ① 지역 없이 먼저 보고 ② 그 뒤 선택 지역 전수로 봅니다. 30건 채우면 멈추고 ＋10으로 이어서 찾습니다.">
-                            {kwLoading ? '찾는 중…' : !regionSel.length ? '↑ 지역을 고르세요' : `🎯 인기탭 찾기 (${FIRST_TARGET}건)`}
+                            title={`① 지역 없이 먼저 → ② 그 뒤 ${(regionSel.length ? regionSel : CHAIN_DEFAULT_REGIONS).join('·')} 전수. 30건 채우면 멈추고 ＋10으로 이어서.`}>
+                            {kwLoading ? '찾는 중…' : `🎯 인기탭 찾기 (${FIRST_TARGET}건)`}
                         </button>
                         <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading || dongLoading} className="h-10 shrink-0 rounded-md border border-[#c4b5fd] bg-white px-4 text-sm font-bold text-[#6d28d9] disabled:opacity-50" title="지역 × 제품키워드 조합만 만듭니다(단독 판정 없음). 예전 방식.">{kwLoading ? '생성 중…' : '지역 키워드 생성'}</button>
                         {/* +N 더 찾기 — target 을 올려 이어서 스캔. 이미 판정된 조합은 캐시 히트라 즉시 통과하고
