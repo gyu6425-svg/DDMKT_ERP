@@ -1305,6 +1305,21 @@ export function CafeKeywordFinder({
                                 : <span className="rounded bg-[#f0fdf4] px-2 py-0.5 text-[#15803d]">{fresh.length}건 전부 검색량 있음</span>;
                         })()}
                     </div>
+                    {/* 찾은 것에 지역 붙이기 — "단독으로 되는 걸 찾았으면 지역까지 파 달라"(사장님 2026-08-12).
+                        씨앗 목록이 200개면 이미 확인된 키워드 차례가 수백 회차 뒤라 사실상 안 온다.
+                        여기서 찾은 것만 넣으면 회차의 120콜이 전부 그 키워드×지역에 쓰인다.
+                        이미 지역이 붙은 결과(수원 …)는 워커가 알아서 단독만 보고 넘어간다(_product_place_head). */}
+                    {visible.length && regionSel.length ? (
+                        <div className="mb-1.5 flex flex-wrap items-center gap-2 rounded-md border border-[#16a34a] bg-[#f0fdf4] px-2 py-1.5">
+                            <span className="text-[12px] font-bold text-[#15803d]">📍 찾은 {visible.length}개에 지역 붙여 더 찾기</span>
+                            <span className="text-[11px] text-[#4d7c0f]">{regionSel.join('·')} 전 지역 — 살아있다고 확인된 키워드부터 팝니다.</span>
+                            <button type="button" disabled={kwLoading || dongLoading}
+                                onClick={() => void runChain(visible.map((k) => k.keyword), regionTarget + MORE_STEP)}
+                                className="ml-auto shrink-0 rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+                                {kwLoading ? '찾는 중…' : '지역까지 찾기 →'}
+                            </button>
+                        </div>
+                    ) : null}
                     {fresh.length === 0 ? (
                         <div className="py-2 text-center text-[12px] text-[#94a3b8]">{used.length ? '새 키워드 없음(모두 이미 발행).' : '키워드가 없습니다.'}</div>
                     ) : (

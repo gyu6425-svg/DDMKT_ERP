@@ -916,6 +916,21 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         {isKw ? '정확 인기탭 결과 — 진입한 키워드 중 발행할 것을 고르세요(복수 선택). 필요없는 건 × 로 제외.'
                               : `지역 키워드 ${kwResult.length}개 — 발행할 동을 고르세요(복수 선택). 필요없는 건 × 로 제외.`}
                     </div>
+                    {/* 찾은 것에 지역 붙이기 — "단독으로 되는 걸 찾았으면 지역까지 파 달라"(사장님 2026-08-12).
+                        씨앗이 200개면 이미 확인된 키워드 차례가 수백 회차 뒤라 사실상 안 온다(실측: 상가바닥공사 446회차 뒤).
+                        여기서 찾은 것만 넣으면 회차의 120콜이 전부 그 키워드×지역에 쓰인다.
+                        이미 지역이 붙은 결과는 워커가 단독만 보고 넘어간다(_product_place_head). */}
+                    {visible.length && regionSel.length ? (
+                        <div className="mb-1.5 flex flex-wrap items-center gap-2 rounded-md border border-[#16a34a] bg-[#f0fdf4] px-2 py-1.5">
+                            <span className="text-[12px] font-bold text-[#15803d]">📍 찾은 {visible.length}개에 지역 붙여 더 찾기</span>
+                            <span className="text-[11px] text-[#4d7c0f]">{regionSel.join('·')} 전 지역 — 살아있다고 확인된 키워드부터 팝니다.</span>
+                            <button type="button" disabled={kwLoading}
+                                onClick={() => void runChain(visible.map((k) => k.keyword), scanTarget + MORE_STEP)}
+                                className="ml-auto shrink-0 rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+                                {kwLoading ? '찾는 중…' : '지역까지 찾기 →'}
+                            </button>
+                        </div>
+                    ) : null}
                     {fresh.length ? (() => {
                         const allOn = fresh.every((k) => kwPicked.some((p) => p.keyword === k.keyword));
                         const toggleAll = () => setKwPicked((prev) => allOn

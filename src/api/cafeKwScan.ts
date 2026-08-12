@@ -334,11 +334,43 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
 //       ② 각 키워드의 '단독(지역 없음)' 판정을 맨 앞에 넣는다 — 지역 없이도 인기탭이면 그것부터 챙긴다.
 //         기존 연관형은 '전국에서 되면 지역은 안 붙인다'라 둘 다 되는 경우를 못 봤다.
 //   한 회차 상한(120콜)은 그대로다. 못 채우면 note 에 남은 조합이 명시되고 다시 눌러 이어 본다.
+
+// 이미 '단독으로 인기탭'이라고 판정된 제품을 목록 맨 앞으로 올린다.
+//   ★ 왜 필요한가(실측 2026-08-12, DH크리드 바닥시공):
+//     워커는 제품 우선으로 순회한다 — 제품 1개의 전 지역(약 955곳)을 다 보고 다음 제품으로 간다.
+//     그래서 목록 순서가 곧 우선순위다. 그런데 씨앗은 연관어 순(검색량·수집순)으로 들어와서
+//     '살아있다고 이미 확인된' 키워드가 한참 뒤에 박힌다.
+//       상가바닥공사 = 씨앗 57번째 → 약 53,536번째 조합 → 회차당 120콜이면 446회차 뒤
+//       공장바닥공사 = 씨앗 155번째 → 1,226회차 뒤
+//     그 결과 "단독으로 되는 걸 찾았으니 이제 지역을 붙여 준다"는 설계가 실제로는 영영 실행되지 않고,
+//     회차마다 죽은 제품(코스트코바닥·호텔바닥…)의 지역만 갈아 넣었다.
+//     실측: 이 4건에 지역이 붙어 판정된 조합은 0개였다.
+//   ★ 순서만 바꾼다 — 목록에서 빼거나 더하지 않는다(누락 금지 원칙). 판정 규칙도 안 건드린다.
+//     워커(SUB4)도 안 고친다 — 웹이 만드는 payload 의 배열 순서 하나로 끝난다.
+async function provenFirst(list: string[]): Promise<string[]> {
+    const proven = new Set<string>();
+    try {
+        for (let i = 0; i < list.length; i += 80) {
+            const { data } = await supabase.from('cafe_kw_targets')
+                .select('keyword,has_section,verdict')
+                .in('keyword', list.slice(i, i + 80));
+            for (const r of (data ?? []) as { keyword: string; has_section: boolean; verdict: string | null }[]) {
+                if (r.has_section && /^(카페분산|블로그섹션)/.test(r.verdict || '')) proven.add(r.keyword);
+            }
+        }
+    } catch {
+        return list;          // 조회가 안 되면 옛 순서 그대로 — 스캔 자체를 막지는 않는다
+    }
+    if (!proven.size || proven.size === list.length) return list;
+    return [...list.filter((k) => proven.has(k)), ...list.filter((k) => !proven.has(k))];
+}
+
 export async function enqueueChainScan(products: string[], regions: string, target = FIRST_TARGET) {
     const { data: u } = await supabase.auth.getUser();
     const uid = u.user?.id ?? null;
-    const list = [...new Set(products.map((k) => k.trim()).filter(Boolean))];
-    if (!list.length) return { id: null as number | null, error: { message: '키워드 없음' } };
+    const dedup = [...new Set(products.map((k) => k.trim()).filter(Boolean))];
+    if (!dedup.length) return { id: null as number | null, error: { message: '키워드 없음' } };
+    const list = await provenFirst(dedup);
     const payload = JSON.stringify({ products: list, regions });
     const { data, error } = await supabase.from('cafe_kw_requests')
         .insert({

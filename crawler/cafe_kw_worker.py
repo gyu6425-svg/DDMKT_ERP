@@ -1266,13 +1266,24 @@ def process_chain(req, payload):
         return _finish(req["id"], "failed", note=f"지역 토큰 없음(sido={sidos})")
     known = set(tokens)
 
-    kws, seen = [], set()
+    # ★ 2단계로 나눈다 — 1단계(전 키워드 단독) 전부 → 2단계(지역 곱하기).
+    #   ⚠️ 2026-08-12 수정. 예전엔 키워드마다 '단독 + 그 키워드의 전 지역'을 한 블록으로 이어 붙였다.
+    #     블록이 1 + 955(서울·경기·인천 토큰) 이라, 회차 상한 120콜이 첫 키워드의 지역에서 다 소진됐다.
+    #     → 두 번째 키워드는 단독 판정조차 못 받는다. "200개를 돌면서 30개 채우면 멈춘다"는 설계가
+    #       실제로는 "1번 키워드의 지역만 판다"로 동작했다.
+    #     실측(DH크리드 바닥시공, 요청 #239·#240): 씨앗 200개 중 판정된 건 6개(3%)뿐이었고,
+    #     이미 단독 양성으로 알던 '상가바닥공사'는 목록 57번째라 지역 차례가 446회차 뒤였다.
+    #     그 4건에 지역이 붙어 판정된 조합은 0개.
+    #   ★ 순서만 바꾼다 — 조합을 빼거나 더하지 않는다(누락 금지). 판정 규칙(adjudicate)도 그대로다.
+    #     1단계는 키워드당 1콜이라 200개면 200콜(약 2회차)에 '어느 게 살아있나'가 전부 나온다.
+    #     2단계 지역 곱하기는 그 다음이고, 목록 순서(웹이 양성 확인분을 앞으로 보냄)를 따른다.
+    solo, regional, seen = [], [], set()
     for prod in products:
-        # ① 단독(지역 없음) — 이 키워드 블록의 맨 앞.
+        # ① 단독(지역 없음) — 전 키워드 몫을 한데 모아 맨 앞에 둔다.
         nk0 = prod.replace(" ", "")
         if nk0 not in seen:
             seen.add(nk0)
-            kws.append(("", prod, prod, False))
+            solo.append(("", prod, prod, False))
         # ② 제품이 지명이면 지역을 곱하지 않는다('송도 대전창업' 방지). 단독만 보고 넘어간다.
         if _product_place_head(prod):
             continue
@@ -1282,7 +1293,8 @@ def process_chain(req, payload):
             if nk in seen:
                 continue
             seen.add(nk)
-            kws.append((tok, kw, prod, tok not in known))
+            regional.append((tok, kw, prod, tok not in known))
+    kws = solo + regional
     target = int(req.get("target") or 30)
     _run_scan(req, kws, target, f"목표채우기 {len(products)}개 키워드",
               extra={"biz_name": products[0]}, tag=f"목표채우기 {products[:3]}")
