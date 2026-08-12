@@ -57,6 +57,7 @@ export function CafeDashboardTab() {
     const [loading, setLoading] = useState(true);
     const [open, setOpen] = useState<Record<string, boolean>>({}); // 업체별 드롭다운 펼침
     const [audit, setAudit] = useState<KwAudit | null>(null);      // 인기탭 스캔 자가점검 결과(이상 시 배너)
+    const [showEnded, setShowEnded] = useState(false);             // 계약 완주(100%) 업체 펼쳐보기
 
     const reload = async () => {
         const [{ data }, accs, dep, au] = await Promise.all([getCafeRankPosts(), getCafeAccounts(), listActiveDeployTargets(), latestKwAudit()]);
@@ -101,10 +102,19 @@ export function CafeDashboardTab() {
     }, [accounts]);
     const siljeok = (b: string) => (baseByBoard.get(b) || 0) + achievedCount(b);
 
-    const KPI_TARGETS = targets.filter((t) => t.kpi !== false); // 오늘 발행 KPI 카드 대상(누수상담소=자사 운영 제외)
+    // 계약 완주(실적이 목표를 채움) = 이 화면에서 자동으로 내린다.
+    //   ★ 화면에서만 감춘다 — cafe_rank_posts·cafe_accounts 어디도 안 지우고 크롤·순위측정도 계속 돈다.
+    //     아래 '완료 N곳 보기'로 언제든 펼쳐 누적 목록·엑셀을 그대로 쓴다.
+    //     goal>0 조건 = 신규 접수분이 목표 0으로 들어오면 즉시 '완료'로 오인되는 것 방지.
+    //     계약 관리(고객 ERP)의 '재계약 임박'은 client_contracts.remain_count 로 따로 뜬다 — 여기서 내려도 그건 남는다.
+    const isEnded = (t: { board: string; goal: number }) => t.goal > 0 && siljeok(t.board) >= t.goal;
+    const liveTargets = targets.filter((t) => !isEnded(t));
+    const endedTargets = targets.filter((t) => isEnded(t));
+
+    const KPI_TARGETS = liveTargets.filter((t) => t.kpi !== false); // 오늘 발행 KPI 카드 대상(누수상담소=자사 운영 제외)
     const todayTotal = KPI_TARGETS.reduce((s, t) => s + todayCount(t.board), 0);
     const goalTodayTotal = KPI_TARGETS.reduce((s, t) => s + t.daily, 0);
-    const cumGrand = targets.reduce((s, t) => s + siljeok(t.board), 0);   // 진행률 = 실적(이전건+24h달성) 합
+    const cumGrand = liveTargets.reduce((s, t) => s + siljeok(t.board), 0);   // 진행률 = 실적(이전건+24h달성) 합
 
     if (loading) {
         return <div className="rounded-xl border border-[#e2e8f0] bg-white px-6 py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
@@ -168,7 +178,7 @@ export function CafeDashboardTab() {
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                 <div className="mb-2 text-[14px] font-bold text-[#0f172a]">진행 (실적 기준) <span className="text-[12px] font-normal text-[#94a3b8]">{cumGrand}건</span><span className="ml-1 text-[11px] font-normal text-[#cbd5e1]">· 실적 = 이전건 + 5위 24h 달성(24h+1)</span></div>
                 <div className="grid gap-2">
-                    {targets.map((t) => {
+                    {[...liveTargets, ...(showEnded ? endedTargets : [])].map((t) => {
                         const bp = cumList(t.board);
                         const pubN = bp.length + (baseByBoard.get(t.board) || 0);   // 실제 발행 = 트래커글 + 이전건(마이클카페 등)
                         const done = siljeok(t.board);        // 실적 = 이전건 + 24h 달성 (진행률 기준)
@@ -249,6 +259,16 @@ export function CafeDashboardTab() {
                         );
                     })}
                 </div>
+                {/* 완주한 계약 — 기본은 접어 둔다. 펼치면 누적 목록·엑셀이 그대로 있다(기록 보존).
+                    재계약은 고객 ERP > 계약 관리의 '재계약 임박'에서 처리한다(잔여 0건 → 빨강). */}
+                {endedTargets.length ? (
+                    <button type="button" onClick={() => setShowEnded((v) => !v)}
+                        className="mt-2 w-full rounded-lg border border-dashed border-[#e2e8f0] px-3 py-2 text-left text-[12px] text-[#94a3b8] hover:bg-[#f8fafc]">
+                        <span className={`mr-1 text-[9px] transition-transform ${showEnded ? 'rotate-90' : ''} inline-block`}>▶</span>
+                        계약 완주 {endedTargets.length}곳 — {endedTargets.map((t) => t.board).join(' · ')}
+                        <span className="ml-1 text-[#cbd5e1]">· 기록은 그대로 있습니다(펼치면 누적·엑셀 확인) · 재계약은 계약 관리에서</span>
+                    </button>
+                ) : null}
             </div>
         </div>
     );
