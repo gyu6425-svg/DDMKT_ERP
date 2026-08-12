@@ -690,7 +690,12 @@ export async function discoverSeeds(
     return out.sort((a, b) => rank(a) - rank(b) || b.fresh - a.fresh);
 }
 
-export async function searchCachedPopular(terms: string[], limit = 200): Promise<CachedHit[]> {
+// withCafes=false 면 cafes(인기글 제목·순위)를 안 받는다 — 화면에 안 뿌리는 호출에서 쓴다.
+//   실측 2026-08-12: cafes 가 응답의 87%다(1,000행 606KB vs 79KB).
+//   연관형은 어간 12개를 부르므로 조회 1번에 1.6MB → 0.2MB 로 줄어든다.
+//   ⚠️ '이미 찾아둔 것' 패널은 키워드·검색량만 보여준다. 반면 검증된 제품을 꺼내는
+//     pullProven 은 결과 목록에 '3위 카페명'을 표시하므로 cafes 가 필요하다 — 거긴 그대로 둔다.
+export async function searchCachedPopular(terms: string[], limit = 200, withCafes = true): Promise<CachedHit[]> {
     const words = [...new Set(terms.map((t) => t.trim().replace(/\s+/g, '')).filter((t) => t.length >= 2))];
     if (!words.length) return [];
     const out = new Map<string, CachedHit>();
@@ -703,7 +708,9 @@ export async function searchCachedPopular(terms: string[], limit = 200): Promise
         //   상한 200칸의 16%를 버릴 것으로 채운 뒤 버려서, 진짜 양성이 그만큼 덜 나왔다.
         //   (오탐이 화면에 나온 적은 없다. 조용히 '덜 나오는' 누락 쪽 결함이다.)
         const { data } = await supabase.from('cafe_kw_targets')
-            .select('keyword,has_section,theme,verdict,volume,cafes')
+            // supabase-js 는 select 문자열을 타입으로 파싱한다 — 동적 문자열은 캐스팅이 필요하다.
+            .select((withCafes ? 'keyword,has_section,theme,verdict,volume,cafes'
+                : 'keyword,has_section,theme,verdict,volume') as 'keyword,has_section,theme,verdict,volume,cafes')
             .like('keyword', `%${w}%`)
             .eq('has_section', true)
             .or('verdict.like.카페분산*,verdict.like.블로그섹션*')

@@ -478,7 +478,7 @@ export function CafeKeywordFinder({
             //   검색어는 씨앗어 + 연관어 상위 몇 개(부분일치라 '간병인'으로 '수원 간병인'도 잡힌다).
             setExtracting('이미 찾아둔 것 조회 중…');
             const terms = relatedStems(s, list);
-            const hits = await searchCachedPopular(terms);
+            const hits = await searchCachedPopular(terms, 200, false);   // 이 패널은 cafes 를 안 쓴다
             setCachedVia([...new Set(hits.map((h) => h.via))]);
             setCachedHits(hits.map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined })));
             // ★ 기본 체크 = 씨앗어를 포함한 것(tier==='seed') 전부.

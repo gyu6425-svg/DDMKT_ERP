@@ -459,7 +459,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setEndsOnly(endsWins);
             setRelPicked(new Set((endsWins ? ends : inSeed).slice(0, 200).map((x) => x.kw)));
             // ★ 스캔 전에 캐시부터 — 이미 판정된 게 1,000건 넘어 상당수는 긁지 않고 바로 준다.
-            const hits = await searchCachedPopular(relatedStems(s, list));
+            const hits = await searchCachedPopular(relatedStems(s, list), 200, false);   // 이 패널은 cafes 를 안 쓴다
             setCachedVia([...new Set(hits.map((h) => h.via))]);
             setCachedHits(hits.map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined })));
         } catch (e) {
