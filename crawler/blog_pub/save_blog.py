@@ -259,6 +259,51 @@ def _insert_image_block(ctx, page, local):
     raise bc.SaveError(f"이미지 삽입 실패: {str(last_err)[:80]}")
 
 
+# 본문 문단 중 텍스트가 정확히 일치하는 것을 찾아 화면 좌표를 돌려준다(요소가 아니라 좌표 —
+#   마우스 클릭으로 캐럿을 그 문단에 두기 위해). 제목 섹션은 제외한다.
+_FIND_PARA_JS = """(txt) => {
+  const paras = [...document.querySelectorAll('.se-section-text .se-text-paragraph')];
+  const el = paras.find(p => (p.innerText || '').trim() === txt);
+  if (!el) return null;
+  el.scrollIntoView({block: 'center'});
+  const r = el.getBoundingClientRect();
+  return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+}"""
+
+
+def _convert_paragraph_to_quote(ctx, page, subtitle):
+    """1패스에서 일반 문단으로 써둔 '부제목'을 인용구 블록으로 바꾼다.
+
+    왜 2패스인가: 인용구 안에 커서가 갇혀 키보드로 빠져나올 수 없다. 그래서 본문을 먼저
+    전부 일반 문단으로 쓴 뒤, 부제목 문단만 찾아 선택 → 인용구 버튼으로 '치환'한다
+    (버튼이 선택 문단을 인용구로 바꾸고 커서를 그 안에 둔다 → 이웃 문단은 보존된다).
+
+    ⚠️ 실패해도 저장을 막지 않는다. 인용구는 서식이라 없어도 글은 온전하다 —
+       모양 때문에 저장 자체를 실패시키는 건 손해가 크다. 못 하면 일반 문단으로 남긴다."""
+    try:
+        pos = ctx.evaluate(_FIND_PARA_JS, subtitle)
+        if not pos:
+            bc.log(f"  ! 부제목 문단 못찾음(일반 문단으로 둠): {subtitle[:20]}")
+            return False
+        page.mouse.click(pos["x"], pos["y"])
+        page.wait_for_timeout(180)
+        page.keyboard.press("Home")
+        page.keyboard.press("Shift+End")
+        page.wait_for_timeout(180)
+        btn = bc.first(ctx, sel.SEL_QUOTE_BTN, timeout=3000)
+        if not btn:
+            bc.log(f"  ! 인용구 버튼 못찾음(일반 문단으로 둠): {subtitle[:20]}")
+            return False
+        btn.click()
+        page.wait_for_timeout(500)
+        page.keyboard.type(subtitle, delay=bc.key_delay())
+        page.wait_for_timeout(250)
+        return True
+    except Exception as e:
+        bc.log(f"  ! 인용구 변환 실패(일반 문단으로 둠): {str(e)[:60]}")
+        return False
+
+
 def _draft_count(ctx):
     """헤더의 '저장 N' 카운터. 못 읽으면 None(판정은 다른 신호로)."""
     for s in sel.SEL_DRAFT_COUNT:
@@ -387,12 +432,15 @@ def save_draft(page, title, blocks, dry_run=True):
     target = bc.write_seconds()
     bc.log(f"작성 페이싱: 목표 {target/60:.0f}분")
     deadline = time.monotonic() + target
+    subtitles = []          # 2패스에서 인용구로 바꿀 부제목들
     for idx, b in enumerate(blocks):
         if b["type"] == "text":
             bc.type_multiline(page, b["text"])
         elif b["type"] == "quote":
+            # 1패스: 일반 문단으로 써두고(앵커) 2패스에서 인용구로 치환한다.
             page.keyboard.type(b["text"], delay=bc.key_delay())
             page.keyboard.press("Enter")
+            subtitles.append(b["text"])
         elif b["type"] == "blank":
             page.keyboard.press("Enter")
         else:
@@ -403,6 +451,11 @@ def save_draft(page, title, blocks, dry_run=True):
             page.wait_for_timeout(int(pause * 1000))
         else:
             page.wait_for_timeout(200)
+
+    # ── 2패스: 부제목 문단 → 인용구 변환 (서식이므로 실패해도 저장은 계속) ──
+    if subtitles:
+        done = sum(1 for s in subtitles if _convert_paragraph_to_quote(ctx, page, s))
+        bc.log(f"인용구 변환: {done}/{len(subtitles)}")
 
     _assert_not_published(page, "본문 작성 후")
 

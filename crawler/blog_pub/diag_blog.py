@@ -135,7 +135,8 @@ def main():
             bc.log(f"  🔴 에디터 컨텍스트 못 찾음: {e}")
         for name, cands in [("SEL_TITLE", sel.SEL_TITLE), ("SEL_BODY", sel.SEL_BODY),
                             ("SEL_EDITOR", sel.SEL_EDITOR),
-                            ("SEL_IMG_BTN", sel.SEL_IMG_BTN), ("SEL_SAVE", sel.SEL_SAVE),
+                            ("SEL_IMG_BTN", sel.SEL_IMG_BTN), ("SEL_QUOTE_BTN", sel.SEL_QUOTE_BTN),
+                            ("SEL_SAVE", sel.SEL_SAVE),
                             ("SEL_DRAFT_COUNT", sel.SEL_DRAFT_COUNT)]:
             for s in cands:
                 try:
