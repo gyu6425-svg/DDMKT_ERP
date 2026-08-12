@@ -828,11 +828,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     // 선택 UI(선택칩 + 결과 리스트) — 키워드형(인기탭 결과)·지역형(동 키워드) 공용. kwResult 에 따라 렌더.
     const kwPanel = (
         <>
-            {/* 발굴 적재함 — 정보형·연관형 등 모드를 오가며 찾은 것을 한곳에 쌓아 맨 위에 보여준다.
-                여기서 '지역 없이 잡힌 것'만 골라, 이 패널의 지역 칩으로 지역까지 더 찾는다(사장님 요청 2026-08-12). */}
-            <CafeKwPool who={clientId || 'me'} rows={pool} onChange={setPool} busy={kwLoading}
-                onPick={(rows) => addPicks(rows)}
-                onRunChain={(kws, regions) => void runChain(kws, scanTarget + MORE_STEP, regions)} />
+            {/* 적재함은 화면 맨 위로 옮겼다(위쪽 렌더) — 여기서 또 그리면 두 번 나온다. */}
             {/* 이어보기 배너 — 새로고침·이탈 후 돌아오면 진행 중인 스캔에 다시 붙는다.
                 화면을 막지 않는다: 이 배너가 도는 동안 다른 작업을 계속할 수 있다. */}
             {pending ? (
@@ -1115,6 +1111,12 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 </div>
                 <p className="mb-4 mt-0 text-[13px] text-[#64748b]">배포를 원하시는 내용과 사진을 접수해 주세요. 담당자 확인 후 세팅해 드립니다. (금액·정산은 별도 안내)</p>
 
+                {/* 발굴 적재함은 화면 맨 위 — ①연관어·②주소 어느 쪽으로 찾든 여기로 모이고,
+                    여기서 지역 칩을 골라 지역까지 확장한다. 아래 결과 목록과 달리 조회를 새로 해도 안 지워진다. */}
+                <CafeKwPool who={clientId || 'me'} rows={pool} onChange={setPool} busy={kwLoading}
+                    onPick={(rows) => addPicks(rows)}
+                    onRunChain={(kws, regions) => void runChain(kws, scanTarget + MORE_STEP, regions)} />
+
                 {/* ① 배포 종류 → ② (인기탭일 때만) 키워드 잡는 방식.
                     한 줄에 3개를 늘어놓으면 '인기탭을 따지는지'가 안 보여 고객이 헷갈린다.
                     일반 배포는 그 자리에서 키워드 입력으로 끝난다(고를 게 없음). */}
@@ -1146,8 +1148,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     ['지역형', '지역형', '원하는 지역을 골라서 노출되고 싶을 때', '지역 선택 + 제품키워드(예: 입주청소·상가청소)'],
                                     ['키워드형', '키워드형', '특정 지역 위주로 노출이 되고 싶을 때', '플레이스 주소 기반으로 업체 키워드를 잡습니다'],
                                     ['직접 입력형', '인기직접형', '일반 배포는 아니지만, 내가 원하는 키워드를 인기탭에서 확인 후 배포하고 싶을 때', '적어 주신 키워드 중 인기탭이 확인된 것만 골라 드립니다'],
-                                    ['연관형', '연관형', '연관 키워드를 찾아서 배포하고 싶을 때', '대표 단어 하나면 됩니다(예: 보홀·장기요양) · 플레이스 불필요'],
-                                    ['🌐 정보형', '정보형', '본인 업체 정보가 많지 않을 때 — 정보를 입력해 키워드를 뽑고, 인기탭 확인 후 배포하고 싶을 때', '홈페이지·네이버 블로그 주소로 자동 추출 · 플레이스 불필요'],
+                                    // 연관형 칩은 없앴다(2026-08-12) — 정보형 하나에 ①연관어 ②주소 두 방법을 같이 넣는다.
+                                    //   둘 다 같은 발굴 적재함에 쌓이므로 나눠 둘 이유가 없었다(사장님 지시).
+                                    //   ※ deploy_type='연관형'인 과거 접수 레코드는 그대로 유효하다(표시 라벨 유지).
+                                    ['🌐 정보형', '정보형', '대표 단어나 홈페이지·블로그 주소로 키워드를 뽑고, 인기탭 확인 후 배포하고 싶을 때', '① 연관어로 찾기 ② 주소로 찾기 — 둘 다 한 화면에서 · 플레이스 불필요'],
                                 ] as const).map(([name, dt, desc, hint]) => {
                                     const on = form.deploy_type === dt;
                                     return (
@@ -1168,8 +1172,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         실측(2026-08-07): 보홀 35건(154,370) · 창업 20건(311,780) · 장기요양은
                         전국형 간병인업체 + 지역형 간병인(지역 붙이면 46건). 업종에 따라 정답이 갈려
                         둘 다 시도한다. */}
-                    {isRelated ? (
+                    {isInfo || isRelated ? (
                         <div data-tour="cafe-deploy-kw" className="mt-3 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
+                            {/* 정보형 안의 ①번 방법 — 대표 단어(씨앗)에서 연관어를 펼쳐 인기탭을 찾는다. */}
+                            <div className="mb-2 flex items-center gap-2">
+                                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#6d28d9] text-[13px] font-bold text-white">1</span>
+                                <b className="text-[13px] text-[#5b21b6]">연관어로 찾기</b>
+                                <span className="text-[11px] text-[#94a3b8]">대표 단어 → 연관어 펼치기 → 인기탭 찾기 · 찾은 건 위 적재함에 쌓입니다</span>
+                            </div>
                             <div className="flex gap-2">
                                 <input className={inputCls} value={seed} onChange={(e) => setSeed(e.target.value)}
                                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void runExpandSeed(); } }}
@@ -1186,19 +1196,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 </button>
                             </div>
                             {seedBusy ? <p className="m-0 mt-1 text-[11px] font-semibold text-[#6d28d9]">🔎 {seedBusy}</p> : null}
-                            {/* ★ 지역을 여기서 고른다 — '③ 인기탭 찾기'가 곧바로 이 지역 전수를 돌기 때문이다.
-                                예전엔 지역 선택 UI 가 지역형·정보형에만 있어서, 연관형에선 고를 방법이 없는데
-                                버튼만 비활성이었다(사장님 신고 2026-08-11). */}
-                            <div className="mt-2 flex flex-wrap items-center gap-1 rounded-md border border-[#c4b5fd] bg-white px-2 py-1.5">
-                                <span className="mr-1 text-[11px] font-bold text-[#6d28d9]">발행할 지역</span>
-                                {REGION_KEYS.map((r) => (
-                                    <button key={r} type="button" onClick={() => toggleRegion(r)}
-                                        className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${regionSel.includes(r) ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>{r}</button>
-                                ))}
-                                <span className="ml-1 text-[11px] text-[#94a3b8]">
-                                    {regionSel.length ? '이 지역의 전 지역을 봅니다' : `안 고르면 ${CHAIN_DEFAULT_REGIONS.join('·')}로 봅니다 — 지역은 2단계에서만 쓰입니다`}
-                                </span>
-                            </div>
+                            {/* (2026-08-12) 여기 있던 '발행할 지역' 칩 제거 — 정보형 아래쪽에 같은 칩이,
+                                위쪽 발굴 적재함에도 전용 칩이 있어 셋이 겹쳤다. 지역은 2단계에서만 쓰이므로
+                                여기서 고를 이유가 없다(안 고르면 서울·경기·인천). */}
                             {/* 발굴 결과 — '신규'는 실제로 조회해서 잰 값이다(추측 아님). */}
                             {seedCands?.length ? (
                                 <div className="mt-2 rounded-md border border-[#c4b5fd] bg-white p-2">
@@ -1387,6 +1387,71 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 같은 일은 이제 발굴 적재함의 '지역 붙여 더 찾기'가 한다. */}
                         </div>
                     ) : null}
+                            {isInfo ? (
+                            <div className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
+                                {/* 정보형 안의 ②번 방법 — 주소에서 원문을 걷어 키워드를 뽑는다. ①과 같은 적재함에 쌓인다. */}
+                                <div className="mb-1 flex items-center gap-2">
+                                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#6d28d9] text-[13px] font-bold text-white">2</span>
+                                    <b className="text-[13px] text-[#5b21b6]">주소로 찾기</b>
+                                    <span className="text-[11px] text-[#94a3b8]">홈페이지·블로그 주소 → 키워드 뽑기 → 인기탭 찾기 · 찾은 건 위 적재함에 더 쌓입니다</span>
+                                </div>
+                                <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 rounded-md border border-[#fbbf24] bg-[#fffbeb] px-3 py-1.5 text-[12px] font-semibold text-[#b45309]">
+                                    <input type="checkbox" className="h-3.5 w-3.5 accent-[#b45309]" checked={noRegion}
+                                        onChange={(e) => setNoRegion(e.target.checked)} />
+                                    🌏 지역 없음 — 전국/해외로 판정 (보홀 다이빙투어처럼 국내 지역이 없는 업체)
+                                </label>
+                                <div className="mt-2 grid gap-2">
+                                    <input className={inputCls} value={ownAddr} onChange={(e) => setOwnAddr(e.target.value)}
+                                        placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
+                                    {/* 주소 한 줄로 원문을 걷는 경로 — 고객에게 붙여넣기를 시키면 대부분 인사말만 넣는다. */}
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <textarea className="min-h-[38px] w-full min-w-[220px] flex-1 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={2}
+                                            value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)}
+                                            placeholder={'홈페이지·네이버 블로그 주소 — 여러 개면 줄바꿈으로\nblog.naver.com/내블로그\n우리회사.co.kr'} />
+                                        <button type="button" onClick={() => void pullSite()} disabled={extracting || kwLoading}
+                                            className="h-9 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50"
+                                            title="블로그면 글 제목 전량을, 홈페이지면 하위 페이지까지 가져와 아래 칸에 합쳐 넣습니다">
+                                            ⬇ 주소로 가져오기
+                                        </button>
+                                    </div>
+                                    <p className="mb-0 -mt-1 text-[11px] text-[#7c3aed]">
+                                        💡 <b>블로그와 홈페이지를 같이 넣으세요</b> — 각각 넣을 때보다 키워드가 훨씬 많이 나옵니다.
+                                        하나만 있다면 블로그 쪽이 더 정확합니다.
+                                    </p>
+                                    <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
+                                        value={placeDetail} onChange={(e) => setPlaceDetail(e.target.value)}
+                                        placeholder={'업체 소개글·메뉴·서비스 설명을 그대로 붙여넣으세요(홈페이지 통째로 넣어도 됩니다).\n예)\n저희는 20년 경력의 누수탐지 전문업체로 아파트 배관 누수, 바닥 난방배관 누수를 정밀 장비로 찾아드립니다.'} />
+                                    <div className="flex items-center gap-2">
+                                        <button type="button" onClick={() => void runExtract()} disabled={extracting || kwLoading}
+                                            className="h-9 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">{extracting ? '추출 중…' : '① 키워드 뽑기'}</button>
+                                        <span className="text-[11px] text-[#6d28d9]">뽑힌 키워드를 확인·수정해 제품키워드로 추가한 뒤 ‘지역 키워드 생성’을 누르세요.</span>
+                                    </div>
+                                    {extracted ? (
+                                        <div className="rounded-md border border-[#ddd6fe] bg-white p-2">
+                                            <div className="mb-1 flex items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
+                                                <span>② 쓸 키워드만 체크 ({picked.size}/{extracted.length})</span>
+                                                <button type="button" className="rounded border border-[#c4b5fd] px-2 py-0.5 text-[11px] font-semibold text-[#6d28d9]"
+                                                    onClick={() => setPicked(picked.size === extracted.length ? new Set() : new Set(extracted.map((x) => x.kw)))}>
+                                                    {picked.size === extracted.length ? '전체 해제' : '전체 선택'}
+                                                </button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {extracted.map((x) => (
+                                                    <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${picked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>
+                                                        <input type="checkbox" className="h-3 w-3 accent-[#6d28d9]" checked={picked.has(x.kw)}
+                                                            onChange={() => { const n = new Set(picked); if (n.has(x.kw)) n.delete(x.kw); else n.add(x.kw); setPicked(n); }} />
+                                                        {x.kw}
+                                                        <span className="text-[10px] font-normal opacity-60">{x.kind === 'core' ? '대표' : x.kind === 'niche' ? '세부' : '메뉴'}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            <button type="button" onClick={confirmExtracted} disabled={!picked.size}
+                                                className="mt-2 h-9 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white disabled:opacity-50">③ 제품키워드로 추가</button>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            </div>
+                            ) : null}
 
                     {isPopManual ? (
                         <div data-tour="cafe-deploy-kw" className="mt-3 rounded-md border border-dashed border-[#a5b4fc] bg-[#eef2ff] px-3 py-2">
@@ -1469,66 +1534,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             </div>
                             {/* 플레이스가 없는 업체용 — 위치를 직접 적고 소개/메뉴를 붙여넣으면 제품키워드를 만들어 준다. */}
                             {/* 기본 펼침 — 접어 두면 고객이 찾지를 못한다(주소 입력이 이제 주된 접수 경로다). */}
-                            {isInfo ? (
-                            <div className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
-                                <div className="text-[12px] font-bold text-[#6d28d9]">🌐 홈페이지·블로그 주소 → 키워드 → 인기탭</div>
-                                <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 rounded-md border border-[#fbbf24] bg-[#fffbeb] px-3 py-1.5 text-[12px] font-semibold text-[#b45309]">
-                                    <input type="checkbox" className="h-3.5 w-3.5 accent-[#b45309]" checked={noRegion}
-                                        onChange={(e) => setNoRegion(e.target.checked)} />
-                                    🌏 지역 없음 — 전국/해외로 판정 (보홀 다이빙투어처럼 국내 지역이 없는 업체)
-                                </label>
-                                <div className="mt-2 grid gap-2">
-                                    <input className={inputCls} value={ownAddr} onChange={(e) => setOwnAddr(e.target.value)}
-                                        placeholder="위치 (예: 전북 군산시 옥도면 선유남길 19-9 — 읍·면·도로명까지 적으면 더 정확)" />
-                                    {/* 주소 한 줄로 원문을 걷는 경로 — 고객에게 붙여넣기를 시키면 대부분 인사말만 넣는다. */}
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <textarea className="min-h-[38px] w-full min-w-[220px] flex-1 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={2}
-                                            value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)}
-                                            placeholder={'홈페이지·네이버 블로그 주소 — 여러 개면 줄바꿈으로\nblog.naver.com/내블로그\n우리회사.co.kr'} />
-                                        <button type="button" onClick={() => void pullSite()} disabled={extracting || kwLoading}
-                                            className="h-9 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50"
-                                            title="블로그면 글 제목 전량을, 홈페이지면 하위 페이지까지 가져와 아래 칸에 합쳐 넣습니다">
-                                            ⬇ 주소로 가져오기
-                                        </button>
-                                    </div>
-                                    <p className="mb-0 -mt-1 text-[11px] text-[#7c3aed]">
-                                        💡 <b>블로그와 홈페이지를 같이 넣으세요</b> — 각각 넣을 때보다 키워드가 훨씬 많이 나옵니다.
-                                        하나만 있다면 블로그 쪽이 더 정확합니다.
-                                    </p>
-                                    <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
-                                        value={placeDetail} onChange={(e) => setPlaceDetail(e.target.value)}
-                                        placeholder={'업체 소개글·메뉴·서비스 설명을 그대로 붙여넣으세요(홈페이지 통째로 넣어도 됩니다).\n예)\n저희는 20년 경력의 누수탐지 전문업체로 아파트 배관 누수, 바닥 난방배관 누수를 정밀 장비로 찾아드립니다.'} />
-                                    <div className="flex items-center gap-2">
-                                        <button type="button" onClick={() => void runExtract()} disabled={extracting || kwLoading}
-                                            className="h-9 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">{extracting ? '추출 중…' : '① 키워드 뽑기'}</button>
-                                        <span className="text-[11px] text-[#6d28d9]">뽑힌 키워드를 확인·수정해 제품키워드로 추가한 뒤 ‘지역 키워드 생성’을 누르세요.</span>
-                                    </div>
-                                    {extracted ? (
-                                        <div className="rounded-md border border-[#ddd6fe] bg-white p-2">
-                                            <div className="mb-1 flex items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
-                                                <span>② 쓸 키워드만 체크 ({picked.size}/{extracted.length})</span>
-                                                <button type="button" className="rounded border border-[#c4b5fd] px-2 py-0.5 text-[11px] font-semibold text-[#6d28d9]"
-                                                    onClick={() => setPicked(picked.size === extracted.length ? new Set() : new Set(extracted.map((x) => x.kw)))}>
-                                                    {picked.size === extracted.length ? '전체 해제' : '전체 선택'}
-                                                </button>
-                                            </div>
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {extracted.map((x) => (
-                                                    <label key={x.kw} className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${picked.has(x.kw) ? 'border-[#6d28d9] bg-[#f5f3ff] text-[#5b21b6]' : 'border-[#cbd5e1] bg-white text-[#64748b]'}`}>
-                                                        <input type="checkbox" className="h-3 w-3 accent-[#6d28d9]" checked={picked.has(x.kw)}
-                                                            onChange={() => { const n = new Set(picked); if (n.has(x.kw)) n.delete(x.kw); else n.add(x.kw); setPicked(n); }} />
-                                                        {x.kw}
-                                                        <span className="text-[10px] font-normal opacity-60">{x.kind === 'core' ? '대표' : x.kind === 'niche' ? '세부' : '메뉴'}</span>
-                                                    </label>
-                                                ))}
-                                            </div>
-                                            <button type="button" onClick={confirmExtracted} disabled={!picked.size}
-                                                className="mt-2 h-9 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white disabled:opacity-50">③ 제품키워드로 추가</button>
-                                        </div>
-                                    ) : null}
-                                </div>
-                            </div>
-                            ) : null}
+                            {/* (2026-08-12) ②주소로 찾기 블록은 ①연관어로 찾기 바로 아래로 옮겼다 —
+                                1·2가 업체명·홈페이지 입력칸을 사이에 두고 떨어져 있으면 순서로 안 읽힌다. */}
                         </div>
                     ) : null}
                     {/* 인기탭·직접입력형은 위 전용 블록에서 키워드를 이미 받는다 — 같은 입력칸을 두 번 보이지 않게 숨긴다. */}
