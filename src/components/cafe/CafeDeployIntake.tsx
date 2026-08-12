@@ -361,7 +361,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   끝나는 게 더 많으면 켠다('창업' 끝230/앞67 → 켬, '보홀'은 보홀여행류가 많아 → 끔).
     const [endsOnly, setEndsOnly] = useState(false);
     // 캐시 우선 — 이미 판정된 인기탭. 스캔 0회로 즉시 나온다.
-    const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
+    // 캐시 히트를 찾아낸 어간 — 적재함 안내 문구에 쓴다.
     const [cachedVia, setCachedVia] = useState<string[]>([]);   // 이 결과를 찾아낸 어간(씨앗어와 다를 수 있다)
     // ── 씨앗 발굴기 ──────────────────────────────────────────────────────────
     //   씨앗 하나로는 못 닿는다. 실측 2026-08-11: '창업' 993개 → 씨앗 8개 3,680개(3.7배).
@@ -471,9 +471,16 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setEndsOnly(endsWins);
             setRelPicked(new Set((endsWins ? ends : inSeed).slice(0, 200).map((x) => x.kw)));
             // ★ 스캔 전에 캐시부터 — 이미 판정된 게 1,000건 넘어 상당수는 긁지 않고 바로 준다.
-            const hits = await searchCachedPopular(relatedStems(s, list), 200, false);   // 이 패널은 cafes 를 안 쓴다
-            setCachedVia([...new Set(hits.map((h) => h.via))]);
-            setCachedHits(hits.map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined })));
+            const hits = await searchCachedPopular(relatedStems(s, list), 200, false);   // cafes 는 안 쓴다
+            // ★ 캐시 히트는 바로 적재함에 넣는다(2026-08-12) — 예전엔 별도 패널에 띄우고
+            //   '담기'를 눌러야 들어갔다. 어차피 다 적재함으로 모으는 흐름이라 그 한 단계가 군더더기였다.
+            //   CF 콜 0회로 얻은 것이라 넣는 데 드는 비용도 없다.
+            if (hits.length) {
+                setCachedVia([...new Set(hits.map((h) => h.via))]);
+                setPool(addToPool(clientId || 'me', hits.map((h) => ({
+                    cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined,
+                }))));
+            }
         } catch (e) {
             // 시간초과면 워커는 계속 돈다 — 이어보기 루프를 다시 태워 자동으로 채운다(새로고침 불필요).
             const m = e instanceof Error ? e.message : '';
@@ -817,7 +824,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
         setForm({ ...empty, company_name: bizName }); setFiles({ main: [], real: [], banner: [] }); setPlaceDetail('');
         setOwnAddr(''); setExtracted(null); setPicked(new Set()); setPopManualKws([]);
-        setSeed(''); setRelCands(null); setRelPicked(new Set()); setCachedHits(null);
+        setSeed(''); setRelCands(null); setRelPicked(new Set());
         setKwResult(null); setKwPicked([]); setKwHidden([]); setPickedOpen(false);
         reload();
     };
@@ -1196,6 +1203,12 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 </button>
                             </div>
                             {seedBusy ? <p className="m-0 mt-1 text-[11px] font-semibold text-[#6d28d9]">🔎 {seedBusy}</p> : null}
+                            {/* 캐시에서 곧바로 적재함에 들어간 것 — 스캔 0회로 얻은 것이라 어디서 왔는지는 알려 준다. */}
+                            {cachedVia.length ? (
+                                <p className="m-0 mt-1 text-[11px] font-semibold text-[#15803d]">
+                                    ✅ 이미 확인된 인기탭을 <b>{cachedVia.join(' · ')}</b> 로 찾아 위 적재함에 담았습니다 — 스캔 없이 바로 쓰실 수 있습니다.
+                                </p>
+                            ) : null}
                             {/* (2026-08-12) 여기 있던 '발행할 지역' 칩 제거 — 정보형 아래쪽에 같은 칩이,
                                 위쪽 발굴 적재함에도 전용 칩이 있어 셋이 겹쳤다. 지역은 2단계에서만 쓰이므로
                                 여기서 고를 이유가 없다(안 고르면 서울·경기·인천). */}
@@ -1260,24 +1273,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     </div>
                                 ) : null}
                             </div>
-                            {/* 캐시 우선 — 스캔 없이 이미 확인된 것. 여기서 충분하면 스캔이 필요 없다. */}
-                            {cachedHits && cachedHits.length ? (
-                                <div className="mt-2 rounded-md border border-[#16a34a] bg-[#f0fdf4] p-2">
-                                    <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#15803d]">
-                                        <span>✅ 이미 확인된 인기탭 {cachedHits.length}건 <span className="font-normal">— <b>{cachedVia.join(' · ')}</b> 로 찾은 것입니다</span></span>
-                                        {/* pushLive 로 넣어야 적재함에도 쌓인다(setKwResult 만 하면 화면에만 보이고 샌다). */}
-                                        <button type="button" onClick={() => { pushLive(cachedHits); setKwErr(''); }}
-                                            className="rounded bg-[#16a34a] px-2.5 py-0.5 text-[11px] font-bold text-white">적재함·아래 목록에 담기</button>
-                                    </div>
-                                    <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
-                                        {cachedHits.slice(0, 40).map((h) => (
-                                            <span key={h.keyword} className="rounded-full border border-[#86efac] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#15803d]">
-                                                {h.keyword}<span className="ml-1 font-normal opacity-60">{(h.volume ?? 0).toLocaleString()}</span>
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            ) : null}
+                            {/* (제거 2026-08-12) '이미 확인된 인기탭' 패널 — 이제 연관어 펼치기가
+                                캐시 히트를 곧바로 위 발굴 적재함에 넣는다. 따로 보여주고 '담기'를 누르게 할
+                                이유가 없어졌다(적재함 헤더에 몇 건이 들어왔는지 그대로 보인다). */}
                             {relCands ? (
                                 <div className="mt-2 rounded-md border border-[#ddd6fe] bg-white p-2">
                                     <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#6d28d9]">

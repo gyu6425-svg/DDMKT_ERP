@@ -64,6 +64,13 @@ export function CafeKwPool({
                 </button>
                 <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[11px] font-bold text-[#6d28d9]">지역 없이 {solo.length}</span>
                 {withRegion ? <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-semibold text-[#64748b]">지역형 {withRegion}</span> : null}
+                {/* 상한에 닿으면 조용히 자르지 않고 알린다 — 검색량 낮은 것부터 밀려난다(독립검증 지적 2026-08-12). */}
+                {rows.length >= 600 ? (
+                    <span className="rounded bg-[#fef2f2] px-2 py-0.5 text-[11px] font-bold text-[#dc2626]"
+                        title="브라우저 저장 한도 방어로 600개까지만 남깁니다. 검색량이 낮은 것부터 밀려납니다 — 쓸 것은 미리 보관함에 담아 두세요.">
+                        ⚠ 상한 600 도달 — 검색량 낮은 것부터 밀려납니다
+                    </span>
+                ) : null}
                 <span className="text-[11px] text-[#94a3b8]">모드를 바꿔 조회해도 계속 쌓입니다 · 업체별 30일 보관</span>
                 <span className="ml-auto flex items-center gap-1.5">
                     {onPick ? (
