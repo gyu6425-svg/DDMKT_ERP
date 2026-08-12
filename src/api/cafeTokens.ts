@@ -38,6 +38,21 @@ export async function grantTokens(clientId: string, count: number, note?: string
     return { error };
 }
 
+// 재계약: 토큰 잔액을 '새 계약 건수'에 맞춘다(차액만 기록).
+//   그냥 +N 하면 재계약 버튼을 두 번 누를 때마다 쌓여 계약보다 많은 발행권이 생긴다(실측: 계약 100인데 토큰 154).
+//   남은 잔액이 목표보다 많으면 '조정 -' 으로 깎아 계약과 항상 일치시킨다.
+export async function syncTokensToContract(clientId: string, target: number, note: string) {
+    const goal = Math.max(0, Math.floor(target));
+    const { data } = await listTokens(clientId, 1000);
+    const before = balanceOf(data);
+    const delta = goal - before;
+    if (delta === 0) return { error: null, before, delta: 0 };
+    const { error } = await supabase.from('cafe_tokens').insert({
+        client_id: clientId, delta, kind: delta > 0 ? '서비스' : '조정', note,
+    });
+    return { error, before, delta };
+}
+
 // 관리자: 접수 삭제 시 그 접수로 발행했던 토큰 회수(-). 발행 grant 는 note 에 `[req:접수id]` 태그가 있어
 //   해당 태그 grant 합계를 정확히 되돌린다. 태그가 없으면(구버전 발행) fallbackCount 를 사용.
 //   미발행(태그 없음 + fallback 0) 이면 0 반환(회수 안 함). 회수분은 고객 충전내역에 '조정 -N' 으로 남는다.

@@ -11,7 +11,8 @@ import {
 } from '../api/clientContracts';
 import { ensureClientBlogAccount, getBlogAccounts, syncBlogAccountFromContract, updateBlogAccount } from '../api/blogRank';
 import { enablePublishByClient, getCafeAccounts, type CafeAccount } from '../api/cafeAccounts';
-import { grantTokens } from '../api/cafeTokens';
+import { syncTokensToContract } from '../api/cafeTokens';
+import { getStudioSettings } from '../api/cafeStudioSettings';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import {
     PRODUCT_CATEGORIES,
@@ -1486,10 +1487,15 @@ function ContractEditModal({
         let cafeMsg = '';
         if (contract.category === '카페' && /배포/.test(contract.subtype || '')) {
             const en = await enablePublishByClient(contract.client_id, companyName);
-            const tk = await grantTokens(contract.client_id, reQty, `재계약 ${s} · ${companyName} · ${reQty}건`);
+            // 토큰은 '더하기'가 아니라 '계약 건수에 맞추기' — 재계약을 두 번 눌러도 잔액이 계약과 같아진다.
+            const tk = await syncTokensToContract(contract.client_id, reQty, `재계약 ${s} · ${companyName} · 계약 ${reQty}건에 맞춤`);
+            // 키워드 풀이 비어 있으면 토큰이 있어도 발행 예정 큐가 비어 아무것도 안 나간다 — 다음 할 일을 알려 준다.
+            const { data: ss } = await getStudioSettings(contract.client_id);
+            const poolN = (ss?.keyword_pool ?? []).length;
             cafeMsg = en.error || tk.error
                 ? ` · ⚠ 발행 활성화 실패(${en.error?.message || tk.error?.message}) — 카페 관리시트에서 '발행 세팅' 확인 필요`
-                : ` · 자동화 발행 재개(토큰 +${reQty}건)`;
+                : ` · 자동화 발행 재개(토큰 ${tk.before} → ${reQty}건)`
+                  + (poolN ? ` · 키워드 풀 ${poolN}개` : ' · ⚠ 키워드 풀 0개 — 자동화 발행 탭에서 키워드를 채워야 발행이 시작됩니다');
         }
         onToast(`재계약 — 새 계약 카드 생성(${reQty.toLocaleString('ko-KR')}건 · 매출 ${fmtWon(reSales)}원). 기존 계약은 만료 처리.${cafeMsg}`);
         // ③ 브랜드 블로그: 새(활성) 계약의 건수/잔여로 동기화 + '연장 건' 탭 대기(승인해야 계약 중).
