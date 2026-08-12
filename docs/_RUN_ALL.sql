@@ -815,6 +815,32 @@ create policy "bss 내부 전체" on public.blog_studio_settings
     using (public.is_internal()) with check (public.is_internal());
 notify pgrst, 'reload schema';
 
+-- ── 블로그 발행 요청 큐 (blog_gen_requests) — docs/blog-gen-requests.sql 와 동일 (additive) ──
+--   카페 cafe_gen_requests 미러. 웹→SUB1 폴러 발행요청 큐. 전제: is_internal().
+create table if not exists public.blog_gen_requests (
+    id           uuid primary key default gen_random_uuid(),
+    created_at   timestamptz not null default now(),
+    blog_account_id uuid references public.blog_accounts(id) on delete set null,
+    blog_id      text not null,
+    keyword      text not null,
+    region       text,
+    subject_type text,
+    status       text not null default 'pending',
+    claimed_by   text,
+    claimed_at   timestamptz,
+    done_at      timestamptz,
+    reason       text,
+    queue_job_id text
+);
+create index if not exists bgr_blog_status_idx on public.blog_gen_requests (blog_id, status, created_at);
+create unique index if not exists bgr_dedup_idx on public.blog_gen_requests (blog_id, keyword)
+    where status in ('pending', 'claimed', 'done');
+alter table public.blog_gen_requests enable row level security;
+drop policy if exists "bgr 내부" on public.blog_gen_requests;
+create policy "bgr 내부" on public.blog_gen_requests
+    for all to authenticated using (public.is_internal()) with check (public.is_internal());
+notify pgrst, 'reload schema';
+
 -- ┌───────────────────────────────────────────────────────────────────────┐
 -- │ blog-save-queue-mode.sql — 블로그 큐 저장/발행 선택 (2026-08-12)        │
 -- │  기본 'save'. CHECK 로 '저장 작업은 발행됨으로 기록 불가' 를 DB가 보증.  │
@@ -863,7 +889,6 @@ create index if not exists bsq_mode_status_idx on public.blog_save_queue (mode, 
 --     add constraint bsq_status_chk check (status in ('pending','processing','saved','fail'));
 --   alter table public.blog_save_queue drop column mode, drop column posted_url, drop column posted_at;
 --   drop index bsq_mode_status_idx;
-
 notify pgrst, 'reload schema';
 
 -- ═══ 끝. Storage: blog-materials · cafe-images 버킷은 위 SQL로 생성됨(private). ═══

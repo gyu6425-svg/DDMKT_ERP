@@ -1,3 +1,16 @@
+export type CaseStudyInput = {
+    keyword?: string;
+    keyword2?: string;
+    keywordCount?: number;
+    subjectType?: string;   // 대상/현장 유형(업종 자유)
+    introHook?: string;
+    overview?: string;      // 현장/대상 개요·상황
+    sections?: Array<{ title?: string; notes?: string }>; // 본문 텍스트 섹션(순서대로)
+    takeaway?: string;
+    freeform?: boolean;     // 간편 모드(내용 한 곳에 다 적기)
+    brief?: string;         // 간편 모드 입력
+};
+
 export type GenerateBlogInput = {
     topic: string;
     industry?: string;
@@ -6,6 +19,8 @@ export type GenerateBlogInput = {
     length?: 'short' | 'medium' | 'long';
     keywords?: string;
     includeHashtags?: boolean;
+    mode?: 'caseStudy';            // 현장 설치 사례 템플릿(섹션태그 산문만)
+    caseStudy?: CaseStudyInput;
     signal?: AbortSignal;
 };
 
@@ -53,6 +68,8 @@ export async function generateBlog(input: GenerateBlogInput): Promise<GenerateBl
                 length: input.length,
                 tone: input.tone,
                 topic: input.topic,
+                mode: input.mode,
+                caseStudy: input.caseStudy,
             }),
             headers: { 'Content-Type': 'application/json' },
             method: 'POST',
