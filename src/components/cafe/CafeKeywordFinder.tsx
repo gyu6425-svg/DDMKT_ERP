@@ -58,10 +58,9 @@ export function CafeKeywordFinder({
     // 발굴 적재함 — 모드를 오가며 찾아낸 인기탭 전부(보관함과 별개). 상단 패널이 이걸 보여준다.
     const [pool, setPool] = useState<KwResult[]>([]);
     useEffect(() => {
-        // 적재함이 생기기 전에 찾아 둔 결과(진행중 저장분)도 한 번 흡수한다 — 안 그러면 처음엔 빈 패널만 뜬다.
-        const who = clientId || 'me';
-        const prev = loadPendingScan()?.result ?? [];
-        setPool(prev.length ? addToPool(who, prev) : loadPoolKw(who));
+        // ⚠️ 진행중 저장분(pending)은 흡수하지 않는다 — PENDING_KEY 에 업체 스코프가 없어
+        //   A업체 스캔 직후 B업체로 넘어가면 A의 결과가 B 적재함에 섞인다(독립검증 2026-08-12 지적).
+        setPool(loadPoolKw(clientId || 'me'));
     }, [clientId]);
     useEffect(() => {
         pickedLoadedRef.current = false;
@@ -97,9 +96,6 @@ export function CafeKeywordFinder({
     //     '창업'은 끝 230 vs 앞 67 이라 켜지고, '보홀'은 보홀여행·보홀호텔처럼 앞이 많아 꺼진다
     //     (여기서 무조건 켜면 여행 씨앗은 후보가 거의 안 남는다).
     const [endsOnly, setEndsOnly] = useState(false);
-    // 지역형으로 판명된 제품키워드 — 지역을 붙여야 나오는 업종(간병인·입주청소 등).
-    // 지역형으로 판명된 후보 — 이제 인기탭 찾기가 곳바로 지역까지 파므로 비어 있다(패널은 유지).
-    const [regionalCands] = useState<(KwResult & { sample?: string[] })[]>([]);
     // 캐시 우선 조회 결과 — 스캔 0회로 즉시 나오는 것들.
     const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
     const [cachedVia, setCachedVia] = useState<string[]>([]);   // 이 결과를 찾아낸 어간(씨앗어와 다를 수 있다)
@@ -361,7 +357,9 @@ export function CafeKeywordFinder({
                     if (cached.length) merged.push(...cached);   // 캐시 양성은 즉시 표시(UX)
                     toScan.push(kw);   // ★ 항상 워커로 전수 재검증 — 캐시 양성 몇 개만 믿고 멈추면 prescan 음성·미스캔분 누락(워커 내부 배치캐시로 이미 판정된 건 즉시)
                 }
-                if (merged.length) setKwResult(dedup(merged));   // 캐시분 먼저 즉시(워커 완료 시 전체로 교체)
+                // ⚠️ pushLive 를 타야 적재함에도 들어간다 — setKwResult 로만 넣으면 화면엔 보이는데
+                //   상단 적재함에는 안 쌓여, '다 쌓아서 지역 붙이기' 흐름에서 이 캐시 양성분이 통째로 샌다.
+                if (merged.length) pushLive(dedup(merged));
             } else {
                 toScan.push(...kws);   // 동은 조합이 달라 워커에 맡김(내부 배치캐시로 재스캔 빠름)
             }
@@ -698,7 +696,8 @@ export function CafeKeywordFinder({
                 const s = await peekScans(ids);
                 if (!alive) return;
                 setPendNote(s.note);
-                if (s.result.length) { acc = sortDedup([...acc, ...s.result]); setKwResult(acc); }
+                // 이어보기로 회수한 결과도 적재함에 넣는다 — 여기가 새면 새로고침 후 찾은 건 적재함에 안 남는다.
+                if (s.result.length) { acc = sortDedup([...acc, ...s.result]); setKwResult(acc); setPool(addToPool(clientId || 'me', s.result)); }
                 ids = s.live;
                 savePendingProgress(ids, acc);
                 if (!ids.length) {
@@ -870,9 +869,10 @@ export function CafeKeywordFinder({
                         <div className="rounded-md border border-[#16a34a] bg-[#f0fdf4] p-2">
                             <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#15803d]">
                                 <span>✅ 이미 확인된 인기탭 {cachedHits.length}건 <span className="font-normal">— <b>{cachedVia.join(' · ')}</b> 로 찾은 것입니다</span></span>
-                                <button type="button" onClick={() => setKwResult(cachedHits)}
+                                {/* pushLive 로 넣어야 적재함에도 쌓인다(setKwResult 만 하면 화면에만 보이고 샌다). */}
+                                <button type="button" onClick={() => pushLive(cachedHits)}
                                     className="rounded bg-[#16a34a] px-2.5 py-0.5 text-[11px] font-bold text-white">
-                                    아래 목록으로 가져오기
+                                    적재함·아래 목록에 담기
                                 </button>
                             </div>
                             <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
@@ -993,101 +993,9 @@ export function CafeKeywordFinder({
                         </div>
                     ) : null}
 
-                    {/* 지역형으로 판명된 제품키워드 — 그대로 발행하는 게 아니라 지역을 붙여야 나온다.
-                        실측(2026-08-07): 간병인은 지역 없이 0건, 지역을 붙이면 46건. 반대로 창업은 그 반대다.
-                        찔러보기가 0이어도 '아님'이 아니라 '미확인'이다(저밀도 업종은 8번으로 안 걸린다). */}
-                    {regionalCands.length ? (
-                        <div className="rounded-md border border-[#f59e0b] bg-[#fffbeb] p-2">
-                            <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#b45309]">
-                                <span>📍 지역을 붙여야 나오는 키워드 {regionalCands.length}건 — 지역 스캔을 돌리면 전수로 찾습니다</span>
-                                {/* 후보를 하나씩 누르게 두면 안 된다 — 찔러보는 제품 수를 6→24로 늘려서
-                                    이제 24번을 눌러야 한다. runRegion 은 쉼표 구분으로 여러 키워드를 받으므로
-                                    후보 전부를 한 번에 넘긴다(회차 30건 + ＋10 은 그대로 적용된다). */}
-                                <button type="button" disabled={kwLoading || dongLoading}
-                                    onClick={() => { setKeyword(regionalCands.map((r) => r.keyword).join(', ')); void runRegion(false, FIRST_TARGET); }}
-                                    className="rounded bg-[#b45309] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-50"
-                                    title="후보 전부를 한 번에 지역 스캔합니다">
-                                    {kwLoading ? '스캔 중…' : `전부 지역 스캔 (${regionalCands.length}개) →`}
-                                </button>
-                            </div>
-                            {/* 확인된 조합이 수십 개라 하나씩 누를 수 없다 — 한 번에 담는다. */}
-                            {(() => {
-                                const all = regionalCands.flatMap((r) => (r.sample ?? []).map((s) => ({
-                                    cafes: [] as KwResult['cafes'], keyword: s, theme: r.theme, volume: r.volume,
-                                })));
-                                const left = all.filter((r) => !kwPicked.some((p) => p.keyword === r.keyword));
-                                if (!all.length) return null;
-                                return (
-                                    <button type="button" onClick={() => addPicks(all)} disabled={!left.length}
-                                        className="mb-1.5 rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-40">
-                                        {left.length ? `확인된 ${left.length}건 전부 담기` : `전부 담김 (${all.length}건)`}
-                                    </button>
-                                );
-                            })()}
-                            {/* 목표 채우기 — 후보를 순서대로 끝까지 파서 30건을 채우면 멈춘다.
-                                하나씩 '지역 전수 스캔'을 누를 필요가 없다(사장님 설계 2026-08-11). */}
-                            <div className="mb-1.5 flex flex-wrap items-center gap-2 rounded-md border border-[#16a34a] bg-[#f0fdf4] px-2 py-1.5">
-                                <span className="text-[12px] font-bold text-[#15803d]">🎯 {FIRST_TARGET}건 채울 때까지 알아서 찾기</span>
-                                <span className="text-[11px] text-[#4d7c0f]">
-                                    위 {regionalCands.length}개를 순서대로 끝까지 팝니다 — 단독 + 전 지역({regionSel.join('·') || '지역 선택 필요'}).
-                                    첫 키워드에서 다 채우면 거기서 멈춥니다.
-                                </span>
-                                <button type="button" disabled={kwLoading || dongLoading || !regionSel.length}
-                                    onClick={() => void runChain(regionalCands.map((r) => r.keyword))}
-                                    className="ml-auto shrink-0 rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
-                                    {kwLoading ? '찾는 중…' : `시작 →`}
-                                </button>
-                            </div>
-                            {/* 지역 스캔에는 시도 선택이 필요하다 — 연관 모드엔 없으므로 여기서 고르게 한다. */}
-                            <div className="mb-1.5 flex flex-wrap items-center gap-1">
-                                <span className="mr-1 text-[11px] font-semibold text-[#a16207]">지역 범위</span>
-                                {REGION_KEYS.map((r) => (
-                                    <button key={r} type="button" onClick={() => toggleRegion(r)}
-                                        className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${regionSel.includes(r) ? 'border-[#b45309] bg-[#b45309] text-white' : 'border-[#fde68a] bg-white text-[#a16207]'}`}>{r}</button>
-                                ))}
-                            </div>
-                            <div className="grid gap-1">
-                                {regionalCands.map((r) => (
-                                    <div key={r.keyword} className="rounded border border-[#fde68a] bg-white px-2 py-1.5 text-[12px]">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <b className="text-[#b45309]">{r.keyword}</b>
-                                            <span className="text-[#94a3b8]">{r.theme}</span>
-                                            <button type="button" disabled={kwLoading || dongLoading}
-                                                onClick={() => { setKeyword(r.keyword); void runRegion(false, FIRST_TARGET); }}
-                                                className="ml-auto shrink-0 rounded bg-[#b45309] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-50">
-                                                지역 전수 스캔 →
-                                            </button>
-                                        </div>
-                                        {/* ★ 찔러보기에서 '이미 인기탭으로 확인된' 조합이다 — 예시가 아니라 바로 쓸 수 있는 키워드다.
-                                            눌러서 담으면 전수 스캔을 안 돌려도 그만큼은 확보된다(사장님 지시 2026-08-11). */}
-                                        {r.sample?.length ? (
-                                            <div className="mt-1 flex flex-wrap items-center gap-1">
-                                                <button type="button"
-                                                    onClick={() => addPicks((r.sample ?? []).map((s) => ({ cafes: [], keyword: s, theme: r.theme, volume: r.volume })))}
-                                                    className="rounded bg-[#16a34a] px-2 py-0.5 text-[11px] font-bold text-white">
-                                                    확인됨 {r.sample.length}건 전부 담기
-                                                </button>
-                                                {r.sample.map((s) => {
-                                                    const on = kwPicked.some((p) => p.keyword === s);
-                                                    return (
-                                                        <button key={s} type="button"
-                                                            onClick={() => togglePick({ cafes: [], keyword: s, theme: r.theme, volume: r.volume })}
-                                                            className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${on ? 'border-[#16a34a] bg-[#16a34a] text-white' : 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]'}`}>
-                                                            {on ? '✓ ' : '+ '}{s}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        ) : null}
-                                    </div>
-                                ))}
-                            </div>
-                            <p className="mb-0 mt-1 text-[11px] text-[#a16207]">
-                                초록 칩은 <b>이미 인기탭이 확인된 키워드</b>입니다 — 눌러서 바로 담으세요.
-                                ‘지역 전수 스캔’은 위에서 고른 시도의 전 지역까지 더 찾습니다(찔러본 4곳 말고 전부).
-                            </p>
-                        </div>
-                    ) : null}
+                    {/* (삭제 2026-08-12) '지역을 붙여야 나오는 키워드' 패널 — regionalCands 는 setter 없는
+                        useState 라 영원히 [] 였다. 92줄 전체가 도달 불가 코드였다(독립검증 확인).
+                        같은 일은 이제 발굴 적재함의 '지역 붙여 더 찾기'가 한다. */}
                 </div>
             ) : null}
 

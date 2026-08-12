@@ -229,7 +229,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 const s = await peekScans(ids);
                 if (!alive) return;
                 setPendNote(s.note);
-                if (s.result.length) { acc = sortDedup([...acc, ...s.result]); setKwResult(acc); }
+                // 이어보기로 회수한 결과도 적재함에 넣는다 — 여기가 새면 새로고침 후 찾은 건 적재함에 안 남는다.
+                if (s.result.length) { acc = sortDedup([...acc, ...s.result]); setKwResult(acc); setPool(addToPool(clientId || 'me', s.result)); }
                 ids = s.live;
                 savePendingProgress(ids, acc);
                 if (!ids.length) {
@@ -359,7 +360,6 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     // '씨앗으로 끝나는 것만'(소자본창업·카페창업). 기본값은 씨앗별로 데이터가 정한다 —
     //   끝나는 게 더 많으면 켠다('창업' 끝230/앞67 → 켬, '보홀'은 보홀여행류가 많아 → 끔).
     const [endsOnly, setEndsOnly] = useState(false);
-    const [relRegional, setRelRegional] = useState<(KwResult & { sample?: string[] })[]>([]);
     // 캐시 우선 — 이미 판정된 인기탭. 스캔 0회로 즉시 나온다.
     const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
     const [cachedVia, setCachedVia] = useState<string[]>([]);   // 이 결과를 찾아낸 어간(씨앗어와 다를 수 있다)
@@ -456,7 +456,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const runExpandSeed = async () => {
         const s = seed.trim();
         if (!s) { setKwErr('씨앗 키워드를 입력하세요(예: 보홀 · 장기요양).'); return; }
-        setKwErr(''); setExtracting(true); setRelCands(null); setKwResult(null); setRelRegional([]);
+        setKwErr(''); setExtracting(true); setRelCands(null); setKwResult(null);
         try {
             const list = await expandRelated(s);
             if (!list.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
@@ -532,7 +532,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setKwResult(out);
         savePendingProgress(null, out);   // 도는 요청 목록은 그대로, 결과만 갱신(새로고침 대비)
         // 적재함에도 더한다 — 모드를 바꿔 조회해도 지금까지 찾은 게 상단에 계속 남게.
-        if (clientId) setPool(addToPool(clientId, rows));
+        // clientId 가 없어도(관리자 미리보기 등) 'me' 로 쌓는다 — 예전엔 통째로 안 쌓여 적재함이 비었다.
+        setPool(addToPool(clientId || 'me', rows));
     };
 
     const [kwErr, setKwErr] = useState('');
@@ -556,9 +557,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [pool, setPool] = useState<KwResult[]>([]);
     useEffect(() => {
         // 적재함이 생기기 전에 찾아 둔 결과(진행중 저장분)도 한 번 흡수한다 — 안 그러면 처음엔 빈 패널만 뜬다.
-        if (!clientId) return;
-        const prev = loadPendingScan()?.result ?? [];
-        setPool(prev.length ? addToPool(clientId, prev) : loadPoolKw(clientId));
+        setPool(loadPoolKw(clientId || 'me'));
     }, [clientId]);
     const [pickedOpen, setPickedOpen] = useState(false); // 선택 키워드 드롭다운 펼침(기본 접힘 · 우측 N개)
     const [payBusy, setPayBusy] = useState(false); // 결제완료 알림 전송 중
@@ -710,10 +709,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             const seen = new Set<string>();
             const merged: KwResult[] = [];
             for (const r of [...prev, ...cached]) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
-            if (merged.length) {
-                setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));   // 캐시분 먼저
-                savePendingProgress([], merged);   // 캐시분도 남긴다 — 새로고침에 안 날아가게
-            }
+            // ⚠️ pushLive 를 타야 적재함에도 들어간다 — setKwResult 로만 넣으면 화면엔 보이는데
+            //   상단 적재함에는 안 쌓여, '다 쌓아서 지역 붙이기' 흐름에서 이 캐시 양성분이 통째로 샌다.
+            if (merged.length) pushLive(merged);
             // ② 항상 라이브 지역 스캔 — 캐시 양성만 믿고 멈추면 prescan 음성·미스캔분 누락(워커 내부 배치캐시로 판정된 건 즉시).
             // 남은 키워드를 미리 등록해 둔다 — 중단 시 '아직 안 돈 것'을 한 번에 끌 수 있어야 한다.
             // 키워드 하나 스캔. ★ 실패해도 예외를 밖으로 던지지 않는다 —
@@ -819,7 +817,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setMsg('접수되었습니다. 담당자 확인 후 세팅해 드립니다.');
         setForm({ ...empty, company_name: bizName }); setFiles({ main: [], real: [], banner: [] }); setPlaceDetail('');
         setOwnAddr(''); setExtracted(null); setPicked(new Set()); setPopManualKws([]);
-        setSeed(''); setRelCands(null); setRelPicked(new Set()); setRelRegional([]); setCachedHits(null);
+        setSeed(''); setRelCands(null); setRelPicked(new Set()); setCachedHits(null);
         setKwResult(null); setKwPicked([]); setKwHidden([]); setPickedOpen(false);
         reload();
     };
@@ -832,7 +830,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         <>
             {/* 발굴 적재함 — 정보형·연관형 등 모드를 오가며 찾은 것을 한곳에 쌓아 맨 위에 보여준다.
                 여기서 '지역 없이 잡힌 것'만 골라, 이 패널의 지역 칩으로 지역까지 더 찾는다(사장님 요청 2026-08-12). */}
-            <CafeKwPool who={clientId || ''} rows={pool} onChange={setPool} busy={kwLoading}
+            <CafeKwPool who={clientId || 'me'} rows={pool} onChange={setPool} busy={kwLoading}
                 onPick={(rows) => addPicks(rows)}
                 onRunChain={(kws, regions) => void runChain(kws, scanTarget + MORE_STEP, regions)} />
             {/* 이어보기 배너 — 새로고침·이탈 후 돌아오면 진행 중인 스캔에 다시 붙는다.
@@ -1267,8 +1265,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 <div className="mt-2 rounded-md border border-[#16a34a] bg-[#f0fdf4] p-2">
                                     <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#15803d]">
                                         <span>✅ 이미 확인된 인기탭 {cachedHits.length}건 <span className="font-normal">— <b>{cachedVia.join(' · ')}</b> 로 찾은 것입니다</span></span>
-                                        <button type="button" onClick={() => { setKwResult(cachedHits); setKwErr(''); }}
-                                            className="rounded bg-[#16a34a] px-2.5 py-0.5 text-[11px] font-bold text-white">아래 목록으로 가져오기</button>
+                                        {/* pushLive 로 넣어야 적재함에도 쌓인다(setKwResult 만 하면 화면에만 보이고 샌다). */}
+                                        <button type="button" onClick={() => { pushLive(cachedHits); setKwErr(''); }}
+                                            className="rounded bg-[#16a34a] px-2.5 py-0.5 text-[11px] font-bold text-white">적재함·아래 목록에 담기</button>
                                     </div>
                                     <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
                                         {cachedHits.slice(0, 40).map((h) => (
@@ -1383,73 +1382,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     </div>
                                 </div>
                             ) : null}
-                            {relRegional.length ? (
-                                <div className="mt-2 rounded-md border border-[#f59e0b] bg-[#fffbeb] p-2">
-                                    <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#b45309]">
-                                        <span>📍 지역을 붙여야 나오는 키워드 {relRegional.length}건</span>
-                                        {/* 확인된 조합이 수십 개라 하나씩 누를 수 없다 — 한 번에 담는다. */}
-                                        {(() => {
-                                            const all = relRegional.flatMap((r) => (r.sample ?? []).map((s) => ({
-                                                cafes: [] as KwResult['cafes'], keyword: s, theme: r.theme, volume: r.volume,
-                                            })));
-                                            const left = all.filter((r) => !kwPicked.some((p) => p.keyword === r.keyword));
-                                            if (!all.length) return null;
-                                            return (
-                                                <button type="button" onClick={() => addPicks(all)} disabled={!left.length}
-                                                    className="ml-auto rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-40">
-                                                    {left.length ? `확인된 ${left.length}건 전부 담기` : `전부 담김 (${all.length}건)`}
-                                                </button>
-                                            );
-                                        })()}
-                                    </div>
-                                    {relRegional.map((r) => (
-                                        <div key={r.keyword} className="rounded border border-[#fde68a] bg-white px-2 py-1.5 text-[12px]">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <b className="text-[#b45309]">{r.keyword}</b>
-                                                <span className="text-[#94a3b8]">{r.theme}</span>
-                                            </div>
-                                            {/* ★ 찔러보기에서 '이미 인기탭으로 확인된' 조합이다 — 예시가 아니라 바로 쓸 수 있는 키워드다.
-                                                눌러서 담으면 전수 스캔을 안 돌려도 그만큼은 확보된다(사장님 지시 2026-08-11). */}
-                                            {r.sample?.length ? (
-                                                <div className="mt-1 flex flex-wrap items-center gap-1">
-                                                    <button type="button"
-                                                        onClick={() => addPicks((r.sample ?? []).map((s) => ({ cafes: [], keyword: s, theme: r.theme, volume: r.volume })))}
-                                                        className="rounded bg-[#16a34a] px-2 py-0.5 text-[11px] font-bold text-white">
-                                                        확인됨 {r.sample.length}건 전부 담기
-                                                    </button>
-                                                    {r.sample.map((s) => {
-                                                        const on = kwPicked.some((p) => p.keyword === s);
-                                                        return (
-                                                            <button key={s} type="button"
-                                                                onClick={() => togglePick({ cafes: [], keyword: s, theme: r.theme, volume: r.volume })}
-                                                                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${on ? 'border-[#16a34a] bg-[#16a34a] text-white' : 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]'}`}>
-                                                                {on ? '✓ ' : '+ '}{s}
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ) : null}
-                                        </div>
-                                    ))}
-                                    <p className="mb-0 mt-1 text-[11px] text-[#a16207]">
-                                        초록 칩은 <b>이미 인기탭이 확인된 키워드</b>입니다 — 눌러서 바로 담으세요.
-                                    </p>
-                                    {/* 목표 채우기 — 후보를 순서대로 끝까지 파서 목표 건수를 채우면 멈춘다.
-                                        하나씩 지역형으로 다시 접수할 필요가 없다(사장님 설계 2026-08-11). */}
-                                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[#16a34a] bg-[#f0fdf4] px-2 py-1.5">
-                                        <span className="text-[12px] font-bold text-[#15803d]">🎯 {FIRST_TARGET}건 채울 때까지 알아서 찾기</span>
-                                        <span className="text-[11px] text-[#4d7c0f]">
-                                            위 {relRegional.length}개를 순서대로 끝까지 팝니다 — 키워드 단독 + 전 지역
-                                            ({(form.region_sets || []).join('·') || '위에서 지역을 골라 주세요'}).
-                                        </span>
-                                        <button type="button" disabled={kwLoading || !(form.region_sets || []).length}
-                                            onClick={() => void runChain(relRegional.map((r) => r.keyword))}
-                                            className="ml-auto shrink-0 rounded bg-[#16a34a] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
-                                            {kwLoading ? '찾는 중…' : '시작 →'}
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : null}
+                            {/* (삭제 2026-08-12) '지역을 붙여야 나오는 키워드' 패널 — setRelRegional 은
+                                []로만 호출되어 도달 불가 코드였다(독립검증 확인).
+                                같은 일은 이제 발굴 적재함의 '지역 붙여 더 찾기'가 한다. */}
                         </div>
                     ) : null}
 
