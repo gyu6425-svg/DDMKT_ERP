@@ -396,6 +396,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setKwErr(e instanceof Error ? e.message : '씨앗 발굴 실패');
         } finally { setSeedBusy(''); }
     };
+    // 이미 다 찾은 조합인지 — 같은 키워드 묶음을 또 돌리지 않게 버튼 상태로 알린다(사장님 요청 2026-08-12).
+    //   조합을 정렬해 이어 붙인 것이 서명. 체크를 하나라도 바꾸면 서명이 달라져 다시 '찾기'로 돌아온다.
+    const sigOf = (kws: string[]) => [...kws].sort().join('|');
+    const [scanDone, setScanDone] = useState<{ sig: string; n: number; target: number } | null>(null);
     // 목표 채우기 — 후보를 순서대로 끝까지 파서 목표 건수를 채운다(워커 process_chain).
     //   ★ 사장님 설계: 첫 키워드에서 다 채우면 오히려 좋다 — 제품 우선으로 깊게 판다.
     //     각 키워드의 '단독(지역 없음)' 판정도 맨 앞에서 같이 본다.
@@ -421,6 +425,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             //   '창업으로 뽑고 정보형으로 또 뽑아 쌓는' 것이 정상 사용법이라 누적이 맞다.
             //   pushLive 와 같은 규칙(공백 무시 중복 제거 · 검색량 내림차순)으로 합친다.
             pushLive(result);
+            // 이 조합은 다 봤다고 기록해 둔다 — 버튼이 '찾았습니다'로 바뀌어 또 누르지 않게 한다.
+            setScanDone({ sig: sigOf(products), n: result.length, target });
             if (!kwResultRef.current.length) { setKwErr('인기탭이 확인된 키워드가 없습니다.'); return; }
         } catch (e) {
             const m = e instanceof Error ? e.message : '';
@@ -1371,15 +1377,25 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     <div className="mt-2 flex items-center gap-2">
                                         {/* ★ 체크한 순서대로 하나씩 끝까지 파고 30건 채우면 멈춘다(process_chain).
                                             각 키워드마다 단독 판정 → 위에서 고른 지역 전수. 사장님 설계 2026-08-11. */}
-                                        {/* 지역 미선택이어도 막지 않는다 — 1단계가 전 키워드 단독 판정이라 지역이 안 쓰인다. */}
-                                        <button type="button" disabled={kwLoading || !relPicked.size}
-                                            onClick={() => void runChain((relCands || []).filter((c) => relPicked.has(c.kw)).map((c) => c.kw))}
-                                            className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50"
-                                            title="① 체크한 키워드를 지역 없이 전부 판정 → ② 그 뒤 지역 전수. 30건 채우면 멈춥니다.">
-                                            {kwLoading ? '찾는 중…'
-                                                : !relPicked.size ? '↑ 키워드를 체크하세요'
-                                                    : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
-                                        </button>
+                                        {/* 지역 미선택이어도 막지 않는다 — 1단계가 전 키워드 단독 판정이라 지역이 안 쓰인다.
+                                            이미 이 조합을 다 본 상태면 '찾았습니다'로 바뀐다(또 눌러 콜을 버리지 않게). */}
+                                        {(() => {
+                                            const sel = (relCands || []).filter((c) => relPicked.has(c.kw)).map((c) => c.kw);
+                                            const done = !!scanDone && scanDone.sig === sigOf(sel) && sel.length > 0;
+                                            return (
+                                                <button type="button" disabled={kwLoading || !relPicked.size}
+                                                    onClick={() => void runChain(sel, done ? scanDone!.target + MORE_STEP : FIRST_TARGET)}
+                                                    className={`h-9 shrink-0 rounded-md px-4 text-sm font-bold text-white disabled:opacity-50 ${done ? 'bg-[#16a34a]' : 'bg-[#7c3aed]'}`}
+                                                    title={done
+                                                        ? '이 조합은 이미 다 봤습니다. 더 필요하면 눌러서 목표를 올려 이어서 찾습니다(이미 본 건 건너뜁니다).'
+                                                        : '① 체크한 키워드를 지역 없이 전부 판정 → ② 그 뒤 지역 전수. 30건 채우면 멈춥니다.'}>
+                                                    {kwLoading ? '찾는 중…'
+                                                        : !relPicked.size ? '↑ 키워드를 체크하세요'
+                                                            : done ? `✓ 찾았습니다 — ${scanDone!.n}건 적재함에 · ＋${MORE_STEP} 더 찾기`
+                                                                : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
+                                                </button>
+                                            );
+                                        })()}
                                         <span className="text-[11px] text-[#64748b]">
                                             ① 지역 없이 먼저 · ② 그 뒤 <b>{((form.region_sets || []).length ? (form.region_sets || []) : CHAIN_DEFAULT_REGIONS).join('·')}</b>
                                             {(form.region_sets || []).length ? '' : ' (기본값)'}
@@ -1455,13 +1471,22 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                     </label>
                                                 ))}
                                             </div>
-                                            {/* ①과 같은 자리에서 끝낸다 — 체크 → 인기탭 찾기 → 위 적재함에 누적. */}
+                                            {/* ①과 같은 자리에서 끝낸다 — 체크 → 인기탭 찾기 → 위 적재함에 누적.
+                                                이미 이 조합을 다 본 상태면 '찾았습니다'로 바뀐다. */}
                                             <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                <button type="button" onClick={confirmAndScan} disabled={!picked.size || kwLoading}
-                                                    className="h-9 rounded-md bg-[#16a34a] px-4 text-sm font-bold text-white disabled:opacity-50"
-                                                    title="① 체크한 키워드를 지역 없이 전부 판정 → ② 그 뒤 지역 전수. 찾은 건 위 적재함에 쌓입니다.">
-                                                    {kwLoading ? '찾는 중…' : `③ 인기탭 찾기 (${picked.size}개 · ${FIRST_TARGET}건 채우면 멈춤)`}
-                                                </button>
+                                                {(() => {
+                                                    const sel = (extracted || []).map((x) => x.kw).filter((k) => picked.has(k));
+                                                    const done = !!scanDone && scanDone.sig === sigOf(sel) && sel.length > 0;
+                                                    return (
+                                                        <button type="button" onClick={confirmAndScan} disabled={!picked.size || kwLoading}
+                                                            className={`h-9 rounded-md px-4 text-sm font-bold text-white disabled:opacity-50 ${done ? 'bg-[#0f766e]' : 'bg-[#16a34a]'}`}
+                                                            title="① 체크한 키워드를 지역 없이 전부 판정 → ② 그 뒤 지역 전수. 찾은 건 위 적재함에 쌓입니다.">
+                                                            {kwLoading ? '찾는 중…'
+                                                                : done ? `✓ 찾았습니다 — ${scanDone!.n}건 적재함에 · 다시 찾기`
+                                                                    : `③ 인기탭 찾기 (${picked.size}개 · ${FIRST_TARGET}건 채우면 멈춤)`}
+                                                        </button>
+                                                    );
+                                                })()}
                                                 <button type="button" onClick={confirmExtracted} disabled={!picked.size || kwLoading}
                                                     className="h-9 rounded-md border border-[#c7d2fe] bg-white px-3 text-[12px] font-bold text-[#4338ca] disabled:opacity-50"
                                                     title="스캔하지 않고 제품키워드 칩으로만 넣습니다.">제품키워드로만 추가</button>
