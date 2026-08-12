@@ -1013,13 +1013,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     </div>
                     <p className="mb-3 mt-0 text-[13px] text-[#7c2d12]">아래 계좌로 입금해 주시면 확인 후 발행이 시작됩니다.</p>
                     <div className="grid gap-2">
+                        {/* 금액은 표시하지 않는다 — 단가가 계약마다 달라 자동 계산값(건당 15,000)이 오해를 만든다. 담당자 안내. */}
                         {pendingPay.map((r) => {
-                            const amt = deployAmountKRW(r, unitPrice);
                             return (
                                 <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[#fed7aa] bg-white px-3 py-2 text-[13px]">
                                     <span className="font-bold text-[#334155]">{r.company_name}</span>
                                     <span className="text-[#64748b]">발행 {r.total_count ?? r.selected_keywords?.length ?? '-'}건</span>
-                                    <span className="ml-auto font-bold text-[#c2410c]">{amt > 0 ? `결제금액 ₩${amt.toLocaleString('ko-KR')}` : '결제금액 담당자 안내'}</span>
+                                    <span className="ml-auto text-[12px] text-[#9a3412]">결제금액은 담당자가 안내드립니다</span>
                                 </div>
                             );
                         })}
