@@ -56,7 +56,11 @@ export async function onRequestGet({ params, env }: Ctx) {
         headers.set('ETag', obj.httpEtag);
         return new Response(obj.body, { headers });
     }
-    // 폴백: "<bucket>/<path>" → Supabase 서명URL 302 (마이그레이션 중 옛 이미지)
+    // 폴백 — R2 에 아직 없는 옛 이미지. ★ 302 로 넘기지 않고 여기서 받아 R2 에 채운 뒤 직접 준다(자가 치유).
+    //   왜(실측 2026-08-12): R2 이관 뒤에도 Supabase Egress 가 536%(26.8GB/5GB)였다.
+    //   스튜디오 이미지 표본 20개 중 7개(35%)가 R2 에 없어 302 로 Supabase 를 타고 있었다.
+    //   302 는 '볼 때마다' Supabase egress 다 — 같은 이미지를 100번 보면 100번 나간다.
+    //   여기서 한 번만 받아 R2 에 넣으면 그다음부터는 영원히 R2 다(이관 스크립트를 따로 돌릴 필요도 없다).
     const slash = key.indexOf('/');
     const bucket = slash > 0 ? key.slice(0, slash) : '';
     const path = slash > 0 ? key.slice(slash + 1) : '';
@@ -69,7 +73,23 @@ export async function onRequestGet({ params, env }: Ctx) {
             });
             if (r.ok) {
                 const d = (await r.json()) as { signedURL?: string };
-                if (d.signedURL) return Response.redirect(`${env.SUPABASE_URL}/storage/v1${d.signedURL}`, 302);
+                if (d.signedURL) {
+                    const src = await fetch(`${env.SUPABASE_URL}/storage/v1${d.signedURL}`);
+                    if (src.ok) {
+                        const buf = await src.arrayBuffer();
+                        const ct = src.headers.get('content-type') || 'image/jpeg';
+                        // R2 적재 실패해도 이미지는 내준다 — 사용자에게 깨진 이미지를 보이면 안 된다.
+                        try { await env.IMG_BUCKET.put(key, buf, { httpMetadata: { contentType: ct } }); } catch { /* 다음 요청에 재시도 */ }
+                        const headers = new Headers(cors);
+                        headers.set('Content-Type', ct);
+                        headers.set('Cache-Control', key.includes('/studio-settings/')
+                            ? 'public, max-age=300, must-revalidate'
+                            : 'public, max-age=31536000, immutable');
+                        return new Response(buf, { headers });
+                    }
+                    // 바이트를 못 받으면 옛 동작(302)으로라도 보여준다.
+                    return Response.redirect(`${env.SUPABASE_URL}/storage/v1${d.signedURL}`, 302);
+                }
             }
         } catch { /* 폴백 실패 → 404 */ }
     }
