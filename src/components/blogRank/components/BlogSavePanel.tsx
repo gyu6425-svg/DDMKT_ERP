@@ -5,6 +5,7 @@ import {
     listSaveJobs,
     listSavableBlogs,
     retrySaveJob,
+    type BlogJobMode,
     type BlogSaveJob,
 } from '../../../api/blogSaveQueue';
 import Button from '../../Button';
@@ -16,6 +17,7 @@ import Button from '../../Button';
 const STATUS_STYLE: Record<BlogSaveJob['status'], { label: string; cls: string }> = {
     fail: { cls: 'bg-[#fee2e2] text-[#b91c1c]', label: '실패' },
     pending: { cls: 'bg-[#f1f5f9] text-[#475569]', label: '대기' },
+    posted: { cls: 'bg-[#fef3c7] text-[#b45309]', label: '발행됨(공개)' },
     processing: { cls: 'bg-[#dbeafe] text-[#1d4ed8]', label: '작성 중' },
     saved: { cls: 'bg-[#dcfce7] text-[#15803d]', label: '임시저장됨' },
 };
@@ -47,6 +49,9 @@ export default function BlogSavePanel({
     const [keyword, setKeyword] = useState('');
     const [region, setRegion] = useState('');
     const [jobs, setJobs] = useState<BlogSaveJob[]>([]);
+    // 🔴 기본은 '저장'. 발행은 되돌릴 수 없으므로 사용자가 명시적으로 바꿔야 하고,
+    //    바꿀 때 한 번 더 확인받는다. (DB 도 default 'save' + CHECK 로 같은 방향을 보증)
+    const [mode, setMode] = useState<BlogJobMode>('save');
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState('');
     const [error, setError] = useState('');
@@ -107,6 +112,7 @@ export default function BlogSavePanel({
                 body,
                 images,
                 keyword: keyword.trim() || undefined,
+                mode,
                 region: region.trim() || undefined,
                 sourceOutputId,
                 title: titleInput.trim(),
@@ -115,7 +121,9 @@ export default function BlogSavePanel({
                 setError(saveError.message || '저장 요청에 실패했습니다.');
                 return;
             }
-            setMessage('저장 대기열에 등록했습니다. SUB1 이 순서대로 임시저장합니다.');
+            setMessage(mode === 'publish'
+                ? '🔴 발행 대기열에 등록했습니다. SUB1 이 순서대로 실제 공개 발행합니다.'
+                : '저장 대기열에 등록했습니다. SUB1 이 순서대로 임시저장합니다.');
             setImages([]);
             await refresh();
         } finally {
@@ -129,9 +137,33 @@ export default function BlogSavePanel({
         <div className="grid gap-3 rounded-lg border border-[#e2e8f0] bg-white p-4">
             <div className="flex items-center justify-between">
                 <h3 className="m-0 text-sm font-bold text-[#0f172a]">블로그에 저장 요청</h3>
-                <span className="rounded bg-[#fef3c7] px-2 py-0.5 text-[11px] font-semibold text-[#92400e]">
-                    임시저장까지만 · 발행은 사람이
+                <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
+                    mode === 'publish' ? 'bg-[#fee2e2] text-[#b91c1c]' : 'bg-[#fef3c7] text-[#92400e]'}`}>
+                    {mode === 'publish' ? '🔴 실제 공개 발행 · 되돌릴 수 없음' : '임시저장까지만 · 발행은 사람이'}
                 </span>
+            </div>
+
+            {/* 모드 선택 — 기본 '임시저장'. 발행으로 바꿀 때 한 번 더 확인받는다. */}
+            <div className="flex items-center gap-2">
+                {([['save', '임시저장'], ['publish', '바로 발행(공개)']] as const).map(([k, label]) => (
+                    <Button
+                        className={`rounded-md border px-3 py-1.5 text-xs font-bold ${
+                            mode === k
+                                ? (k === 'publish'
+                                    ? 'border-[#b91c1c] bg-[#b91c1c] text-white'
+                                    : 'border-[#1e40af] bg-[#1e40af] text-white')
+                                : 'border-[#cbd5e1] bg-white text-[#475569]'}`}
+                        key={k}
+                        onClick={() => {
+                            if (k === 'publish'
+                                && !window.confirm('바로 발행하면 글이 즉시 공개되고 되돌릴 수 없습니다.\n계속할까요?')) return;
+                            setMode(k);
+                        }}
+                        type="button"
+                    >
+                        {label}
+                    </Button>
+                ))}
             </div>
 
             {blogs.length === 0 ? (
@@ -209,7 +241,7 @@ export default function BlogSavePanel({
                     onClick={() => void submit()}
                     type="button"
                 >
-                    {busy ? '등록 중...' : '저장 대기열에 등록'}
+                    {busy ? '등록 중...' : (mode === 'publish' ? '🔴 발행 대기열에 등록' : '저장 대기열에 등록')}
                 </Button>
                 {selected ? (
                     <a

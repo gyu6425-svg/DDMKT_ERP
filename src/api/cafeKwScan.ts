@@ -690,7 +690,12 @@ export async function discoverSeeds(
     return out.sort((a, b) => rank(a) - rank(b) || b.fresh - a.fresh);
 }
 
-export async function searchCachedPopular(terms: string[], limit = 200): Promise<CachedHit[]> {
+// withCafes=false 면 cafes(인기글 제목·순위)를 안 받는다 — 화면에 안 뿌리는 호출에서 쓴다.
+//   실측 2026-08-12: cafes 가 응답의 87%다(1,000행 606KB vs 79KB).
+//   연관형은 어간 12개를 부르므로 조회 1번에 1.6MB → 0.2MB 로 줄어든다.
+//   ⚠️ '이미 찾아둔 것' 패널은 키워드·검색량만 보여준다. 반면 검증된 제품을 꺼내는
+//     pullProven 은 결과 목록에 '3위 카페명'을 표시하므로 cafes 가 필요하다 — 거긴 그대로 둔다.
+export async function searchCachedPopular(terms: string[], limit = 200, withCafes = true): Promise<CachedHit[]> {
     const words = [...new Set(terms.map((t) => t.trim().replace(/\s+/g, '')).filter((t) => t.length >= 2))];
     if (!words.length) return [];
     const out = new Map<string, CachedHit>();
@@ -703,7 +708,9 @@ export async function searchCachedPopular(terms: string[], limit = 200): Promise
         //   상한 200칸의 16%를 버릴 것으로 채운 뒤 버려서, 진짜 양성이 그만큼 덜 나왔다.
         //   (오탐이 화면에 나온 적은 없다. 조용히 '덜 나오는' 누락 쪽 결함이다.)
         const { data } = await supabase.from('cafe_kw_targets')
-            .select('keyword,has_section,theme,verdict,volume,cafes')
+            // supabase-js 는 select 문자열을 타입으로 파싱한다 — 동적 문자열은 캐스팅이 필요하다.
+            .select((withCafes ? 'keyword,has_section,theme,verdict,volume,cafes'
+                : 'keyword,has_section,theme,verdict,volume') as 'keyword,has_section,theme,verdict,volume,cafes')
             .like('keyword', `%${w}%`)
             .eq('has_section', true)
             .or('verdict.like.카페분산*,verdict.like.블로그섹션*')
@@ -942,22 +949,40 @@ export async function pollPlaceScan(
     const t0 = Date.now();
     let lastNote = '';
     let seenPartial = 0;
+    // ★ result 는 '찾은 개수가 늘었을 때만' 받는다(2026-08-12).
+    //   예전엔 3초마다 result 전체를 받아왔다. 25분짜리 스캔이면 500번이고, result 가 186건이면
+    //   1회 274KB × 500 = 130MB 를 한 스캔에 쓴다. Supabase Egress 26.8GB/5GB(536%)의
+    //   PostgREST 53.5% 가 여기서 나왔다(실측 2026-08-12).
+    //   진행 note 에 개수가 들어 있으니(진행 x/y · 인기탭 N / 발견 N / 살아있음 N) 그걸로 판단한다.
+    //   note 만 받는 조회는 1KB 미만이다.
+    const countOf = (note: string) => {
+        const m = note.match(/(?:인기탭|발견|살아있음)\s*(\d+)/);
+        return m ? Number(m[1]) : -1;
+    };
+    let lastCount = -1;
     while (Date.now() - t0 < timeoutMs) {
         if (opts?.signal?.aborted) throw new Error('취소됨');
         await new Promise((r) => setTimeout(r, 3000));
-        const { data } = await supabase.from('cafe_kw_requests').select('status,result,biz_name,note').eq('id', id).single();
-        const row = data as { status: string; result: KwResult[] | null; biz_name: string | null; note: string | null } | null;
+        const { data } = await supabase.from('cafe_kw_requests').select('status,biz_name,note').eq('id', id).single();
+        const row = data as { status: string; biz_name: string | null; note: string | null } | null;
         if (row) {
             if (row.note) lastNote = row.note;
             if (opts?.onProgress && row.note) opts.onProgress(row.note, row.status);
-            // 찾은 개수가 늘었을 때만 올려보낸다 — 3초마다 같은 배열을 다시 그리지 않게.
-            const partial = row.result || [];
-            if (opts?.onPartial && partial.length > seenPartial) { seenPartial = partial.length; opts.onPartial(partial); }
-            // 워커는 실패 시 status='failed' 를 쓴다('fail' 아님 — 예전엔 안 잡혀 900초 타임아웃까지 매달렸다).
-            //   실패 사유(note)를 그대로 노출한다 — 차단으로 못 판정한 걸 '0건'처럼 보이게 하면 안 된다.
-            if (['done', 'failed', 'fail', 'error'].includes(row.status)) {
-                if (row.status !== 'done') throw new Error(row.note || '인기탭 분석 실패');
-                return { result: row.result || [], bizName: row.biz_name };
+            const done = ['done', 'failed', 'fail', 'error'].includes(row.status);
+            const n = countOf(row.note || '');
+            // 끝났거나(결과 확정) 개수가 늘었을 때만 무거운 result 를 받는다.
+            //   개수를 note 에서 못 읽으면(-1) 옛 동작대로 받는다 — 결과를 놓치느니 트래픽을 쓴다.
+            if (done || n < 0 || n > lastCount) {
+                if (n >= 0) lastCount = n;
+                const { data: d2 } = await supabase.from('cafe_kw_requests').select('result').eq('id', id).single();
+                const rs = ((d2 as { result: KwResult[] | null } | null)?.result) || [];
+                if (opts?.onPartial && rs.length > seenPartial) { seenPartial = rs.length; opts.onPartial(rs); }
+                // 워커는 실패 시 status='failed' 를 쓴다('fail' 아님 — 예전엔 안 잡혀 900초 타임아웃까지 매달렸다).
+                //   실패 사유(note)를 그대로 노출한다 — 차단으로 못 판정한 걸 '0건'처럼 보이게 하면 안 된다.
+                if (done) {
+                    if (row.status !== 'done') throw new Error(row.note || '인기탭 분석 실패');
+                    return { bizName: row.biz_name, result: rs };
+                }
             }
         }
     }

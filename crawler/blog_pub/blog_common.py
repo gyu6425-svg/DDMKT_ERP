@@ -47,6 +47,12 @@ class SaveError(RuntimeError):
        발행이 없으므로 '되돌릴 수 없는 중간 상태'가 존재하지 않는다."""
 
 
+class PostClickError(RuntimeError):
+    """발행(mode='publish')을 클릭한 뒤의 오류 — 글이 이미 올라갔을 수 있다.
+    ⚠️ 리스너는 이걸 **절대 재시도하지 않는다**(재시도 = 중복 발행). 사람이 확인해야 한다.
+       저장 모드에는 이 개념이 없다 — 임시저장은 되돌릴 수 있어 재시도가 안전하다."""
+
+
 class GuardTripped(RuntimeError):
     """발행 차단 가드가 실제로 발동했다 — 버그가 조용히 지나가지 않게 시끄럽게 실패시킨다."""
 

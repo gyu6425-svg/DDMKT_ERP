@@ -25,12 +25,16 @@ export type BlogSaveBlock =
     | { type: 'image'; path: string }
     | { type: 'text'; text: string };
 
+export type BlogJobMode = 'save' | 'publish';
+
 export type BlogSaveJob = {
+    mode?: BlogJobMode;
+    posted_url?: string | null;
     id: string;
     created_at: string;
     blog_id: string;
     title: string;
-    status: 'pending' | 'processing' | 'saved' | 'fail';
+    status: 'pending' | 'processing' | 'saved' | 'posted' | 'fail';
     reason: string | null;
     attempts: number;
     saved_at: string | null;
@@ -91,6 +95,9 @@ export async function createSaveJob(input: {
     keyword?: string;
     region?: string;
     sourceOutputId?: string;  // 원고 출처(blog_outputs)
+    // 🔴 'publish' 면 SUB1 이 **실제로 공개 발행**한다(되돌릴 수 없다).
+    //    생략하면 'save' — 어디선가 빠뜨려도 저장으로 떨어지게 기본값을 그쪽에 둔다.
+    mode?: BlogJobMode;
 }) {
     if (!hasSupabaseConfig) return { error: { message: 'Supabase 미설정' }, jobId: null };
     if (!input.title.trim()) return { error: { message: '제목이 비어 있습니다.' }, jobId: null };
@@ -127,6 +134,7 @@ export async function createSaveJob(input: {
             manifest: blocks,
             region: input.region ?? null,
             source_output_id: input.sourceOutputId ?? null,
+            mode: input.mode ?? 'save',
             status: 'pending',
             title: input.title,
         });
@@ -145,7 +153,7 @@ export async function listSaveJobs(limit = 20) {
     if (!hasSupabaseConfig) return { data: [] as BlogSaveJob[], error: null };
     const { data, error } = await supabase
         .from('blog_save_queue')
-        .select('id,created_at,blog_id,title,status,reason,attempts,saved_at,draft_seq,keyword,region')
+        .select('id,created_at,blog_id,title,status,reason,attempts,saved_at,draft_seq,keyword,region,mode,posted_url')
         .order('created_at', { ascending: false })
         .limit(limit)
         .returns<BlogSaveJob[]>();

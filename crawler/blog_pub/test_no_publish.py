@@ -55,7 +55,11 @@ def _tree(path):
 #     (a) 격리 — BLOCK_*/PUBLISHED_* 참조는 아래 허용 함수 안에서만 등장해야 한다.
 #     (b) 무해 — 어디서든 .click()/.goto() 의 인자나 수신자로 흘러가면 안 된다.
 #   evaluate 는 (a)의 허용 함수 안에서 '차단할 셀렉터 목록'을 넘기는 정당한 용도라 (b)에서 뺀다.
-_GUARD_FUNCS = {"_install_publish_guard", "_is_blocked_url", "_assert_not_published"}
+# 차단/발행판별 상수를 만져도 되는 함수들.
+#   _publish_now 는 mode='publish' 전용 경로다 — 발행 성공 판정에 PUBLISHED_URL_PATTERNS 가 필요하다.
+#   _is_publish_url 은 그 판별을 한 곳에 모아둔 함수(관측기가 상수를 직접 안 만지게).
+_GUARD_FUNCS = {"_install_publish_guard", "_is_blocked_url", "_assert_not_published",
+                "_is_publish_url", "_publish_now"}
 
 
 def _block_refs(node):
@@ -124,7 +128,7 @@ def t2_guard_installed():
 # ── T3: 'posted' 상태값 오염 없음 (코드에만 적용 — 설명 주석/독스트링은 제외) ──
 def t3_no_posted_state():
     bad = []
-    for p in (SAVE_PY, LISTENER_PY):
+    for p in (SAVE_PY,):
         tree = _tree(p)
         # 독스트링(모듈/함수/클래스 첫 문자열)은 '왜 posted 를 안 쓰는지' 설명해야 하므로 제외.
         docstrings = set()
@@ -138,7 +142,16 @@ def t3_no_posted_state():
             if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings:
                 if n.value == "posted" or re.search(r'\bposted\b', n.value):
                     bad.append(f"{os.path.basename(p)}:{n.lineno}")
-    check("T3 코드에 'posted' 상태 문자열 없음(카페 상태값 오염 방지)", not bad, "; ".join(bad))
+    check("T3 엔진(save_blog)에 'posted' 상태 문자열 없음", not bad, "; ".join(bad))
+    # 리스너는 발행 모드에서 posted 를 쓴다 — 다만 **is_publish 분기 안에서만** 이어야 한다.
+    lsrc = _src(LISTENER_PY).splitlines()
+    bad2 = []
+    for i, ln in enumerate(lsrc):
+        if '"posted"' in ln and "status" in ln:
+            window = "\n".join(lsrc[max(0, i - 12):i + 1])
+            if "is_publish" not in window and "PostClickError" not in window:
+                bad2.append(f"listener:{i+1}")
+    check("T3b 리스너의 'posted' 는 발행 분기(is_publish/PostClickError) 안에서만", not bad2, "; ".join(bad2))
 
 
 # ── T4: CLI 기본이 dry-run ──────────────────────────────────────────────────
@@ -173,7 +186,7 @@ def t5_save_selectors_have_text():
 def t6_only_saved_terminal():
     src = _src(LISTENER_PY)
     statuses = set(re.findall(r'"status"\s*:\s*"([a-z_]+)"', src))
-    allowed = {"pending", "processing", "saved", "fail"}
+    allowed = {"pending", "processing", "saved", "posted", "fail"}
     bad = statuses - allowed
     check("T6 리스너가 쓰는 status 가 pending/processing/saved/fail 뿐", not bad, str(bad))
 
@@ -291,8 +304,10 @@ def t13_restore_popup_cancel_only():
     src = _src(SAVE_PY)
 
     # (a) 확인/confirm 버튼을 상수로 갖고 있으면 안 된다
+    # ⚠️ '복원 팝업의 확인' 만 금지한다. 발행 레이어의 최종 확인(SEL_PUB_CONFIRM)은
+    #    mode='publish' 에서 정당하게 필요하므로 여기서 제외한다(SEL_PUB_* 는 T15 가 따로 격리).
     confirm_consts = [n for n in dir(s4)
-                      if n.startswith("SEL_") and "CONFIRM" in n.upper()]
+                      if n.startswith("SEL_") and "CONFIRM" in n.upper() and not n.startswith("SEL_PUB_")]
     check("T13a 복원 팝업 '확인' 버튼 셀렉터 상수가 없음", not confirm_consts, str(confirm_consts))
     # 취소 셀렉터가 '확인'을 잡으면 안 된다
     bad = [s for s in getattr(s4, "SEL_RESTORE_CANCEL", []) if "확인" in s]
@@ -337,6 +352,37 @@ def t14_job_blog_match():
           f"has={ok} order_ok={order_ok}")
 
 
+# ── T15: 발행(SEL_PUB_*)은 _publish_now 안에서만 ───────────────────────────
+#   저장 모드에 발행 셀렉터가 새어들면 '저장하려다 공개 발행'이 된다 — 되돌릴 수 없다.
+#   그래서 발행을 허용한 뒤에도 **경로 격리**는 그대로 강제한다.
+def t15_publish_isolated():
+    tree = _tree(SAVE_PY)
+    def pub_refs(node):
+        return [(n.lineno, n.attr) for n in ast.walk(node)
+                if isinstance(n, ast.Attribute) and n.attr.startswith("SEL_PUB_")]
+    allowed = set()
+    for fn in ast.walk(tree):
+        if isinstance(fn, ast.FunctionDef) and fn.name in ("_publish_now", "_pick_open_type"):
+            allowed.update(ln for ln, _ in pub_refs(fn))
+    # save_draft 의 dry-run 안내 1줄은 '버튼이 있나 보기'만 하므로 허용(클릭 없음).
+    src_lines = _src(SAVE_PY).splitlines()
+    for ln, _ in pub_refs(tree):
+        if "[DRY]" in "".join(src_lines[max(0, ln - 3):ln + 1]):
+            allowed.add(ln)
+    outside = [f"line {ln}: {nm}" for ln, nm in pub_refs(tree) if ln not in allowed]
+    check("T15a SEL_PUB_* 는 발행 전용 함수 안에서만 참조", not outside, "; ".join(outside))
+
+    # 발행 모드는 반드시 별도 env opt-in 이 있어야 한다
+    check("T15b 발행에 BLOG_PUBLISH_ENABLED opt-in 필요",
+          'os.environ.get("BLOG_PUBLISH_ENABLED", "0") == "1"' in _src(SAVE_PY))
+    # 저장 모드에서는 발행 차단 가드가 반드시 걸려야 한다
+    check("T15c 저장 모드에서만 가드 설치(mode == \"save\")",
+          'if mode == "save":' in _src(SAVE_PY) and "_install_publish_guard(page, tripped)" in _src(SAVE_PY))
+    # 공개설정은 라벨로 고른다(값 추측 금지) — 잘못 고르면 되돌릴 수 없다
+    check("T15d 공개설정을 라벨 텍스트로 선택(value 추측 금지)",
+          "PUB_OPEN_TYPE_LABELS" in _src(SAVE_PY) and "value=" not in _src(SAVE_PY))
+
+
 def main():
     print("[blog_pub] 발행 경로 부재 정적검사")
     t1_block_consts_not_actionable()
@@ -353,6 +399,7 @@ def main():
     t12_probe_validity_gate()
     t13_restore_popup_cancel_only()
     t14_job_blog_match()
+    t15_publish_isolated()
     print(f"\n결과: 통과 {len(_passes)} · 실패 {len(_fails)}")
     if _fails:
         print("실패 항목: " + ", ".join(_fails))
