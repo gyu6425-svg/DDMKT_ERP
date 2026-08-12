@@ -1574,7 +1574,19 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             ) : isRegionLike ? (
                                 <>
                                     <button type="button" onClick={addProductKw} className="h-10 shrink-0 rounded-md bg-[#4338ca] px-4 text-sm font-bold text-white hover:bg-[#3730a3]">추가</button>
-                                    <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white hover:bg-[#6d28d9] disabled:opacity-50" title="선택 지역(서울/경기/인천)의 행정구 × 제품키워드 칩으로 발행 대상 키워드 생성">
+                                    {/* 목표 채우기 — 연관형에만 있던 흐름을 정보형·지역형에도 붙인다(사장님 2026-08-12).
+                                        ① 뽑은 키워드를 지역 없이 그대로 판정(공장청소) → ② 그 다음 지역을 붙여 전수(○○ 공장청소)
+                                        → ③ 30건 채우면 멈추고 ＋10 으로 이어서. 워커는 같은 process_chain 을 탄다.
+                                        기존 '지역 키워드 생성'(region: 경로)은 단독 판정이 없어 전국형을 통째로 놓쳤다. */}
+                                    {!noRegion ? (
+                                        <button type="button" onClick={() => void runChain(productKws.length ? productKws : [(form.keyword || '').trim()].filter(Boolean))}
+                                            disabled={kwLoading || (!productKws.length && !(form.keyword || '').trim())}
+                                            className="h-10 shrink-0 rounded-md bg-[#16a34a] px-4 text-sm font-bold text-white hover:bg-[#15803d] disabled:opacity-50"
+                                            title="키워드마다 ① 지역 없이 먼저 보고 ② 그 뒤 선택 지역 전수로 봅니다. 30건 채우면 멈추고 ＋10으로 이어서 찾습니다.">
+                                            {kwLoading ? '찾는 중…' : `🎯 인기탭 찾기 (${FIRST_TARGET}건)`}
+                                        </button>
+                                    ) : null}
+                                    <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading} className="h-10 shrink-0 rounded-md border border-[#c4b5fd] bg-white px-4 text-sm font-bold text-[#6d28d9] disabled:opacity-50" title="지역 × 제품키워드 조합만 만듭니다(단독 판정 없음). 예전 방식.">
                                         {kwLoading ? '생성 중…' : '지역 키워드 생성'}
                                     </button>
                                 </>
@@ -1590,7 +1602,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 ))}
                             </div>
                         ) : null}
-                        {isRegionLike ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">제품키워드를 여러 개 추가하면, 아래 선택한 지역의 행정구마다 각 키워드로 인기탭을 찾습니다. 예: [누수탐지·누수] × 서울·경기 → 강남 누수탐지, 수원 누수 …</p> : null}
+                        {isRegionLike ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]"><b className="text-[#15803d]">🎯 인기탭 찾기</b> = 키워드마다 ① 지역 없이 먼저(예 <b>공장청소</b>) → ② 그 뒤 선택 지역 전수(<b>수원 공장청소</b>…) → 30건 채우면 멈춤, 부족하면 ＋10으로 이어서. 지역 없이도 되는 전국형을 놓치지 않습니다.</p> : null}
                         {isManual ? <p className="mb-0 mt-1 text-[11px] text-[#94a3b8]">입력한 키워드가 아래 '선택한 발행 키워드'에 그대로 담깁니다 — 인기탭 확인 없이 접수됩니다(최대 50개).</p> : null}
                         {/* ⚠️ 이 블록은 직접입력형·연관형일 때 hidden 이다(입력칸 중복 방지).
                             결과 패널까지 같이 숨으면 '인기탭 확인'을 눌러도 아무 반응이 없어 보인다

@@ -1158,7 +1158,17 @@ export function CafeKeywordFinder({
                     </div>
                     <div className="flex flex-wrap gap-2">
                         <input className={`${inputCls} flex-1 min-w-[160px]`} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="제품 키워드 (예: 입주청소, 출장뷔페 — 여러 개는 쉼표)" />
-                        <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading || dongLoading} className="h-10 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '생성 중…' : '지역 키워드 생성'}</button>
+                        {/* 목표 채우기 — 연관형에만 있던 흐름을 이쪽(제품 키워드 직접 입력)에도 붙인다(사장님 2026-08-12).
+                            ① 지역 없이 그대로 판정(공장청소) → ② 그 뒤 지역 전수(수원 공장청소…) → 30건 채우면 멈춤 → ＋10.
+                            '지역 키워드 생성'(region: 경로)은 단독 판정이 없어 전국형을 통째로 놓쳤다. */}
+                        <button type="button"
+                            onClick={() => void runChain(keyword.split(',').map((k) => k.trim()).filter(Boolean))}
+                            disabled={kwLoading || dongLoading || !keyword.trim() || !regionSel.length}
+                            className="h-10 shrink-0 rounded-md bg-[#16a34a] px-4 text-sm font-bold text-white disabled:opacity-50"
+                            title="키워드마다 ① 지역 없이 먼저 보고 ② 그 뒤 선택 지역 전수로 봅니다. 30건 채우면 멈추고 ＋10으로 이어서 찾습니다.">
+                            {kwLoading ? '찾는 중…' : !regionSel.length ? '↑ 지역을 고르세요' : `🎯 인기탭 찾기 (${FIRST_TARGET}건)`}
+                        </button>
+                        <button type="button" onClick={() => void genRegionKeywords()} disabled={kwLoading || dongLoading} className="h-10 shrink-0 rounded-md border border-[#c4b5fd] bg-white px-4 text-sm font-bold text-[#6d28d9] disabled:opacity-50" title="지역 × 제품키워드 조합만 만듭니다(단독 판정 없음). 예전 방식.">{kwLoading ? '생성 중…' : '지역 키워드 생성'}</button>
                         {/* +N 더 찾기 — target 을 올려 이어서 스캔. 이미 판정된 조합은 캐시 히트라 즉시 통과하고
                             새 구간만 라이브로 본다. 한 번에 전수를 돌지 않아 빠르고 차단 예산도 아낀다. */}
                         {kwResult && kwResult.length > 0 && (
