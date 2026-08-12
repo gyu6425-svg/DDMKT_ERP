@@ -942,22 +942,40 @@ export async function pollPlaceScan(
     const t0 = Date.now();
     let lastNote = '';
     let seenPartial = 0;
+    // ★ result 는 '찾은 개수가 늘었을 때만' 받는다(2026-08-12).
+    //   예전엔 3초마다 result 전체를 받아왔다. 25분짜리 스캔이면 500번이고, result 가 186건이면
+    //   1회 274KB × 500 = 130MB 를 한 스캔에 쓴다. Supabase Egress 26.8GB/5GB(536%)의
+    //   PostgREST 53.5% 가 여기서 나왔다(실측 2026-08-12).
+    //   진행 note 에 개수가 들어 있으니(진행 x/y · 인기탭 N / 발견 N / 살아있음 N) 그걸로 판단한다.
+    //   note 만 받는 조회는 1KB 미만이다.
+    const countOf = (note: string) => {
+        const m = note.match(/(?:인기탭|발견|살아있음)\s*(\d+)/);
+        return m ? Number(m[1]) : -1;
+    };
+    let lastCount = -1;
     while (Date.now() - t0 < timeoutMs) {
         if (opts?.signal?.aborted) throw new Error('취소됨');
         await new Promise((r) => setTimeout(r, 3000));
-        const { data } = await supabase.from('cafe_kw_requests').select('status,result,biz_name,note').eq('id', id).single();
-        const row = data as { status: string; result: KwResult[] | null; biz_name: string | null; note: string | null } | null;
+        const { data } = await supabase.from('cafe_kw_requests').select('status,biz_name,note').eq('id', id).single();
+        const row = data as { status: string; biz_name: string | null; note: string | null } | null;
         if (row) {
             if (row.note) lastNote = row.note;
             if (opts?.onProgress && row.note) opts.onProgress(row.note, row.status);
-            // 찾은 개수가 늘었을 때만 올려보낸다 — 3초마다 같은 배열을 다시 그리지 않게.
-            const partial = row.result || [];
-            if (opts?.onPartial && partial.length > seenPartial) { seenPartial = partial.length; opts.onPartial(partial); }
-            // 워커는 실패 시 status='failed' 를 쓴다('fail' 아님 — 예전엔 안 잡혀 900초 타임아웃까지 매달렸다).
-            //   실패 사유(note)를 그대로 노출한다 — 차단으로 못 판정한 걸 '0건'처럼 보이게 하면 안 된다.
-            if (['done', 'failed', 'fail', 'error'].includes(row.status)) {
-                if (row.status !== 'done') throw new Error(row.note || '인기탭 분석 실패');
-                return { result: row.result || [], bizName: row.biz_name };
+            const done = ['done', 'failed', 'fail', 'error'].includes(row.status);
+            const n = countOf(row.note || '');
+            // 끝났거나(결과 확정) 개수가 늘었을 때만 무거운 result 를 받는다.
+            //   개수를 note 에서 못 읽으면(-1) 옛 동작대로 받는다 — 결과를 놓치느니 트래픽을 쓴다.
+            if (done || n < 0 || n > lastCount) {
+                if (n >= 0) lastCount = n;
+                const { data: d2 } = await supabase.from('cafe_kw_requests').select('result').eq('id', id).single();
+                const rs = ((d2 as { result: KwResult[] | null } | null)?.result) || [];
+                if (opts?.onPartial && rs.length > seenPartial) { seenPartial = rs.length; opts.onPartial(rs); }
+                // 워커는 실패 시 status='failed' 를 쓴다('fail' 아님 — 예전엔 안 잡혀 900초 타임아웃까지 매달렸다).
+                //   실패 사유(note)를 그대로 노출한다 — 차단으로 못 판정한 걸 '0건'처럼 보이게 하면 안 된다.
+                if (done) {
+                    if (row.status !== 'done') throw new Error(row.note || '인기탭 분석 실패');
+                    return { bizName: row.biz_name, result: rs };
+                }
             }
         }
     }
