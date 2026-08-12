@@ -4,7 +4,44 @@ import { approveSignup, listPendingSignups, rejectSignup, type PendingSignup } f
 import { insertClient, upsertContractData, emptyContractData } from '../api/erp';
 import { insertClientContracts } from '../api/clientContracts';
 
-type ClientLite = { id: string; company: string | null; business_number: string | null };
+type ClientLite = { id: string; company: string | null; business_number: string | null; client_partner: string | null };
+
+// ── 기존 업체 자동 매칭 ────────────────────────────────────────────────────
+//   고객이 셀프가입하며 적은 업체명이 이미 계약관리에 있으면 새로 만들지 말고 그 업체에 붙인다.
+//   (2026-08-12 실측 사고: '금융책사'가 이미 있는데 고객이 거래처명 '스마트비즈'로 가입 →
+//    별도 업체가 생겨 계약 3건이 고객 화면에 안 보였다. 그래서 거래처명(client_partner)도 본다.)
+const norm = (s: string | null | undefined) => (s || '').replace(/[\s()·.\-_]/g, '').toLowerCase();
+const digits = (s: string | null | undefined) => (s || '').replace(/\D/g, '');
+
+type Match = { client: ClientLite; reason: string; strong: boolean };
+
+function findMatches(company: string | null, bizNo: string | null, clients: ClientLite[]): Match[] {
+    const q = norm(company);
+    const b = digits(bizNo);
+    const out: Match[] = [];
+    const seen = new Set<string>();
+    const push = (client: ClientLite, reason: string, strong: boolean) => {
+        if (seen.has(client.id)) return;
+        seen.add(client.id);
+        out.push({ client, reason, strong });
+    };
+    // 1) 사업자번호 완전 일치 — 가장 확실
+    if (b.length >= 10) clients.forEach((c) => digits(c.business_number) === b && push(c, '사업자번호 일치', true));
+    if (q) {
+        // 2) 업체명 완전 일치
+        clients.forEach((c) => norm(c.company) === q && push(c, '업체명 일치', true));
+        // 3) 거래처명(대행사·상호) 완전 일치 — 고객이 거래처명으로 가입하는 경우
+        clients.forEach((c) => norm(c.client_partner) === q && push(c, `거래처명 '${c.client_partner}' 일치`, true));
+        // 4) 부분 포함 — 후보로만(자동 선택 안 함)
+        clients.forEach((c) => {
+            const cc = norm(c.company);
+            const cp = norm(c.client_partner);
+            if (cc && (cc.includes(q) || q.includes(cc))) push(c, '업체명 비슷함', false);
+            else if (cp && (cp.includes(q) || q.includes(cp))) push(c, '거래처명 비슷함', false);
+        });
+    }
+    return out;
+}
 
 // 어드민 — 회원가입 승인 대기 목록. 고객(viewer)은 기존 업체와 연결해 승인, 기자단(reporter)은 바로 승인.
 export default function PendingSignupsPanel() {
@@ -21,15 +58,24 @@ export default function PendingSignupsPanel() {
         setLoading(true);
         void Promise.all([
             listPendingSignups(),
-            supabase.from('clients').select('id,company,business_number').order('company'),
+            supabase.from('clients').select('id,company,business_number,client_partner').order('company'),
         ]).then(([pend, cl]) => {
             setRows(pend.data);
             if (pend.error) setMsg(pend.error);
-            setClients(((cl.data as ClientLite[]) ?? []));
+            const list = ((cl.data as ClientLite[]) ?? []);
+            setClients(list);
             // 검색어 기본값 = 가입 시 입력한 업체명.
             const s: Record<string, string> = {};
             pend.data.forEach((r) => (s[r.id] = r.signup_company || ''));
             setSearch(s);
+            // 기존 업체 자동 연결 — 확실한 매칭(사업자번호·업체명·거래처명 완전일치)이 딱 하나면 미리 선택해 둔다.
+            const p: Record<string, string> = {};
+            pend.data.forEach((r) => {
+                if (r.role !== 'viewer') return;
+                const strong = findMatches(r.signup_company, r.signup_biz_no, list).filter((m) => m.strong);
+                if (strong.length === 1) p[r.id] = strong[0].client.id;
+            });
+            setPick(p);
             setLoading(false);
         });
     };
@@ -43,6 +89,18 @@ export default function PendingSignupsPanel() {
         let clientId = r.role === 'viewer' ? pick[r.id] : undefined;
         // 고객인데 연결 업체 미선택 = 신규 업체 → 계약관리에 자동 등록(카페 배포, 건수·금액 비움) 후 그 업체로 승인.
         if (r.role === 'viewer' && !clientId) {
+            // 중복 업체 방지 — 후보가 있는데도 신규로 만들려 하면 한 번 더 묻는다.
+            //   여기서 새로 만들면 계약은 옛 업체에, 고객 화면은 새 업체에 붙어 '계약이 안 보이는' 사고가 난다.
+            const cands = findMatches(r.signup_company, r.signup_biz_no, clients);
+            if (cands.length) {
+                const list = cands.slice(0, 5).map((m) => `· ${m.client.company} (${m.reason})`).join('\n');
+                const go = window.confirm(
+                    `계약관리에 비슷한 업체가 이미 있습니다:\n\n${list}\n\n`
+                    + '그래도 새 업체로 만들까요?\n'
+                    + '[취소]를 누르고 위 업체를 선택해 승인하면 기존 계약이 고객 화면에 그대로 보입니다.',
+                );
+                if (!go) { setBusy(null); return; }
+            }
             const { data, error } = await insertClient({
                 company: r.signup_company || r.name || '(미입력)',
                 business_number: r.signup_biz_no || null,
@@ -131,6 +189,20 @@ export default function PendingSignupsPanel() {
                                 </div>
                             )}
 
+                            {/* 자동 매칭 안내 — 기존 업체를 찾았으면 그 이유까지 보여 준다(중복 생성 방지) */}
+                            {r.role === 'viewer' ? (() => {
+                                const cands = findMatches(r.signup_company, r.signup_biz_no, clients);
+                                if (!cands.length) return null;
+                                const auto = cands.find((m) => m.client.id === pick[r.id]);
+                                return (
+                                    <div className={`mt-2 rounded-lg border px-3 py-2 text-[12px] ${auto ? 'border-[#86efac] bg-[#f0fdf4] text-[#15803d]' : 'border-[#fed7aa] bg-[#fff7ed] text-[#9a3412]'}`}>
+                                        {auto
+                                            ? <>✅ 기존 업체 <b>{auto.client.company}</b> 로 자동 연결됩니다 <span className="font-normal opacity-70">({auto.reason})</span></>
+                                            : <>⚠️ 비슷한 기존 업체가 있습니다 — 아래에서 선택하세요: {cands.slice(0, 3).map((m) => `${m.client.company}(${m.reason})`).join(' · ')}</>}
+                                    </div>
+                                );
+                            })() : null}
+
                             {/* 고객: 연결할 업체 선택 */}
                             {r.role === 'viewer' ? (
                                 <ClientPicker
@@ -165,7 +237,8 @@ export default function PendingSignupsPanel() {
                 </div>
             )}
             <p className="mt-4 mb-0 text-[12px] leading-6 text-[#94a3b8]">
-                고객 계정: <b>업체를 선택하지 않고 승인</b>하면 신규 업체로 <b>계약관리에 자동 등록</b>됩니다(상품 <b>카페 배포</b>, 건수·금액은 비움 → 나중에 계약관리에서 입력). 이미 있는 업체면 검색해서 선택 후 승인하세요. 기자단은 승인 후 블로그 관리 시트에서 담당 블로그를 배정하면 됩니다.
+                고객 계정: 가입 시 적은 <b>업체명·사업자번호</b>가 계약관리에 이미 있으면 <b>그 업체로 자동 연결</b>됩니다(업체명·사업자번호·<b>거래처명</b> 완전일치 1건일 때). 그대로 승인하면 기존 계약이 고객 화면에 바로 보입니다.
+                <br />자동 연결이 안 됐고 비슷한 업체도 없으면 <b>신규 업체로 계약관리에 자동 등록</b>됩니다(상품 <b>카페 배포</b>, 건수·금액 비움). 후보가 있는데 신규로 만들려 하면 한 번 더 확인합니다 — 여기서 새로 만들면 계약은 옛 업체에, 고객 화면은 새 업체에 붙어 <b>계약이 안 보이는 사고</b>가 납니다. 기자단은 승인 후 블로그 관리 시트에서 담당 블로그를 배정하세요.
             </p>
         </div>
     );
@@ -185,10 +258,10 @@ function ClientPicker({
     onSearch: (v: string) => void;
     onSelect: (id: string) => void;
 }) {
-    const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
+    // 업체명뿐 아니라 거래처명(client_partner)으로도 찾는다 — 고객이 거래처명으로 가입하는 경우가 있다.
     const matches = useMemo(() => {
         const q = norm(search);
-        const list = q ? clients.filter((c) => norm(c.company || '').includes(q)) : clients;
+        const list = q ? clients.filter((c) => norm(c.company).includes(q) || norm(c.client_partner).includes(q)) : clients;
         return list.slice(0, 8);
     }, [clients, search]);
     const selectedClient = clients.find((c) => c.id === selected);
@@ -215,6 +288,8 @@ function ClientPicker({
                         type="button"
                     >
                         {c.company || '(이름 없음)'}
+                        {c.client_partner && norm(c.client_partner) !== norm(c.company)
+                            ? <span className="ml-1 font-normal opacity-60">/ {c.client_partner}</span> : null}
                     </button>
                 ))}
                 {matches.length === 0 ? (
@@ -222,8 +297,12 @@ function ClientPicker({
                 ) : null}
             </div>
             {selectedClient ? (
-                <div className="mt-1.5 text-[11px] text-[#1e40af]">
+                <div className="mt-1.5 flex items-center gap-2 text-[11px] text-[#1e40af]">
                     선택됨: <b>{selectedClient.company}</b>
+                    <button type="button" onClick={() => onSelect('')}
+                        className="rounded border border-[#cbd5e1] bg-white px-1.5 py-0.5 font-semibold text-[#64748b] hover:bg-[#f1f5f9]">
+                        선택 해제(신규로 등록)
+                    </button>
                 </div>
             ) : null}
         </div>
