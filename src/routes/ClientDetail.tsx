@@ -10,7 +10,8 @@ import {
     type RewardWeeklyLog,
 } from '../api/clientContracts';
 import { ensureClientBlogAccount, getBlogAccounts, syncBlogAccountFromContract, updateBlogAccount } from '../api/blogRank';
-import { getCafeAccounts, type CafeAccount } from '../api/cafeAccounts';
+import { enablePublishByClient, getCafeAccounts, type CafeAccount } from '../api/cafeAccounts';
+import { grantTokens } from '../api/cafeTokens';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import {
     PRODUCT_CATEGORIES,
@@ -1479,7 +1480,18 @@ function ContractEditModal({
             onToast(`오류(만료 표시): ${error.message}`);
             return;
         }
-        onToast(`재계약 — 새 계약 카드 생성(${reQty.toLocaleString('ko-KR')}건 · 매출 ${fmtWon(reSales)}원). 기존 계약은 만료 처리.`);
+        // ②-b 카페 배포 재계약 — 발행 파이프라인을 계약 내용대로 되살린다.
+        //   토큰이 0이면 '발행할 고객사 선택'에 떠도 발행이 안 되고, publish_enabled 가 꺼져 있으면 목록에서 아예 빠진다.
+        //   (더맨시스템처럼 계약 소진(remain 0)으로 멈춰 있던 업체가 재계약 즉시 다시 발행 가능해진다.)
+        let cafeMsg = '';
+        if (contract.category === '카페' && /배포/.test(contract.subtype || '')) {
+            const en = await enablePublishByClient(contract.client_id, companyName);
+            const tk = await grantTokens(contract.client_id, reQty, `재계약 ${s} · ${companyName} · ${reQty}건`);
+            cafeMsg = en.error || tk.error
+                ? ` · ⚠ 발행 활성화 실패(${en.error?.message || tk.error?.message}) — 카페 관리시트에서 '발행 세팅' 확인 필요`
+                : ` · 자동화 발행 재개(토큰 +${reQty}건)`;
+        }
+        onToast(`재계약 — 새 계약 카드 생성(${reQty.toLocaleString('ko-KR')}건 · 매출 ${fmtWon(reSales)}원). 기존 계약은 만료 처리.${cafeMsg}`);
         // ③ 브랜드 블로그: 새(활성) 계약의 건수/잔여로 동기화 + '연장 건' 탭 대기(승인해야 계약 중).
         await syncBlog({
             amount: reSales,
