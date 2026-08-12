@@ -924,6 +924,56 @@ export function savePickedKw(who: string, rows: KwResult[]): void {
     } catch { /* 무시 */ }
 }
 
+// ── 발굴 적재함(pool) ────────────────────────────────────────────────────────
+//   ★ 왜 보관함과 따로인가(사장님 요청 2026-08-12):
+//     보관함(picked)은 '발행할 것으로 고른 것'이고, 적재함은 '모드를 오가며 찾아낸 것 전부'다.
+//     정보형으로 뽑고 연관형으로 또 뽑는 게 정상 사용법인데, 그때마다 화면 결과 목록만 보고 있으면
+//     앞서 찾은 게 어디에 얼마나 쌓였는지 한눈에 안 보인다. 골라 담는 것과 무관하게 전부 남긴다.
+//   ★ 지역 없이 잡힌 것(단독)이 여기서 제일 중요하다 — 지역을 붙여 물량을 늘릴 실탄이기 때문이다.
+//     그래서 적재함 UI 가 단독만 골라 목표채우기(chain)에 되먹인다.
+//   업체(client_id)별로 따로 · 보관함과 같은 30일 보존.
+const POOL_KEY = (who: string) => `ddmkt.cafeKw.pool.${who || 'me'}`;
+const POOL_MAX = 600;   // 브라우저 저장 한도 방어 — 검색량 큰 것부터 남긴다
+
+export function loadPoolKw(who: string): KwResult[] {
+    try {
+        const raw = localStorage.getItem(POOL_KEY(who));
+        if (!raw) return [];
+        const v = JSON.parse(raw) as { at?: number; rows?: KwResult[] };
+        if (!v?.rows?.length || Date.now() - (v.at || 0) > 30 * 24 * 3600 * 1000) return [];
+        return v.rows;
+    } catch {
+        return [];
+    }
+}
+
+export function savePoolKw(who: string, rows: KwResult[]): void {
+    try {
+        if (!rows.length) localStorage.removeItem(POOL_KEY(who));
+        else localStorage.setItem(POOL_KEY(who), JSON.stringify({ at: Date.now(), rows }));
+    } catch { /* 저장 못 해도 스캔은 돈다 */ }
+}
+
+// 찾은 것을 적재함에 더한다 — 공백 무시 중복 제거, 검색량 내림차순. 바뀐 목록을 돌려준다.
+export function addToPool(who: string, rows: KwResult[]): KwResult[] {
+    const seen = new Set<string>();
+    const out: KwResult[] = [];
+    for (const r of [...loadPoolKw(who), ...rows]) {
+        const nk = (r.keyword || '').replace(/\s/g, '');
+        if (!nk || seen.has(nk)) continue;
+        seen.add(nk);
+        out.push(r);
+    }
+    out.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+    const kept = out.slice(0, POOL_MAX);
+    savePoolKw(who, kept);
+    return kept;
+}
+
+// 지역이 안 붙은 것(단독) — 지역을 곱해 물량을 늘릴 수 있는 실탄.
+//   지역이 이미 붙은 건 워커가 또 곱하지 않으므로(_product_place_head) 되먹여도 소용없다.
+export const isSoloKw = (kw: string) => !kw.includes(' ');
+
 // 스캔 취소 — 아직 워커가 집지 않은(queued) 요청만 끈다.
 //   ★ 왜 queued 만인가: 이미 claimed 면 워커 루프가 돌고 있어 상태만 바꿔도 안 멈춘다.
 //     대신 지역형은 키워드마다 요청을 따로 만들므로(제품 25개 = 요청 25건), 뒤쪽 대기분을

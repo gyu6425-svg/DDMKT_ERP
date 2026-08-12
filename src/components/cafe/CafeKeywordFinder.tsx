@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, subCategories, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
+import { addToPool, loadPoolKw } from '../../api/cafeKwScan';
+import { CafeKwPool } from './CafeKwPool';
 
 type PickSeed = { keyword: string; volume?: number | null; theme?: string | null };
 
@@ -50,6 +52,14 @@ export function CafeKeywordFinder({
     //   '창업'으로 뽑고 '프랜차이즈'로 또 뽑고 정보형으로도 뽑아 쌓는 게 정상 사용법이다.
     const [kwPicked, setKwPicked] = useState<KwResult[]>([]);
     const pickedLoadedRef = useRef(false);
+    // 발굴 적재함 — 모드를 오가며 찾아낸 인기탭 전부(보관함과 별개). 상단 패널이 이걸 보여준다.
+    const [pool, setPool] = useState<KwResult[]>([]);
+    useEffect(() => {
+        // 적재함이 생기기 전에 찾아 둔 결과(진행중 저장분)도 한 번 흡수한다 — 안 그러면 처음엔 빈 패널만 뜬다.
+        const who = clientId || 'me';
+        const prev = loadPendingScan()?.result ?? [];
+        setPool(prev.length ? addToPool(who, prev) : loadPoolKw(who));
+    }, [clientId]);
     useEffect(() => {
         pickedLoadedRef.current = false;
         const saved = loadPickedKw(clientId || 'me');
@@ -158,15 +168,17 @@ export function CafeKeywordFinder({
     // 목표 채우기 — 지역형 후보들을 순서대로 끝까지 파서 목표 건수를 채운다(워커 process_chain).
     //   ★ 사장님 설계: 첫 키워드에서 30개를 채우면 오히려 좋다 — 제품 우선으로 깊게 판다.
     //     각 키워드의 '단독(지역 없음)' 판정도 맨 앞에서 같이 본다.
-    const runChain = async (products: string[], target = FIRST_TARGET) => {
+    //   regionsOverride: 적재함 패널이 자기 지역 칩으로 돌릴 때 쓴다(아래 지역 선택과 별개).
+    const runChain = async (products: string[], target = FIRST_TARGET, regionsOverride?: string[]) => {
         if (!products.length) { setKwErr('먼저 키워드가 있어야 합니다.'); return; }
-        if (!regionSel.length) { setKwErr('지역 범위를 하나 이상 고르세요.'); return; }
+        const sidos = regionsOverride?.length ? regionsOverride : regionSel;
+        if (!sidos.length) { setKwErr('지역 범위를 하나 이상 고르세요.'); return; }
         setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…'); setRegionTarget(target);
         lastScanRef.current = { kind: 'chain', products };
         // 누적이므로 직전 저장분을 지우지 않는다 — 지우면 이 시점에 새로고침한 사장님이 앞선 결과를 잃는다.
         //   savePendingScan 은 기존 기록 위에 이어 붙인다.
         try {
-            const { id, error } = await enqueueChainScan(products, regionSel.join(','), target);
+            const { id, error } = await enqueueChainScan(products, sidos.join(','), target);
             if (error || !id) throw new Error(error?.message || '등록 실패');
             savePendingScan(id, 'chain', `목표 ${target}건 · ${products.slice(0, 3).join(', ')}${products.length > 3 ? ` 외 ${products.length - 3}` : ''}`);
             const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
@@ -299,6 +311,8 @@ export function CafeKeywordFinder({
         kwResultRef.current = out;
         setKwResult(out);
         savePendingProgress(null, out);   // 도는 요청 목록은 그대로, 결과만 갱신(새로고침 대비)
+        // 적재함에도 더한다 — 모드를 바꿔 조회해도 지금까지 찾은 게 상단에 계속 남게.
+        setPool(addToPool(clientId || 'me', rows));
     };
 
     // 지역형 — 선택 시도의 행정구/시 × 제품키워드(들) 인기탭 조회.
@@ -721,6 +735,11 @@ export function CafeKeywordFinder({
     return (
         <div className="rounded-xl border-2 border-[#0369a1] bg-[#f0f9ff] p-4">
             <div className="mb-2 text-[13px] font-bold text-[#075985]">🔍 SEO 키워드 찾기 — {mode === 'region' ? '지역 × 제품키워드' : mode === 'related' ? '연관 인기글 찾기' : mode === 'info' ? '정보형 (홈페이지·블로그 주소)' : '플레이스 인기탭'}</div>
+            {/* 발굴 적재함 — 모드를 오가며 찾은 것을 한곳에 쌓아 맨 위에 보여준다.
+                여기서 '지역 없이 잡힌 것'만 골라, 이 패널의 지역 칩으로 지역까지 더 찾는다(사장님 요청 2026-08-12). */}
+            <CafeKwPool who={clientId || 'me'} rows={pool} onChange={setPool} busy={kwLoading || dongLoading}
+                onPick={(rows) => addPicks(rows)}
+                onRunChain={(kws, regions) => void runChain(kws, regionTarget + MORE_STEP, regions)} />
             {/* 이어보기 배너 — 새로고침·이탈 후 돌아오면 진행 중인 스캔에 다시 붙는다.
                 화면을 막지 않는다: 이 배너가 도는 동안 다른 작업을 계속할 수 있다.
                 (예전엔 요청 id 를 잃어 워커가 찾아 둔 결과를 못 주워왔고, 같은 스캔을 3번 다시 돌렸다.) */}
