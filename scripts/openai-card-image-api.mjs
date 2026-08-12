@@ -1161,6 +1161,85 @@ function buildBlogPrompt(payload) {
         .join('\n');
 }
 
+// 범용 현장/사례 템플릿 — 섹션태그 산문만. (functions/api/generate-blog.ts buildCaseStudyPrompt 와 동일)
+function buildCaseStudyPrompt(cs) {
+    const kw = (cs.keyword || '').trim();
+    const nk = cs.keywordCount && cs.keywordCount > 0 ? cs.keywordCount : 6;
+    if (cs.freeform) {
+        return [
+            '너는 한국어 "현장/사례" 블로그 카피라이터다. 아래 [내용]을 바탕으로 네이버 블로그 본문 산문을 소제목으로 나눠 구조화해 작성한다(업종 자유).',
+            '',
+            `[주 키워드] ${kw}`,
+            cs.keyword2 ? `[보조 키워드] ${cs.keyword2}` : '',
+            cs.subjectType ? `[대상/현장 유형] ${cs.subjectType}` : '',
+            (cs.brief || '').trim() ? `[내용]\n${(cs.brief || '').trim()}` : '[내용] (없음 — 아래 규칙대로 스스로 구성)',
+            '',
+            '규칙(엄수):',
+            '- 격식체(~습니다/~입니다), 3인칭. 인사말(안녕하세요 등) 절대 금지 — 사실로 바로 시작.',
+            '- 도입부는 사실로 시작하고, [주 키워드]를 3번째 문장쯤에 자연스럽게 넣는다(첫 문장 금지).',
+            `- [주 키워드]를 본문 전체에 약 ${nk}회 자연스럽게 반복(억지 금지).`,
+            '- [내용]이 있으면 그것을, 없으면 [주 키워드]·[대상/현장 유형]에 맞는 현실적이고 구체적인 현장 사례를 스스로 구성해 작성한다.',
+            '- 흐름에 맞게 3~6개 소제목 섹션으로 나눈다. 소제목은 짧고 명확히(예: "탐지 과정 | 비파괴 위치 특정").',
+            '- 해시태그·CTA·문의유도·제목후보·요약·이모지·마크다운 전부 금지.',
+            '- "사진","이미지","「 」","부제목", 표는 쓰지 마라(시스템이 넣는다).',
+            '- 확인되지 않은 수치·상호명·주소·날짜는 지어내지 않는다(과장·허위 금지).',
+            '',
+            '출력 형식 — 아래 태그를 그 줄에 그대로 쓴다:',
+            '===INTRO===',
+            '(도입 산문 3~4문장)',
+            '===SUB===',
+            '소제목 | 부제',
+            '(그 섹션 산문 2~4문장)',
+            '===SUB===',
+            '다음 소제목 | 부제',
+            '(산문)',
+            '(필요한 만큼 ===SUB=== 반복)',
+            '===TAKEAWAY===',
+            '(핵심을 요약하는 한 줄)',
+        ]
+            .filter((line) => line !== '')
+            .join('\n');
+    }
+    const secs = cs.sections || [];
+    const secMemo = secs
+        .map((s, i) => `  섹션 ${i + 1} [${(s.title || '').trim() || `섹션${i + 1}`}] 메모: ${(s.notes || '').trim()}`)
+        .join('\n');
+    const secTags = secs
+        .map((_, i) => `===S${i + 1}===\n(섹션 ${i + 1}의 산문 2~4문장, 그 섹션 메모에 충실히)`)
+        .join('\n');
+    const n = cs.keywordCount && cs.keywordCount > 0 ? cs.keywordCount : 6;
+    return [
+        '너는 한국어 "현장/사례" 블로그 카피라이터다. 아래 정보로 네이버 블로그 본문의 "산문 부분만" 작성한다.',
+        '이 글은 업체가 특정 현장/작업 사례를 정보/전문 톤으로 설명하는 글이다(업종은 자유).',
+        '',
+        `[주 키워드] ${kw}`,
+        cs.keyword2 ? `[보조 키워드] ${cs.keyword2}` : '',
+        cs.subjectType ? `[대상/현장 유형] ${cs.subjectType}` : '',
+        cs.introHook ? `[도입 팩트 훅 seed] ${cs.introHook}` : '',
+        cs.overview ? `[현장/대상 개요·상황] ${cs.overview}` : '',
+        secMemo ? `[본문 섹션별 메모]\n${secMemo}` : '',
+        cs.takeaway ? `[마무리 한 줄 seed] ${cs.takeaway}` : '',
+        '',
+        '규칙(엄수):',
+        '- 격식체(~습니다/~입니다), 3인칭. 인사말(안녕하세요 등) 절대 금지 — 업종/대상 사실로 바로 시작.',
+        '- 도입부는 사실로 시작하고, [주 키워드]를 3번째 문장쯤에 자연스럽게 넣는다(첫 문장에는 넣지 마라).',
+        `- [주 키워드]를 본문 전체에 약 ${n}회 자연스럽게 반복(억지 반복 금지).`,
+        '- 해시태그·CTA·문의유도 문장·제목후보·요약·이모지·마크다운(**,##) 전부 금지.',
+        '- "사진","이미지","「 」","부제목", 표는 쓰지 마라(그건 시스템이 넣는다). 산문 문단만 써라.',
+        '- 섹션 메모가 있으면 충실히 반영하고, 없으면 [대상/현장 유형]·섹션 소제목·[주 키워드]에 맞는 구체적이고 전문적인 내용을 자연스럽게 작성한다(막연한 일반론 금지).',
+        '- 입력이 적어도 실제 사례처럼 상황·과정·판단 근거를 구체적으로 쓰되, 확인되지 않은 수치·상호명·주소·날짜는 지어내지 않는다(과장·허위 금지).',
+        '',
+        '출력 형식 — 아래 태그를 각 줄에 그대로 쓰고, 태그 다음 줄부터 그 섹션 산문만 써라(다른 텍스트 금지):',
+        '===INTRO===',
+        '(도입 산문 3~4문장)',
+        secTags,
+        '===TAKEAWAY===',
+        '(핵심을 요약하는 한 줄)',
+    ]
+        .filter((line) => line !== '')
+        .join('\n');
+}
+
 function extractOutputText(result) {
     if (typeof result.output_text === 'string' && result.output_text.trim()) {
         return result.output_text.trim();
@@ -1177,7 +1256,12 @@ function extractOutputText(result) {
 }
 
 async function generateBlog(payload) {
-    if (!payload.topic || !payload.topic.trim()) {
+    const isCaseStudy = payload.mode === 'caseStudy';
+    if (isCaseStudy) {
+        if (!payload.caseStudy || !(payload.caseStudy.keyword || '').trim()) {
+            return { body: { message: '주 키워드를 입력해주세요.' }, statusCode: 400 };
+        }
+    } else if (!payload.topic || !payload.topic.trim()) {
         return { body: { message: '주제를 입력해주세요.' }, statusCode: 400 };
     }
 
@@ -1186,11 +1270,15 @@ async function generateBlog(payload) {
         return { body: { message: '.env 의 OPENAI_API_KEY 가 필요합니다.' }, statusCode: 500 };
     }
 
-    const model = process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5';
-    const prompt = buildBlogPrompt(payload);
+    const model = isCaseStudy
+        ? (process.env.OPENAI_CASE_MODEL || 'gpt-5-mini')
+        : (process.env.OPENAI_TEXT_MODEL || process.env.OPENAI_IMAGE_MODEL || 'gpt-5.5');
+    const prompt = isCaseStudy ? buildCaseStudyPrompt(payload.caseStudy) : buildBlogPrompt(payload);
+    const reqBody = { input: prompt, model };
+    if (isCaseStudy) reqBody.reasoning = { effort: 'low' };
 
     const apiResponse = await fetch(OPENAI_API_URL, {
-        body: JSON.stringify({ input: prompt, model }),
+        body: JSON.stringify(reqBody),
         headers: {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
