@@ -18,6 +18,7 @@ import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, en
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { useAuth } from '../../hooks/useAuth';
+import { supabase } from '../../lib/supabase';
 
 const REGION_KEYS = ['서울', '경기', '인천', '대전', '세종', '충북', '충남', '강원', '전북', '전남', '광주', '대구', '경북', '경남', '부산', '울산', '제주'] as const; // 지역형 지역셋(전국)
 
@@ -74,11 +75,35 @@ async function compressImage(file: File, maxDim = 1600, quality = 0.85): Promise
 
 export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const { profile } = useAuth();
-    const bizName = profile?.name || ''; // 로그인한 고객의 업체명(회원가입/발급 시 지정)
-    const [form, setForm] = useState<CafeDeployInput>({ ...empty, company_name: bizName });
-    // 업체명 자동기입 — 프로필(업체명) 로드되면 비어있는 업체명 칸을 채운다.
+    // 업체명 — 보고 있는 '그 업체'의 이름이어야 한다.
+    //   ★ 예전엔 profile.name(로그인한 사람 이름)만 썼다. 고객이 직접 로그인하면 그게 곧 업체명이라
+    //     맞았지만, 담당자가 미리보기(?as=<client_id>)로 남의 화면을 볼 때는
+    //     '장규진' 처럼 담당자 본인 이름이 업체명 칸에 박혔다(사장님 신고 2026-08-12).
+    //     화면 데이터 자체는 clientId 스코프라 옳았고, 이 칸만 어긋난 것이다.
+    //   그래서 clientId 로 clients.company 를 읽어 그 값을 우선한다. 못 읽으면 옛 동작으로 폴백.
+    const [clientName, setClientName] = useState('');
     useEffect(() => {
-        if (bizName) setForm((f) => (f.company_name ? f : { ...f, company_name: bizName }));
+        if (!clientId) { setClientName(''); return; }
+        let alive = true;
+        void (async () => {
+            const { data } = await supabase.from('clients').select('company,advertiser_name').eq('id', clientId).maybeSingle();
+            if (!alive) return;
+            const c = data as { company?: string | null; advertiser_name?: string | null } | null;
+            setClientName((c?.company || c?.advertiser_name || '').trim());
+        })();
+        return () => { alive = false; };
+    }, [clientId]);
+    const bizName = clientName || profile?.name || '';
+    const [form, setForm] = useState<CafeDeployInput>({ ...empty, company_name: '' });
+    // 업체명 자동기입 — 업체가 정해지면 그 업체명으로 채운다.
+    //   ★ 이미 다른 업체 이름이 들어 있으면 덮어쓴다 — 업체를 바꿔 보는데 앞 업체명이 남아 있으면
+    //     그대로 접수돼 남의 이름으로 발행된다. 사장님이 직접 고쳐 적은 값은 건드리지 않는다.
+    const autoNameRef = useRef('');
+    useEffect(() => {
+        if (!bizName) return;
+        setForm((f) => (!f.company_name || f.company_name === autoNameRef.current
+            ? { ...f, company_name: bizName } : f));
+        autoNameRef.current = bizName;
     }, [bizName]);
     const [files, setFiles] = useState<Record<Grp, File[]>>({ main: [], real: [], banner: [] });
     const [rows, setRows] = useState<CafeDeployRequest[]>([]);
@@ -1415,7 +1440,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 {/* data-deploy-type — 사용 가이드(CustomerGuide)가 읽어 방식별 안내로 바꾼다. */}
                 <div data-tour="cafe-deploy-basic" data-deploy-type={form.deploy_type} className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="md:col-span-2">
-                        <label className={labelCls}>업체명 *</label>
+                        <label className={labelCls}>
+                        업체명 *
+                        {/* 담당자가 미리보기로 남의 화면을 볼 때 어느 업체인지 분명히 보이게 한다. */}
+                        {clientName ? <span className="ml-1 font-normal text-[#4338ca]">— 지금 <b>{clientName}</b> 화면입니다</span> : null}
+                    </label>
                         <input className={inputCls} value={form.company_name} onChange={(e) => set('company_name', e.target.value)} placeholder="test" />
                     </div>
                     {!isManual ? (
