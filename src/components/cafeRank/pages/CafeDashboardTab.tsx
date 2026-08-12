@@ -28,12 +28,14 @@ function exportCumList(board: string, bp: CafeRankPost[], kwOf: (p: CafeRankPost
 // 카페 · 대시보드 — '오늘 발행 현황'(하루 5건 KPI) + '오늘까지 발행 건'(누적/계약 목표).
 //   대상 업체·계약건수는 고정(계약 기준). 글은 cafe_rank_posts.board 로 매칭.
 // board=크롤러 저장값 · goal=계약 총건수 · daily=하루 발행 목표(업체별 상이)
-const DAILY_TARGETS: { board: string; goal: number; daily: number; kpi?: boolean }[] = [
+// own=자사 운영 카페 — 계약이 아니라 우리 것이라 목표·실적·진행률이 없다.
+//   집계(총 건수)에서 빼고, 줄은 남기되 '발행 글 수'만 보여준다.
+const DAILY_TARGETS: { board: string; goal: number; daily: number; kpi?: boolean; own?: boolean }[] = [
     { board: '더맨시스템', goal: 50, daily: 5 },
     { board: '더티클리닉', goal: 10, daily: 5 }, // 자체발행 중 — 하루 목표 5건
     { board: '더반클린', goal: 50, daily: 5 },
     { board: '설고점', goal: 40, daily: 1 }, // 설고점만 하루 1건
-    { board: '누수상담소', goal: 40, daily: 0, kpi: false }, // 자사 운영 — 오늘 발행 KPI 카드에서 제외(누적 발행엔 유지)
+    { board: '누수상담소', goal: 0, daily: 0, kpi: false, own: true }, // 자사 운영 — 계약이 아니라 진행률 자체가 없음(발행 글만 봄)
 ];
 const boardKey = (p: CafeRankPost) => p.board || p.cafe_accounts?.board_short || '미분류';
 const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
@@ -81,7 +83,7 @@ export function CafeDashboardTab() {
         const dyn = deployTargets
             .filter((d) => d.board && !fixedBoards.has(d.board) && d.mission_start <= today)
             .filter((d) => (seen.has(d.board) ? false : (seen.add(d.board), true)))
-            .map((d) => ({ board: d.board, goal: d.goal, daily: d.daily, kpi: undefined as boolean | undefined }));
+            .map((d) => ({ board: d.board, goal: d.goal, daily: d.daily, kpi: undefined as boolean | undefined, own: false }));
         return [...DAILY_TARGETS, ...dyn];
     }, [deployTargets, today]);
     const kw = (p: CafeRankPost) => p.keyword_manual || p.keyword || '—';
@@ -107,6 +109,7 @@ export function CafeDashboardTab() {
     //     아래 '완료 N곳 보기'로 언제든 펼쳐 누적 목록·엑셀을 그대로 쓴다.
     //     goal>0 조건 = 신규 접수분이 목표 0으로 들어오면 즉시 '완료'로 오인되는 것 방지.
     //     계약 관리(고객 ERP)의 '재계약 임박'은 client_contracts.remain_count 로 따로 뜬다 — 여기서 내려도 그건 남는다.
+    //   자사 카페(own)는 목표가 없으니 완주 판정 자체를 안 한다(goal 0 이라 아래 조건에서 자연히 빠진다).
     const isEnded = (t: { board: string; goal: number }) => t.goal > 0 && siljeok(t.board) >= t.goal;
     const liveTargets = targets.filter((t) => !isEnded(t));
     const endedTargets = targets.filter((t) => isEnded(t));
@@ -114,7 +117,8 @@ export function CafeDashboardTab() {
     const KPI_TARGETS = liveTargets.filter((t) => t.kpi !== false); // 오늘 발행 KPI 카드 대상(누수상담소=자사 운영 제외)
     const todayTotal = KPI_TARGETS.reduce((s, t) => s + todayCount(t.board), 0);
     const goalTodayTotal = KPI_TARGETS.reduce((s, t) => s + t.daily, 0);
-    const cumGrand = liveTargets.reduce((s, t) => s + siljeok(t.board), 0);   // 진행률 = 실적(이전건+24h달성) 합
+    // 총 건수 = 계약 건만 합산 — 자사 카페(누수상담소)는 계약 실적이 아니라 총합에서 뺀다.
+    const cumGrand = liveTargets.filter((t) => !t.own).reduce((s, t) => s + siljeok(t.board), 0);
 
     if (loading) {
         return <div className="rounded-xl border border-[#e2e8f0] bg-white px-6 py-16 text-center text-sm text-[#94a3b8]">불러오는 중…</div>;
@@ -192,10 +196,17 @@ export function CafeDashboardTab() {
                                     className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f8fafc]" disabled={bp.length === 0}>
                                     <span className={`text-[9px] text-[#94a3b8] transition-transform ${isOpen ? 'rotate-90' : ''}`}>▶</span>
                                     <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: st.bg, color: st.fg }}>{t.board}</span>
-                                    <span className="rounded-full bg-[#eff6ff] px-1.5 py-0.5 text-[10px] font-bold text-[#2563eb]">실적</span>
-                                    <span className="text-[13px] font-bold text-[#2563eb]" title="실적 = 이전건 + 5위 24h 달성(24h+1)">{done}건</span>
-                                    <span className="text-[11px] font-semibold text-[#94a3b8]" title="계약 총 발행건수(목표)">/ 총 {t.goal}건</span>
-                                    {complete ? <span className="text-[11px] font-bold text-[#15803d]">✓ 완료</span> : null}
+                                    {/* 자사 운영 카페는 계약이 아니라 목표·실적·달성 표시를 걸지 않는다 — 발행 글 수만. */}
+                                    {t.own ? (
+                                        <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-[10px] font-semibold text-[#64748b]">자사 운영 · 진행률 없음</span>
+                                    ) : (
+                                        <>
+                                            <span className="rounded-full bg-[#eff6ff] px-1.5 py-0.5 text-[10px] font-bold text-[#2563eb]">실적</span>
+                                            <span className="text-[13px] font-bold text-[#2563eb]" title="실적 = 이전건 + 5위 24h 달성(24h+1)">{done}건</span>
+                                            <span className="text-[11px] font-semibold text-[#94a3b8]" title="계약 총 발행건수(목표)">/ 총 {t.goal}건</span>
+                                            {complete ? <span className="text-[11px] font-bold text-[#15803d]">✓ 완료</span> : null}
+                                        </>
+                                    )}
                                     <span className="ml-auto text-[11px] text-[#94a3b8]" title="실제 발행한 글 수">발행 {pubN}건</span>
                                 </button>
                                 {isOpen && bp.length ? (
