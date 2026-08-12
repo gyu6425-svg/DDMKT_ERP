@@ -22,7 +22,9 @@ type Ctx = { request: Request; env: Env; params: { path?: string | string[] } };
 //    · deploy-intake 고객 배포 접수 첨부
 //    · blog-studio   블로그 스튜디오 설정 이미지(2026-08-11 추가, SUB1 요청).
 //      카페와 섞지 않는다 — 나중에 카페 이미지를 일괄 정리·마이그레이션할 때 블로그 자산이 딸려가지 않게.
-const ALLOW = new Set(['cafe-images', 'deploy-intake', 'blog-studio']);
+//    · blog-save     블로그 저장/발행 작업 이미지(2026-08-12, Supabase→R2 전환).
+//      웹 createSaveJob 이 PUT, SUB1 리스너가 GET 한다. 둘의 프리픽스가 같아야 한다.
+const ALLOW = new Set(['cafe-images', 'deploy-intake', 'blog-studio', 'blog-save']);
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,PUT,OPTIONS', 'Access-Control-Allow-Headers': 'authorization, content-type, x-content-type' };
 
 function keyOf(params: { path?: string | string[] }): string {
