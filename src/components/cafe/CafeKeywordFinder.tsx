@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchPlaceReviews, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, loadPendingScan, clearPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, subCategories, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
-import { addToPool, loadPoolKw } from '../../api/cafeKwScan';
+import { addToPool, loadPoolKw, saveLastChain, loadLastChain, isSoloKw } from '../../api/cafeKwScan';
 import { CafeKwPool } from './CafeKwPool';
 
 // 목표채우기에서 지역을 안 골랐을 때 쓰는 기본 지역 — 화면에도 이 값을 그대로 적는다.
@@ -97,7 +97,6 @@ export function CafeKeywordFinder({
     //     (여기서 무조건 켜면 여행 씨앗은 후보가 거의 안 남는다).
     const [endsOnly, setEndsOnly] = useState(false);
     // 캐시 우선 조회 결과 — 스캔 0회로 즉시 나오는 것들.
-    const [cachedHits, setCachedHits] = useState<KwResult[] | null>(null);
     const [cachedVia, setCachedVia] = useState<string[]>([]);   // 이 결과를 찾아낸 어간(씨앗어와 다를 수 있다)
     const [addr, setAddr] = useState('');
     const [extracted, setExtracted] = useState<ExtractedProduct[] | null>(null);
@@ -168,6 +167,9 @@ export function CafeKeywordFinder({
     //   ★ 사장님 설계: 첫 키워드에서 30개를 채우면 오히려 좋다 — 제품 우선으로 깊게 판다.
     //     각 키워드의 '단독(지역 없음)' 판정도 맨 앞에서 같이 본다.
     //   regionsOverride: 적재함 패널이 자기 지역 칩으로 돌릴 때 쓴다(아래 지역 선택과 별개).
+    // 이미 다 찾은 조합인지 — 같은 묶음을 또 돌리지 않게 버튼 상태로 알린다.
+    const sigOf = (kws: string[]) => [...kws].sort().join('|');
+    const [scanDone, setScanDone] = useState<{ sig: string; n: number; target: number } | null>(null);
     const runChain = async (products: string[], target = FIRST_TARGET, regionsOverride?: string[]) => {
         if (!products.length) { setKwErr('먼저 키워드가 있어야 합니다.'); return; }
         // ★ 지역을 안 골라도 시작할 수 있다(2026-08-12) — 1단계가 '전 키워드 단독 판정'이라
@@ -177,6 +179,7 @@ export function CafeKeywordFinder({
         const sidos = regionsOverride?.length ? regionsOverride : (regionSel.length ? regionSel : CHAIN_DEFAULT_REGIONS);
         setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…'); setRegionTarget(target);
         lastScanRef.current = { kind: 'chain', products };
+        saveLastChain(clientId || 'me', products);   // 새로고침해도 ＋더 찾기가 같은 걸 이어서 판다
         // 누적이므로 직전 저장분을 지우지 않는다 — 지우면 이 시점에 새로고침한 사장님이 앞선 결과를 잃는다.
         //   savePendingScan 은 기존 기록 위에 이어 붙인다.
         try {
@@ -188,6 +191,7 @@ export function CafeKeywordFinder({
             //   끝나는 순간 사라진다(실측 2026-08-12: 화면 33개 → 이번 요청 6개로 줄어듦).
             //   '창업으로 뽑고 정보형으로 또 뽑아 쌓는' 것이 정상 사용법이라 누적이 맞다.
             pushLive(result);
+            setScanDone({ sig: sigOf(products), n: result.length, target });
             if (!kwResultRef.current.length) { setKwErr('인기탭이 확인된 키워드가 없습니다.'); return; }
         } catch (e) {
             const m = e instanceof Error ? e.message : '';
@@ -499,9 +503,15 @@ export function CafeKeywordFinder({
             //   검색어는 씨앗어 + 연관어 상위 몇 개(부분일치라 '간병인'으로 '수원 간병인'도 잡힌다).
             setExtracting('이미 찾아둔 것 조회 중…');
             const terms = relatedStems(s, list);
-            const hits = await searchCachedPopular(terms, 200, false);   // 이 패널은 cafes 를 안 쓴다
-            setCachedVia([...new Set(hits.map((h) => h.via))]);
-            setCachedHits(hits.map((h) => ({ cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined })));
+            const hits = await searchCachedPopular(terms, 200, false);   // cafes 는 안 쓴다
+            // 캐시 히트는 바로 적재함에 넣는다 — 따로 패널에 띄우고 '담기'를 누르게 할 이유가 없다.
+            //   CF 콜 0회로 얻은 것이라 넣는 데 드는 비용도 없다.
+            if (hits.length) {
+                setCachedVia([...new Set(hits.map((h) => h.via))]);
+                setPool(addToPool(clientId || 'me', hits.map((h) => ({
+                    cafes: h.cafes, keyword: h.keyword, theme: h.theme ?? undefined, volume: h.volume ?? undefined,
+                }))));
+            }
             // ★ 기본 체크 = 씨앗어를 포함한 것(tier==='seed') 전부.
             //   옛 규칙은 '의도어(여행·숙소·패키지…)가 붙은 것'이었는데 여행 전용이었다.
             //   독립검증 실측(2026-08-10, 양성 1,169건 기준):
@@ -789,6 +799,12 @@ export function CafeKeywordFinder({
                             {extracting ? '조회 중…' : '① 연관어 펼치기'}
                         </button>
                     </div>
+                    {/* cache hits went straight into the pool -- show where they came from. */}
+                    {cachedVia.length ? (
+                        <p className="m-0 text-[11px] font-semibold text-[#15803d]">
+                            ✅ 이미 확인된 인기탭을 <b>{cachedVia.join(' · ')}</b> 로 찾아 위 적재함에 담았습니다 — 스캔 없이 바로 쓰실 수 있습니다.
+                        </p>
+                    ) : null}
                     {seedBusy ? <p className="m-0 text-[11px] font-semibold text-[#6d28d9]">🔎 {seedBusy} <span className="font-normal text-[#94a3b8]">— 검색광고 API라 인기탭 차단 예산과 무관합니다.</span></p> : null}
                     {/* (2026-08-13) 여기 있던 '발행할 지역' 칩 제거 — 정보형 블록에 같은 칩이,
                         위쪽 발굴 적재함에도 전용 칩이 있어 셋이 겹쳤다. 지역은 2단계에서만 쓰인다. */}
@@ -860,27 +876,8 @@ export function CafeKeywordFinder({
                         💡 <b>지명·상품명 단독은 인기글이 거의 없습니다</b>(보홀 49,600 · 필리핀 56,500 · 골프채 15,230 모두 없음).
                         <b>씨앗어 + 의도어</b>(여행·숙소·투어·패키지·맛집·연습장 …) 조합에서 나옵니다.
                     </p>
-                    {/* 캐시 우선 — 스캔 없이 이미 확인된 인기탭. 여기서 충분하면 스캔을 안 해도 된다. */}
-                    {cachedHits && cachedHits.length ? (
-                        <div className="rounded-md border border-[#16a34a] bg-[#f0fdf4] p-2">
-                            <div className="mb-1 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#15803d]">
-                                <span>✅ 이미 확인된 인기탭 {cachedHits.length}건 <span className="font-normal">— <b>{cachedVia.join(' · ')}</b> 로 찾은 것입니다</span></span>
-                                {/* pushLive 로 넣어야 적재함에도 쌓인다(setKwResult 만 하면 화면에만 보이고 샌다). */}
-                                <button type="button" onClick={() => pushLive(cachedHits)}
-                                    className="rounded bg-[#16a34a] px-2.5 py-0.5 text-[11px] font-bold text-white">
-                                    적재함·아래 목록에 담기
-                                </button>
-                            </div>
-                            <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
-                                {cachedHits.slice(0, 40).map((h) => (
-                                    <span key={h.keyword} className="rounded-full border border-[#86efac] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#15803d]">
-                                        {h.keyword}<span className="ml-1 font-normal opacity-60">{(h.volume ?? 0).toLocaleString()}</span>
-                                    </span>
-                                ))}
-                            </div>
-                            <p className="mb-0 mt-1 text-[11px] text-[#16a34a]">아래 ‘③ 인기탭 찾기’는 <b>아직 안 본 키워드</b>를 새로 확인할 때만 누르세요.</p>
-                        </div>
-                    ) : null}
+                    {/* (removed 2026-08-13) cached-hit panel: expand now pushes cache hits
+                        straight into the discovery pool above. Same as the customer ERP screen. */}
                     {cands ? (
                         <div className="rounded-md border border-[#ddd6fe] bg-white p-2">
                             <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[12px] font-bold text-[#6d28d9]">
@@ -968,14 +965,23 @@ export function CafeKeywordFinder({
                                     그 다음에 다시 전수를 돌려야 해서 두 번 눌렀다. */}
                                 {/* 지역 미선택이어도 막지 않는다 — 1단계가 전 키워드 단독 판정이라 지역이 안 쓰인다.
                                     2단계에 쓸 지역만 표시해 두고, 필요하면 적재함 패널에서 다시 골라 돌린다. */}
-                                <button type="button" disabled={kwLoading || !relPicked.size}
-                                    onClick={() => void runChain((cands || []).filter((c) => relPicked.has(c.kw)).map((c) => c.kw))}
-                                    className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50"
-                                    title="① 체크한 키워드를 지역 없이 전부 판정 → ② 그 뒤 지역 전수. 30건 채우면 멈춥니다.">
-                                    {kwLoading ? '찾는 중…'
-                                        : !relPicked.size ? '↑ 키워드를 체크하세요'
-                                            : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
-                                </button>
+                                {(() => {
+                                    const sel = (cands || []).filter((c) => relPicked.has(c.kw)).map((c) => c.kw);
+                                    const done = !!scanDone && scanDone.sig === sigOf(sel) && sel.length > 0;
+                                    return (
+                                        <button type="button" disabled={kwLoading || !relPicked.size}
+                                            onClick={() => void runChain(sel, done ? scanDone!.target + MORE_STEP : FIRST_TARGET)}
+                                            className={`h-9 shrink-0 rounded-md px-4 text-sm font-bold text-white disabled:opacity-50 ${done ? 'bg-[#16a34a]' : 'bg-[#7c3aed]'}`}
+                                            title={done
+                                                ? '이 조합은 이미 다 봤습니다. 더 필요하면 눌러 목표를 올려 이어서 찾습니다.'
+                                                : '① 체크한 키워드를 지역 없이 전부 판정 → ② 그 뒤 지역 전수.'}>
+                                            {kwLoading ? '찾는 중…'
+                                                : !relPicked.size ? '↑ 키워드를 체크하세요'
+                                                    : done ? `✓ 찾았습니다 — ${scanDone!.n}건 적재함에 · ＋${MORE_STEP} 더 찾기`
+                                                        : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
+                                        </button>
+                                    );
+                                })()}
                                 <span className="text-[11px] text-[#64748b]">
                                     ① 지역 없이 먼저 · ② 그 뒤 <b>{(regionSel.length ? regionSel : CHAIN_DEFAULT_REGIONS).join('·')}</b>
                                     {regionSel.length ? '' : ' (기본값 — 위에서 바꿀 수 있습니다)'}
@@ -1000,6 +1006,12 @@ export function CafeKeywordFinder({
                    제품키워드를 만들고, 직접 적은 위치를 축으로 인기탭을 찾는다.
                    ★ 지역형 안에 끼워 두면 '지역형인데 왜 주소를 넣지?'가 된다 — 별도 모드로 둔다. */
                 <div className="grid gap-2">
+                    {/* 정보형 안의 2번 방법 — 주소에서 원문을 걷어 키워드를 뽑는다. 1번과 같은 적재함에 쌓인다. */}
+                    <div className="flex items-center gap-2">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#6d28d9] text-[13px] font-bold text-white">2</span>
+                        <b className="text-[13px] text-[#5b21b6]">주소로 찾기</b>
+                        <span className="text-[11px] text-[#94a3b8]">홈페이지·블로그 주소 → 키워드 뽑기 → 인기탭 찾기 · 찾은 건 위 적재함에 더 쌓입니다</span>
+                    </div>
                     {/* 지역 없는 업체 — 현지(해외)에서 영업하는 곳은 국내 지역축이 성립하지 않는다.
                         보홀 스쿠버다이빙 투어에 '판교 보홀투어'를 붙일 수는 없다. */}
                     <label className="flex w-fit cursor-pointer items-center gap-2 rounded-md border border-[#fbbf24] bg-[#fffbeb] px-3 py-1.5 text-[12px] font-semibold text-[#b45309]">
@@ -1113,6 +1125,12 @@ export function CafeKeywordFinder({
                                 const t = regionTarget + MORE_STEP;
                                 const ls = lastScanRef.current;
                                 if (ls?.kind === 'chain') { void runChain(ls.products, t); return; }
+                                // 새로고침으로 메모리 기록이 비면 저장분 → 적재함 순으로 되짚는다.
+                                //   (안 그러면 지역형 경로로 빠져 '제품 키워드를 추가하세요'로 조용히 막힌다)
+                                const saved = loadLastChain(clientId || 'me');
+                                if (saved.length) { void runChain(saved, t); return; }
+                                const solo = pool.filter((k) => isSoloKw(k.keyword)).map((k) => k.keyword);
+                                if (solo.length) { void runChain(solo, t); return; }
                                 void runRegion(false, t);
                             }} disabled={kwLoading || dongLoading}
                                 title="구/시 범위에서 목표를 10개 올려 이어서 스캔합니다(이미 본 건 건너뜀)"
