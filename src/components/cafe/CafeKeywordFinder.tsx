@@ -4,6 +4,7 @@ import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { addToPool, loadPoolKw, saveLastChain, loadLastChain, isSoloKw } from '../../api/cafeKwScan';
 import { CafeKwPool } from './CafeKwPool';
+import { pickPlaceUrl } from '../../api/cafeKwScan';
 import { getRegionTokens, startsWithRegion } from '../../api/cafeKwScan';
 
 // 목표채우기에서 지역을 안 골랐을 때 쓰는 기본 지역 — 화면에도 이 값을 그대로 적는다.
@@ -575,8 +576,9 @@ export function CafeKeywordFinder({
     //     아예 안 재진다(조용한 절단). 그래서 여기서 미리 자르고 그 사실을 화면에 남긴다.
     const REL_MAX = 200;   // 워커 process_related 의 MAX_A 와 같아야 한다(더 보내면 조용히 잘린다)
     const pullReviews = async () => {
-        const u = url.trim() || addr.trim();
-        if (!u.includes('naver')) { setKwErr('플레이스 주소를 입력하세요(https://naver.me/… 또는 place.naver.com/…).'); return; }
+        // 어느 칸에 넣든 찾는다 — 플레이스 주소 칸 · 홈페이지/블로그 주소 칸 · 위치 칸 순.
+        const u = pickPlaceUrl(url, siteUrl, addr);
+        if (!u) { setKwErr('플레이스 주소가 없습니다 — 위 주소 칸 아무 곳에나 https://naver.me/… 또는 place.naver.com/… 을 넣어 주세요.'); return; }
         setKwErr(''); setExtracting('리뷰 가져오는 중…');
         try {
             const b = await fetchPlaceReviews(u, (n) => setExtracting(n || '리뷰 가져오는 중…'));

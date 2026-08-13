@@ -503,6 +503,20 @@ export type PlaceReviewBundle = {
     menu: string[]; reviewMenus: string[]; text: string; chars: number;
 };
 
+// 여러 줄로 적은 주소들 중 '네이버 플레이스' 주소만 골라낸다.
+//   ★ 왜(2026-08-13 사장님 신고): 리뷰 가져오기가 전용 칸만 보게 돼 있어서,
+//     홈페이지·블로그 주소 칸에 naver.me 를 넣으면 '플레이스 주소를 입력하세요'가 떴다.
+//     사장님은 눈앞의 주소 칸에 넣는 게 자연스럽다 — 칸을 가리지 말고 값에서 찾는다.
+export function pickPlaceUrl(...sources: (string | null | undefined)[]): string {
+    for (const src of sources) {
+        for (const raw of String(src || '').split(/[\s,]+/)) {
+            const t = raw.trim();
+            if (/naver\.me\//i.test(t) || /place\.naver\.com/i.test(t) || /m\.place\.naver\.com/i.test(t)) return t;
+        }
+    }
+    return '';
+}
+
 export async function fetchPlaceReviews(placeUrl: string, onProgress?: (n: string) => void): Promise<PlaceReviewBundle> {
     const { data: u } = await supabase.auth.getUser();
     const { data, error } = await supabase.from('cafe_kw_requests')

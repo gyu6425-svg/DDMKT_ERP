@@ -17,6 +17,7 @@ import {
 import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, subCategories, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { addToPool, loadPoolKw, saveLastChain, loadLastChain, isSoloKw } from '../../api/cafeKwScan';
 import { CafeKwPool } from './CafeKwPool';
+import { pickPlaceUrl } from '../../api/cafeKwScan';
 import { ImageDropZone } from './ImageDropZone';
 import { getRegionTokens, startsWithRegion } from '../../api/cafeKwScan';
 import { fetchPlaceReviews } from '../../api/cafeKwScan';
@@ -286,8 +287,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     // 플레이스 리뷰 가져오기 — 회사ERP 에만 있던 것을 고객ERP 에도 넣는다(사장님 지시 2026-08-13).
     //   메뉴판이 없는 업종은 리뷰가 사실상 유일한 키워드 원천이다.
     const pullReviews = async () => {
-        const u = (form.url || '').trim() || ownAddr.trim();
-        if (!u.includes('naver')) { setKwErr('플레이스 주소를 입력하세요(https://naver.me/… 또는 place.naver.com/…).'); return; }
+        // 어느 칸에 넣든 찾는다 — 홈페이지 칸 · 홈페이지/블로그 주소 칸 · 위치 칸 순.
+        const u = pickPlaceUrl(form.url, siteUrl, ownAddr);
+        if (!u) { setKwErr('플레이스 주소가 없습니다 — 위 주소 칸 아무 곳에나 https://naver.me/… 또는 place.naver.com/… 을 넣어 주세요.'); return; }
         setKwErr(''); setExtracting(true);
         try {
             const b = await fetchPlaceReviews(u);
