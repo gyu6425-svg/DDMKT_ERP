@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { listSignupHistory, type SignupHistoryRow } from '../api/signup';
 import { supabase } from '../lib/supabase';
 import { approveSignup, listPendingSignups, rejectSignup, type PendingSignup } from '../api/signup';
 import { insertClient, upsertContractData, emptyContractData } from '../api/erp';
@@ -140,6 +141,12 @@ export default function PendingSignupsPanel() {
         setRows((prev) => prev.filter((x) => x.id !== r.id));
     };
 
+    // 가입 내역 — 승인 대기(is_active=false)만 보면 카카오 온보딩 가입이 안 보인다.
+    //   그쪽은 곧바로 활성이라 대기 목록에 안 잡히는데, 실제로는 계속 들어오고 있었다.
+    const [hist, setHist] = useState<SignupHistoryRow[]>([]);
+    const [histOpen, setHistOpen] = useState(true);
+    useEffect(() => { void listSignupHistory().then(setHist); }, []);
+
     return (
         <div>
             <div className="mb-3 flex items-center justify-between">
@@ -240,6 +247,60 @@ export default function PendingSignupsPanel() {
                 고객 계정: 가입 시 적은 <b>업체명·사업자번호</b>가 계약관리에 이미 있으면 <b>그 업체로 자동 연결</b>됩니다(업체명·사업자번호·<b>거래처명</b> 완전일치 1건일 때). 그대로 승인하면 기존 계약이 고객 화면에 바로 보입니다.
                 <br />자동 연결이 안 됐고 비슷한 업체도 없으면 <b>신규 업체로 계약관리에 자동 등록</b>됩니다(상품 <b>카페 배포</b>, 건수·금액 비움). 후보가 있는데 신규로 만들려 하면 한 번 더 확인합니다 — 여기서 새로 만들면 계약은 옛 업체에, 고객 화면은 새 업체에 붙어 <b>계약이 안 보이는 사고</b>가 납니다. 기자단은 승인 후 블로그 관리 시트에서 담당 블로그를 배정하세요.
             </p>
+
+            {/* 가입 내역 — 승인 대기가 늘 0건인 이유를 여기서 알 수 있다.
+                카카오 온보딩 가입은 곧바로 활성(is_active=true)이라 대기 목록에 안 잡힌다. */}
+            <div className="mt-6 rounded-xl border border-[#e2e8f0]">
+                <button type="button" onClick={() => setHistOpen((v) => !v)}
+                    className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-[#f8fafc]">
+                    <span className={`text-[10px] text-[#94a3b8] transition-transform ${histOpen ? 'rotate-90' : ''}`}>▶</span>
+                    <b className="text-[15px] text-[#111111]">가입 내역 {hist.length}건</b>
+                    <span className="text-[12px] text-[#94a3b8]">최근 가입한 고객·기자단 (승인 여부 포함)</span>
+                    <span className="ml-auto rounded-full bg-[#fef3c7] px-2 py-0.5 text-[11px] font-bold text-[#92400e]">
+                        대행사 {hist.filter((h) => h.is_agency).length}
+                    </span>
+                </button>
+                {histOpen ? (
+                    <div className="overflow-x-auto border-t border-[#eef0f2]">
+                        <table className="w-full min-w-[820px] border-collapse text-left text-[13px]">
+                            <thead>
+                                <tr className="border-b border-[#f1f5f9] bg-[#f8fafc] text-[11px] text-[#64748b]">
+                                    {['가입일', '이름', '신청 업체', '구분', '연락처', '이메일', '상태'].map((h) => (
+                                        <th className="px-3 py-2 font-semibold" key={h}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {hist.map((h) => (
+                                    <tr className="border-b border-[#f8fafc] text-[#334155]" key={h.id}>
+                                        <td className="whitespace-nowrap px-3 py-2 text-[12px] text-[#64748b]">{h.created_at.slice(0, 16).replace('T', ' ')}</td>
+                                        <td className="whitespace-nowrap px-3 py-2 font-semibold">{h.name || '-'}</td>
+                                        <td className="whitespace-nowrap px-3 py-2">{h.signup_company || '-'}</td>
+                                        <td className="whitespace-nowrap px-3 py-2">
+                                            {h.role === 'reporter'
+                                                ? <span className="rounded-full bg-[#ede9fe] px-2 py-0.5 text-[11px] font-bold text-[#6d28d9]">기자단</span>
+                                                : h.is_agency
+                                                    ? <span className="rounded-full bg-[#fef3c7] px-2 py-0.5 text-[11px] font-bold text-[#92400e]">대행사</span>
+                                                    : <span className="rounded-full bg-[#dbeafe] px-2 py-0.5 text-[11px] font-bold text-[#1d4ed8]">고객</span>}
+                                        </td>
+                                        <td className="whitespace-nowrap px-3 py-2 text-[12px]">{h.phone || '-'}</td>
+                                        <td className="whitespace-nowrap px-3 py-2 text-[12px] text-[#64748b]">{h.email || '-'}</td>
+                                        <td className="whitespace-nowrap px-3 py-2">
+                                            {h.is_active
+                                                ? <span className="text-[11px] font-bold text-[#15803d]">활성{h.client_id ? ' · 업체 연결됨' : ' · 업체 미연결'}</span>
+                                                : <span className="text-[11px] font-bold text-[#b45309]">승인 대기</span>}
+                                        </td>
+                                    </tr>
+                                ))}
+                                {hist.length === 0 ? (
+                                    <tr><td className="px-3 py-8 text-center text-[#94a3b8]" colSpan={7}>가입 내역이 없습니다.</td></tr>
+                                ) : null}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : null}
+            </div>
+
         </div>
     );
 }

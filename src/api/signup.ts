@@ -84,3 +84,32 @@ export async function rejectSignup(profileId: string): Promise<{ ok: boolean; er
     if (data?.error) return { ok: false, error: data.error };
     return { ok: !!data?.ok, error: null };
 }
+
+// ── 가입 내역 ────────────────────────────────────────────────────────────────
+//   ★ 왜 필요한가(사장님 지적 2026-08-13): '승인 대기'는 is_active=false 만 본다.
+//     그런데 카카오 온보딩으로 들어온 가입은 곧바로 활성(is_active=true)이라 대기 목록에
+//     한 건도 안 잡힌다 — 실제로 가입은 계속 있었는데 화면은 늘 0건이었다.
+//     그래서 '누가 언제 가입했는지'를 상태와 함께 보는 목록을 따로 둔다.
+export type SignupHistoryRow = {
+    id: string;
+    name: string | null;
+    email: string | null;
+    role: string | null;
+    phone: string | null;
+    signup_company: string | null;
+    is_agency: boolean | null;
+    is_active: boolean | null;
+    onboarded: boolean | null;
+    client_id: string | null;
+    created_at: string;
+};
+
+export async function listSignupHistory(limit = 60): Promise<SignupHistoryRow[]> {
+    const { data } = await supabase
+        .from('profiles')
+        .select('id,name,email,role,phone,signup_company,is_agency,is_active,onboarded,client_id,created_at')
+        .in('role', ['viewer', 'reporter'])
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    return (data ?? []) as SignupHistoryRow[];
+}
