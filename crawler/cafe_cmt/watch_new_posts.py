@@ -28,7 +28,7 @@ import comment_cafe as cc
 import accounts as acct     # 계정 → 크롬 포트(멀티계정)
 import heartbeat as hb      # 살아있음 신호(hang 감지용)
 from comment_templates import (build_comment, region_from_title, _lead_region,
-                               classify_business, security_keyword)
+                               classify_business, service_keyword)
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -215,8 +215,8 @@ def process_watch(page, w, canon_acct=None):
             #   업종 문구가 등록 안 된 키워드면 예약하지 않는다(엉뚱한 업종 댓글 방지).
             #   기준선도 올리지 않아, 템플릿을 추가하면 다음 크롤에서 다시 잡힌다.
             try:
-                # 보안 업종은 제목의 세부 서비스어(행사보안/사설경호/건물보안)를 문구에 쓴다.
-                disp = security_keyword(title) if art_kw == "보안" else None
+                # 모든 업종: 제목의 세부 서비스어를 문구에 쓴다(행사보안·케이터링·소방점검·이사청소…).
+                disp = service_keyword(title, art_kw)
                 body = build_comment(art_region, art_kw, avoid=used_bodies, display_kw=disp)
             except Exception as e:
                 _log(f"  ⏸ {str(e)[:110]}")
