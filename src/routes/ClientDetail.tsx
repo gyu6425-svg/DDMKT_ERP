@@ -1064,8 +1064,15 @@ function ContractEditModal({
     const reQty = reDaily
         ? (Number(onlyDigits(rePerDay)) || 0) * (Number(onlyDigits(reDays)) || 0)
         : Number(onlyDigits(reCount)) || 0;
+    // 이월 재계약 — 남은 잔여를 다음 계약으로 넘긴다(다 못 채웠는데 다음 달로 넘길 때).
+    //   입력은 '새로 계약한 수량'만 받고, 실제 계약 건수 = 신규 + 이월.
+    //   금액은 신규분만 청구한다 — 이월분은 지난 계약에서 이미 청구된 건이라 다시 받으면 이중청구.
+    //   외주비는 실제 수행할 전량(신규+이월) 기준. 안 그러면 이월분 작업비가 장부에서 빠진다.
+    const [carryOn, setCarryOn] = useState(false);
+    const carryQty = carryOn ? Math.max(0, remainN) : 0;
+    const reTotalQty = reQty + carryQty;
     const reSales = (Number(onlyDigits(reUnit)) || 0) * reQty;
-    const reOutAmt = (Number(onlyDigits(reOutUnit)) || 0) * reQty;
+    const reOutAmt = (Number(onlyDigits(reOutUnit)) || 0) * reTotalQty;
 
     // 카드의 '재계약' 버튼으로 열렸으면 바로 재계약 모드 + 기본값(단가=이전값·외주단가=이전값·시작일=오늘).
     useEffect(() => {
@@ -1441,7 +1448,8 @@ function ContractEditModal({
     //   → 재계약 시작일의 '월'로 새 계약 매출·외주가 귀속(회차별 카드라 자동으로 그 달에만 잡힘).
     const addRenewal = async () => {
         const s = reStart.trim();
-        if (!s || reQty <= 0) {
+        // 이월만 하는 경우(신규 0건 + 이월 N건)도 허용 — 합계가 0일 때만 막는다.
+        if (!s || reTotalQty <= 0) {
             onToast('계약 시작일과 수량을 입력하세요');
             return;
         }
@@ -1453,8 +1461,9 @@ function ContractEditModal({
                 category: contract.category,
                 client_id: contract.client_id,
                 contract_date: s,
-                goal_count: reQty,
-                remain_count: reQty,
+                // 이월분을 더한 '실제 수행 건수'로 잡는다(신규 20 + 이월 2 = 22).
+                goal_count: reTotalQty,
+                remain_count: reTotalQty,
                 outsource: reOutAmt || null,
                 outsource_company: contract.outsource_company ?? null,
                 per_day: reDaily ? Number(onlyDigits(rePerDay)) || null : null,
@@ -1462,7 +1471,8 @@ function ContractEditModal({
                 unit_outsource: Number(onlyDigits(reOutUnit)) || null,
                 unit_price: Number(onlyDigits(reUnit)) || null,
                 blog_name: contract.blog_name ?? null,
-                note: '[재계약]', // 계약 이력에서 '재계약'으로 표시(별도 카드라 history가 없어 라벨 구분용)
+                // 계약 이력에서 '재계약'으로 표시(별도 카드라 history가 없어 라벨 구분용) + 이월 흔적을 남긴다.
+                note: carryQty ? `[재계약] [이월 ${carryQty}건]` : '[재계약]',
                 no_vat: contract.no_vat ?? false,
                 // 재계약은 이미 승인된 계약의 연장 → 신규 등록(미승인)으로 오인되지 않게 승인 상태 상속.
                 sheet_approved: contract.sheet_approved ?? true,
@@ -1474,9 +1484,14 @@ function ContractEditModal({
             return;
         }
         // ② 기존 계약을 '만료'로 표시([만료] 마커) — 카드 블러 유지 + '계약 만료'(재계약 버튼 제거).
+        //   이월했으면 남은 잔여를 0으로 내린다 — 안 그러면 같은 2건이 옛 계약과 새 계약 양쪽에 잡혀 두 번 센다.
         const EXPIRED = '[만료]';
-        const expiredNote = (note || '').includes(EXPIRED) ? note || null : `${EXPIRED} ${note || ''}`.trim();
-        const { error } = await updateClientContract(contract.id, { note: expiredNote });
+        const carriedMark = carryQty ? ` [${carryQty}건 이월]` : '';
+        const expiredNote = (note || '').includes(EXPIRED) ? note || null : `${EXPIRED}${carriedMark} ${note || ''}`.trim();
+        const { error } = await updateClientContract(contract.id, {
+            note: expiredNote,
+            ...(carryQty ? { remain_count: 0 } : {}),
+        });
         setSaving(false);
         if (error) {
             onToast(`오류(만료 표시): ${error.message}`);
@@ -1489,7 +1504,7 @@ function ContractEditModal({
         if (contract.category === '카페' && /배포/.test(contract.subtype || '')) {
             const en = await enablePublishByClient(contract.client_id, companyName);
             // 토큰은 '더하기'가 아니라 '계약 건수에 맞추기' — 재계약을 두 번 눌러도 잔액이 계약과 같아진다.
-            const tk = await syncTokensToContract(contract.client_id, reQty, `재계약 ${s} · ${companyName} · 계약 ${reQty}건에 맞춤`);
+            const tk = await syncTokensToContract(contract.client_id, reTotalQty, `재계약 ${s} · ${companyName} · 계약 ${reTotalQty}건에 맞춤${carryQty ? `(이월 ${carryQty} 포함)` : ''}`);
             // 카페 관리시트는 client_contracts 가 아니라 cafe_accounts 의 계약 필드를 읽는다 — 여기도 새 계약으로 갱신.
             //   (안 하면 시트가 옛 목표·계약일 그대로여서 '재계약했는데 화면 그대로'가 된다.)
             const { data: allAccs } = await getCafeAccounts();
@@ -1498,7 +1513,7 @@ function ContractEditModal({
             const targets = withGoal.length ? withGoal : mine.slice(0, 1);
             for (const a of targets) {
                 await updateCafeAccount(a.id, {
-                    goal_count: reQty, done_count: 0, amount: reSales || null, contract_date: s,
+                    goal_count: reTotalQty, done_count: 0, amount: reSales || null, contract_date: s,
                 });
             }
             // 이전 계약 달성분은 기준선으로 이월 → 새 계약 진행률 0부터.
@@ -1506,20 +1521,22 @@ function ContractEditModal({
             // 키워드 풀이 비어 있으면 토큰이 있어도 발행 예정 큐가 비어 아무것도 안 나간다 — 다음 할 일을 알려 준다.
             const { data: ss } = await getStudioSettings(contract.client_id);
             const poolN = (ss?.keyword_pool ?? []).length;
-            const sheetMsg = ` · 관리시트 갱신(목표 ${reQty}건 · 진행률 0부터${seeded.count ? ` · 이전 달성 ${seeded.count}건 기준선 이월` : ''})`;
+            const sheetMsg = ` · 관리시트 갱신(목표 ${reTotalQty}건 · 진행률 0부터${seeded.count ? ` · 이전 달성 ${seeded.count}건 기준선 이월` : ''})`;
             cafeMsg = en.error || tk.error
                 ? ` · ⚠ 발행 활성화 실패(${en.error?.message || tk.error?.message}) — 카페 관리시트에서 '발행 세팅' 확인 필요`
-                : ` · 자동화 발행 재개(토큰 ${tk.before} → ${reQty}건)` + sheetMsg
+                : ` · 자동화 발행 재개(토큰 ${tk.before} → ${reTotalQty}건)` + sheetMsg
                   + (poolN ? ` · 키워드 풀 ${poolN}개` : ' · ⚠ 키워드 풀 0개 — 자동화 발행 탭에서 키워드를 채워야 발행이 시작됩니다');
         }
-        onToast(`재계약 — 새 계약 카드 생성(${reQty.toLocaleString('ko-KR')}건 · 매출 ${fmtWon(reSales)}원). 기존 계약은 만료 처리.${cafeMsg}`);
+        onToast(`재계약 — 새 계약 카드 생성(${reTotalQty.toLocaleString('ko-KR')}건`
+            + `${carryQty ? ` = 신규 ${reQty} + 이월 ${carryQty}` : ''} · 매출 ${fmtWon(reSales)}원`
+            + `${carryQty ? '(신규분만 청구)' : ''}). 기존 계약은 만료 처리.${cafeMsg}`);
         // ③ 브랜드 블로그: 새(활성) 계약의 건수/잔여로 동기화 + '연장 건' 탭 대기(승인해야 계약 중).
         await syncBlog({
             amount: reSales,
             contract_date: s,
-            goal_count: reQty,
+            goal_count: reTotalQty,
             markRenewal: true,
-            remain_count: reQty,
+            remain_count: reTotalQty,
         });
         // 재계약 화면에서 블로그 주소를 수정했으면 블로그 계정에도 반영(그대로 두면 변화 없음).
         if (isBrandContract && blogAccId && blogUrl) {
@@ -2308,6 +2325,18 @@ function ContractEditModal({
                                             value={withCommas(reOutUnit)}
                                         />
                                     </div>
+                                    {/* 이월 재계약 — 입력한 신규 수량에 남은 건수를 더해 실제 계약 건수를 만든다. */}
+                                    {carryQty ? (
+                                        <div className="mt-2 rounded-md border border-[#fbbf24] bg-[#fffbeb] px-3 py-2 text-[12px] font-semibold text-[#92400e]">
+                                            신규 {reQty.toLocaleString('ko-KR')}건 + 이월 {carryQty.toLocaleString('ko-KR')}건 ={' '}
+                                            <b className="text-[13px]">{reTotalQty.toLocaleString('ko-KR')}건</b>으로 계약됩니다
+                                            <div className="mt-0.5 font-normal text-[#b45309]">
+                                                매출은 <b>신규 {reQty.toLocaleString('ko-KR')}건</b>만 청구(이월분은 지난 계약에서 이미 청구됨) ·
+                                                외주비는 실제 수행분 <b>{reTotalQty.toLocaleString('ko-KR')}건</b> 기준 ·
+                                                기존 계약의 남은 {carryQty}건은 0으로 정리됩니다
+                                            </div>
+                                        </div>
+                                    ) : null}
                                     <div className="mt-2 rounded-md bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#0f172a]">
                                         실매출(VAT){' '}
                                         <span className="text-[#1e40af]">{withVat(reSales).toLocaleString('ko-KR')}</span> ·
@@ -2321,7 +2350,7 @@ function ContractEditModal({
                                     </div>
                                     <button
                                         className="mt-2 text-xs font-semibold text-[#64748b] hover:text-[#475569]"
-                                        onClick={() => setRenewMode(false)}
+                                        onClick={() => { setRenewMode(false); setCarryOn(false); }}
                                         type="button"
                                     >
                                         ← 취소
@@ -2422,6 +2451,34 @@ function ContractEditModal({
                                     </div>
                                 );
                             })}
+                        </div>
+                    </div>
+                ) : null}
+
+                {/* 이월 재계약 — 잔여를 다 못 채웠는데 다음 달로 넘길 때. 완주해야만 재계약 버튼이 뜨던 것을 우회한다. */}
+                {!renewMode && hasGoal && remainN > 0 && !(note || '').includes('[만료]') ? (
+                    <div className="mt-4 rounded-lg border border-[#fbbf24] bg-[#fffbeb] px-3 py-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[12px] font-semibold text-[#92400e]">
+                                아직 <b>{remainN.toLocaleString('ko-KR')}{unitLabel}</b> 남았습니다 — 다음 계약으로 넘기시겠어요?
+                            </span>
+                            <button
+                                className="ml-auto rounded-md bg-[#d97706] px-3 py-1.5 text-[12px] font-bold text-white hover:bg-[#b45309]"
+                                onClick={() => {
+                                    setCarryOn(true);
+                                    setRenewMode(true);
+                                    setReStart(todayStr());
+                                    const defUnit = contract.unit_price ?? (goalN > 0 && contract.amount ? Math.round(contract.amount / goalN) : 0);
+                                    setReUnit(defUnit ? String(defUnit) : '');
+                                    setReOutUnit(contract.unit_outsource ? String(contract.unit_outsource) : '');
+                                }}
+                                type="button"
+                            >
+                                🔄 남은 {remainN.toLocaleString('ko-KR')}{unitLabel} 이월해서 재계약
+                            </button>
+                        </div>
+                        <div className="mt-1 text-[11px] text-[#b45309]">
+                            새로 계약한 수량만 입력하면 됩니다 — 남은 {remainN.toLocaleString('ko-KR')}{unitLabel}이 자동으로 더해집니다.
                         </div>
                     </div>
                 ) : null}
