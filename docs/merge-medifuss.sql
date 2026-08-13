@@ -39,11 +39,17 @@ update public.blog_accounts
  where id = 'ce99937c-106c-4096-8d12-789e2d3b5a80';
 
 -- 4) 브랜드블로그 계약 ↔ 블로그 계정 연결 — 관리시트가 blog_name 으로 짝을 찾는다.
---    잔여도 계정 실적에 맞춘다(계정 목표 8 / 잔여 5 = 3건 진행됨).
+--    8건 전부 처리 완료(사장님 확인 2026-08-13) → 계약·계정 모두 잔여 0 으로 맞춘다.
 update public.client_contracts
    set blog_name = '메디푸스',
-       remain_count = 5
+       remain_count = 0
  where id = 'a31b1f5e-647f-4d42-9de6-4eb1f74607cc';
+
+-- 4-b) 블로그 계정 잔여도 0 (원장에는 5로 남아 있었다 — 실제로는 8건 다 나감)
+update public.blog_accounts
+   set goal_count = 8,
+       remain_count = 0
+ where id = 'ce99937c-106c-4096-8d12-789e2d3b5a80';
 
 -- 5) 고객 ERP 계정(ddmkt_medipus@ddmkt.com)도 통합된 업체로
 update public.profiles
@@ -74,3 +80,11 @@ select c.company,
 select id, subtype, goal_count, remain_count, amount, blog_name
   from public.client_contracts
  where client_id = '9f3b960c-0011-4458-aee2-f30418ad27cd' and category = '블로그';
+
+select name, blog_url, goal_count, remain_count, client_id
+  from public.blog_accounts
+ where id = 'ce99937c-106c-4096-8d12-789e2d3b5a80';
+
+-- ※ 이미 위 SQL 을 한 번 실행하신 뒤라면(잔여 5로 들어감) 아래 두 줄만 다시 돌리면 됩니다.
+--   update public.client_contracts set remain_count = 0 where id = 'a31b1f5e-647f-4d42-9de6-4eb1f74607cc';
+--   update public.blog_accounts set remain_count = 0 where id = 'ce99937c-106c-4096-8d12-789e2d3b5a80';
