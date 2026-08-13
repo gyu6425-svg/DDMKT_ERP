@@ -4,6 +4,7 @@ import { getCafeAccounts } from '../../api/cafeAccounts';
 import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls, studioSavedPath, updateKeywordPool, markNaverLogin } from '../../api/cafeStudioSettings';
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTiStatus, cafeRankWhere, cafeSearchUrl, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
+import { ImageDropZone } from './ImageDropZone';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, deleteGenRequest, publishTargetFor, kstYmd, kstNowNaive, fmtScheduled, type GenQueueSummary } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
@@ -372,7 +373,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
     //   updated_at 만 갱신됐다(R2 바이트는 그대로). 그래서 발행에도 옛 배너가 나갔다.
     //   → 뒤에서 자른다(slice(-max)). 꽉 찬 칸에 새로 넣으면 '교체'가 된다 — 사람이 기대하는 동작.
     //   (사용자 우회책이던 'X로 지우고 다시 추가'가 이제 필요 없다.)
-    async function addFiles(setter: (u: (prev: string[]) => string[]) => void, files: FileList | null, max: number) {
+    async function addFiles(setter: (u: (prev: string[]) => string[]) => void, files: FileList | File[] | null, max: number) {
         if (!files || !files.length) return;
         try {
             const urls = await Promise.all(Array.from(files).slice(0, max).map(fileToDataUrl));
@@ -386,8 +387,10 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         } catch { /* 사진 변환 실패 무시 */ }
     }
 
+    // 이미지 영역 — 버튼 업로드 + 드래그&드롭(영역 어디에 놓아도 됨).
     const imageZone = (label: string, hint: string, list: string[], setter: (u: (prev: string[]) => string[]) => void, max: number) => (
-        <div className="grid gap-1 text-xs font-semibold text-[#475569]">
+        <ImageDropZone onFiles={(fs) => void addFiles(setter, fs, max)}
+            className="grid gap-1 rounded-lg border border-dashed border-transparent p-1 text-xs font-semibold text-[#475569] hover:border-[#e2e8f0]">
             {label} <span className="font-normal text-[#94a3b8]">{hint}</span>
             <label className="inline-flex h-9 w-fit cursor-pointer items-center rounded-lg border border-[#cbd5e1] bg-white px-3 text-sm font-normal text-[#334155] hover:bg-[#f8fafc]">
                 이미지 추가
@@ -402,8 +405,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                         </div>
                     ))}
                 </div>
-            ) : <span className="text-[11px] font-normal text-[#cbd5e1]">아직 없음</span>}
-        </div>
+            ) : <span className="text-[11px] font-normal text-[#cbd5e1]">아직 없음 · 끌어다 놓기</span>}
+        </ImageDropZone>
     );
 
     if (approved === false) return <CafeCustomerRequest clientId={clientId} />;

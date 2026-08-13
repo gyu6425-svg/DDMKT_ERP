@@ -17,6 +17,7 @@ import {
 import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, subCategories, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { addToPool, loadPoolKw, saveLastChain, loadLastChain, isSoloKw } from '../../api/cafeKwScan';
 import { CafeKwPool } from './CafeKwPool';
+import { ImageDropZone } from './ImageDropZone';
 import { getRegionTokens, startsWithRegion } from '../../api/cafeKwScan';
 import { fetchPlaceReviews } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
@@ -591,7 +592,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             setKwErr(e instanceof Error ? e.message : '확인 실패');
         } finally { setKwLoading(false); setScanNote(''); }
     };
-    const addFiles = (g: Grp, list: FileList | null) => {
+    const addFiles = (g: Grp, list: FileList | File[] | null) => {
         if (!list?.length) return;
         const arr = Array.from(list); // 동기적으로 캡처(input.value='' 초기화 전에) — 안 하면 목록이 비어 등록 안 됨
         setFiles((f) => ({ ...f, [g]: [...f[g], ...arr] }));
@@ -1813,10 +1814,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
 
                 {/* 사진 전달 — 3종 업로드 */}
                 <div data-tour="cafe-deploy-photos" className="mt-4">
-                    <label className={labelCls}>사진 전달 (업로드 시 자동 압축)</label>
+                    <label className={labelCls}>
+                        사진 전달 (업로드 시 자동 압축)
+                        <span className="ml-1 font-normal text-[#94a3b8]">— 파일을 끌어다 놓아도 됩니다</span>
+                    </label>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                         {GROUPS.map((g) => (
-                            <div key={g.key} className="rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] p-3">
+                            <ImageDropZone key={g.key} onFiles={(fs) => addFiles(g.key, fs)}
+                                className="rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] p-3">
                                 <div className="mb-2 flex items-center justify-between">
                                     <span className="text-[13px] font-semibold text-[#334155]">{g.label}</span>
                                     <label className="cursor-pointer rounded-md bg-[#eef2ff] px-2 py-1 text-xs font-bold text-[#4338ca] hover:bg-[#e0e7ff]">
@@ -1825,7 +1830,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     </label>
                                 </div>
                                 {files[g.key].length === 0 ? (
-                                    <div className="py-4 text-center text-xs text-[#94a3b8]">사진 없음</div>
+                                    <div className="py-4 text-center text-xs text-[#94a3b8]">사진 없음 <span className="text-[#cbd5e1]">· 끌어다 놓기</span></div>
                                 ) : (
                                     <div className="flex flex-wrap gap-2">
                                         {files[g.key].map((f, i) => (
@@ -1836,7 +1841,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                         ))}
                                     </div>
                                 )}
-                            </div>
+                            </ImageDropZone>
                         ))}
                     </div>
                 </div>
