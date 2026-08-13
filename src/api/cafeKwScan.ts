@@ -841,17 +841,20 @@ export async function enqueueMenuScan(
 //     ① 지역형은 제품키워드마다 요청을 따로 만든다(25개 = 25건) → 저장이 매번 덮여 마지막 1건만 남았다.
 //     ② 이미 화면에 쌓인 결과(캐시분 + 먼저 끝난 키워드분)는 아무 데도 안 남아 새로고침에 그대로 사라졌다.
 //     그래서 살아있는 요청 id 전부(ids) 와 지금까지 모은 결과(result)를 같이 저장한다.
-const PENDING_KEY = 'ddmkt.cafeScan.pending';
+// ★ 업체별로 나눈다(2026-08-13). 예전엔 키가 하나라 A업체 스캔 직후 B업체로
+//   넘어가면 '직전 스캔 결과 N건을 되살렸습니다'로 A의 결과가 B 화면에 떴다.
+//   적재함·보관함은 이미 업체별이었고 여기만 빠져 있었다.
+const PENDING_KEY = (who: string) => `ddmkt.cafeScan.pending.${who || 'me'}`;
 export type PendingScan = { id: number; ids: number[]; kind: string; label: string; at: number; result: KwResult[] };
 
-function readPending(): PendingScan | null {
+function readPending(who: string): PendingScan | null {
     try {
-        const raw = localStorage.getItem(PENDING_KEY);
+        const raw = localStorage.getItem(PENDING_KEY(who));
         if (!raw) return null;
         const p = JSON.parse(raw) as Partial<PendingScan>;
         if (!p) return null;
         // 하루 지난 건 버린다 — 그 사이 워커가 죽었거나 사장님이 잊은 것이다.
-        if (Date.now() - (p.at || 0) > 24 * 3600 * 1000) { localStorage.removeItem(PENDING_KEY); return null; }
+        if (Date.now() - (p.at || 0) > 24 * 3600 * 1000) { localStorage.removeItem(PENDING_KEY(who)); return null; }
         const ids = [...new Set([...(p.ids || []), ...(p.id ? [p.id] : [])])].filter((n) => Number.isFinite(n) && n > 0);
         const result = p.result || [];
         if (!ids.length && !result.length) return null;
@@ -861,16 +864,16 @@ function readPending(): PendingScan | null {
     }
 }
 
-function writePending(p: PendingScan): void {
+function writePending(who: string, p: PendingScan): void {
     try {
-        localStorage.setItem(PENDING_KEY, JSON.stringify(p));
+        localStorage.setItem(PENDING_KEY(who), JSON.stringify(p));
     } catch { /* 사파리 프라이빗 등 — 저장 못 해도 스캔 자체는 돌아간다 */ }
 }
 
 // 요청 하나를 시작했다 — 기존 기록 위에 이어 붙인다(여러 건이면 전부 남아야 한다).
-export function savePendingScan(id: number, kind: string, label: string): void {
-    const cur = readPending();
-    writePending({
+export function savePendingScan(who: string, id: number, kind: string, label: string): void {
+    const cur = readPending(who);
+    writePending(who, {
         at: Date.now(), id,
         ids: [...new Set([...(cur?.ids || []), id])],
         kind, label,
@@ -881,11 +884,11 @@ export function savePendingScan(id: number, kind: string, label: string): void {
 // 지금까지 모은 결과 + 아직 도는 요청을 갱신 — 새로고침해도 여기까지는 화면에 되살아난다.
 //   liveIds 가 비면 '다 끝났고 결과만 남은' 상태로 보관한다(배너는 안 뜨고 결과만 복원).
 //   liveIds=null 이면 도는 요청 목록은 그대로 두고 결과만 갱신한다(스캔 도중 부분결과 저장용).
-export function savePendingProgress(liveIds: number[] | null, result: KwResult[]): void {
-    const cur = readPending();
+export function savePendingProgress(who: string, liveIds: number[] | null, result: KwResult[]): void {
+    const cur = readPending(who);
     if (!cur && !result.length) return;
     const ids = liveIds === null ? (cur?.ids || []) : liveIds.filter((n) => Number.isFinite(n) && n > 0);
-    writePending({
+    writePending(who, {
         at: Date.now(),
         id: ids[0] || 0,
         ids,
@@ -894,13 +897,13 @@ export function savePendingProgress(liveIds: number[] | null, result: KwResult[]
     });
 }
 
-export function loadPendingScan(): PendingScan | null {
-    return readPending();
+export function loadPendingScan(who: string): PendingScan | null {
+    return readPending(who);
 }
 
-export function clearPendingScan(): void {
+export function clearPendingScan(who: string): void {
     try {
-        localStorage.removeItem(PENDING_KEY);
+        localStorage.removeItem(PENDING_KEY(who));
     } catch { /* 무시 */ }
 }
 

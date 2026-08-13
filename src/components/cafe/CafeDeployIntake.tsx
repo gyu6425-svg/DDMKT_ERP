@@ -216,7 +216,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   이제 시간초과 시 resumeTick 을 올려 같은 루프를 다시 태운다 — 켜두면 끝까지 자동이다.
     const [resumeTick, setResumeTick] = useState(0);
     useEffect(() => {
-        const p = loadPendingScan();
+        const p = loadPendingScan(clientId || 'me');
         if (!p) return;
         const sortDedup = (arr: KwResult[]) => {
             const seen = new Set<string>(); const out: KwResult[] = [];
@@ -237,7 +237,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 // 이어보기로 회수한 결과도 적재함에 넣는다 — 여기가 새면 새로고침 후 찾은 건 적재함에 안 남는다.
                 if (s.result.length) { acc = sortDedup([...acc, ...s.result]); setKwResult(acc); setPool(addToPool(clientId || 'me', s.result)); }
                 ids = s.live;
-                savePendingProgress(ids, acc);
+                savePendingProgress(clientId || 'me', ids, acc);
                 if (!ids.length) {
                     setKwErr(`이전 스캔 결과 ${acc.length}건을 불러왔습니다${p.label ? ` — ${p.label}` : ''}.`);
                     setPending(null); return;
@@ -443,7 +443,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { id, error } = await enqueueListScan(list, list.length + FIRST_TARGET);
             if (error || !id) throw new Error(error?.message || '등록 실패');
-            savePendingScan(id, 'list', `지역없이 ${list.length}개 판정`);
+            savePendingScan(clientId || 'me', id, 'list', `지역없이 ${list.length}개 판정`);
             const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
             pushLive(result);
             setScanDone({ sig: sigOf(list), n: result.length, target: FIRST_TARGET });
@@ -475,7 +475,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         try {
             const { id, error } = await enqueueChainScan(products, sidos.join(','), target);
             if (error || !id) throw new Error(error?.message || '등록 실패');
-            savePendingScan(id, 'chain', `목표 ${target}건 · ${products.slice(0, 3).join(', ')}${products.length > 3 ? ` 외 ${products.length - 3}` : ''}`);
+            savePendingScan(clientId || 'me', id, 'chain', `목표 ${target}건 · ${products.slice(0, 3).join(', ')}${products.length > 3 ? ` 외 ${products.length - 3}` : ''}`);
             const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
             // ⚠️ 여기서 result 로 덮으면 안 된다 — pushLive 가 스캔 내내 쌓아 둔 앞선 조회분이
             //   끝나는 순간 사라진다(실측 2026-08-12: 화면 33개 → 이번 요청 6개로 줄어듦).
@@ -620,7 +620,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         out.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
         kwResultRef.current = out;
         setKwResult(out);
-        savePendingProgress(null, out);   // 도는 요청 목록은 그대로, 결과만 갱신(새로고침 대비)
+        savePendingProgress(clientId || 'me', null, out);   // 도는 요청 목록은 그대로, 결과만 갱신(새로고침 대비)
         // 적재함에도 더한다 — 모드를 바꿔 조회해도 지금까지 찾은 게 상단에 계속 남게.
         // clientId 가 없어도(관리자 미리보기 등) 'me' 로 쌓는다 — 예전엔 통째로 안 쌓여 적재함이 비었다.
         setPool(addToPool(clientId || 'me', rows));
@@ -750,13 +750,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         // ★ 지역이 없는 업체(보홀 다이빙투어 등)는 지역을 곱하지 않고 키워드 그대로 전국 판정한다.
         if (noRegion) {
             setKwErr(''); setKwLoading(true); setScanNote('전국 인기탭 조회 중…'); setScanTarget(target);
-            if (target <= FIRST_TARGET) clearPendingScan();   // 새 스캔 — 직전 저장분 버림
+            if (target <= FIRST_TARGET) clearPendingScan(clientId || 'me');   // 새 스캔 — 직전 저장분 버림
             try {
                 const { id, error } = await enqueueListScan(kws, Math.max(target, kws.length));
                 if (error || !id) throw new Error(error?.message || '분석 등록 실패');
-                savePendingScan(id, 'list', `전국(지역없음) × ${kws.join(', ')}`);
+                savePendingScan(clientId || 'me', id, 'list', `전국(지역없음) × ${kws.join(', ')}`);
                 const { result } = await pollPlaceScan(id, { timeoutSec: 600, onPartial: pushLive, onProgress: (note) => setScanNote(note) });
-                savePendingProgress([], result);
+                savePendingProgress(clientId || 'me', [], result);
                 if (!result.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — 전국 기준 [${kws.join(', ')}]`); return; }
                 setKwResult([...result].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
             } catch (e) {
@@ -770,7 +770,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         // 첫 회차만 초기화 — '＋더 찾기'는 기존 결과 위에 이어붙인다.
         //   저장해 둔 직전 결과도 같이 버린다(안 그러면 옛 결과가 새 조건에 섞인다).
         const prev = target > FIRST_TARGET ? (kwResult ?? []) : [];
-        if (target <= FIRST_TARGET) { clearPendingScan(); setKwResult(null); setKwHidden([]); }
+        if (target <= FIRST_TARGET) { clearPendingScan(clientId || 'me'); setKwResult(null); setKwHidden([]); }
         try {
             // 위치를 직접 적었으면 그 주소에서 지역 축을 뽑아 '가까운 곳부터' 본다(플레이스 없는 업체).
             //   시도까지 골랐으면 자기 지역을 채운 뒤 그 시도 전체로 확장한다.
@@ -778,7 +778,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 const { id, error } = await enqueueMenuScan(ownAddr, kws, { name: form.company_name, regions: sidos.join(','), target });
                 if (error || !id) throw new Error(error?.message || '분석 등록 실패');
                 // 새로고침·이탈해도 다시 붙을 수 있게 남긴다(폴링이 끊겨도 워커는 계속 돈다).
-                savePendingScan(id, 'menu', `${ownAddr.trim()} × ${kws.join(', ')}`);
+                savePendingScan(clientId || 'me', id, 'menu', `${ownAddr.trim()} × ${kws.join(', ')}`);
                 const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (note) => setScanNote(note) });
                 const seenOwn = new Set<string>();
                 const mergedOwn: KwResult[] = [];
@@ -786,7 +786,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     const n = r.keyword.replace(/\s/g, '');
                     if (!seenOwn.has(n)) { seenOwn.add(n); mergedOwn.push(r); }
                 }
-                savePendingProgress([], mergedOwn);   // 결과 보관 — 새로고침해도 되살아난다
+                savePendingProgress(clientId || 'me', [], mergedOwn);   // 결과 보관 — 새로고침해도 되살아난다
                 if (!mergedOwn.length) { setKwErr(`인기탭 확인된 키워드가 없습니다 — ${ownAddr.trim()} × [${kws.join(', ')}]`); return; }
                 setKwResult(mergedOwn.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
                 return;
@@ -811,13 +811,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 const { id, error } = await enqueueRegionScan(pk, sidos.join(','), target);
                 if (error || !id) return false;
                 liveIdsRef.current = [...liveIdsRef.current, id];
-                savePendingScan(id, 'region', `${sidos.join('·')} × ${pk}`);
+                savePendingScan(clientId || 'me', id, 'region', `${sidos.join('·')} × ${pk}`);
                 try {
                     const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (note) => setScanNote(`${pk} · ${note}${tag}`) });
                     for (const r of result) { const n = r.keyword.replace(/\s/g, ''); if (!seen.has(n)) { seen.add(n); merged.push(r); } }
                     // 키워드 하나 끝날 때마다 저장 — 25개 중 3개째에서 새로고침해도 앞 2개 결과가 남는다.
                     setKwResult([...merged].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0)));
-                    savePendingProgress([], merged);
+                    savePendingProgress(clientId || 'me', [], merged);
                     return true;
                 } catch {
                     return false;   // 이 키워드만 실패 — 나머지는 계속 간다
@@ -928,7 +928,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     <span className="text-[#3b82f6]">#{pending.id} · {pending.label}</span>
                     {pendNote ? <span className="font-semibold">{pendNote}</span> : null}
                     <span className="text-[11px] text-[#60a5fa]">끝나면 결과가 자동으로 채워집니다 — 그동안 다른 작업 하셔도 됩니다.</span>
-                    <button type="button" onClick={() => { clearPendingScan(); setPending(null); }}
+                    <button type="button" onClick={() => { clearPendingScan(clientId || 'me'); setPending(null); }}
                         className="ml-auto rounded border border-[#bfdbfe] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#3b82f6]">그만 보기</button>
                 </div>
             ) : null}
