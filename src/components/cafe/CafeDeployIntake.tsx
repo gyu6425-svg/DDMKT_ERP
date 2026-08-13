@@ -15,7 +15,7 @@ import {
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
 import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, subCategories, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
-import { addToPool, loadPoolKw, saveLastChain, loadLastChain } from '../../api/cafeKwScan';
+import { addToPool, loadPoolKw, saveLastChain, loadLastChain, isSoloKw } from '../../api/cafeKwScan';
 import { CafeKwPool } from './CafeKwPool';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
@@ -1040,10 +1040,15 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         const t = scanTarget + MORE_STEP;
                         const ls = lastScanRef.current;
                         if (ls?.kind === 'chain') { void runChain(ls.products, t); return; }
-                        // 새로고침으로 메모리 기록이 비었으면 저장해 둔 직전 chain 키워드로 이어간다.
-                        //   (예전엔 여기서 지역형 경로로 빠져 '제품 키워드를 추가하세요'로 조용히 막혔다)
+                        // 새로고침으로 메모리 기록이 비었을 때의 대비 — 순서대로 되짚는다.
+                        //   ① 저장해 둔 직전 chain 키워드 ② 적재함에서 '지역 없이 잡힌 것'
+                        //   ★ ②가 필요한 이유(2026-08-13): ①은 이 기능이 들어간 뒤의 스캔부터만 쌓인다.
+                        //     그 전에 찾아 둔 상태에서는 ①이 비어 지역형 경로로 빠지고,
+                        //     제품키워드 칩이 없으면 '제품 키워드를 추가하세요'로 조용히 막혔다.
                         const saved = loadLastChain(clientId || 'me');
                         if (saved.length) { void runChain(saved, t); return; }
+                        const solo = pool.filter((k) => isSoloKw(k.keyword)).map((k) => k.keyword);
+                        if (solo.length) { void runChain(solo, t); return; }
                         if (ls?.kind === 'place' || isKw) { void runPlaceScan(t); return; }
                         void genRegionKeywords(t);
                     }}
