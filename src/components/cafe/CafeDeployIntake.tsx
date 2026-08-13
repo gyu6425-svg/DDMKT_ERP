@@ -17,6 +17,7 @@ import {
 import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, subCategories, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
 import { addToPool, loadPoolKw, saveLastChain, loadLastChain, isSoloKw } from '../../api/cafeKwScan';
 import { CafeKwPool } from './CafeKwPool';
+import { getRegionTokens, startsWithRegion } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { supabase } from '../../lib/supabase';
@@ -363,6 +364,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [seed, setSeed] = useState('');
     const [relCands, setRelCands] = useState<RelatedCand[] | null>(null);
     const [relPicked, setRelPicked] = useState<Set<string>>(new Set());
+    const [regionDropped, setRegionDropped] = useState(0);   // 지역이 붙어 후보에서 뺀 개수(조용한 절단 금지)
     // ★ 기본을 seed(씨앗어 포함)로 — near 기본이면 '창업'에 취업박람회·블로그·코인노래방 같은
     //   무관어가 섞인다(사장님 2026-08-11). 실측 993개 중 씨앗 미포함이 592개였다. 넓히려면 버튼으로.
     const [relTier, setRelTier] = useState<'seed' | 'near' | 'far'>('seed');
@@ -506,8 +508,16 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         if (!s) { setKwErr('씨앗 키워드를 입력하세요(예: 보홀 · 장기요양).'); return; }
         setKwErr(''); setExtracting(true); setRelCands(null); setKwResult(null);
         try {
-            const list = await expandRelated(s);
-            if (!list.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
+            const raw = await expandRelated(s);
+            if (!raw.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
+            // ★ 지역이 이미 붙은 연관어는 발굴 후보에서 뺀다(사장님 지적 2026-08-13).
+            //   '천안배달맛집'·'서울배달대행'·'청라재활' 같은 게 검색광고 연관어로 섞여 온다.
+            //   1)은 '무엇이 살아있나'만 보는 단계이고, 지역 붙이기는 적재함 한 곳에서만 한다.
+            //   조용히 자르지 않는다 — 몇 개를 뺐는지 아래 안내에 적는다.
+            const rtok = await getRegionTokens();
+            const list = raw.filter((x) => !startsWithRegion(x.kw, rtok));
+            setRegionDropped(raw.length - list.length);
+            if (!list.length) { setKwErr(`"${s}" 의 연관어가 전부 지역형입니다 — 적재함에서 지역을 붙여 보세요.`); return; }
             setRelCands(list);
             // ★ 기본 체크 = 씨앗어를 포함한 것(tier==='seed'). 옛 '의도어' 규칙은 재현율 7%였다
             //   (독립검증 2026-08-10: 의도어 96개·재현율 7% vs tier==seed 1509개·재현율 77%).
@@ -1261,6 +1271,12 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     {extracting ? '조회 중…' : '① 연관어 펼치기'}
                                 </button>
                             </div>
+                            {regionDropped ? (
+                            <p className="m-0 mt-1 text-[11px] font-semibold text-[#b45309]">
+                            ℹ 지역이 이미 붙은 연관어 <b>{regionDropped}개</b>는 후보에서 뻐습니다 — 여기는 ‘무엇이 살아있나’만 보는 단계입니다.
+                            지역 붙이기는 맨 위 적재함에서 합니다.
+                            </p>
+                            ) : null}
                             {seedBusy ? <p className="m-0 mt-1 text-[11px] font-semibold text-[#6d28d9]">🔎 {seedBusy}</p> : null}
                             {/* 캐시에서 곧바로 적재함에 들어간 것 — 스캔 0회로 얻은 것이라 어디서 왔는지는 알려 준다. */}
                             {cachedVia.length ? (

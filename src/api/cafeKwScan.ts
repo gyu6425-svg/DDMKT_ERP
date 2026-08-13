@@ -1002,6 +1002,40 @@ export function loadLastChain(who: string): string[] {
     }
 }
 
+// ── 지역 토큰 마스터 ────────────────────────────────────────────────────────
+//   ★ 왜 필요한가(사장님 지적 2026-08-13): 1)연관어로 찾기의 후보에 '천안배달맛집'·'서울배달대행'·
+//     '청라재활'처럼 지역이 이미 붙은 것이 섞여 온다. 검색광고 연관어라 붙어 있는 형태(공백 없음)가
+//     많아 isSoloKw(공백 유무)로는 못 거른다. 지역 마스터와 대조해야 안다.
+//   4,116개라 한 번 받아 모듈에 들고 있는다(재조회 없음).
+let _regionTokens: Set<string> | null = null;
+
+export async function getRegionTokens(): Promise<Set<string>> {
+    if (_regionTokens) return _regionTokens;
+    const out = new Set<string>();
+    try {
+        for (let off = 0; off < 6000; off += 1000) {
+            const { data } = await supabase.from('cafe_region_token')
+                .select('token').range(off, off + 999);
+            const rows = (data ?? []) as { token: string }[];
+            for (const r of rows) if (r.token) out.add(String(r.token));
+            if (rows.length < 1000) break;
+        }
+    } catch { /* 못 받으면 빈 집합 — 거르지 않는다(누락보다 낫다) */ }
+    _regionTokens = out;
+    return out;
+}
+
+// 키워드가 지역으로 시작하는가 — '수원 에폭시'(공백형)와 '청라재활'(붙은형) 둘 다 잡는다.
+//   2자 미만 토큰은 안 쓴다(오탐: '동'·'구' 등이 아무 단어나 잡는다).
+export function startsWithRegion(keyword: string, tokens: Set<string>): boolean {
+    const k = (keyword || '').replace(/\s/g, '');
+    if (!k) return false;
+    for (const t of tokens) {
+        if (t.length >= 2 && k.length > t.length && k.startsWith(t)) return true;
+    }
+    return false;
+}
+
 // 지역이 안 붙은 것(단독) — 지역을 곱해 물량을 늘릴 수 있는 실탄.
 //   지역이 이미 붙은 건 워커가 또 곱하지 않으므로(_product_place_head) 되먹여도 소용없다.
 export const isSoloKw = (kw: string) => !kw.includes(' ');

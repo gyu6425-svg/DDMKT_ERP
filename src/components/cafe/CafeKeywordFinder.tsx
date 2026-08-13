@@ -4,6 +4,7 @@ import { getClientPublishedKeywords } from '../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { addToPool, loadPoolKw, saveLastChain, loadLastChain, isSoloKw } from '../../api/cafeKwScan';
 import { CafeKwPool } from './CafeKwPool';
+import { getRegionTokens, startsWithRegion } from '../../api/cafeKwScan';
 
 // 목표채우기에서 지역을 안 골랐을 때 쓰는 기본 지역 — 화면에도 이 값을 그대로 적는다.
 const CHAIN_DEFAULT_REGIONS = ['서울', '경기', '인천'];
@@ -80,6 +81,7 @@ export function CafeKeywordFinder({
     const [seed, setSeed] = useState('');
     const [cands, setCands] = useState<RelatedCand[] | null>(null);
     const [relPicked, setRelPicked] = useState<Set<string>>(new Set());
+    const [regionDropped, setRegionDropped] = useState(0);   // 지역이 붙어 후보에서 뺀 개수(조용한 절단 금지)
     // 어디까지 보여줄지. ★ 기본을 seed(씨앗어 포함)로 둔다 — near 를 기본으로 뒀더니
     //   '창업'에 취업박람회·블로그·코인노래방·담가화로구이 같은 무관어가 섞여 나왔다(사장님 2026-08-11).
     //   실측(연관어 993개): 씨앗 포함 401 · 미포함 592 — 절반 넘게가 잡음이다.
@@ -517,8 +519,13 @@ export function CafeKeywordFinder({
         if (!s) { setKwErr('씨앗 키워드를 입력하세요(예: 보홀).'); return; }
         setKwErr(''); setExtracting('연관어 조회 중…'); setCands(null); setKwResult(null);
         try {
-            const list = await expandRelated(s);
-            if (!list.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
+            const raw = await expandRelated(s);
+            if (!raw.length) { setKwErr(`"${s}" 의 연관 키워드를 찾지 못했습니다.`); return; }
+            // ★ 지역이 이미 붙은 연관어는 발굴 후보에서 뺀다(고객ERP 와 동일).
+            const rtok = await getRegionTokens();
+            const list = raw.filter((x) => !startsWithRegion(x.kw, rtok));
+            setRegionDropped(raw.length - list.length);
+            if (!list.length) { setKwErr(`"${s}" 의 연관어가 전부 지역형입니다 — 적재함에서 지역을 붙여 보세요.`); return; }
             setCands(list);
             // '끝나는 것만' 기본값을 데이터가 정한다 — 씨앗이 뒤에 붙는 형태가 더 많을 때만 켠다.
             const inSeed = list.filter((x) => x.tier === 'seed');
@@ -829,6 +836,12 @@ export function CafeKeywordFinder({
                         <p className="m-0 text-[11px] font-semibold text-[#15803d]">
                             ✅ 이미 확인된 인기탭을 <b>{cachedVia.join(' · ')}</b> 로 찾아 위 적재함에 담았습니다 — 스캔 없이 바로 쓰실 수 있습니다.
                         </p>
+                    ) : null}
+                    {regionDropped ? (
+                    <p className="m-0 mt-1 text-[11px] font-semibold text-[#b45309]">
+                    ℹ 지역이 이미 붙은 연관어 <b>{regionDropped}개</b>는 후보에서 뻐습니다 — 여기는 ‘무엇이 살아있나’만 보는 단계입니다.
+                    지역 붙이기는 맨 위 적재함에서 합니다.
+                    </p>
                     ) : null}
                     {seedBusy ? <p className="m-0 text-[11px] font-semibold text-[#6d28d9]">🔎 {seedBusy} <span className="font-normal text-[#94a3b8]">— 검색광고 API라 인기탭 차단 예산과 무관합니다.</span></p> : null}
                     {/* (2026-08-13) 여기 있던 '발행할 지역' 칩 제거 — 정보형 블록에 같은 칩이,
