@@ -1104,17 +1104,26 @@ export function CafeKeywordFinder({
                                             </label>
                                         ))}
                                     </div>
-                                    <div className="mt-2 flex items-center gap-2">
-                                        <button type="button" onClick={() => void runMenuScan()} disabled={kwLoading || !picked.size} className="h-9 shrink-0 rounded-md bg-[#7c3aed] px-4 text-sm font-bold text-white disabled:opacity-50">{kwLoading ? '찾는 중…' : '③ 인기탭 찾기'}</button>
-                                        {kwResult && kwResult.length > 0 && (
-                                            <button type="button" onClick={() => void runMenuScan(regionTarget + MORE_STEP)} disabled={kwLoading}
-                                                className="h-9 shrink-0 rounded-md border border-[#4338ca] bg-white px-3 text-sm font-bold text-[#4338ca] disabled:opacity-50">＋{MORE_STEP} 더 찾기</button>
-                                        )}
-                                        <span className="text-[11px] text-[#64748b]">
-                                            {picked.size > 6
-                                                ? `⚠ ${picked.size}개는 조합이 많아 한 번에 다 못 봅니다 — 중요한 것부터 5~6개로 줄이면 빠릅니다.`
-                                                : '위치 주변부터 먼저 봅니다. 위 시도를 선택하면 그 지역 전체까지 넓힙니다.'}
-                                        </span>
+                                    {/* customer-ERP parity: judge without regions here; region expansion lives in the pool. */}
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                        {(() => {
+                                            const sel = (extracted || []).map((x) => x.kw).filter((k) => picked.has(k));
+                                            const done = !!scanDone && scanDone.sig === sigOf(sel) && sel.length > 0;
+                                            return (
+                                                <button type="button" onClick={() => void runSoloScan(sel)} disabled={kwLoading || !picked.size}
+                                                    className={`h-9 shrink-0 rounded-md px-4 text-sm font-bold text-white disabled:opacity-50 ${done ? 'bg-[#0f766e]' : 'bg-[#16a34a]'}`}
+                                                    title="체크한 키워드를 '지역 없이' 판정합니다. 지역 붙이기는 위 적재함에서 합니다.">
+                                                    {kwLoading ? '찾는 중…'
+                                                        : done ? `✓ 찾았습니다 — ${scanDone!.n}건 적재함에 · 다시 찾기`
+                                                            : `③ 인기탭 찾기 (지역 없이 ${sel.length}개)`}
+                                                </button>
+                                            );
+                                        })()}
+                                        {/* keep the address-based nearby scan: chain has no road-name strict check. */}
+                                        <button type="button" onClick={() => void runMenuScan()} disabled={kwLoading || !picked.size}
+                                            className="h-9 shrink-0 rounded-md border border-[#c4b5fd] bg-white px-3 text-[12px] font-bold text-[#6d28d9] disabled:opacity-50"
+                                            title="적어 주신 위치 주변부터 지역을 붙여 봅니다(도로명 검증 포함).">위치 주변까지 보기</button>
+                                        <span className="text-[11px] text-[#64748b]">여기서는 <b>지역 없이</b>만 봅니다 — 지역 붙이기는 맨 위 적재함에서.</span>
                                     </div>
                                 </div>
                             )}
