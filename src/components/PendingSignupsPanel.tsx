@@ -145,7 +145,11 @@ export default function PendingSignupsPanel() {
     //   그쪽은 곧바로 활성이라 대기 목록에 안 잡히는데, 실제로는 계속 들어오고 있었다.
     const [hist, setHist] = useState<SignupHistoryRow[]>([]);
     const [histOpen, setHistOpen] = useState(true);
+    // 구분 토글 — 대행사만 따로 보고 싶다는 요청(2026-08-13). 계약·단가가 달라 섞여 보면 고르기 어렵다.
+    const [histKind, setHistKind] = useState<'all' | 'agency' | 'viewer' | 'reporter'>('all');
     useEffect(() => { void listSignupHistory().then(setHist); }, []);
+    const histKindOf = (h: SignupHistoryRow) => (h.role === 'reporter' ? 'reporter' : h.is_agency ? 'agency' : 'viewer');
+    const histView = histKind === 'all' ? hist : hist.filter((h) => histKindOf(h) === histKind);
 
     return (
         <div>
@@ -254,13 +258,28 @@ export default function PendingSignupsPanel() {
                 <button type="button" onClick={() => setHistOpen((v) => !v)}
                     className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-[#f8fafc]">
                     <span className={`text-[10px] text-[#94a3b8] transition-transform ${histOpen ? 'rotate-90' : ''}`}>▶</span>
-                    <b className="text-[15px] text-[#111111]">가입 내역 {hist.length}건</b>
+                    <b className="text-[15px] text-[#111111]">가입 내역 {histView.length}건{histKind !== 'all' ? ` / 전체 ${hist.length}` : ''}</b>
                     <span className="text-[12px] text-[#94a3b8]">최근 가입한 고객·기자단 (승인 여부 포함)</span>
                     <span className="ml-auto rounded-full bg-[#fef3c7] px-2 py-0.5 text-[11px] font-bold text-[#92400e]">
                         대행사 {hist.filter((h) => h.is_agency).length}
                     </span>
                 </button>
                 {histOpen ? (
+                    <>
+                    {/* 구분 토글 — 대행사/고객/기자단을 나눠 본다. 개수는 실제 데이터에서 센다. */}
+                    <div className="flex flex-wrap items-center gap-1.5 border-t border-[#eef0f2] px-4 py-2">
+                        {([['all', '전체'], ['agency', '대행사'], ['viewer', '고객'], ['reporter', '기자단']] as const).map(([k, label]) => {
+                            const n = k === 'all' ? hist.length : hist.filter((h) => histKindOf(h) === k).length;
+                            const on = histKind === k;
+                            return (
+                                <button key={k} type="button" onClick={() => setHistKind(k)}
+                                    className={`rounded-full border px-3 py-1 text-[12px] font-bold ${on
+                                        ? 'border-[#1e40af] bg-[#1e40af] text-white' : 'border-[#cbd5e1] bg-white text-[#475569] hover:bg-[#f1f5f9]'}`}>
+                                    {label} <span className={on ? 'opacity-80' : 'text-[#94a3b8]'}>{n}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
                     <div className="overflow-x-auto border-t border-[#eef0f2]">
                         <table className="w-full min-w-[820px] border-collapse text-left text-[13px]">
                             <thead>
@@ -271,7 +290,7 @@ export default function PendingSignupsPanel() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {hist.map((h) => (
+                                {histView.map((h) => (
                                     <tr className="border-b border-[#f8fafc] text-[#334155]" key={h.id}>
                                         <td className="whitespace-nowrap px-3 py-2 text-[12px] text-[#64748b]">{h.created_at.slice(0, 16).replace('T', ' ')}</td>
                                         <td className="whitespace-nowrap px-3 py-2 font-semibold">{h.name || '-'}</td>
@@ -292,12 +311,13 @@ export default function PendingSignupsPanel() {
                                         </td>
                                     </tr>
                                 ))}
-                                {hist.length === 0 ? (
+                                {histView.length === 0 ? (
                                     <tr><td className="px-3 py-8 text-center text-[#94a3b8]" colSpan={7}>가입 내역이 없습니다.</td></tr>
                                 ) : null}
                             </tbody>
                         </table>
                     </div>
+                    </>
                 ) : null}
             </div>
 
