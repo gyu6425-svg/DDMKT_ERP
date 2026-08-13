@@ -169,6 +169,31 @@ export function CafeKeywordFinder({
     //   regionsOverride: 적재함 패널이 자기 지역 칩으로 돌릴 때 쓴다(아래 지역 선택과 별개).
     // 이미 다 찾은 조합인지 — 같은 묶음을 또 돌리지 않게 버튼 상태로 알린다.
     const sigOf = (kws: string[]) => [...kws].sort().join('|');
+    // 발굴 전용 스캔 — 지역을 붙이지 않고 '이 키워드 자체가 인기탭인가'만 본다(워커 process_list).
+    //   ★ 왜 chain 이 아닌가(사장님 지적 2026-08-13): 1)연관어 · 2)주소는 '발굴' 단계인데
+    //     chain 은 단독 판정이 끝나면 곧바로 지역을 곱해서 발굴 화면에 '수원 OO'가 섞여 나왔다.
+    //     지역 확장은 적재함의 '지역 붙여 더 찾기' 한 곳에서만 한다.
+    //   ★ 목표는 키워드 수 이상 — 캐시 양성이 목표를 먼저 채우면 라이브를 한 건도 안 본다.
+    const runSoloScan = async (keywords: string[]) => {
+        const list = [...new Set(keywords.map((k) => k.trim()).filter(Boolean))];
+        if (!list.length) { setKwErr('먼저 키워드를 체크하세요.'); return; }
+        setKwErr(''); setKwLoading(true); setScanNote('지역 없이 판정 중…'); setRegionTarget(FIRST_TARGET);
+        lastScanRef.current = { kind: 'chain', products: list };
+        saveLastChain(clientId || 'me', list);
+        try {
+            const { id, error } = await enqueueListScan(list, list.length + FIRST_TARGET);
+            if (error || !id) throw new Error(error?.message || '등록 실패');
+            savePendingScan(id, 'list', `지역없이 ${list.length}개 판정`);
+            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
+            pushLive(result);
+            setScanDone({ sig: sigOf(list), n: result.length, target: FIRST_TARGET });
+            if (!result.length) { setKwErr('이 키워드들은 지역 없이는 인기탭이 없습니다 — 적재함에서 지역을 붙여 보세요.'); return; }
+        } catch (e) {
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '조회 실패');
+        } finally { setKwLoading(false); setScanNote(''); }
+    };
     const [scanDone, setScanDone] = useState<{ sig: string; n: number; target: number } | null>(null);
     const runChain = async (products: string[], target = FIRST_TARGET, regionsOverride?: string[]) => {
         if (!products.length) { setKwErr('먼저 키워드가 있어야 합니다.'); return; }
@@ -970,21 +995,20 @@ export function CafeKeywordFinder({
                                     const done = !!scanDone && scanDone.sig === sigOf(sel) && sel.length > 0;
                                     return (
                                         <button type="button" disabled={kwLoading || !relPicked.size}
-                                            onClick={() => void runChain(sel, done ? scanDone!.target + MORE_STEP : FIRST_TARGET)}
+                                            onClick={() => void runSoloScan(sel)}
                                             className={`h-9 shrink-0 rounded-md px-4 text-sm font-bold text-white disabled:opacity-50 ${done ? 'bg-[#16a34a]' : 'bg-[#7c3aed]'}`}
                                             title={done
                                                 ? '이 조합은 이미 다 봤습니다. 더 필요하면 눌러 목표를 올려 이어서 찾습니다.'
                                                 : '① 체크한 키워드를 지역 없이 전부 판정 → ② 그 뒤 지역 전수.'}>
                                             {kwLoading ? '찾는 중…'
                                                 : !relPicked.size ? '↑ 키워드를 체크하세요'
-                                                    : done ? `✓ 찾았습니다 — ${scanDone!.n}건 적재함에 · ＋${MORE_STEP} 더 찾기`
-                                                        : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
+                                                    : done ? `✓ 찾았습니다 — ${scanDone!.n}건 적재함에 · 다시 찾기`
+                                                        : `③ 인기탭 찾기 (지역 없이 ${sel.length}개)`}
                                         </button>
                                     );
                                 })()}
                                 <span className="text-[11px] text-[#64748b]">
-                                    ① 지역 없이 먼저 · ② 그 뒤 <b>{(regionSel.length ? regionSel : CHAIN_DEFAULT_REGIONS).join('·')}</b>
-                                    {regionSel.length ? '' : ' (기본값 — 위에서 바꿀 수 있습니다)'}
+                                    여기서는 <b>지역 없이</b>만 봅니다 — 지역 붙이기는 맨 위 적재함에서.
                                 </span>
                                 <span className="text-[11px] text-[#64748b]">
                                     {relPicked.size > REL_MAX

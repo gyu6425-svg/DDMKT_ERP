@@ -335,7 +335,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         const add = checked.filter((k) => !productKws.includes(k));
         if (add.length) set('product_keywords', [...productKws, ...add]);
         setExtracted(null); setPicked(new Set()); setKwErr('');
-        void runChain(checked);
+        void runSoloScan(checked);
     };
     // 직접형 — 입력한 키워드를 인기탭 확인 없이 바로 선택 키워드(kwPicked)로. 최대 50개·중복 제거.
     const addManualKw = () => {
@@ -403,6 +403,32 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   조합을 정렬해 이어 붙인 것이 서명. 체크를 하나라도 바꾸면 서명이 달라져 다시 '찾기'로 돌아온다.
     const sigOf = (kws: string[]) => [...kws].sort().join('|');
     const [scanDone, setScanDone] = useState<{ sig: string; n: number; target: number } | null>(null);
+    // 발굴 전용 스캔 — 지역을 붙이지 않고 '이 키워드 자체가 인기탭인가'만 본다(워커 process_list).
+    //   ★ 왜 chain 이 아닌가(사장님 지적 2026-08-13): 1)연관어로 찾기 · 2)주소로 찾기는 '발굴' 단계다.
+    //     chain 은 단독 판정이 끝나면 곧바로 지역을 곱하기 시작해서, 발굴 화면에 '수원 OO' 같은
+    //     지역 키워드가 섞여 나왔다. 지역 확장은 적재함의 '지역 붙여 더 찾기' 한 곳에서만 해야
+    //     "무엇이 살아있나"와 "어디에 팔까"가 안 섞인다.
+    //   ★ 목표는 키워드 수 이상으로 잡는다 — 캐시 양성이 목표를 먼저 채우면 라이브를 한 건도 안 본다.
+    const runSoloScan = async (keywords: string[]) => {
+        const list = [...new Set(keywords.map((k) => k.trim()).filter(Boolean))];
+        if (!list.length) { setKwErr('먼저 키워드를 체크하세요.'); return; }
+        setKwErr(''); setKwLoading(true); setScanNote('지역 없이 판정 중…'); setScanTarget(FIRST_TARGET);
+        lastScanRef.current = { kind: 'chain', products: list };   // ＋더 찾기가 이어받을 수 있게
+        saveLastChain(clientId || 'me', list);
+        try {
+            const { id, error } = await enqueueListScan(list, list.length + FIRST_TARGET);
+            if (error || !id) throw new Error(error?.message || '등록 실패');
+            savePendingScan(id, 'list', `지역없이 ${list.length}개 판정`);
+            const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
+            pushLive(result);
+            setScanDone({ sig: sigOf(list), n: result.length, target: FIRST_TARGET });
+            if (!result.length) { setKwErr('이 키워드들은 지역 없이는 인기탭이 없습니다 — 적재함에서 지역을 붙여 보세요.'); return; }
+        } catch (e) {
+            const m = e instanceof Error ? e.message : '';
+            if (/아직 분석 중/.test(m)) setResumeTick((t) => t + 1);
+            setKwErr(m || '조회 실패');
+        } finally { setKwLoading(false); setScanNote(''); }
+    };
     // 목표 채우기 — 후보를 순서대로 끝까지 파서 목표 건수를 채운다(워커 process_chain).
     //   ★ 사장님 설계: 첫 키워드에서 다 채우면 오히려 좋다 — 제품 우선으로 깊게 판다.
     //     각 키워드의 '단독(지역 없음)' 판정도 맨 앞에서 같이 본다.
@@ -1399,21 +1425,20 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                             const done = !!scanDone && scanDone.sig === sigOf(sel) && sel.length > 0;
                                             return (
                                                 <button type="button" disabled={kwLoading || !relPicked.size}
-                                                    onClick={() => void runChain(sel, done ? scanDone!.target + MORE_STEP : FIRST_TARGET)}
+                                                    onClick={() => void runSoloScan(sel)}
                                                     className={`h-9 shrink-0 rounded-md px-4 text-sm font-bold text-white disabled:opacity-50 ${done ? 'bg-[#16a34a]' : 'bg-[#7c3aed]'}`}
                                                     title={done
                                                         ? '이 조합은 이미 다 봤습니다. 더 필요하면 눌러서 목표를 올려 이어서 찾습니다(이미 본 건 건너뜁니다).'
                                                         : '① 체크한 키워드를 지역 없이 전부 판정 → ② 그 뒤 지역 전수. 30건 채우면 멈춥니다.'}>
                                                     {kwLoading ? '찾는 중…'
                                                         : !relPicked.size ? '↑ 키워드를 체크하세요'
-                                                            : done ? `✓ 찾았습니다 — ${scanDone!.n}건 적재함에 · ＋${MORE_STEP} 더 찾기`
-                                                                : `③ 인기탭 찾기 (${FIRST_TARGET}건 채우면 멈춤)`}
+                                                            : done ? `✓ 찾았습니다 — ${scanDone!.n}건 적재함에 · 다시 찾기`
+                                                                : `③ 인기탭 찾기 (지역 없이 ${sel.length}개)`}
                                                 </button>
                                             );
                                         })()}
                                         <span className="text-[11px] text-[#64748b]">
-                                            ① 지역 없이 먼저 · ② 그 뒤 <b>{((form.region_sets || []).length ? (form.region_sets || []) : CHAIN_DEFAULT_REGIONS).join('·')}</b>
-                                            {(form.region_sets || []).length ? '' : ' (기본값)'}
+                                            여기서는 <b>지역 없이</b>만 봅니다 — 지역 붙이기는 맨 위 적재함에서.
                                         </span>
                                         <span className="text-[11px] text-[#64748b]">
                                             {relPicked.size > REL_MAX
