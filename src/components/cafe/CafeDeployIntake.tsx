@@ -1546,6 +1546,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                                 <button type="button" onClick={confirmExtracted} disabled={!picked.size || kwLoading}
                                                     className="h-9 rounded-md border border-[#c7d2fe] bg-white px-3 text-[12px] font-bold text-[#4338ca] disabled:opacity-50"
                                                     title="스캔하지 않고 제품키워드 칩으로만 넣습니다.">제품키워드로만 추가</button>
+                                                {/* 위치 기반 근접 스캔(menu 라우트) — 아래 '지역 키워드 생성'을 없애면서 이리로 옮겼다.
+                                                    chain 에는 도로명 strict 검증이 없어 대체되지 않는다(독립검증 지적).
+                                                    위치를 적어 주셨을 때만 쓴다. 회사ERP 의 '위치 주변까지 보기'와 같다. */}
+                                                {ownAddr.trim() ? (
+                                                    <button type="button" onClick={() => void genRegionKeywords()} disabled={!picked.size || kwLoading}
+                                                        className="h-9 rounded-md border border-[#c4b5fd] bg-white px-3 text-[12px] font-bold text-[#6d28d9] disabled:opacity-50"
+                                                        title="적어 주신 위치 주변부터 지역을 붙여 봅니다(도로명 검증 포함).">위치 주변까지 보기</button>
+                                                ) : null}
                                                 <span className="text-[11px] text-[#64748b]">찾은 건 맨 위 적재함에 쌓입니다 — ①에서 찾은 것과 합쳐집니다.</span>
                                             </div>
                                         </div>
@@ -1622,7 +1630,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             {isKw ? kwPanel : null}
                         </div>
                     ) : null}
-                    {isRegionLike ? (
+                    {/* (2026-08-13) 지역 선택은 지역형에서만 — 정보형에서는 뺐다.
+                        정보형의 1)2)는 '지역 없이'만 판정하고, 지역 붙이기는 맨 위 적재함의 전용 칩으로 한다.
+                        여기까지 두면 같은 걸 세 군데서 고르게 된다(사장님 지시). */}
+                    {isRegion ? (
                         <div className="md:col-span-2">
                             <label className={labelCls}>지역 선택 (복수)</label>
                             <div className="flex flex-wrap gap-2">
@@ -1640,7 +1651,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         </div>
                     ) : null}
                     {/* 인기탭·직접입력형은 위 전용 블록에서 키워드를 이미 받는다 — 같은 입력칸을 두 번 보이지 않게 숨긴다. */}
-                    <div className={`md:col-span-2 ${isPopManual || isRelated ? 'hidden' : ''}`}>
+                    {/* 정보형에서도 숨긴다(2026-08-13) — 2)주소로 찾기 안에서 체크 → 인기탭 찾기까지 끝나므로
+                        같은 키워드를 다시 칩으로 넣고 또 찾는 칸이 필요 없다. 제품키워드 자체는
+                        '제품키워드로만 추가'가 계속 채우고 접수 레코드에도 그대로 저장된다. */}
+                    <div className={`md:col-span-2 ${isPopManual || isRelated || isInfo ? 'hidden' : ''}`}>
                         <label className={labelCls}>{isKw ? '키워드' : isManual ? '발행 키워드 (직접 입력)' : '제품 키워드 (업종)'}</label>
                         <div className="flex gap-2">
                             <input className={inputCls} value={form.keyword}
