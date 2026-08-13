@@ -1244,7 +1244,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 <div data-tour="cafe-deploy-type" className="mb-4">
                     <label className={labelCls}>배포 종류</label>
                     {/* 선택은 설명 카드로만 한다(위 토글 제거 — 같은 걸 두 번 고르게 만들 필요가 없다). */}
-                    <div className="mt-1 grid gap-1.5 sm:grid-cols-2">
+                    {/* data-tour: 바깥 cafe-deploy-type 은 전용 블록까지 다 감싸 너무 넓다 → 카드 그리드만 따로 짚는다. */}
+                    <div data-tour="cafe-deploy-type-cards" className="mt-1 grid gap-1.5 sm:grid-cols-2">
                         {([
                             ['일반 배포', '직접형', '인기탭을 따지지 않고, 적어 주신 키워드 그대로 발행합니다.'],
                             ['인기탭 배포', '지역형', '실제 인기글 섹션에 들어갈 수 있는 키워드만 골라 발행합니다.'],
@@ -1261,7 +1262,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     </div>
 
                     {!isManual ? (
-                        <div className="mt-3">
+                        <div data-tour="cafe-deploy-kwmode" className="mt-3">
                             <label className={labelCls}>키워드 잡는 방식</label>
                             {/* 5가지 방식 = 설명 카드로만 선택(위 토글 제거). */}
                             <div className="mt-1 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -1294,7 +1295,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         전국형 간병인업체 + 지역형 간병인(지역 붙이면 46건). 업종에 따라 정답이 갈려
                         둘 다 시도한다. */}
                     {isInfo || isRelated ? (
-                        <div data-tour="cafe-deploy-kw" className="mt-3 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
+                        <div data-tour="cafe-deploy-kw-seed" className="mt-3 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
                             {/* 정보형 안의 ①번 방법 — 대표 단어(씨앗)에서 연관어를 펼쳐 인기탭을 찾는다. */}
                             <div className="mb-2 flex items-center gap-2">
                                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#6d28d9] text-[13px] font-bold text-white">1</span>
@@ -1515,7 +1516,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         </div>
                     ) : null}
                             {isInfo ? (
-                            <div className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
+                            <div data-tour="cafe-deploy-kw-site" className="mt-2 rounded-md border border-dashed border-[#c4b5fd] bg-[#faf5ff] px-3 py-2">
                                 {/* 정보형 안의 ②번 방법 — 주소에서 원문을 걷어 키워드를 뽑는다. ①과 같은 적재함에 쌓인다. */}
                                 <div className="mb-1 flex items-center gap-2">
                                     <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#6d28d9] text-[13px] font-bold text-white">2</span>
@@ -1612,7 +1613,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                             ) : null}
 
                     {isPopManual ? (
-                        <div data-tour="cafe-deploy-kw" className="mt-3 rounded-md border border-dashed border-[#a5b4fc] bg-[#eef2ff] px-3 py-2">
+                        <div data-tour="cafe-deploy-kw-manual" className="mt-3 rounded-md border border-dashed border-[#a5b4fc] bg-[#eef2ff] px-3 py-2">
                             <div className="flex gap-2">
                                 <input className={inputCls} value={form.keyword}
                                     onChange={(e) => set('keyword', e.target.value)}
@@ -1647,7 +1648,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
 
                 {/* data-deploy-type — 사용 가이드(CustomerGuide)가 읽어 방식별 안내로 바꾼다. */}
                 <div data-tour="cafe-deploy-basic" data-deploy-type={form.deploy_type} className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div className="md:col-span-2">
+                    <div data-tour="cafe-deploy-company" className="md:col-span-2">
                         <label className={labelCls}>
                         업체명 *
                         {/* 담당자가 미리보기로 남의 화면을 볼 때 어느 업체인지 분명히 보이게 한다. */}
@@ -1656,7 +1657,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <input className={inputCls} value={form.company_name} onChange={(e) => set('company_name', e.target.value)} placeholder="test" />
                     </div>
                     {!isManual ? (
-                        <div className="md:col-span-2">
+                        <div data-tour="cafe-deploy-url" className="md:col-span-2">
                             <label className={labelCls}>{isKw ? '플레이스 주소 (URL) *' : '홈페이지 (선택)'}</label>
                             <div className="flex gap-2">
                                 <input className={inputCls} value={form.url} onChange={(e) => set('url', e.target.value)} placeholder={isKw ? 'https://naver.me/... 또는 place.naver.com/...' : 'www.homepage.com'} />
@@ -1683,7 +1684,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         정보형의 1)2)는 '지역 없이'만 판정하고, 지역 붙이기는 맨 위 적재함의 전용 칩으로 한다.
                         여기까지 두면 같은 걸 세 군데서 고르게 된다(사장님 지시). */}
                     {isRegion ? (
-                        <div className="md:col-span-2">
+                        <div data-tour="cafe-deploy-region" className="md:col-span-2">
                             <label className={labelCls}>지역 선택 (복수)</label>
                             <div className="flex flex-wrap gap-2">
                                 {REGION_KEYS.map((r) => (
@@ -1703,7 +1704,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     {/* 정보형에서도 숨긴다(2026-08-13) — 2)주소로 찾기 안에서 체크 → 인기탭 찾기까지 끝나므로
                         같은 키워드를 다시 칩으로 넣고 또 찾는 칸이 필요 없다. 제품키워드 자체는
                         '제품키워드로만 추가'가 계속 채우고 접수 레코드에도 그대로 저장된다. */}
-                    <div className={`md:col-span-2 ${isPopManual || isRelated || isInfo ? 'hidden' : ''}`}>
+                    <div data-tour="cafe-deploy-keyword" className={`md:col-span-2 ${isPopManual || isRelated || isInfo ? 'hidden' : ''}`}>
                         <label className={labelCls}>{isKw ? '키워드' : isManual ? '발행 키워드 (직접 입력)' : '제품 키워드 (업종)'}</label>
                         <div className="flex gap-2">
                             <input className={inputCls} value={form.keyword}
@@ -1752,23 +1753,26 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     </div>
                     {/* 직접입력형·연관형 결과 — 위 블록이 숨겨져 있으므로 여기서 따로 보여준다. */}
                     {isPopManual || isRelated ? <div className="md:col-span-2">{kwPanel}</div> : null}
-                    <div>
-                        <label className={labelCls}>미션 시작일</label>
-                        <input className={inputCls} type="date" value={form.mission_start} onChange={(e) => set('mission_start', e.target.value)} />
-                    </div>
-                    <div>
-                        <label className={labelCls}>일 발행건수 <span className="font-normal text-[#94a3b8]">(최대 5)</span></label>
-                        <input className={inputCls} type="number" min={0} max={5} value={form.daily_count ?? ''}
-                            onChange={(e) => set('daily_count', e.target.value === '' ? null : Math.min(5, Math.max(0, Number(e.target.value))))}
-                            placeholder="최대 5건" />
-                    </div>
-                    <div>
-                        <label className={labelCls}>총 발행건수 <span className="font-normal text-[#94a3b8]">(제한 없음)</span></label>
-                        <input className={inputCls} type="number" min={0} value={form.total_count ?? ''} onChange={(e) => set('total_count', e.target.value === '' ? null : Math.max(0, Number(e.target.value)))} placeholder="0건" />
-                    </div>
-                    <div>
-                        <label className={labelCls}>상품종류</label>
-                        <input className={`${inputCls} bg-[#f8fafc] text-[#64748b]`} value={PRODUCT_FIXED} readOnly disabled />
+                    {/* 발행 일정 4칸을 한 덩어리로 — 가이드가 '언제·얼마나'를 한 번에 짚을 수 있게 래퍼로 묶는다. */}
+                    <div data-tour="cafe-deploy-schedule" className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:col-span-2 lg:grid-cols-4">
+                        <div>
+                            <label className={labelCls}>미션 시작일</label>
+                            <input className={inputCls} type="date" value={form.mission_start} onChange={(e) => set('mission_start', e.target.value)} />
+                        </div>
+                        <div>
+                            <label className={labelCls}>일 발행건수 <span className="font-normal text-[#94a3b8]">(최대 5)</span></label>
+                            <input className={inputCls} type="number" min={0} max={5} value={form.daily_count ?? ''}
+                                onChange={(e) => set('daily_count', e.target.value === '' ? null : Math.min(5, Math.max(0, Number(e.target.value))))}
+                                placeholder="최대 5건" />
+                        </div>
+                        <div>
+                            <label className={labelCls}>총 발행건수 <span className="font-normal text-[#94a3b8]">(제한 없음)</span></label>
+                            <input className={inputCls} type="number" min={0} value={form.total_count ?? ''} onChange={(e) => set('total_count', e.target.value === '' ? null : Math.max(0, Number(e.target.value)))} placeholder="0건" />
+                        </div>
+                        <div>
+                            <label className={labelCls}>상품종류</label>
+                            <input className={`${inputCls} bg-[#f8fafc] text-[#64748b]`} value={PRODUCT_FIXED} readOnly disabled />
+                        </div>
                     </div>
                     <div className="md:col-span-2">
                         <label className={labelCls}>비고</label>
