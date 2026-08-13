@@ -15,7 +15,7 @@ import {
     type DeployCredential,
 } from '../../api/cafeDeployRequests';
 import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, enqueueMenuScan, expandRelated, extractMenuKeywords, fetchSiteText, relatedStems, searchCachedPopular, getRegionGuTokens, getPopularFromCache, FIRST_TARGET, MORE_STEP, savePendingScan, savePendingProgress, clearPendingScan, loadPendingScan, peekScans, cancelScans, enqueueRecheckScan, getClientBrands, hasClientBrand, subCategories, loadPickedKw, savePickedKw, getProvenProducts, discoverSeeds, enqueueChainScan, SEED_OVERLAP_MIN, type ProvenProduct, type SeedCand, type PendingScan, type ExtractedProduct, type KwResult, type RelatedCand } from '../../api/cafeKwScan';
-import { addToPool, loadPoolKw } from '../../api/cafeKwScan';
+import { addToPool, loadPoolKw, saveLastChain, loadLastChain } from '../../api/cafeKwScan';
 import { CafeKwPool } from './CafeKwPool';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
@@ -413,6 +413,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         const sidos = regionsOverride?.length ? regionsOverride : (picked.length ? picked : CHAIN_DEFAULT_REGIONS);
         setKwErr(''); setKwLoading(true); setScanNote('목표 채우기 시작…'); setScanTarget(target);
         lastScanRef.current = { kind: 'chain', products };
+        saveLastChain(clientId || 'me', products);   // 새로고침해도 ＋더 찾기가 같은 걸 이어서 판다
         // 누적이므로 직전 저장분을 지우지 않는다 — 지우면 이 시점에 새로고침한 사장님이 앞선 결과를 잃는다.
         //   savePendingScan 은 기존 기록 위에 이어 붙인다.
         try {
@@ -1039,13 +1040,19 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         const t = scanTarget + MORE_STEP;
                         const ls = lastScanRef.current;
                         if (ls?.kind === 'chain') { void runChain(ls.products, t); return; }
+                        // 새로고침으로 메모리 기록이 비었으면 저장해 둔 직전 chain 키워드로 이어간다.
+                        //   (예전엔 여기서 지역형 경로로 빠져 '제품 키워드를 추가하세요'로 조용히 막혔다)
+                        const saved = loadLastChain(clientId || 'me');
+                        if (saved.length) { void runChain(saved, t); return; }
                         if (ls?.kind === 'place' || isKw) { void runPlaceScan(t); return; }
                         void genRegionKeywords(t);
                     }}
                         disabled={kwLoading}
                         className="mt-1.5 w-full rounded-md border border-[#c4b5fd] bg-white py-1.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#f5f3ff] disabled:opacity-50"
                         title="이번 회차는 30건에서 멈춥니다. 부족하면 10건씩 이어서 찾습니다(이미 본 조합은 건너뜁니다).">
-                        {kwLoading ? '이어서 찾는 중…' : `＋${MORE_STEP} 더 찾기 (지금 ${kwResult.length}개 · 목표 ${scanTarget + MORE_STEP}개)`}
+                        {/* '목표 N개'를 그대로 적으면 이미 찾은 수보다 작아 보여 헷갈린다(지금 61개 · 목표 40개).
+                            실제 목표에는 이미 아는 만큼이 자동으로 더해지므로, 새로 몇 개를 더 볼지로 적는다. */}
+                        {kwLoading ? '이어서 찾는 중…' : `＋${MORE_STEP} 더 찾기 (지금 ${kwResult.length}개 · ${MORE_STEP}개 더)`}
                     </button>
                 </div>
                 );

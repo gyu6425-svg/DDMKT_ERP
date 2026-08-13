@@ -977,6 +977,31 @@ export function addToPool(who: string, rows: KwResult[]): KwResult[] {
     return kept;
 }
 
+// 직전 목표채우기(chain)에 넣은 키워드 — '＋10 더 찾기'가 새로고침 뒤에도 같은 걸 이어서 판다.
+//   ★ 왜(2026-08-13 실측): lastScanRef 는 메모리라 새로고침하면 비었다. 그러면 ＋10 이
+//     chain 이 아니라 지역형 경로로 빠지고, 제품키워드 칩이 없으면 '추가하세요'로 조용히 막혔다.
+//     화면상 아무 일도 안 일어나 '＋10이 안 된다'로 보였다(요청이 아예 안 만들어짐).
+const LASTCHAIN_KEY = (who: string) => `ddmkt.cafeKw.lastChain.${who || 'me'}`;
+
+export function saveLastChain(who: string, products: string[]): void {
+    try {
+        if (!products.length) localStorage.removeItem(LASTCHAIN_KEY(who));
+        else localStorage.setItem(LASTCHAIN_KEY(who), JSON.stringify({ at: Date.now(), products }));
+    } catch { /* 무시 */ }
+}
+
+export function loadLastChain(who: string): string[] {
+    try {
+        const raw = localStorage.getItem(LASTCHAIN_KEY(who));
+        if (!raw) return [];
+        const v = JSON.parse(raw) as { at?: number; products?: string[] };
+        if (!v?.products?.length || Date.now() - (v.at || 0) > 7 * 24 * 3600 * 1000) return [];
+        return v.products;
+    } catch {
+        return [];
+    }
+}
+
 // 지역이 안 붙은 것(단독) — 지역을 곱해 물량을 늘릴 수 있는 실탄.
 //   지역이 이미 붙은 건 워커가 또 곱하지 않으므로(_product_place_head) 되먹여도 소용없다.
 export const isSoloKw = (kw: string) => !kw.includes(' ');

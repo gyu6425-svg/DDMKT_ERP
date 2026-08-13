@@ -765,8 +765,14 @@ export function CafeKeywordFinder({
             {/* 연관 인기글 찾기 — 씨앗어 하나에서 연관 키워드를 펼쳐 인기탭을 찾는다.
                 기존 3모드는 '한국 행정지역 × 제품'이 전제라 보홀·하와이 같은 해외지명이나
                 취미어를 다루지 못했다. 여기선 지역 축 없이 연관어 자체를 판정한다. */}
-            {mode === 'related' ? (
+            {mode === 'related' || mode === 'info' ? (
                 <div className="grid gap-2">
+                    {/* 정보형 안의 1번 방법 — 대표 단어(씨앗)에서 연관어를 펼쳐 인기탭을 찾는다. */}
+                    <div className="flex items-center gap-2">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#6d28d9] text-[13px] font-bold text-white">1</span>
+                        <b className="text-[13px] text-[#5b21b6]">연관어로 찾기</b>
+                        <span className="text-[11px] text-[#94a3b8]">대표 단어 → 연관어 펼치기 → 인기탭 찾기 · 찾은 건 위 적재함에 쌓입니다</span>
+                    </div>
                     <div className="flex flex-wrap gap-2">
                         <input className={`${inputCls} flex-1 min-w-[200px]`} value={seed}
                             onChange={(e) => setSeed(e.target.value)}
@@ -784,18 +790,8 @@ export function CafeKeywordFinder({
                         </button>
                     </div>
                     {seedBusy ? <p className="m-0 text-[11px] font-semibold text-[#6d28d9]">🔎 {seedBusy} <span className="font-normal text-[#94a3b8]">— 검색광고 API라 인기탭 차단 예산과 무관합니다.</span></p> : null}
-                    {/* ★ 지역을 처음부터 고른다 — '③ 인기탭 찾기'가 곧바로 이 지역 전수를 돌기 때문이다.
-                        예전엔 결과가 나온 뒤에야 지역을 골랐는데, 그때는 스캔이 이미 끝나 있었다. */}
-                    <div className="flex flex-wrap items-center gap-1 rounded-md border border-[#c4b5fd] bg-white px-2 py-1.5">
-                        <span className="mr-1 text-[11px] font-bold text-[#6d28d9]">발행할 지역</span>
-                        {REGION_KEYS.map((r) => (
-                            <button key={r} type="button" onClick={() => toggleRegion(r)}
-                                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${regionSel.includes(r) ? 'border-[#6d28d9] bg-[#6d28d9] text-white' : 'border-[#ddd6fe] bg-white text-[#6d28d9]'}`}>{r}</button>
-                        ))}
-                        <span className="ml-1 text-[11px] text-[#94a3b8]">
-                            {regionSel.length ? `이 지역의 전 지역을 봅니다` : '하나 이상 골라야 인기탭 찾기가 됩니다'}
-                        </span>
-                    </div>
+                    {/* (2026-08-13) 여기 있던 '발행할 지역' 칩 제거 — 정보형 블록에 같은 칩이,
+                        위쪽 발굴 적재함에도 전용 칩이 있어 셋이 겹쳤다. 지역은 2단계에서만 쓰인다. */}
                     {/* 발굴 결과 — '새로 물어오는 개수'는 실제로 조회해서 잰 값이다(추측 아님). */}
                     {seedCands?.length ? (
                         <div className="rounded-md border border-[#c4b5fd] bg-[#faf5ff] p-2">
