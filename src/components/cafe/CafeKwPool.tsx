@@ -18,6 +18,7 @@ export function CafeKwPool({
     onRunChain,
     busy = false,
     onPick,
+    isUsed,
 }: {
     who: string;                                     // 업체 키(client_id) — 업체별로 따로 쌓는다
     rows: KwResult[];                                // 적재함 내용(부모가 들고 있어야 스캔 결과와 동기화된다)
@@ -25,6 +26,8 @@ export function CafeKwPool({
     onRunChain: (keywords: string[], regions: string[]) => void;
     busy?: boolean;
     onPick?: (rows: KwResult[]) => void;             // 보관함(발행 대상)으로 담기
+    // 이미 발행·선택한 키워드 — 아래 결과 목록을 없앴으므로 중복 방지 표시를 여기로 옮겼다.
+    isUsed?: (kw: string) => boolean;
 }) {
     const [open, setOpen] = useState(true);
     const [sel, setSel] = useState<Set<string>>(new Set());
@@ -74,7 +77,7 @@ export function CafeKwPool({
                 <span className="text-[11px] text-[#94a3b8]">모드를 바꿔 조회해도 계속 쌓입니다 · 업체별 30일 보관</span>
                 <span className="ml-auto flex items-center gap-1.5">
                     {onPick ? (
-                        <button type="button" onClick={() => onPick(view.filter((r) => !sel.size || sel.has(r.keyword)))}
+                        <button type="button" onClick={() => onPick(view.filter((r) => (!sel.size || sel.has(r.keyword)) && !(isUsed?.(r.keyword))))}
                             className="rounded border border-[#4338ca] bg-white px-2 py-1 text-[11px] font-bold text-[#4338ca] hover:bg-[#eef2ff]">
                             {sel.size ? `고른 ${sel.size}개 담기` : `보이는 ${view.length}개 담기`}
                         </button>
@@ -130,12 +133,20 @@ export function CafeKwPool({
                     <div className="mt-1.5 flex max-h-56 flex-wrap gap-1.5 overflow-y-auto">
                         {view.map((r) => {
                             const on = sel.has(r.keyword);
+                            const used = !!isUsed?.(r.keyword);
                             return (
                                 <label key={r.keyword}
-                                    className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${on
-                                        ? 'border-[#6d28d9] bg-[#ede9fe] text-[#5b21b6]' : 'border-[#e2e8f0] bg-white text-[#475569]'}`}>
-                                    <input type="checkbox" className="h-3 w-3 accent-[#6d28d9]" checked={on} onChange={() => toggle(r.keyword)} />
+                                    title={(r.cafes ?? []).slice(0, 5).map((c) => `${c.rank}위 ${c.who}`).join(' · ') || undefined}
+                                    className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${used
+                                        ? 'border-[#e2e8f0] bg-[#f8fafc] text-[#94a3b8] line-through'
+                                        : on ? 'border-[#6d28d9] bg-[#ede9fe] text-[#5b21b6]' : 'border-[#e2e8f0] bg-white text-[#475569]'}`}>
+                                    <input type="checkbox" className="h-3 w-3 accent-[#6d28d9]" checked={on} onChange={() => toggle(r.keyword)} disabled={used} />
                                     {r.keyword}
+                                    {/* ★ 반드시 모바일(m.search) — 인기글 섹션은 PC 와 모바일이 다르다. */}
+                                    <a href={`https://m.search.naver.com/search.naver?query=${encodeURIComponent(r.keyword)}`}
+                                        target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                                        title={`모바일 검색결과 열기 — ${r.keyword}`}
+                                        className="text-[10px] font-normal text-[#0369a1] hover:underline">확인↗</a>
                                     {/* 검색량 10 = 검색광고 API 최저값 = 사실상 검색 없음. 거르진 않고 눈에만 띄게. */}
                                     <span className={`text-[10px] font-normal ${(r.volume ?? 0) <= 10 ? 'text-[#dc2626]' : 'text-[#94a3b8]'}`}>
                                         {(r.volume ?? 0) <= 10 ? '검색량 없음' : (r.volume ?? 0).toLocaleString()}

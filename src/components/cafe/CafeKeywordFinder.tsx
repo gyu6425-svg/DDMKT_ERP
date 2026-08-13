@@ -170,6 +170,8 @@ export function CafeKeywordFinder({
     //     각 키워드의 '단독(지역 없음)' 판정도 맨 앞에서 같이 본다.
     //   regionsOverride: 적재함 패널이 자기 지역 칩으로 돌릴 때 쓴다(아래 지역 선택과 별개).
     // 이미 다 찾은 조합인지 — 같은 묶음을 또 돌리지 않게 버튼 상태로 알린다.
+    // 정보형 — 1)연관어 · 2)주소 를 한 모드로 합쳤다(related 는 옥 값 호환용).
+    const isInfoMode = mode === 'info' || mode === 'related';
     const sigOf = (kws: string[]) => [...kws].sort().join('|');
     // 지역 없이는 안 된 키워드 — 지역을 붙이면 살아나는 업종이 있다(간병인 0건 → 지역 46건).
     //   이걸 안 들고 있으면 적재함에 안 들어가므로 '지역 붙여 더 찾기' 대상에서도 빠져 영영 못 본다.
@@ -789,9 +791,14 @@ export function CafeKeywordFinder({
             <div className="mb-2 text-[13px] font-bold text-[#075985]">🔍 SEO 키워드 찾기 — {mode === 'region' ? '지역 × 제품키워드' : mode === 'related' ? '연관 인기글 찾기' : mode === 'info' ? '정보형 (홈페이지·블로그 주소)' : '플레이스 인기탭'}</div>
             {/* 발굴 적재함 — 모드를 오가며 찾은 것을 한곳에 쌓아 맨 위에 보여준다.
                 여기서 '지역 없이 잡힌 것'만 골라, 이 패널의 지역 칩으로 지역까지 더 찾는다(사장님 요청 2026-08-12). */}
+            {/* 적재함은 정보형 전용(사장님 지시 2026-08-13) — 지역형·키워드형·직접입력형은
+                그 모드 결과 목록을 그대로 쓴다. 거기까지 상단에 띄우면 무슨 목록인지 헷갈린다. */}
+            {isInfoMode ? (
             <CafeKwPool who={clientId || 'me'} rows={pool} onChange={setPool} busy={kwLoading || dongLoading}
                 onPick={(rows) => addPicks(rows)}
+                isUsed={(kw) => usedKw.has(normKw(kw)) || kwPicked.some((p) => normKw(p.keyword) === normKw(kw))}
                 onRunChain={(kws, regions) => void runChain(kws, regionTarget + MORE_STEP, regions)} />
+            ) : null}
             {soloNeg.length ? (
                 <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border-2 border-[#f59e0b] bg-[#fffbeb] px-3 py-2">
                     <span className="text-[12px] font-bold text-[#b45309]">⚠ 지역 없이는 안 된 {soloNeg.length}개</span>
@@ -1320,7 +1327,9 @@ export function CafeKeywordFinder({
                     </div>
                 </div>
             ) : null}
-            {kwResult ? (
+            {/* (감춤 2026-08-13) 결과 목록 — 맨 위 발굴 적재함이 같은 걸 보여 주고,
+                이미 발행한 것 표시·확인↗·카페 순위도 그쪽으로 옮겼다. 같은 목록을 두 번 보일 이유가 없다. */}
+            {!isInfoMode && kwResult ? (
                 <div className="mt-2 rounded-lg border border-[#ddd6fe] bg-[#faf5ff] p-2">
                     <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-[#6d28d9]">
                         <span>발행할 키워드를 고르세요(복수 선택). 필요없는 건 × 로 제외.</span>

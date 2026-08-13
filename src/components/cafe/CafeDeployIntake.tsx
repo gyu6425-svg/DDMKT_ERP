@@ -996,7 +996,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     ) : null}
                 </div>
             ) : null}
-            {kwResult && (() => {
+            {/* (감춤 2026-08-13) 결과 목록 — 맨 위 발굴 적재함이 같은 걸 보여 준다. */}
+            {!isInfo && kwResult && (() => {
                 // 고객사 상호가 들어간 키워드는 보이지 않게 한다 — 팔 대상이 아니다.
                 const visible = kwResult.filter((k) => !kwHidden.includes(k.keyword) && !hasClientBrand(k.keyword, brands));
                 const fresh = visible.filter((k) => !usedKw.has(normKw(k.keyword)));
@@ -1194,9 +1195,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
 
                 {/* 발굴 적재함은 화면 맨 위 — ①연관어·②주소 어느 쪽으로 찾든 여기로 모이고,
                     여기서 지역 칩을 골라 지역까지 확장한다. 아래 결과 목록과 달리 조회를 새로 해도 안 지워진다. */}
+                {/* 적재함은 정보형 전용(사장님 지시 2026-08-13) — 지역형·키워드형·직접입력형은
+                    그 모드 결과 목록을 그대로 쓴다. */}
+                {isInfo ? (
                 <CafeKwPool who={clientId || 'me'} rows={pool} onChange={setPool} busy={kwLoading}
                     onPick={(rows) => addPicks(rows)}
+                    isUsed={(kw) => usedKw.has(normKw(kw)) || kwPicked.some((p) => normKw(p.keyword) === normKw(kw))}
                     onRunChain={(kws, regions) => void runChain(kws, scanTarget + MORE_STEP, regions)} />
+                ) : null}
                 {soloNeg.length ? (
                     <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border-2 border-[#f59e0b] bg-[#fffbeb] px-3 py-2">
                         <span className="text-[12px] font-bold text-[#b45309]">⚠ 지역 없이는 안 된 {soloNeg.length}개</span>
