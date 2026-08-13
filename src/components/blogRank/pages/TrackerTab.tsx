@@ -45,9 +45,12 @@ export function TrackerTab() {
     const [pubFilter, setPubFilter] = useState<'all' | 'today' | 'yesterday'>('all'); // 당일/전날 발행 필터
     const [page, setPage] = useState(1);
     // 우측 '키워드 검색' 슬롯은 이제 글에 저장(post.extra_keywords) → 새로고침해도 유지 + 크롤러가 매일 측정.
-    //   검색해둔 키워드 제거(×).
+    //   검색해둔 키워드 제거(✕) — 그 칸이 비고 매일 자동 측정도 멈춘다(측정 이력도 함께 사라짐).
+    //   저장 실패를 삼키면 화면만 지워졌다가 새로고침 때 되살아난다 → 실패는 알린다.
     const removeExtra = async (postId: string, extra: BlogExtraKeyword[], kw: string) => {
-        await updatePostExtraKeywords(postId, extra.filter((e) => e.keyword !== kw));
+        if (!window.confirm(`'${kw}' 검색 키워드를 삭제할까요?\n이 칸이 비고, 내일부터 자동 측정도 하지 않습니다.`)) return;
+        const { error } = await updatePostExtraKeywords(postId, extra.filter((e) => e.keyword !== kw));
+        if (error) { window.alert(`삭제 실패: ${error.message}`); return; }
         await onReload();
     };
     const rankLabel = (v: number, status?: string) =>
@@ -288,23 +291,26 @@ export function TrackerTab() {
                                         return (
                                             <td className="px-2 py-2 text-center align-top" key={i}>
                                                 {ek && last ? (
-                                                    <div className="group/slot relative min-w-[84px]">
-                                                        <div
-                                                            className="truncate pr-3 text-[11px] font-semibold text-[#7c3aed]"
-                                                            title={ek.keyword}
-                                                        >
-                                                            #{ek.keyword}
-                                                        </div>
-                                                        {!customerMode ? (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => void removeExtra(p.id, p.extra_keywords || [], ek.keyword)}
-                                                                className="absolute right-0 top-0 hidden text-[11px] text-[#cbd5e1] hover:text-[#dc2626] group-hover/slot:block"
-                                                                title="이 추가 키워드 삭제(크롤 중단)"
+                                                    <div className="relative min-w-[84px]">
+                                                        {/* 삭제(×)는 상시 노출 — hover 로만 나오면 지울 수 있는 줄을 모른다(사장님 지적). */}
+                                                        <div className="flex items-start justify-center gap-1">
+                                                            <div
+                                                                className="truncate text-[11px] font-semibold text-[#7c3aed]"
+                                                                title={ek.keyword}
                                                             >
-                                                                ×
-                                                            </button>
-                                                        ) : null}
+                                                                #{ek.keyword}
+                                                            </div>
+                                                            {!customerMode ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => void removeExtra(p.id, p.extra_keywords || [], ek.keyword)}
+                                                                    className="shrink-0 rounded px-1 text-[11px] font-bold leading-none text-[#94a3b8] hover:bg-[#fef2f2] hover:text-[#dc2626]"
+                                                                    title={`'${ek.keyword}' 검색 키워드 삭제 — 이 칸이 비고 매일 측정도 멈춥니다`}
+                                                                >
+                                                                    ✕
+                                                                </button>
+                                                            ) : null}
+                                                        </div>
                                                         <div className="mt-0.5 text-[11px] leading-tight">
                                                             <span className="font-bold text-[#059669]">
                                                                 통합 {rankLabel(last.ti, last.ti_status)}
