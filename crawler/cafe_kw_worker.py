@@ -713,6 +713,22 @@ def adjudicate(kw, r, tok, product, known, want_volume=True):
     return r, True, v
 
 
+def _is_canceled(req_id):
+    """사장님이 화면에서 '중단'을 눌렀나 — 상태가 claimed 가 아니면 중단으로 본다.
+
+       ★ 왜 필요한가(2026-08-13): 화면의 '⏹ 중단'은 아직 워커가 안 집은 대기분만 껐다.
+         이미 집은 회차는 120콜을 다 쓸 때까지 안 멈춰서, 사장님이 세 번을 그냥 기다렸다.
+       ★ DB 읽기 1회뿐이라 CF 콜·차단 예산과 무관하다. 5건마다만 본다(회차당 24회).
+       ★ 못 읽으면 False — 네트워크가 흔들린다고 멀쩡한 스캔을 죽이지 않는다."""
+    try:
+        r = requests.get(f"{SB}/rest/v1/cafe_kw_requests?select=status&id=eq.{req_id}",
+                         headers=H, timeout=8)
+        rows = r.json()
+        return bool(rows) and rows[0].get("status") != "claimed"
+    except Exception:
+        return False
+
+
 def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
     """지역축 × 제품 조합 스캔 공통 루프. kws = [(지역토큰, 키워드, 제품키워드[, strict])].
        strict=True 면 제목에 지역토큰이 실제로 등장해야 채택(오타보정 오탐 차단).
@@ -752,6 +768,7 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
 
     found, scraped, errs, capped = [], 0, 0, False
     err_streak, aborted = 0, False    # 연속 실패 횟수(차단 감지)·중단 여부
+    canceled = False                  # 사장님이 화면에서 중단을 누른 경우
     lowyield = False                  # 저수익 조기 중단(이 업종은 지역형이 안 맞음)
     # ① 캐시 패스(네트워크 0) — 신뢰 캐시로 이미 결론난 건 즉시 채택/스킵하고, 남은 것만 라이브 대상으로.
     to_scan = []
@@ -793,6 +810,11 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
     try:
         for i in range(0, len(to_scan), PAR):
             if len(found) >= target:
+                break
+            # 사장님이 중단을 눌렀으면 여기서 빠져나온다 — 찾은 것은 그대로 저장된다.
+            if i % 5 == 0 and _is_canceled(req["id"]):
+                aborted = True
+                canceled = True
                 break
             chunk = to_scan[i:i + PAR]
             try:                               # 진행상태(프론트 게이지바)
@@ -860,6 +882,13 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
     found.sort(key=lambda f: -(f.get("volume") or 0))
     # 판정 못 한 조합이 많으면 '완료'로 위장하지 않는다 — 결과가 불완전함을 명시하고 failed 로 끝낸다.
     unscanned = len(to_scan) - scraped
+    # 사장님이 누른 중단은 '차단'이 아니다 — 찾은 것까지 정상 완료로 돌려준다.
+    if canceled:
+        _finish(req["id"], "done", result=found, extra=extra,
+                note=f"⏹ 중단했습니다 — {scraped}개 보고 인기탭 {len(found)}건. "
+                     f"남은 조합 {unscanned}개(＋더 찾기로 이어서)")
+        print(f"[{_ts()}][{req['id']}] {tag} 사용자 중단 · 스크랩 {scraped} · 인기탭 {len(found)}", flush=True)
+        return found
     if aborted or errs > _err_budget(len(to_scan)):
         _finish(req["id"], "failed", result=found, extra=extra,
                 note=f"⚠ 스캔 차단 — {unscanned}/{len(to_scan)}건 판정 못 함(오류 {errs}). "
@@ -1513,6 +1542,9 @@ def process_list(req, payload):
             continue
         if scraped >= MAX_LIVE:
             capped = True                      # 상한으로 남은 키워드를 못 봄 — note 에 반드시 표기(조용한 절단 금지)
+            break
+        if idx % 5 == 1 and _is_canceled(req["id"]):
+            aborted = True                     # 화면에서 중단 — 찾은 것은 그대로 저장한다
             break
         r = p.classify(kw)
         _budget_note(1)                        # 전역 원장 — 배경 데몬이 남은 예산을 과대평가하지 않게

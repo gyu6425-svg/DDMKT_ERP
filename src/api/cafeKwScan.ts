@@ -1050,10 +1050,17 @@ export const isSoloKw = (kw: string) => !kw.includes(' ');
 export async function cancelScans(ids: number[], why = '사용자 중단'): Promise<number> {
     const live = ids.filter((n) => Number.isFinite(n));
     if (!live.length) return 0;
+    // ① 아직 안 집은 것(queued) — 그 자리에서 끈다.
     const { data } = await supabase.from('cafe_kw_requests')
         .update({ note: why, status: 'failed' })
         .in('id', live).eq('status', 'queued').select('id');
-    return (data ?? []).length;
+    // ② 이미 도는 것(claimed) — 상태를 바꿔 워커가 스스로 빠져나오게 한다(2026-08-13).
+    //   워커는 5건마다 자기 요청의 status 를 다시 읽고, claimed 가 아니면 중단한다.
+    //   예전엔 이 경로가 없어 '중단'을 눌러도 120콜을 다 쓸 때까지 계속 돌았다.
+    const { data: d2 } = await supabase.from('cafe_kw_requests')
+        .update({ note: `${why} — 중단 요청` , status: 'canceling' })
+        .in('id', live).eq('status', 'claimed').select('id');
+    return (data ?? []).length + (d2 ?? []).length;
 }
 
 // 저장해 둔 요청의 현재 상태 — 새로고침 후 '이어보기'용. 폴링 없이 한 번만 읽는다.
