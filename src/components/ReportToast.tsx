@@ -13,14 +13,17 @@ import { supabase } from '../lib/supabase'
 //   ② Web Notifications API — Notification.requestPermission()으로 권한을 받아두면, 팝업과 함께
 //      new Notification(...)으로 OS 알림을 띄운다(다른 탭/최소화 상태에서도 보임).
 //   ③ 12초 후 자동 사라짐 + 개별 닫기(✕).
-const REPORT_ALERT_EMAILS = ['rlawhddls@ddmkt.com', 'cleokim77@ddmkt.com', 'ming99@ddmkt.com', 'gyu6425@gmail.com'] // 김종인·김다영·송민경·장규진
+// 알림 대상 — 예전엔 이메일 4개를 코드에 박아 뒀다.
+//   그래서 새 담당자가 와도 코드를 고치기 전엔 알림이 안 갔다(사장님 신고 2026-08-13:
+//   '크롬 알림이 나만 뜨고 다른 계정은 안 뜬다'). 역할로 판단한다 — 내부 직원 전원.
+//   고객(viewer)·기자단(reporter)은 제외한다: 남의 보고 건수가 보이면 안 된다.
+const STAFF_ROLES = ['admin', 'manager', 'sales']
 
 type Toast = { id: string; title: string; kind: string; type: string }
 
 export default function ReportToast() {
-  const { profile } = useAuth()
-  const email = (profile?.email || '').toLowerCase()
-  const eligible = REPORT_ALERT_EMAILS.includes(email)
+  const { profile, role } = useAuth()
+  const eligible = STAFF_ROLES.includes(String(role || profile?.role || ''))
   const [toasts, setToasts] = useState<Toast[]>([])
   const timers = useRef<Record<string, number>>({})
 
@@ -30,6 +33,21 @@ export default function ReportToast() {
     if ('Notification' in window && Notification.permission === 'default') {
       void Notification.requestPermission()
     }
+    // 알림 테스트 — 계정마다 '내 브라우저에 진짜 뜨는지'를 스스로 확인할 수 있어야 한다.
+    //   벨 메뉴의 '알림 테스트'가 이 이벤트를 쏜다. 화면 팝업 + OS 알림 둘 다 같은 경로로 띄운다.
+    const onTest = () => {
+      const t: Toast = { id: `test-${Date.now()}`, title: '테스트 알림', kind: '테스트', type: '테스트' }
+      setToasts((prev) => [t, ...prev].slice(0, 5))
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try { new Notification('테스트 알림', { body: '이 알림이 보이면 정상입니다.' }) } catch { /* SW 없는 브라우저 */ }
+      } else if ('Notification' in window) {
+        void Notification.requestPermission()
+      }
+      timers.current[t.id] = window.setTimeout(() => {
+        setToasts((prev) => prev.filter((x) => x.id !== t.id))
+      }, 12000)
+    }
+    window.addEventListener('app:test-alert', onTest)
     const channel = supabase
       .channel('report-toast')
       .on(
@@ -66,6 +84,7 @@ export default function ReportToast() {
       .subscribe()
     const captured = timers.current
     return () => {
+      window.removeEventListener('app:test-alert', onTest)
       void supabase.removeChannel(channel)
       Object.values(captured).forEach((id) => window.clearTimeout(id))
     }

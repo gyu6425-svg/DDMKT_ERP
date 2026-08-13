@@ -4,13 +4,16 @@ import { getReports } from '../api/blogPostReports'
 import { supabase } from '../lib/supabase'
 
 // 기자단 발행 보고 알림 — 벨(우측 상단) 안이 아니라 화면 상단에 '크게' 상시 표시.
-//   대상: 김종인·김다영·송민경·장규진 계정만. 승인 대기(pending, 새 글 보고)만 카운트 — 0건이면 배너 숨김.
-const REPORT_ALERT_EMAILS = ['rlawhddls@ddmkt.com', 'cleokim77@ddmkt.com', 'ming99@ddmkt.com', 'gyu6425@gmail.com'] // 김종인·김다영·송민경·장규진
+//   승인 대기(pending, 새 글 보고)만 카운트 — 0건이면 배너 숨김.
+// 알림 대상 — 예전엔 이메일 4개를 코드에 박아 뒀다.
+//   그래서 새 담당자가 와도 코드를 고치기 전엔 알림이 안 갔다(사장님 신고 2026-08-13:
+//   '크롬 알림이 나만 뜨고 다른 계정은 안 뜬다'). 역할로 판단한다 — 내부 직원 전원.
+//   고객(viewer)·기자단(reporter)은 제외한다: 남의 보고 건수가 보이면 안 된다.
+const STAFF_ROLES = ['admin', 'manager', 'sales']
 
 export default function ReportPublishAlert() {
-  const { profile } = useAuth()
-  const email = (profile?.email || '').toLowerCase()
-  const eligible = REPORT_ALERT_EMAILS.includes(email)
+  const { profile, role } = useAuth()
+  const eligible = STAFF_ROLES.includes(String(role || profile?.role || ''))
 
   const [saveP, setSaveP] = useState(0) // 저장 승인 대기
   const [pubP, setPubP] = useState(0)   // 발행 승인 대기

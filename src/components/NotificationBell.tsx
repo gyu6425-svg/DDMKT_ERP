@@ -173,6 +173,17 @@ export default function NotificationBell() {
         <div className="absolute right-0 z-50 mt-1 w-72 rounded-lg border border-[#e2e8f0] bg-white shadow-lg">
           <div className="flex items-center justify-between border-b border-[#f1f5f9] px-3 py-2">
             <span className="text-sm font-bold text-[#0f172a]">알림 {count > 0 ? `(${count})` : ''}</span>
+            {/* 알림 테스트 — 계정마다 '내 브라우저에 진짜 뜨는지'를 스스로 확인해야 한다.
+                예전엔 이메일 4개만 알림 대상이라 다른 담당자는 안 떴는데 확인할 방법도 없었다.
+                누르면 화면 팝업 + 크롬(OS) 알림이 같은 경로로 뜬다. 권한이 없으면 권한부터 묻는다. */}
+            <button
+              className="ml-auto mr-1 rounded-md border border-[#c4b5fd] px-2 py-0.5 text-[11px] font-semibold text-[#6d28d9] hover:bg-[#f5f3ff]"
+              onClick={() => window.dispatchEvent(new Event('app:test-alert'))}
+              title="이 계정·이 브라우저에 알림이 뜨는지 확인합니다"
+              type="button"
+            >
+              알림 테스트
+            </button>
             {count > 0 ? (
               <button
                 className="rounded-md border border-[#cbd5e1] px-2 py-0.5 text-[11px] font-semibold text-[#64748b] hover:bg-[#f1f5f9]"
