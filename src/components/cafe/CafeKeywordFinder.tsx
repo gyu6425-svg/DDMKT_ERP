@@ -490,34 +490,47 @@ export function CafeKeywordFinder({
         // ⚠️ 조회 실패(429·5xx·네트워크)를 '검색량 0'과 구분한다. 옛 코드는 둘 다 0으로 만들어
         //   실패한 후보가 조용히 목록에서 사라졌고, 같은 텍스트를 두 번 넣으면 결과가 달라졌다.
         //   검색광고 API 는 어떤 문자열에도 최소 10을 돌려주므로 '진짜 0'은 사실상 없다 → 0이면 실패로 본다.
+        // ★ 검색량 조회는 '표시용'이다 — 인기탭 판정과 무관하다(2026-08-13 수정).
+        //   예전엔 ① 429 가 20%를 넘으면 전부 버리고 ② 검색량 30 미만을 후보에서 잘랐다.
+        //   둘 다 이 프로젝트의 원칙(완전성 우선·검색량 게이트 금지)에 어긋난다 —
+        //   검색량이 낮아도 인기탭이 있는 니치가 실제로 잡혀 왔다.
+        //   이제 조회 실패는 재시도하고, 그래도 안 되면 '검색량 미상'으로 후보에 남긴다.
         const scored: { keyword: string; total: number }[] = [];
         let failed = 0;
+        const askVolume = async (c: string): Promise<number | null> => {
+            for (let t = 0; t < 3; t++) {
+                try {
+                    const res = await fetch(`https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(c)}`);
+                    const d = await res.json();
+                    if (res.ok && Array.isArray(d.keywords)) {
+                        const nk = c.replace(/\s/g, '');
+                        const hit = (d.keywords as { keyword: string; total?: number }[])
+                            .find((k) => (k.keyword || '').replace(/\s/g, '') === nk);
+                        return hit?.total ?? 0;
+                    }
+                } catch { /* 다음 시도 */ }
+                await new Promise((r) => setTimeout(r, 500 * (t + 1)));   // 429 는 대개 잠깐이라 짧게 쉬고 재시도
+            }
+            return null;   // 3번 다 실패 — 버리지 않고 '미상'으로 남긴다
+        };
         for (let i = 0; i < cands.length; i++) {
-            setExtracting(`검색량 확인 ${i + 1}/${cands.length}${failed ? ` (실패 ${failed})` : ''}`);
+            setExtracting(`검색량 확인 ${i + 1}/${cands.length}${failed ? ` (미상 ${failed})` : ''}`);
             const c = cands[i];
-            try {
-                const res = await fetch(`https://ddmkt-erp.pages.dev/api/naver-keywords?q=${encodeURIComponent(c)}`);
-                const d = await res.json();
-                if (!res.ok || !Array.isArray(d.keywords)) { failed += 1; continue; }   // 429·오류 → 실패로 계수
-                const nk = c.replace(/\s/g, '');
-                const hit = (d.keywords as { keyword: string; total?: number }[])
-                    .find((k) => (k.keyword || '').replace(/\s/g, '') === nk);
-                const vol2 = hit?.total ?? 0;
-                if (vol2 > 0) scored.push({ keyword: c, total: vol2 });
-            } catch { failed += 1; }
+            const v = await askVolume(c);
+            if (v === null) { failed += 1; scored.push({ keyword: c, total: 0 }); }
+            else scored.push({ keyword: c, total: v });
         }
         setExtracting('');
-        // 상당수가 실패했으면 결과가 불완전하다 — '검색량 없음'처럼 보이게 두지 않는다.
-        if (failed > Math.max(3, cands.length * 0.2)) {
-            setKwErr(`검색량 조회가 ${failed}/${cands.length}건 실패했습니다(일시 제한). `
-                + `결과가 불완전하니 잠시 후 다시 시도하세요.`);
-            return null;
-        }
-        if (failed) setKwErr(`참고: 검색량 조회 ${failed}건 실패 — 그만큼 후보에서 빠졌습니다.`);
         scored.sort((a, b) => b.total - a.total);
-        let top = scored.filter((s) => s.total >= 30).slice(0, 15);
-        if (!top.length) top = scored.slice(0, 8);   // 다 낮으면 상위 8개라도
-        if (!top.length) { setKwErr('검색량 있는 키워드를 찾지 못했습니다 — 다른 텍스트로 시도하세요.'); return null; }
+        // 검색량으로 자르지 않는다. 다만 한 회차에 다 못 보므로 개수 상한만 두고, 잘린 수를 반드시 알린다.
+        const MAX_CAND = 40;
+        const top = scored.slice(0, MAX_CAND);
+        const cut = scored.length - top.length;
+        if (!top.length) { setKwErr('키워드를 뽑지 못했습니다 — 다른 텍스트로 시도하세요.'); return null; }
+        setKwErr([
+            failed ? `검색량을 못 읽은 ${failed}건은 '미상'으로 그대로 후보에 넣었습니다(인기탭 판정과는 무관합니다).` : '',
+            cut ? `후보가 많아 상위 ${MAX_CAND}개만 넣었습니다 — ${cut}건은 이번에 안 봅니다.` : '',
+        ].filter(Boolean).join(' '));
         setVol(top);                                  // 추출된 키워드+검색량 표시(기존 검색량 표 재사용)
         return top;
     };
