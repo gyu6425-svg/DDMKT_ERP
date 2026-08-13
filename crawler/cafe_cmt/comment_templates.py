@@ -157,6 +157,9 @@ def _lead_region(title):
     """제목 맨 앞의 지역 토큰. '광진 천장 누수 …' → '광진', '안산 단원구 …' → '안산 단원구'."""
     toks = [t for t in (title or "").strip(" \t[]【】「」<>()-–—·,.…‘’\"'").split() if t]
     toks = [t for t in toks if not t.startswith("[")]     # [테스트] 같은 머리 태그 제거
+    # 맨 앞이 업종/수식어면(누수·물샘·전문 등) 지역이 아니다 → 걷어내고 그다음을 본다.
+    while toks and toks[0] in GENERIC_HEAD:
+        toks.pop(0)
     if not toks:
         return ""
     cand = toks[0]
@@ -178,9 +181,18 @@ def region_from_title(title, keyword, fallback=""):
     키워드가 제목에 없거나 앞부분이 지역 같지 않으면 fallback(등록 지역)을 쓴다.
     → 댓글에 항상 '그 글의 지역 + 키워드'가 들어가게 하기 위함.
     """
-    if not title or not keyword:
+    if not title:
         return fallback
     title = re.sub(r"^\s*\[[^\]]*\]\s*", "", title)   # 머리 태그 '[테스트] ' 제거
+    # ★지역은 제목 맨 앞에 온다 → 맨 앞 토큰을 최우선으로 신뢰한다.
+    #   키워드 앞 토큰 방식은 '과천 일배책으로 정리한 누수탐지'처럼 중간 수식어가 끼면
+    #   '일배책으로 정리한'을 지역으로 오인한다. _lead_region 은 업종/수식어를 걷어낸 뒤
+    #   맨 앞 지역만 잡아 이런 오인을 원천 차단한다.
+    lead = _lead_region(title)
+    if lead:
+        return lead
+    if not keyword:
+        return fallback
     idx = title.find(keyword)
     if idx <= 0:
         # 키워드가 제목에 없거나 맨 앞 → 제목 맨 앞의 '지역 토큰'을 쓴다.
