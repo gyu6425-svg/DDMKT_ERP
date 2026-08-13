@@ -216,14 +216,23 @@ GENERIC_HEAD = {"회사", "사무실", "빌딩", "건물", "공장", "상가", "
                 "바닥코팅", "DH크리트", "시공"}   # 지역으로 오인 방지
 
 
+# '지역이 아님'으로 볼 업종/서비스어 총집합 — 제목 맨 앞이 이 중 하나면 '앞선 지역 없음'.
+#   BUSINESS_TERMS(분류어) + DISPLAY_TERMS(세부어)를 자동 취합해 수동관리를 없앤다.
+_NON_REGION = set(GENERIC_HEAD)
+for _kw, _terms in BUSINESS_TERMS:
+    _NON_REGION.update(_terms)
+for _terms in DISPLAY_TERMS.values():
+    _NON_REGION.update(_terms)
+
+
 def _lead_region(title):
     """제목 맨 앞의 지역 토큰. '광진 천장 누수 …' → '광진', '안산 단원구 …' → '안산 단원구'."""
     toks = [t for t in (title or "").strip(" \t[]【】「」<>()-–—·,.…‘’\"'").split() if t]
     toks = [t for t in toks if not t.startswith("[")]     # [테스트] 같은 머리 태그 제거
-    # 맨 앞이 업종/수식어면(누수·물샘·전문 등) 지역이 아니다 → 걷어내고 그다음을 본다.
-    while toks and toks[0] in GENERIC_HEAD:
-        toks.pop(0)
-    if not toks:
+    # 맨 앞이 업종/수식어면(공장바닥공사·누수·전문 등) 제목에 '앞선 지역'이 없다는 뜻 →
+    #   그다음 단어를 지역으로 삼으면 '기준과/시공과' 같은 오인이 난다. '지역 없음'으로 본다.
+    #   (지역 타깃 글은 항상 '안산 공장바닥공사'처럼 지역이 맨 앞에 온다.)
+    if not toks or toks[0] in _NON_REGION:
         return ""
     cand = toks[0]
     # 둘째 토큰이 행정구역 접미사(구/시/군/읍/면/동)면 '안산 단원구' 처럼 붙인다.
@@ -349,9 +358,15 @@ def build_comment(region, keyword, avoid=None, display_kw=None):
     avoid_bases = {_strip_affix(a) for a in avoid_set}
 
     kw_show = (display_kw or keyword)
+    # 지역이 없으면(제목에 지역 없음) '지역+키워드'가 붙는 문구만 골라 '키워드만' 깔끔히 쓴다.
+    #   ('{지역}에서 믿고 맡길 …', '{지역}쪽도 …' 같은 건 지역이 비면 "에서/쪽도"로 깨져서 제외)
+    use_pool = pool
+    if not (region or '').strip():
+        safe = [t for t in pool if '{지역} {키워드}' in t]
+        use_pool = safe or pool
     def compose():
         opener = random.choice(OPENERS)
-        base = _fill(random.choice(pool), region, kw_show)
+        base = _fill(random.choice(use_pool), region, kw_show)
         closer = random.choice(CLOSERS)
         if re.search(r'[!~?]$|감사', base):   # 질문(?)엔 '감사합니다!' 같은 클로저가 안 붙게
             closer = ''
