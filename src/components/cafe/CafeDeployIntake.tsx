@@ -404,6 +404,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     // 이미 다 찾은 조합인지 — 같은 키워드 묶음을 또 돌리지 않게 버튼 상태로 알린다(사장님 요청 2026-08-12).
     //   조합을 정렬해 이어 붙인 것이 서명. 체크를 하나라도 바꾸면 서명이 달라져 다시 '찾기'로 돌아온다.
     const sigOf = (kws: string[]) => [...kws].sort().join('|');
+    // 지역 없이는 안 된 키워드 — 지역을 붙이면 살아나는 업종이 있다(간병인 0건 → 지역 46건).
+    //   이걸 안 들고 있으면 적재함에 안 들어가므로 '지역 붙여 더 찾기' 대상에서도 빠져 영영 못 본다.
+    const [soloNeg, setSoloNeg] = useState<string[]>([]);
     const [scanDone, setScanDone] = useState<{ sig: string; n: number; target: number } | null>(null);
     // 발굴 전용 스캔 — 지역을 붙이지 않고 '이 키워드 자체가 인기탭인가'만 본다(워커 process_list).
     //   ★ 왜 chain 이 아닌가(사장님 지적 2026-08-13): 1)연관어로 찾기 · 2)주소로 찾기는 '발굴' 단계다.
@@ -424,6 +427,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             const { result } = await pollPlaceScan(id, { timeoutSec: 1500, onPartial: pushLive, onProgress: (n) => setScanNote(n) });
             pushLive(result);
             setScanDone({ sig: sigOf(list), n: result.length, target: FIRST_TARGET });
+            const hit = new Set(result.map((r) => r.keyword.replace(/\s/g, '')));
+            setSoloNeg(list.filter((k) => !hit.has(k.replace(/\s/g, ''))));
             if (!result.length) { setKwErr('이 키워드들은 지역 없이는 인기탭이 없습니다 — 적재함에서 지역을 붙여 보세요.'); return; }
         } catch (e) {
             const m = e instanceof Error ? e.message : '';
@@ -1192,6 +1197,20 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 <CafeKwPool who={clientId || 'me'} rows={pool} onChange={setPool} busy={kwLoading}
                     onPick={(rows) => addPicks(rows)}
                     onRunChain={(kws, regions) => void runChain(kws, scanTarget + MORE_STEP, regions)} />
+                {soloNeg.length ? (
+                    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border-2 border-[#f59e0b] bg-[#fffbeb] px-3 py-2">
+                        <span className="text-[12px] font-bold text-[#b45309]">⚠ 지역 없이는 안 된 {soloNeg.length}개</span>
+                        <span className="text-[11px] text-[#a16207]">
+                            지역을 붙이면 살아나는 업종이 있습니다(실측: 간병인은 지역 없이 0건 · 지역 붙이면 46건).
+                            이런 건 적재함에 안 들어가므로 여기서 바로 붙여 봐야 합니다.
+                        </span>
+                        <span className="text-[11px] text-[#92400e]">{soloNeg.slice(0, 6).join(' · ')}{soloNeg.length > 6 ? ` 외 ${soloNeg.length - 6}` : ''}</span>
+                        <button type="button" disabled={kwLoading} onClick={() => void runChain(soloNeg)}
+                            className="ml-auto shrink-0 rounded bg-[#b45309] px-3 py-1.5 text-[12px] font-bold text-white disabled:opacity-50">
+                            {kwLoading ? '찾는 중…' : `지역 붙여 보기 (${soloNeg.length}개) →`}
+                        </button>
+                    </div>
+                ) : null}
 
                 {/* ① 배포 종류 → ② (인기탭일 때만) 키워드 잡는 방식.
                     한 줄에 3개를 늘어놓으면 '인기탭을 따지는지'가 안 보여 고객이 헷갈린다.
