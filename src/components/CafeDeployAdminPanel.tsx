@@ -131,37 +131,42 @@ export default function CafeDeployAdminPanel() {
                             {shown.map((r) => {
                                 const paths = r.photos ? [...r.photos.main, ...r.photos.real, ...r.photos.banner] : [];
                                 const cd = creds[r.id];
+                                // 한 행이 한 줄로 떨어지게 — 셀 안에서 세로로 쌓지 않고 가로로 붙인다(align-middle).
                                 return (
-                                    <tr key={r.id} className="border-b border-[#f1f5f9] align-top text-[#334155]">
-                                        <td className="whitespace-nowrap px-2 py-2">{r.created_at.slice(0, 10)}</td>
-                                        <td className="whitespace-nowrap px-2 py-2 font-semibold">{r.company_name}</td>
-                                        <td className="whitespace-nowrap px-2 py-2">
-                                            <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.deploy_type === '키워드형' ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-[#e0e7ff] text-[#4338ca]'}`}>{r.deploy_type ?? '지역형'}</span>
-                                            {r.region_sets?.length ? <div className="mt-0.5 text-[11px] text-[#64748b]">{r.region_sets.join('·')}</div> : null}
+                                    <tr key={r.id} className="border-b border-[#f1f5f9] align-middle text-[#334155]">
+                                        <td className="whitespace-nowrap px-2 py-2.5">{r.created_at.slice(0, 10)}</td>
+                                        <td className="whitespace-nowrap px-2 py-2.5 font-semibold">{r.company_name}</td>
+                                        <td className="whitespace-nowrap px-2 py-2.5">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.deploy_type === '키워드형' ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-[#e0e7ff] text-[#4338ca]'}`}>{r.deploy_type ?? '지역형'}</span>
+                                                {r.region_sets?.length ? <span className="text-[11px] text-[#64748b]">{r.region_sets.join('·')}</span> : null}
+                                            </div>
                                         </td>
-                                        <td className="px-2 py-2">
-                                            <div className="whitespace-nowrap">{r.keyword ?? '-'}</div>
-                                            {r.selected_keywords?.length ? (
-                                                <div className="mt-1">
+                                        <td className="px-2 py-2.5">
+                                            {/* 키워드 텍스트와 '선택 키워드 N개' 칩을 한 줄에. 둘 다 없을 때만 '-' */}
+                                            <div className="flex items-center gap-1.5 whitespace-nowrap">
+                                                {r.keyword ? <span>{r.keyword}</span> : null}
+                                                {r.selected_keywords?.length ? (
                                                     <button type="button" onClick={() => setKwOpen((v) => ({ ...v, [r.id]: !v[r.id] }))}
                                                         className="inline-flex items-center gap-1 rounded-full bg-[#eef2ff] px-2 py-0.5 text-[10px] font-bold text-[#4338ca] hover:bg-[#e0e7ff]">
                                                         <span className={`text-[8px] transition-transform ${kwOpen[r.id] ? 'rotate-90' : ''}`}>▶</span>
                                                         선택 키워드 {r.selected_keywords.length}개
                                                     </button>
-                                                    {kwOpen[r.id] ? (
-                                                        <div className="mt-1 flex max-w-[240px] flex-wrap gap-1">
-                                                            {r.selected_keywords.map((p) => (
-                                                                <span key={p.keyword} className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#4338ca]" title={p.theme ? `${p.theme}${p.volume != null ? ` · 검색량 ${p.volume.toLocaleString()}` : ''}` : (p.volume != null ? `검색량 ${p.volume.toLocaleString()}` : '')}>{p.keyword}</span>
-                                                            ))}
-                                                        </div>
-                                                    ) : null}
+                                                ) : null}
+                                                {!r.keyword && !r.selected_keywords?.length ? <span className="text-[#94a3b8]">-</span> : null}
+                                            </div>
+                                            {kwOpen[r.id] && r.selected_keywords?.length ? (
+                                                <div className="mt-1 flex max-w-[240px] flex-wrap gap-1">
+                                                    {r.selected_keywords.map((p) => (
+                                                        <span key={p.keyword} className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#4338ca]" title={p.theme ? `${p.theme}${p.volume != null ? ` · 검색량 ${p.volume.toLocaleString()}` : ''}` : (p.volume != null ? `검색량 ${p.volume.toLocaleString()}` : '')}>{p.keyword}</span>
+                                                    ))}
                                                 </div>
                                             ) : null}
                                         </td>
-                                        <td className="max-w-[150px] truncate px-2 py-2" title={r.url ?? ''}>{r.url ? <a className="text-[#2563eb] underline" href={r.url} target="_blank" rel="noreferrer">{r.url}</a> : '-'}</td>
-                                        <td className="whitespace-nowrap px-2 py-2">{r.mission_start ?? '-'}</td>
-                                        <td className="whitespace-nowrap px-2 py-2 text-center">{r.daily_count ?? '-'}/{r.total_count ?? '-'}</td>
-                                        <td className="px-2 py-2">
+                                        <td className="max-w-[150px] truncate px-2 py-2.5" title={r.url ?? ''}>{r.url ? <a className="text-[#2563eb] underline" href={r.url} target="_blank" rel="noreferrer">{r.url}</a> : <span className="text-[#94a3b8]">-</span>}</td>
+                                        <td className="whitespace-nowrap px-2 py-2.5">{r.mission_start ?? '-'}</td>
+                                        <td className="whitespace-nowrap px-2 py-2.5 text-center tabular-nums">{r.daily_count ?? '-'}/{r.total_count ?? '-'}</td>
+                                        <td className="px-2 py-2.5">
                                             {paths.length === 0 ? <span className="text-[#94a3b8]">-</span> : (() => {
                                                 // 렉 방지 — 기본은 처음 8장만 렌더(+지연 로딩). 나머지는 '+N'로 펼침.
                                                 const open = photoOpen[r.id];
@@ -188,7 +193,7 @@ export default function CafeDeployAdminPanel() {
                                                 );
                                             })()}
                                         </td>
-                                        <td className="whitespace-nowrap px-2 py-2 text-[12px]">
+                                        <td className="whitespace-nowrap px-2 py-2.5 text-[12px]">
                                             {cd ? (
                                                 credOpen[r.id] ? (
                                                     <div className="grid gap-0.5">
@@ -205,8 +210,8 @@ export default function CafeDeployAdminPanel() {
                                                 )
                                             ) : <span className="text-[#94a3b8]">-</span>}
                                         </td>
-                                        <td className="whitespace-nowrap px-2 py-2">{r.two_factor ? <span className="font-bold text-[#b45309]">사용</span> : '-'}</td>
-                                        <td className="whitespace-nowrap px-2 py-2">
+                                        <td className="whitespace-nowrap px-2 py-2.5">{r.two_factor ? <span className="font-bold text-[#b45309]">사용</span> : <span className="text-[#94a3b8]">-</span>}</td>
+                                        <td className="whitespace-nowrap px-2 py-2.5">
                                             <div className="flex items-center gap-1.5">
                                                 <select className={`rounded-full px-2 py-1 text-xs font-bold ${ST_STYLE[r.status] ?? 'bg-[#f1f5f9] text-[#64748b]'}`} value={r.status} onChange={(e) => void changeStatus(r.id, e.target.value)}>
                                                     {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
