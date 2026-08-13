@@ -18,6 +18,7 @@ import { enqueuePlaceScan, pollPlaceScan, enqueueRegionScan, enqueueListScan, en
 import { addToPool, loadPoolKw, saveLastChain, loadLastChain, isSoloKw } from '../../api/cafeKwScan';
 import { CafeKwPool } from './CafeKwPool';
 import { getRegionTokens, startsWithRegion } from '../../api/cafeKwScan';
+import { fetchPlaceReviews } from '../../api/cafeKwScan';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { supabase } from '../../lib/supabase';
@@ -280,6 +281,25 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         setPlaceDetail(manual ? `${manual}\n\n${auto}` : auto);
         setKwErr(`${notes.join(' + ')} 를 가져왔습니다 — ‘① 키워드 뽑기’를 눌러 주세요.`
             + (fails.length ? ` ⚠️ 실패: ${fails.join(' / ')}` : ''));
+    };
+    // 플레이스 리뷰 가져오기 — 회사ERP 에만 있던 것을 고객ERP 에도 넣는다(사장님 지시 2026-08-13).
+    //   메뉴판이 없는 업종은 리뷰가 사실상 유일한 키워드 원천이다.
+    const pullReviews = async () => {
+        const u = (form.url || '').trim() || ownAddr.trim();
+        if (!u.includes('naver')) { setKwErr('플레이스 주소를 입력하세요(https://naver.me/… 또는 place.naver.com/…).'); return; }
+        setKwErr(''); setExtracting(true);
+        try {
+            const b = await fetchPlaceReviews(u);
+            if (!b.text) { setKwErr(`${b.name || '이 업체'}는 리뷰가 없습니다 — 소개글을 직접 붙여넣어 주세요.`); return; }
+            setPlaceDetail(b.text);
+            if (!ownAddr.trim() && b.addr) setOwnAddr(b.addr);
+            const extra = [...b.menu, ...b.reviewMenus].filter(Boolean);
+            setKwErr(`${b.name} · 리뷰 ${b.chars.toLocaleString()}자를 가져왔습니다`
+                + (extra.length ? ` (메뉴 ${extra.slice(0, 6).join('·')}${extra.length > 6 ? ' 외' : ''})` : '')
+                + ` — ‘① 키워드 뽑기’를 눌러 주세요.`);
+        } catch (e) {
+            setKwErr(e instanceof Error ? e.message : '리뷰 수집 실패');
+        } finally { setExtracting(false); }
     };
     // ★ 원천마다 따로 추출해서 합친다(실측 2026-08-07 경기간호).
     //   통째로 한 번에 넣으면 51개, 블로그·홈페이지를 각각 뽑아 합치면 68개.
@@ -1528,10 +1548,14 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                     <textarea className="w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm outline-none focus:border-[#7c3aed]" rows={4}
                                         value={placeDetail} onChange={(e) => setPlaceDetail(e.target.value)}
                                         placeholder={'업체 소개글·메뉴·서비스 설명을 그대로 붙여넣으세요(홈페이지 통째로 넣어도 됩니다).\n예)\n저희는 20년 경력의 누수탐지 전문업체로 아파트 배관 누수, 바닥 난방배관 누수를 정밀 장비로 찾아드립니다.'} />
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        {/* 플레이스가 있으면 리뷰를 자동으로 긁어 위 칸을 채운다 — 메뉴판 없는 업종의 유일한 원천. */}
+                                        <button type="button" onClick={() => void pullReviews()} disabled={extracting || kwLoading}
+                                            className="h-9 shrink-0 rounded-md border border-[#6d28d9] bg-white px-3 text-sm font-bold text-[#6d28d9] disabled:opacity-50"
+                                            title="플레이스 주소를 넣으면 방문자·블로그 리뷰를 가져와 위 칸에 채욵니다">⬇ 플레이스 리뷰 가져오기</button>
                                         <button type="button" onClick={() => void runExtract()} disabled={extracting || kwLoading}
                                             className="h-9 shrink-0 rounded-md bg-[#6d28d9] px-4 text-sm font-bold text-white disabled:opacity-50">{extracting ? '추출 중…' : '① 키워드 뽑기'}</button>
-                                        <span className="text-[11px] text-[#6d28d9]">뽑힌 키워드를 확인·수정해 제품키워드로 추가한 뒤 ‘지역 키워드 생성’을 누르세요.</span>
+                                        <span className="text-[11px] text-[#6d28d9]">뽑힌 키워드를 확인·수정해 체크한 뒤 ‘③ 인기탭 찾기’를 누르세요.</span>
                                     </div>
                                     {extracted ? (
                                         <div className="rounded-md border border-[#ddd6fe] bg-white p-2">
