@@ -347,7 +347,7 @@ export async function expandRelated(seed: string): Promise<RelatedCand[]> {
 //     실측: 이 4건에 지역이 붙어 판정된 조합은 0개였다.
 //   ★ 순서만 바꾼다 — 목록에서 빼거나 더하지 않는다(누락 금지 원칙). 판정 규칙도 안 건드린다.
 //     워커(SUB4)도 안 고친다 — 웹이 만드는 payload 의 배열 순서 하나로 끝난다.
-async function provenFirst(list: string[]): Promise<string[]> {
+async function provenFirst(list: string[]): Promise<{ list: string[]; proven: number }> {
     const proven = new Set<string>();
     try {
         for (let i = 0; i < list.length; i += 80) {
@@ -359,10 +359,10 @@ async function provenFirst(list: string[]): Promise<string[]> {
             }
         }
     } catch {
-        return list;          // 조회가 안 되면 옛 순서 그대로 — 스캔 자체를 막지는 않는다
+        return { list, proven: 0 };   // 조회가 안 되면 옛 순서 그대로 — 스캔 자체를 막지는 않는다
     }
-    if (!proven.size || proven.size === list.length) return list;
-    return [...list.filter((k) => proven.has(k)), ...list.filter((k) => !proven.has(k))];
+    if (!proven.size || proven.size === list.length) return { list, proven: proven.size };
+    return { list: [...list.filter((k) => proven.has(k)), ...list.filter((k) => !proven.has(k))], proven: proven.size };
 }
 
 export async function enqueueChainScan(products: string[], regions: string, target = FIRST_TARGET) {
@@ -370,12 +370,19 @@ export async function enqueueChainScan(products: string[], regions: string, targ
     const uid = u.user?.id ?? null;
     const dedup = [...new Set(products.map((k) => k.trim()).filter(Boolean))];
     if (!dedup.length) return { id: null as number | null, error: { message: '키워드 없음' } };
-    const list = await provenFirst(dedup);
+    const { list, proven } = await provenFirst(dedup);
+    // ★ 이미 아는 만큼 목표에 얹는다(2026-08-12 실측).
+    //   워커는 라이브 스캔에 앞서 캐시 패스에서 '이미 판정된 양성'을 전부 found 에 담는다.
+    //   그래서 '이미 인기탭인 46개에 지역을 붙여 달라'며 목표 40으로 돌리면, 캐시만으로 46 ≥ 40 이 되어
+    //   라이브 루프가 첫 바퀴에서 곧바로 끊긴다 — 지역 조합을 한 건도 안 본다.
+    //     실측 #247: 씨앗 46 · 목표 40 · 스캔 0 · 남은 조합 47,166개. #244 도 동일(40/40/0).
+    //   목표는 '새로 몇 개를 더 찾을까'여야 하므로, 되먹인 키워드 중 이미 양성인 수만큼 더해 준다.
+    const eff = target + proven;
     const payload = JSON.stringify({ products: list, regions });
     const { data, error } = await supabase.from('cafe_kw_requests')
         .insert({
             deploy_type: '지역', place_url: `chain:${payload}`, regions,
-            requested_by: uid, status: 'queued', target,
+            requested_by: uid, status: 'queued', target: eff,
         })
         .select('id').single();
     if (error || !data) return { id: null as number | null, error };
