@@ -19,7 +19,6 @@ import { addToPool, loadPoolKw, saveLastChain, loadLastChain, isSoloKw } from '.
 import { CafeKwPool } from './CafeKwPool';
 import { requestCharge } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
-import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 
 const REGION_KEYS = ['서울', '경기', '인천', '대전', '세종', '충북', '충남', '강원', '전북', '전남', '광주', '대구', '경북', '경남', '부산', '울산', '제주'] as const; // 지역형 지역셋(전국)
@@ -78,7 +77,6 @@ async function compressImage(file: File, maxDim = 1600, quality = 0.85): Promise
 }
 
 export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
-    const { profile } = useAuth();
     // 업체명 — 보고 있는 '그 업체'의 이름이어야 한다.
     //   ★ 예전엔 profile.name(로그인한 사람 이름)만 썼다. 고객이 직접 로그인하면 그게 곧 업체명이라
     //     맞았지만, 담당자가 미리보기(?as=<client_id>)로 남의 화면을 볼 때는
@@ -97,7 +95,12 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         })();
         return () => { alive = false; };
     }, [clientId]);
-    const bizName = clientName || profile?.name || '';
+    // ★ 업체명 자동기입은 '업체'에서만 온다 — profile.name(담당자 사람 이름) 폴백 금지.
+    //   실측 2026-08-13: 접수 레코드에 업체명이 '장규진'(담당자)으로 들어갔다.
+    //   clientId 가 잠깐이라도 비면 bizName 이 사람 이름이 되고, 아래 효과가
+    //   '자동으로 넣은 값과 같으면 덮어쓴다' 규칙에 걸려 이미 들어 있던 업체명을 사람 이름으로 되돌린다.
+    //   업체를 못 읽으면 비워 두고 사장님이 적게 한다 — 사람 이름으로 발행되는 것보다 낫다.
+    const bizName = clientName;
     const [form, setForm] = useState<CafeDeployInput>({ ...empty, company_name: '' });
     // 업체명 자동기입 — 업체가 정해지면 그 업체명으로 채운다.
     //   ★ 이미 다른 업체 이름이 들어 있으면 덮어쓴다 — 업체를 바꿔 보는데 앞 업체명이 남아 있으면

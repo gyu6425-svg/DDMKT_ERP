@@ -370,7 +370,7 @@ export default function BlogStudio() {
             {/* 키워드 찾기 유형 */}
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[12px] font-semibold text-[#64748b]">키워드 찾기 유형</span>
-                {([['region', '지역형 (지역 × 키워드)'], ['keyword', '키워드형 (플레이스 주소)'], ['related', '🔗 연관 인기글'], ['info', '🌐 정보형 (URL)'], ['manual', '✍️ 직접 키워드']] as const).map(([m, label]) => (
+                {([['region', '지역형 (지역 × 키워드)'], ['keyword', '키워드형 (플레이스 주소)'], ['info', '🌐 정보형 (①연관어 ②주소)'], ['manual', '✍️ 직접 키워드']] as const).map(([m, label]) => (
                     <button key={m} type="button" onClick={() => setFinderMode(m)}
                         className={`rounded-full px-4 py-1.5 text-[13px] font-bold ${finderMode === m ? 'bg-[#0369a1] text-white' : 'bg-white text-[#475569] ring-1 ring-[#cbd5e1]'}`}>{label}</button>
                 ))}
