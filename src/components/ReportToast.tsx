@@ -36,12 +36,31 @@ export default function ReportToast() {
     // 알림 테스트 — 계정마다 '내 브라우저에 진짜 뜨는지'를 스스로 확인할 수 있어야 한다.
     //   벨 메뉴의 '알림 테스트'가 이 이벤트를 쏜다. 화면 팝업 + OS 알림 둘 다 같은 경로로 띄운다.
     const onTest = () => {
-      const t: Toast = { id: `test-${Date.now()}`, title: '테스트 알림', kind: '테스트', type: '테스트' }
+      // 진단을 같이 보여준다 — '안 뜬다'는 신고가 와도 그 PC에 가지 않고 원인을 가릴 수 있어야 한다.
+      //   실제 원인 실측(2026-08-13): 대상이 아닌 계정은 이 효과가 맨 위에서 return 돼
+      //   권한 요청조차 못 했다 → 그 PC 는 시작조차 안 된 상태였다.
+      const sup = 'Notification' in window
+      const perm = sup ? Notification.permission : '지원안함'
+      const diag = `계정 ${profile?.email || '?'} · 역할 ${role || profile?.role || '?'} · 알림권한 ${perm}`
+      const t: Toast = { id: `test-${Date.now()}`, title: `테스트 알림 — ${diag}`, kind: '테스트', type: '테스트' }
       setToasts((prev) => [t, ...prev].slice(0, 5))
-      if ('Notification' in window && Notification.permission === 'granted') {
-        try { new Notification('테스트 알림', { body: '이 알림이 보이면 정상입니다.' }) } catch { /* SW 없는 브라우저 */ }
-      } else if ('Notification' in window) {
-        void Notification.requestPermission()
+      if (sup && Notification.permission === 'granted') {
+        try { new Notification('테스트 알림', { body: diag }) } catch { /* SW 없는 브라우저 */ }
+      } else if (sup && Notification.permission === 'default') {
+        void Notification.requestPermission().then((r) => {
+          if (r === 'granted') { try { new Notification('테스트 알림', { body: diag }) } catch { /* 무시 */ } }
+          else window.alert(`크롬 알림 권한이 '${r}' 입니다.
+주소창 왼쪽 자물쇠 → 알림 → 허용으로 바꾼 뒤 새로고침해 주세요.`)
+        })
+      } else if (sup) {
+        window.alert(`크롬 알림이 '차단'되어 있습니다.
+주소창 왼쪽 자물쇠 → 알림 → 허용으로 바꾼 뒤 새로고침해 주세요.
+
+${diag}`)
+      } else {
+        window.alert(`이 브라우저는 알림을 지원하지 않습니다.
+
+${diag}`)
       }
       timers.current[t.id] = window.setTimeout(() => {
         setToasts((prev) => prev.filter((x) => x.id !== t.id))
