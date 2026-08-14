@@ -59,6 +59,37 @@ def derive_kw(subject):
     return " ".join(t.split()[:2]).strip() or (subject or "")[:12]
 
 
+_genkw_cache = {}
+def gen_keywords(cid):
+    """이 고객의 원고 생성 키워드 집합(cafe_gen_requests.company = dep_*_<client_id>)."""
+    if cid in _genkw_cache:
+        return _genkw_cache[cid]
+    out = set()
+    try:
+        rows = requests.get(f"{URL}/rest/v1/cafe_gen_requests", headers=DB, timeout=20, verify=False,
+                            params={"select": "keyword", "company": f"like.*{cid}*", "limit": "2000"}).json()
+        for x in (rows if isinstance(rows, list) else []):
+            k = (x.get("keyword") or "").strip()
+            if k:
+                out.add(k)
+    except Exception:
+        pass
+    _genkw_cache[cid] = out
+    return out
+
+
+def derive_kw_b(subject, cid):
+    """모델B 키워드 — 기본은 2어절이되, '제목 첫 단어 자체가 발주 키워드'면 그 한 단어를 쓴다.
+       실측 2026-08-14(DH크리트): 지역 없는 키워드형이라 타깃이 '공장바닥공사' 한 단어인데
+       2어절 규칙이 '공장바닥공사 맞춤'을 만들어 통합검색에 인기글 섹션 자체가 안 잡혔다.
+       누수·방문재활처럼 '지역 제품' 발주(첫 단어=지역)는 발주 키워드에 없어 그대로 2어절을 쓴다."""
+    t = re.sub(r"[,·|/:;~!?\"'()\[\]<>]", " ", subject or "").strip()
+    head = (t.split() or [""])[0]
+    if head and head in gen_keywords(cid):
+        return head
+    return derive_kw(subject)
+
+
 def fetch_articles(club, menuid):
     out = []
     for page in range(1, PAGES + 1):
@@ -235,7 +266,7 @@ def main():
             body = {
                 "club_id": club, "cafe_name": van, "article_id": a["aid"],
                 "post_url": f"https://cafe.naver.com/{van}/{a['aid']}",
-                "title": a["subject"], "keyword": derive_kw(a["subject"]),
+                "title": a["subject"], "keyword": derive_kw_b(a["subject"], cid),
                 "board": board, "published_date": to_date(a["wdate"]), "excluded": False,
                 "client_id": cid,
             }
