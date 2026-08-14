@@ -6,11 +6,18 @@ REM   anti-block: wide delay + time-spread (--spread). start 01:00, blog chunks 
 REM   Launch python in its OWN new console (start /min) so sibling tasks (Today/Place) launching
 REM   later cannot deliver a CTRL+C to this long-running crawl (fixes 0xC000013A kills at ~09:20).
 REM   deadline 07:30 (was 08:00, was 08:30): the cafe rank crawl runs AFTER the blog and must
-REM   finish before its own 09:00 hard stop. Measured: ~13.2 s per cafe post, and the cafe post
-REM   count grows ~20/day (2026-08-14: 309 posts, ended 08:47 - only 12 min of slack left).
-REM   At that growth the Monday 2026-08-17 run would have crossed 09:00 and dropped posts.
-REM   Blog is NOT cut by this: --deadline only spreads the 15 chunk START times, so the same
-REM   ~1300 posts still get measured with slightly shorter IP rests (~27min -> ~25min per chunk).
+REM   finish before its own 09:00 hard stop. Measured from crawl_status.recent_runs (real clock,
+REM   not the log markers): cafe stage = 17.2 min fixed + 12.0 s per post, i.e. ~15.5 s/post
+REM   overall. Post count grows ~18/day. 2026-08-14: 309 posts, blog ended 07:28, cafe 08:47 -
+REM   only 12 min of slack. Left at 08:00 the Monday 2026-08-17 run ends 08:57 and any cooldown
+REM   pushes it past 09:00, silently dropping the tail. 07:30 moves blog end to ~07:00.
+REM   Effect on the blog: --deadline mainly spreads the 15 chunk START times (interval 26.7 ->
+REM   24.7 min, so IP rests shrink ~7.5%). It does NOT normally drop posts, BUT there is a real
+REM   hard cut in run_spread(): chunks that have not STARTED by (deadline - 20min) are skipped
+REM   whole (~85 posts each) with a "deadline exceeded" line. Headroom: worst observed chunk
+REM   work total 268 min vs the 370 min budget, so a cut is unlikely at the current load.
+REM   Cafe capacity ceiling is ~514 posts; at +18/day that is ~2026-08-25. Fix it properly then
+REM   (skip stable cafe posts like the blog does, or move the Full task to 00:15).
 REM   finish >30min before Today(09:05)/Place(09:20) so the three
 REM   never overlap. The 09:00-09:20 overlap kept killing the Full crawl (0xC000013A / -1073741510).
 cd /d "%~dp0"
