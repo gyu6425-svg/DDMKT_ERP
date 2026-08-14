@@ -62,6 +62,10 @@ export async function setCafeAccountPublish(id: string, publish_enabled: boolean
     return { error };
 }
 
+// 게시판 주소에서 clubid 추출 — '.../cafes/<club>/menus/<n>' · '?clubid=<club>' 둘 다.
+const clubIdFromUrl = (url: string): string =>
+    (url.match(/cafes\/(\d+)/) ?? url.match(/(?:search\.)?clubid=(\d+)/))?.[1] ?? '';
+
 // 토큰 발급 시 자동화 발행 탭 활성화 — 이 고객의 카페 계정을 발행 승인(publish_enabled=true).
 //   계정이 없으면 생성(접수 없이 토큰만 준 경우 대비). 여러 개면 전부 켠다.
 export async function enablePublishByClient(clientId: string, displayName?: string) {
@@ -71,8 +75,19 @@ export async function enablePublishByClient(clientId: string, displayName?: stri
             .update({ publish_enabled: true, active: true }).eq('client_id', clientId);
         return { error };
     }
+    // ★ 신규 생성 시 board_name·board_short 는 NOT NULL 인데 기본값이 없다 — 안 넣으면 insert 자체가 죽는다.
+    //   (실측 2026-08-14 금융책사: "null value in column board_name ... violates not-null constraint")
+    //   cafe_name·club_id 는 기본값이 있지만 그게 마이클 공유카페(ddmkt2/31754130)라, 두면 남의 카페로 박힌다.
+    //   그래서 넷 다 직접 채운다 — 값은 스튜디오 설정(있으면)에서, 없으면 빈 문자열(세팅 때 채움).
+    const { data: st } = await supabase.from('cafe_studio_settings')
+        .select('brand,board_name,board_url').eq('client_id', clientId).maybeSingle();
+    const s = (st ?? {}) as { brand?: string | null; board_name?: string | null; board_url?: string | null };
+    const name = (displayName || s.brand || '고객사').trim();
+    const board = (s.board_name || '').trim();
     const { error } = await supabase.from('cafe_accounts').insert({
-        company_key: `dep_${clientId}`, display_name: displayName || '고객사',
+        company_key: `dep_${clientId}`, display_name: name,
+        cafe_name: name, club_id: clubIdFromUrl(s.board_url || ''),
+        board_name: board, board_short: board,
         client_id: clientId, active: true, publish_enabled: true,
     });
     return { error };

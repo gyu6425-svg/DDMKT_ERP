@@ -10,7 +10,7 @@ import {
     type CafeDeployRequest,
     type DeployCredential,
 } from '../api/cafeDeployRequests';
-import { grantTokens, listChargeRequests, setChargeRequestStatus, reverseDeployTokens } from '../api/cafeTokens';
+import { grantTokens, listTokens, listChargeRequests, setChargeRequestStatus, reverseDeployTokens } from '../api/cafeTokens';
 import { enablePublishByClient } from '../api/cafeAccounts';
 
 // 관리자 — 카페 배포 접수 관리(전 고객). 접수 내용·사진·네이버계정·상태(접수→결제대기→세팅중→완료)를 한 화면에서.
@@ -69,8 +69,18 @@ export default function CafeDeployAdminPanel() {
     const issueTokens = async (r: CafeDeployRequest, count: number) => {
         if (!count || count <= 0) { setMsg(`${r.company_name}: 발행할 토큰 수(건수)를 1 이상 입력하세요.`); return; }
         setIssuing(r.id); setMsg('');
-        const { error } = await grantTokens(r.client_id, count, `카페 배포 결제확인 · ${r.company_name} [req:${r.id}]`);
-        if (error) { setIssuing(null); return setMsg('토큰 발행 실패: ' + error.message); }
+        // ★ 재시도 안전(멱등) — 뒤 단계가 실패해 다시 누르면 토큰만 또 나갔다.
+        //   실측 2026-08-14 금융책사: '발행 활성화 실패'로 3번 눌러 100건 계약에 토큰 300건이 지급됐다.
+        //   이 접수([req:id])로 이미 지급된 게 있으면 재지급하지 않고 나머지 단계만 이어서 진행한다.
+        const tag = `[req:${r.id}]`;
+        const { data: prior } = await listTokens(r.client_id, 1000);
+        const already = (prior ?? [])
+            .filter((t) => (t.note ?? '').includes(tag) && t.delta > 0)
+            .reduce((s, t) => s + t.delta, 0);
+        if (already <= 0) {
+            const { error } = await grantTokens(r.client_id, count, `카페 배포 결제확인 · ${r.company_name} ${tag}`);
+            if (error) { setIssuing(null); return setMsg('토큰 발행 실패: ' + error.message); }
+        }
         // 자동화 발행 탭 활성화(publish_enabled=true) — 실패하면 '발행할 고객사 선택'에 안 떠서 반드시 확인·경고.
         const enable = await enablePublishByClient(r.client_id, r.company_name);
         if (enable.error) { setIssuing(null); return setMsg(`발행 활성화 실패: ${enable.error.message} — '발행할 고객사 선택'에 안 뜹니다. 관리시트에서 이 업체 '발행 세팅'으로 승인하세요.`); }
@@ -82,7 +92,7 @@ export default function CafeDeployAdminPanel() {
         await Promise.all((reqs || []).filter((q) => q.status === 'pending').map((q) => setChargeRequestStatus(q.id, 'done')));
         setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, status: '세팅중' } : x)));
         setIssuing(null); setIssueOpen(null);
-        setMsg(`${r.company_name} +${count}건(토큰) 발행 완료 → 세팅중`
+        setMsg(`${r.company_name} ${already > 0 ? `이미 발행된 ${already}건 유지(재지급 안 함)` : `+${count}건(토큰) 발행 완료`} → 세팅중`
             + (created ? ' · 계약관리 자동 등록' : '')
             + (contractErr ? ` · ⚠ 계약관리 자동등록 실패: ${contractErr.message} (계약 관리에서 '카페 배포' 수동 추가 필요)` : ''));
     };
