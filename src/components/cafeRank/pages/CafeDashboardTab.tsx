@@ -27,11 +27,13 @@ function exportCumList(board: string, bp: CafeRankPost[], kwOf: (p: CafeRankPost
 
 // 카페 · 대시보드 — '오늘 발행 현황'(하루 5건 KPI) + '오늘까지 발행 건'(누적/계약 목표).
 //   대상 업체·계약건수는 고정(계약 기준). 글은 cafe_rank_posts.board 로 매칭.
-// board=크롤러 저장값 · goal=계약 총건수 · daily=하루 발행 목표(업체별 상이)
+// board=크롤러 저장값 · goal=계약 총건수(폴백) · daily=하루 발행 목표(업체별 상이)
+//   ★ goal 은 cafe_accounts.goal_count 가 있으면 그 값이 이긴다(아래 targets). 여기 숫자는 그게 비었을 때의 폴백.
+//     계약이 늘었는데(더맨 50→100) 화면만 옛 숫자로 남는 일을 막는다 — 실측 2026-08-14.
 // own=자사 운영 카페 — 계약이 아니라 우리 것이라 목표·실적·진행률이 없다.
 //   집계(총 건수)에서 빼고, 줄은 남기되 '발행 글 수'만 보여준다.
 const DAILY_TARGETS: { board: string; goal: number; daily: number; kpi?: boolean; own?: boolean }[] = [
-    { board: '더맨시스템', goal: 50, daily: 5 },
+    { board: '더맨시스템', goal: 100, daily: 5 },
     { board: '더티클리닉', goal: 10, daily: 5 }, // 자체발행 중 — 하루 목표 5건
     { board: '더반클린', goal: 50, daily: 5 },
     { board: '설고점', goal: 40, daily: 1 }, // 설고점만 하루 1건
@@ -79,13 +81,20 @@ export function CafeDashboardTab() {
     // 발행 대상 = 고정업체 + 신규 접수(미션시작일 지난 것만 자동 편입). board 로 중복 제거(고정 우선).
     const targets = useMemo(() => {
         const fixedBoards = new Set(DAILY_TARGETS.map((t) => t.board));
+        // 계약 총건수는 DB(cafe_accounts.goal_count)가 정답 — 코드 상수는 비어 있을 때만 쓴다.
+        const goalByBoard = new Map<string, number>();
+        accounts.forEach((a) => {
+            const b = (a.board_short || '').trim();
+            if (b && a.goal_count != null) goalByBoard.set(b, a.goal_count);
+        });
+        const fixed = DAILY_TARGETS.map((t) => ({ ...t, goal: goalByBoard.get(t.board) ?? t.goal }));
         const seen = new Set<string>();
         const dyn = deployTargets
             .filter((d) => d.board && !fixedBoards.has(d.board) && d.mission_start <= today)
             .filter((d) => (seen.has(d.board) ? false : (seen.add(d.board), true)))
             .map((d) => ({ board: d.board, goal: d.goal, daily: d.daily, kpi: undefined as boolean | undefined, own: false }));
-        return [...DAILY_TARGETS, ...dyn];
-    }, [deployTargets, today]);
+        return [...fixed, ...dyn];
+    }, [accounts, deployTargets, today]);
     const kw = (p: CafeRankPost) => p.keyword_manual || p.keyword || '—';
     // 오늘 발행(published_date=오늘) · 누적(전체) — board 로 업체 매칭.
     const todayCount = (b: string) => posts.filter((p) => boardKey(p) === b && (p.published_date || '').slice(0, 10) === today).length;
