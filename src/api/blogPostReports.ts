@@ -1,5 +1,10 @@
 import { supabase } from '../lib/supabase';
-import { getClientContracts, updateClientContract, type RewardWeeklyLog } from './clientContracts';
+import {
+    getClientContracts,
+    updateClientContract,
+    type ClientContract,
+    type RewardWeeklyLog,
+} from './clientContracts';
 
 // 승인 시 카운트가 어디에 잡혔는지 — 'contract'=계약 잔여 -1 + 외주비, 'blog'=블로그 진행 건수만
 //   (기자단 등록 업체 · 외주비 없음), 'none'=연결된 계약이 없어 카운트 미반영.
@@ -278,11 +283,23 @@ async function bookContractCredit(report: BlogPostReport) {
     if (cErr) return { processed: false, outUnit, err: cErr, mode: 'none' as BookMode };
     const sub = (ct: { subtype: string }) => ct.subtype.replace(/^상위노출 보장형 · /, '');
     const blogs = contracts.filter((ct) => ct.category === '블로그');
+    // 어느 계약에 계상할지 — ① 만료([만료]) 제외 ② 잔여가 남은 계약 우선.
+    //   계약 목록은 생성순(오래된 것 먼저)이라, 예전엔 blog_name 만 맞으면 '재계약으로 만료된 옛 계약'이
+    //   먼저 잡혔다. 그래서 재계약한 업체는 승인할수록 만료 계약에 로그만 쌓이고(잔여는 이미 0이라
+    //   그대로) 새 계약은 0% 로 남았다. (2026-08-14 오천T&C 실측: 기자단 8건이 전부 6월 만료 계약으로)
+    //   그래도 살아있는 계약이 하나도 없으면 예전 순서로 폴백한다 — 계상 자체가 누락되는 편이 더 나쁘다.
+    const isExpiredCt = (ct: ClientContract) => (ct.note || '').includes('[만료]');
+    const hasRoom = (ct: ClientContract) => (ct.remain_count ?? ct.goal_count ?? 0) > 0;
+    const byName = (list: ClientContract[]) =>
+        acc?.name ? list.find((ct) => (ct.blog_name || '') === acc.name) : undefined;
+    const byKind = (list: ClientContract[]) =>
+        list.find((ct) => sub(ct) === '브랜드 블로그') ||
+        list.find((ct) => sub(ct) === '블로그') ||
+        (list.length === 1 ? list[0] : undefined);
+    const live = blogs.filter((ct) => !isExpiredCt(ct));
+    const open = live.filter(hasRoom);
     const target =
-        (acc?.name ? blogs.find((ct) => (ct.blog_name || '') === acc.name) : undefined) ||
-        blogs.find((ct) => sub(ct) === '브랜드 블로그') ||
-        blogs.find((ct) => sub(ct) === '블로그') ||
-        (blogs.length === 1 ? blogs[0] : null);
+        byName(open) || byKind(open) || byName(live) || byKind(live) || byName(blogs) || byKind(blogs) || null;
     if (!target) return { processed: false, outUnit, err: null, mode: 'none' as BookMode };
     // 이미 이 보고로 계상된 로그가 있으면(안전판) 재계상 금지.
     const key = `rpt-${report.id}`;
