@@ -114,9 +114,32 @@ def cafe_vanity(club, sample_aid):
     return _vanity_cache[club]
 
 
+_menu_cache = {}
+def first_board_menu(club):
+    """menuid 가 없는 board_url 구제 — 카페의 첫 게시판(menuType=B) menuid 를 알아낸다.
+       실측 2026-08-14: DH크리트 board_url 이 '.../cafes/31770367/articles/write' 라 menuid 가 없었고,
+       그 탓에 model-B 대상에서 통째로 빠져 발행분 5글이 트래커에 하나도 안 들어왔다."""
+    if club in _menu_cache:
+        return _menu_cache[club]
+    mid = None
+    try:
+        r = requests.get(f"https://apis.naver.com/cafe-web/cafe2/SideMenuList?cafeId={club}",
+                         headers=WEB, timeout=15, verify=False)
+        menus = ((r.json().get("message") or {}).get("result") or {}).get("menus") or []
+        for m in menus:
+            if str(m.get("menuType")) == "B" and m.get("menuId"):
+                mid = str(m["menuId"])
+                break
+    except Exception:
+        mid = None
+    _menu_cache[club] = mid
+    return mid
+
+
 def model_b_targets():
     """모델B(고객 자기 카페·SUB2 발행) 크롤 대상 — cafe_studio_settings.board_url 에서 clubid·menuid 파싱.
-       반환: [(club, menuid, client_id, board_name)]. 더맨·설고처럼 이들 게시판도 크롤해 순위트래커에 등록."""
+       반환: [(club, menuid, client_id, board_name)]. 더맨·설고처럼 이들 게시판도 크롤해 순위트래커에 등록.
+       ⚠ 파싱 실패는 조용히 넘기지 않는다 — 안 잡히는 업체가 로그에 보여야 한다."""
     try:
         rows = requests.get(f"{URL}/rest/v1/cafe_studio_settings",
                             params={"select": "client_id,board_url,board_name"}, headers=DB, timeout=20, verify=False).json()
@@ -128,9 +151,19 @@ def model_b_targets():
     out = []
     for x in (rows if isinstance(rows, list) else []):
         url = x.get("board_url") or ""
+        cid = x.get("client_id")
         club, menuid = _parse_club_menu(url)
-        if club and menuid and x.get("client_id") and club not in fixed_clubs:
-            out.append((club, menuid, x["client_id"], x.get("board_name") or "고객카페"))
+        if club and not menuid:
+            menuid = first_board_menu(club)
+            if menuid:
+                print(f"  · [모델B] board_url 에 menuid 가 없어 카페 첫 게시판(menu {menuid})로 보정 — client {cid}", flush=True)
+        if club in fixed_clubs:
+            continue
+        if not (club and menuid and cid):
+            if cid and url:
+                print(f"  ! [모델B] 크롤 제외 — board_url 에서 clubid/menuid 를 못 읽음: client {cid} · {url}", flush=True)
+            continue
+        out.append((club, menuid, cid, x.get("board_name") or "고객카페"))
     return out
 
 
