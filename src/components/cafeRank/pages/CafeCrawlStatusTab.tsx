@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getCafeRankPosts, type CafeRankPost } from '../../../api/cafeRank';
+import { getCafeRankPostsLite, type CafeRankPost } from '../../../api/cafeRank';
+import { useVisiblePolling } from '../../../lib/useVisiblePolling';
 
 // 카페 · 크롤링 현황 — 업체(게시판)별 '오늘 측정' 진행·순위 요약을 실시간으로. 60초마다 자동 새로고침.
 //   측정은 PC(cafe_rank_crawler / cafe_periodic)가 기록 → 이 화면은 그 결과를 집계만.
@@ -36,17 +37,15 @@ export function CafeCrawlStatusTab() {
     const [refreshedAt, setRefreshedAt] = useState<string>('');
 
     const reload = async () => {
-        const { data, error } = await getCafeRankPosts();
+        const { data, error } = await getCafeRankPostsLite();
         if (error) setErr(error.message || '조회 실패');
         else { setErr(''); setPosts(data); }
         setLoading(false);
         setRefreshedAt(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     };
-    useEffect(() => {
-        void reload();
-        const iv = setInterval(() => void reload(), 60000); // 실시간: 60초마다 자동 갱신
-        return () => clearInterval(iv);
-    }, []);
+    useEffect(() => { void reload(); }, []);
+    // 60초 갱신 — 단, 이 탭이 화면에 보일 때만(배경 탭 폴링이 Supabase Egress 를 태웠다).
+    useVisiblePolling(reload, 60000);
 
     const today = todayKST();
     const stats = useMemo<Stat[]>(() => {

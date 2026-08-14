@@ -142,7 +142,7 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         const active = Object.values(genStatus).some((s) => ['pending', 'claimed', 'processing', 'posted'].includes(s));
         if (!active || !clientId) return;
         // 발행 중엔 5초 폴링(SUB2 권장) — 상태 전이가 빨라 20초면 '발행중'을 놓친다.
-        const t = setInterval(() => { void loadGenStatus(); }, 5000);
+        const t = setInterval(() => { if (document.visibilityState === 'visible') void loadGenStatus(); }, 5000);
         return () => clearInterval(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [genStatus, clientId]);
@@ -302,7 +302,8 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
         });
         void loadTokens();
         void loadRankPosts();
-        const t = setInterval(() => { void loadRankPosts(); }, 15000);   // 오늘 발행 리스트 실시간 갱신
+        // 화면에 보일 때만 — 배경 탭에서 도는 폴링이 Supabase Egress 를 태웠다(실측 2026-08-14).
+        const t = setInterval(() => { if (document.visibilityState === 'visible') void loadRankPosts(); }, 15000);
         return () => { alive = false; clearInterval(t); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clientId]);

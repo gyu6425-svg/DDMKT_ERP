@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { getCafeAccounts, type CafeAccount } from '../../../api/cafeAccounts';
-import { listTokens, balanceOf } from '../../../api/cafeTokens';
+import { getTokenBalances } from '../../../api/cafeTokens';
 import { getPendingGenRequests } from '../../../api/cafeGenRequests';
-import { getClients } from '../../../api/erp';
+import { getClientLabels } from '../../../api/erp';
+import { useVisiblePolling } from '../../../lib/useVisiblePolling';
 import { CafeCustomerStudio } from '../../cafe/CafeCustomerStudio';
 
 // 카페 자동화 발행(관리자) — 접수 승인 후 토큰이 발행된 고객사를 골라 '우리가' 대신 발행한다.
@@ -32,11 +33,8 @@ export function CafeAdminPublishTab() {
             for (const a of data) if (a.client_id && a.company_key) {
                 (keysByClient.get(a.client_id) ?? keysByClient.set(a.client_id, new Set()).get(a.client_id)!).add(a.company_key);
             }
-            const bals: Record<string, number> = {};
-            for (const a of uniq) {
-                const { data: t } = await listTokens(a.client_id!);
-                bals[a.client_id!] = balanceOf(t);
-            }
+            // 잔액은 1회 조회로 전부 받는다 — 고객 수만큼 listTokens 를 돌리던 걸 없앴다(8초 폴링 × N요청).
+            const bals = await getTokenBalances();
             // 예약(발행요청 미완료) 건수 = 즉시 차감 — client_id 매칭(신규) 또는 company 매칭(고정).
             const pending = await getPendingGenRequests();
             const reserved: Record<string, number> = {};
@@ -51,18 +49,17 @@ export function CafeAdminPublishTab() {
             setLoading(false);
         });
         // 클라이언트 회사명·상위그룹(parent_company) — 발행 선택에 "더업스 › 방문요양" 표시용.
-        void getClients().then(({ data }) => {
+        // 이름표만 필요하다 — clients 전체(*) 107 KB 를 8초마다 받던 걸 id·company(15 KB)로 줄였다.
+        void getClientLabels().then(({ data }) => {
             const m: Record<string, { company: string; parent: string | null }> = {};
-            for (const c of data) m[c.id] = { company: c.company || '', parent: (c as { parent_company?: string | null }).parent_company ?? null };
+            for (const c of data) m[c.id] = { company: c.company || '', parent: null };
             setClientInfo(m);
         });
     };
-    useEffect(() => {
-        reload();
-        const iv = setInterval(reload, 8000); // 발행요청하면 8초 내 잔여 토큰 즉시 반영
-        return () => clearInterval(iv);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { reload(); }, []);
+    // 20초 갱신 — 화면에 보일 때만. 8초 폴링 × 무거운 조회가 Egress 를 하루 1 GB 넘게 태웠다(실측 2026-08-14).
+    useVisiblePolling(reload, 20000);
     // '발행하러 가기'로 넘어온 경우 URL의 client 를 선택(마지막 선택 localStorage 보다 우선).
     useEffect(() => {
         const q = new URLSearchParams(window.location.search).get('client');

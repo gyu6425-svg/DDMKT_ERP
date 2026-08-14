@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getCafeRankPosts, latestCafeMeasure, cafeTiStatus, cafeRankLabel, type CafeRankPost } from '../../../api/cafeRank';
+import { getCafeRankPostsLite, latestCafeMeasure, cafeTiStatus, cafeRankLabel, type CafeRankPost } from '../../../api/cafeRank';
 import { getCafeAccounts, type CafeAccount } from '../../../api/cafeAccounts';
 import { listActiveDeployTargets, type DeployDashTarget } from '../../../api/cafeDeployRequests';
 import { downloadCsv, todayTag } from '../../../lib/exportCsv';
 import { latestKwAudit, auditStale, type KwAudit } from '../../../api/cafeKwAudit';
+import { useVisiblePolling } from '../../../lib/useVisiblePolling';
 
 // 실제 발행 글 주소 — post_url 이 있으면 그걸, 없으면 카페명/글번호로 만든다.
 //   (CafeCustomerStudio 와 같은 규칙. 엑셀에서는 URL 이 그대로 클릭된다.)
@@ -64,18 +65,16 @@ export function CafeDashboardTab() {
     const [showEnded, setShowEnded] = useState(false);             // 계약 완주(100%) 업체 펼쳐보기
 
     const reload = async () => {
-        const [{ data }, accs, dep, au] = await Promise.all([getCafeRankPosts(), getCafeAccounts(), listActiveDeployTargets(), latestKwAudit()]);
+        const [{ data }, accs, dep, au] = await Promise.all([getCafeRankPostsLite(), getCafeAccounts(), listActiveDeployTargets(), latestKwAudit()]);
         setPosts(data);
         setAccounts(accs.data ?? []);
         setDeployTargets(dep);
         setAudit(au);
         setLoading(false);
     };
-    useEffect(() => {
-        void reload();
-        const iv = setInterval(() => void reload(), 60000);
-        return () => clearInterval(iv);
-    }, []);
+    useEffect(() => { void reload(); }, []);
+    // 60초 갱신 — 화면에 보일 때만 돈다(배경 탭 폴링 = Egress 낭비).
+    useVisiblePolling(reload, 60000);
 
     const today = todayKST();
     // 발행 대상 = 고정업체 + 신규 접수(미션시작일 지난 것만 자동 편입). board 로 중복 제거(고정 우선).

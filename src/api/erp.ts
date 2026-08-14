@@ -118,6 +118,13 @@ export async function getClients() {
     return { data: data ?? [], error };
 }
 
+// 이름표만 필요한 화면(발행탭 등)용 — clients 전체(*)는 1회 107 KB 라 반복 폴링에 쓰면 안 된다.
+//   실측 2026-08-14: 8초 폴링에 물려 하루 1 GB 넘게 나갔다. id·company 만 받으면 15 KB.
+export async function getClientLabels() {
+    const { data, error } = await supabase.from('clients').select('id,company');
+    return { data: (data ?? []) as { id: string; company: string | null }[], error };
+}
+
 export async function insertClient(payload: Partial<ErpClient>) {
     const { data, error } = await supabase.from('clients').insert(payload).select().returns<ErpClient[]>();
 

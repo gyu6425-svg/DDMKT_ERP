@@ -23,6 +23,17 @@ export async function listTokens(clientId?: string, limit = 500) {
     return { data: (data ?? []) as TokenLedger[], error };
 }
 
+// 고객별 잔액만 한 번에 — 발행탭이 고객 수만큼 listTokens 를 돌리던 걸 1회 조회로 바꾼다.
+//   원장 전체(*) 대신 client_id·delta 만 받아 합산(실측 2026-08-14: 57 KB → 15 KB · 요청 N회 → 1회).
+export async function getTokenBalances(): Promise<Record<string, number>> {
+    const { data } = await supabase.from('cafe_tokens').select('client_id,delta').limit(20000);
+    const m: Record<string, number> = {};
+    for (const r of (data ?? []) as { client_id: string; delta: number }[]) {
+        m[r.client_id] = (m[r.client_id] ?? 0) + (r.delta || 0);
+    }
+    return m;
+}
+
 // 잔액 = 그 고객 delta 합계.
 export function balanceOf(rows: TokenLedger[], clientId?: string): number {
     return rows.filter((r) => !clientId || r.client_id === clientId).reduce((s, r) => s + r.delta, 0);

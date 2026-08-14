@@ -56,6 +56,26 @@ export async function getCafeRankPosts() {
     return { data: (legacy.data ?? []) as CafeRankPost[], error: legacy.error };
 }
 
+// 폴링 화면(대시보드·크롤현황)용 경량 조회 — measurements 를 '마지막 1건'만 받는다.
+//   실측 2026-08-14: 전체 474 KB 중 measurements 가 211 KB(44%)인데, 두 화면은 마지막 1건만 쓴다.
+//   PostgREST 의 `measurements->-1` 로 서버에서 잘라 받고, 배열 1개짜리로 되돌려 기존 타입·헬퍼를 그대로 쓴다.
+//   ⚠ 순위 '추이'가 필요한 화면(트래커·관리시트)은 이걸 쓰면 안 된다 — getCafeRankPosts 를 그대로 써야 한다.
+const RANK_COLS = 'id,created_at,club_id,cafe_name,article_id,post_url,title,keyword,keyword_manual,'
+    + 'published_date,excluded,client_id,board,cafe_account_id,top5_since,top5_achieved_at,top5_seeded';
+export async function getCafeRankPostsLite() {
+    const r = await supabase
+        .from('cafe_rank_posts')
+        .select(`${RANK_COLS},cafe_accounts(company_key,display_name,board_short,client_id),last:measurements->-1`)
+        .eq('excluded', false)
+        .order('published_date', { ascending: false, nullsFirst: false });
+    if (r.error) return getCafeRankPosts();   // 옛 PostgREST 등으로 실패하면 종전 조회로 폴백
+    const rows = (r.data ?? []) as unknown as (CafeRankPost & { last?: CafeMeasurement | null })[];
+    return {
+        data: rows.map(({ last, ...p }) => ({ ...p, measurements: last ? [last] : [] })) as CafeRankPost[],
+        error: null,
+    };
+}
+
 // 이 업체(client)의 순위 트래킹 글 목록 — 자동화발행 스튜디오 하단 '발행 히스토리'.
 //   실적 집계(cafe_contract_sync)와 동일 매칭: cafe_account_id ∈ 이 client 계정 OR board ∈ board_short.
 export async function getCafeRankPostsForClient(clientId: string): Promise<CafeRankPost[]> {
