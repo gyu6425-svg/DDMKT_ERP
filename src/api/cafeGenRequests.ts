@@ -21,6 +21,55 @@ export const fmtScheduled = (naive: string): string => {
 // insert 에러가 'scheduled_at 컬럼 없음'인지 — 마이그레이션 전 폴백 판별.
 const isMissingScheduledCol = (e: { code?: string; message?: string } | null) =>
     !!e && (e.code === 'PGRST204' || e.code === '42703') && /scheduled_at/i.test(e.message ?? '');
+// 사진 스냅샷 컬럼(photos/banners/main_banner) 없음 판별 — 같은 이유의 폴백.
+const isMissingPhotoCol = (e: { code?: string; message?: string } | null) =>
+    !!e && (e.code === 'PGRST204' || e.code === '42703') && /photos|banners|main_banner/i.test(e.message ?? '');
+
+// ── 예약 시점 사진 고정(스냅샷) ─────────────────────────────────────────────
+//   왜: 예약 행에 사진이 없어서 SUB2 가 '처리하는 순간' cafe_studio_settings 를 읽었다.
+//       그 테이블은 client_id 당 1행이라, 사진을 바꿔 저장하면 먼저 걸어둔 예약까지
+//       소급돼 새 사진으로 나갔다(실측 2026-08-14).
+//   계약: SUB2 는 항목별로 독립 판정한다 — 값이 NULL 이면 cafe_studio_settings,
+//        배열이면 그 값을 쓴다(is not None 판정). 전제: docs/cafe-gen-photo-snapshot.sql
+//   ★ 비어 있는 항목은 아예 안 보낸다(NULL). 빈 배열([])을 보내면 SUB2 가
+//     '사진 없이 발행하라는 의도'로 읽어 폴백을 막는다 — 아직 사진을 안 올린 업체가
+//     나중에 올려도 옛 예약이 영영 사진 없이 나가는 사고가 된다.
+export type PhotoSnapshot = { photos?: string[]; banners?: string[]; main_banner?: string[] };
+
+// 예약에 박힌 사진 요약 — "· 사진 고정(상단 1·실사 25·끝배너 1)". 스냅샷이 없으면 빈 문자열.
+export const snapLabel = (s: PhotoSnapshot): string => {
+    const parts = [
+        s.main_banner?.length ? `상단 ${s.main_banner.length}` : '',
+        s.photos?.length ? `실사 ${s.photos.length}` : '',
+        s.banners?.length ? `끝배너 ${s.banners.length}` : '',
+    ].filter(Boolean);
+    return parts.length ? ` · 사진 고정(${parts.join('·')})` : '';
+};
+
+async function photoSnapshot(clientId: string): Promise<PhotoSnapshot> {
+    const { data, error } = await supabase.from('cafe_studio_settings')
+        .select('photos,banners,main_banner').eq('client_id', clientId).maybeSingle();
+    if (error || !data) return {};   // 설정 행이 없으면 스냅샷 없이 = 종전 동작
+    const snap: PhotoSnapshot = {};
+    const put = (k: keyof PhotoSnapshot, v: unknown) => {
+        const arr = Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === 'string' && !!x) : [];
+        if (arr.length) snap[k] = arr;
+    };
+    const row = data as { photos?: unknown; banners?: unknown; main_banner?: unknown };
+    put('photos', row.photos);
+    put('banners', row.banners);
+    put('main_banner', row.main_banner);
+    return snap;
+}
+
+// 특정 키들을 뺀 사본 — 컬럼 미적용 환경 폴백용.
+function withoutKeys<T extends object>(rows: T[], keys: (keyof T)[]): Partial<T>[] {
+    return rows.map((r) => {
+        const c: Partial<T> = { ...r };
+        keys.forEach((k) => { delete c[k]; });
+        return c;
+    });
+}
 
 // 발행요청 큐(cafe_gen_requests) — main 웹이 finder 선택분을 적재 → 발행PC 폴러가 자기 양식으로 생성·발행.
 //   전제: docs/cafe-gen-requests.sql. 라우팅·게시판은 SUB1/SUB2 답신 기준 확정값.
@@ -231,16 +280,27 @@ export async function enqueueGenRequestsSelf(
     const pk = (productKeyword || '').trim();
     const company = `dep_${style}_${clientId}`;
     const der = deriveRegions(keywords, pk);
-    if (der.error) return { error: { message: der.error }, count: 0 };
+    if (der.error) return { error: { message: der.error }, count: 0, snap: {} as PhotoSnapshot };
+    // 지금 저장돼 있는 사진을 이 예약건에 박아 넣는다 — 나중에 사진을 바꿔도 이 예약은 안 바뀐다.
+    const snap = await photoSnapshot(clientId);
     const rows = der.rows.map(({ kw, region }, i) => ({
         company, client_id: clientId,
         region, keyword: kw, popular_verified: !manual, status: 'pending',
         ...(scheduledAt ? { scheduled_at: gapMin > 0 ? addMinutesNaive(scheduledAt, i * gapMin) : scheduledAt } : {}),
+        ...snap,
     }));
-    if (!rows.length) return { error: { message: '보낼 키워드가 없습니다.' }, count: 0 };
+    if (!rows.length) return { error: { message: '보낼 키워드가 없습니다.' }, count: 0, snap: {} as PhotoSnapshot };
     let { error } = await supabase.from('cafe_gen_requests').insert(rows);
-    if (scheduledAt && isMissingScheduledCol(error)) {
-        ({ error } = await supabase.from('cafe_gen_requests').insert(rows.map(({ scheduled_at: _d, ...r }) => r)));
+    let pinned = true;
+    if (isMissingPhotoCol(error)) {   // 스냅샷 컬럼 미적용 환경 — 사진 없이 적재(종전 동작)
+        pinned = false;
+        ({ error } = await supabase.from('cafe_gen_requests')
+            .insert(withoutKeys(rows, ['photos', 'banners', 'main_banner'])));
     }
-    return { error, count: rows.length };
+    if (scheduledAt && isMissingScheduledCol(error)) {
+        pinned = false;
+        ({ error } = await supabase.from('cafe_gen_requests')
+            .insert(withoutKeys(rows, ['scheduled_at', 'photos', 'banners', 'main_banner'])));
+    }
+    return { error, count: rows.length, snap: pinned ? snap : ({} as PhotoSnapshot) };
 }

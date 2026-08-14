@@ -6,7 +6,7 @@ import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeplo
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTiStatus, cafeRankWhere, cafeSearchUrl, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
 import { ImageDropZone } from './ImageDropZone';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
-import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, deleteGenRequest, publishTargetFor, kstYmd, kstNowNaive, fmtScheduled, type GenQueueSummary } from '../../api/cafeGenRequests';
+import { enqueueGenRequests, enqueueGenRequestsSelf, getGenRequestStatus, getGenQueueSummary, holdGenRequests, resumeGenRequests, countHeldGenRequests, deleteGenRequest, publishTargetFor, kstYmd, kstNowNaive, fmtScheduled, snapLabel, type GenQueueSummary, type PhotoSnapshot } from '../../api/cafeGenRequests';
 import { CafeCustomerRequest } from './CafeCustomerRequest';
 import { CafeKeywordFinder } from './CafeKeywordFinder';
 import { customerLogin } from '../../api/nusu2Bridge';
@@ -673,12 +673,13 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     const sched = computeScheduledAt();
                     setReqBusy(true); setReqMsg('');
                     // 예약 시 발행텀(gapMin)만큼 각 건 시각 스태거 → 첫 13:00·2시간텀이면 15:00·17:00…
-                    const { error, count } = await enqueueGenRequestsSelf(clientId!, picks, productKw, style, false, sched, gapMin);
+                    const { error, count, snap } = await enqueueGenRequestsSelf(clientId!, picks, productKw, style, false, sched, gapMin);
                     setReqBusy(false);
                     if (error) { setReqMsg(`요청 실패: ${error.message}`); return; }
                     setSelfPicked(new Set());
                     const whenMsg = sched ? `${fmtScheduled(sched)}부터 ${gapMin > 0 ? `${gapMin}분 간격 ` : ''}예약 발행` : 'SUB2가 순차 게시';
-                    setReqMsg(`${count}건 발행 요청 완료(${style === 'info' ? '정보성' : '후기성'}) — ${whenMsg}. 미사용 ${Math.max(0, unused.length - count)}개 남음.`);
+                    // 사진 고정 표시 — 지금 저장된 사진이 이 예약에 박힌다(이후 사진을 바꿔도 이 건은 안 바뀜).
+                    setReqMsg(`${count}건 발행 요청 완료(${style === 'info' ? '정보성' : '후기성'}) — ${whenMsg}${snapLabel(snap)}. 미사용 ${Math.max(0, unused.length - count)}개 남음.`);
                     await loadGenStatus();
                 };
                 // ── 여러 날 분산 예약 — 하루 최대(dailyCap)씩 연속일에 나눠 예약. 예) 14건·하루5 → 5/5/4(3일). ──
@@ -705,18 +706,19 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                     if (!picks.length) { setReqMsg('분산할 미사용 키워드가 없습니다.'); return; }
                     setReqBusy(true); setReqMsg('');
                     let total = 0, day = 0;
+                    let snapAll: PhotoSnapshot = {};
                     for (let i = 0; i < picks.length; i += perDay) {
                         const chunk = picks.slice(i, i + perDay);
                         const at = `${addDaysYmd(startYmd, day)}T${startTime}`;
                         // 하루 안에서도 발행텀(gapMin)만큼 시각 스태거 → 화면·발행 시각 일치.
-                        const { error, count } = await enqueueGenRequestsSelf(clientId!, chunk, productKw, style, false, at, gapMin);
+                        const { error, count, snap } = await enqueueGenRequestsSelf(clientId!, chunk, productKw, style, false, at, gapMin);
                         if (error) { setReqBusy(false); setReqMsg(`요청 실패(${day + 1}일차): ${error.message}`); await loadGenStatus(); return; }
-                        total += count; day += 1;
+                        total += count; day += 1; snapAll = snap;
                     }
                     setReqBusy(false);
                     setSelfPicked(new Set());
                     const startLbl = spreadStartAt ? `${startYmd} ${startTime.slice(0, 5)}` : '지금';
-                    setReqMsg(`${total}건을 ${day}일에 나눠 예약 완료(하루 ${perDay}건 · ${style === 'info' ? '정보성' : '후기성'}). ${startLbl}부터 ~ ${spreadEndYmd}${spreadLeftover ? ` · 범위 밖 ${spreadLeftover}건 제외` : ''}. 하루 안 간격은 SUB2가 분산.`);
+                    setReqMsg(`${total}건을 ${day}일에 나눠 예약 완료(하루 ${perDay}건 · ${style === 'info' ? '정보성' : '후기성'}). ${startLbl}부터 ~ ${spreadEndYmd}${spreadLeftover ? ` · 범위 밖 ${spreadLeftover}건 제외` : ''}${snapLabel(snapAll)}. 하루 안 간격은 SUB2가 분산.`);
                     await loadGenStatus();
                 };
                 return (
