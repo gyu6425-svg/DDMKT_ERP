@@ -94,16 +94,27 @@ export async function settleReports(reportIds: string[]) {
 //   회사 ERP '승인 처리 내역'의 입금 버튼 → 기자단 정산(미입금↔입금) + 계약 상세 진행이력(미처리↔처리) 동시 반영.
 export async function setReportPaid(report: BlogPostReport, paid: boolean) {
     const nowIso = new Date().toISOString();
-    // 1) 보고행 paid(승인 확정 건만)
-    const { error: e1 } = await supabase
+    // 1) 보고행 paid(승인 확정 건만). select 로 반영 행수를 확인한다 —
+    //    RLS 로 막히거나 상태가 안 맞으면 Postgres 는 그냥 0행을 바꾸고 error 는 null 이라,
+    //    예전 코드는 실패를 성공으로 보고했고 화면만 바뀌었다가 새로고침하면 되돌아갔다.
+    const { data: hit, error: e1 } = await supabase
         .from('blog_post_reports')
         .update({ paid, paid_at: paid ? nowIso : null })
         .eq('id', report.id)
-        .in('status', ['confirmed', 'published']);
+        .in('status', ['confirmed', 'published'])
+        .select('id');
     if (e1) return { error: e1 };
+    if (!hit || hit.length === 0)
+        return {
+            error: {
+                message:
+                    '반영된 행이 없습니다 — 내부 직원 권한(로그인 세션)이 풀렸거나 승인 상태가 아닙니다. 새로고침 후 다시 시도하세요.',
+            },
+        };
     // 2) 계약 진행이력(week=rpt-id) 로그 paid 동기화 — 실패 시 오류 표면화(반쪽 동기화 방지).
     const e2 = await syncContractLogPaid(report, paid);
-    return { error: e2 };
+    if (e2) return { error: { message: `입금은 처리됐지만 계약 진행이력 동기화 실패: ${e2.message}` } };
+    return { error: null };
 }
 
 // 기자단 보고 '정산' 토글(정산/미정산) — 입금의 전 단계 상태 구분용.

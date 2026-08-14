@@ -232,16 +232,26 @@ export function ApprovedReportsModal({
     const dateOf = (iso: string | null) => (iso ? iso.slice(0, 10) : '—');
 
     // 입금 처리 토글 — 정산(report.paid) + 계약 진행이력(week=rpt-id) 동기화.
+    //   ⚠️ paid_at 을 화면 상태에도 같이 넣어야 한다. 입금 완료·정산 내역 탭은 paid_at(KST)으로 거르는데,
+    //      예전엔 paid 만 바꿔서 방금 입금한 건이 paid_at=null 이 되고 → 날짜 범위를 걸어 둔 상태면
+    //      '전체'에서는 사라졌는데 '입금 완료'에도 안 나타나 입금이 안 먹은 것처럼 보였다.
+    //   finally 로 '처리 중…' 을 반드시 푼다(네트워크 예외로 버튼이 영구히 잠기던 경로 차단).
     const togglePay = async (r: BlogPostReport) => {
         setPaying(r.id);
         const next = !r.paid;
-        const { error } = await setReportPaid(r, next);
-        setPaying(null);
-        if (error) {
-            alert('입금 처리 실패: ' + error.message);
-            return;
+        try {
+            const { error } = await setReportPaid(r, next);
+            if (error) {
+                alert('입금 처리 실패: ' + error.message);
+                return;
+            }
+            const at = next ? new Date().toISOString() : null;
+            setReports((prev) => prev.map((x) => (x.id === r.id ? { ...x, paid: next, paid_at: at } : x)));
+        } catch (e) {
+            alert('입금 처리 실패(네트워크·세션): ' + ((e as Error)?.message || e));
+        } finally {
+            setPaying(null);
         }
-        setReports((prev) => prev.map((x) => (x.id === r.id ? { ...x, paid: next } : x)));
     };
 
     // 정산 토글(정산/미정산) — 입금의 전 단계 상태 구분. 입금·외주비엔 영향 없음.
@@ -629,7 +639,14 @@ export function ApprovedReportsModal({
                                                 }
                                                 type="button"
                                             >
-                                                {paying === r.id ? '처리 중…' : r.paid ? '입금완료' : '입금'}
+                                                {/* 비활성 이유를 버튼 글자로 — 예전엔 '입금' 그대로라 눌러도 반응 없는 것처럼 보였다. */}
+                                                {paying === r.id
+                                                    ? '처리 중…'
+                                                    : r.paid
+                                                      ? '입금완료'
+                                                      : r.settled
+                                                        ? '입금'
+                                                        : '정산 먼저'}
                                             </button>
                                         </td>
                                     </tr>
