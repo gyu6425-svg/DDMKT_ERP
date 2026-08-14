@@ -247,6 +247,7 @@ export default function PowerLinkPage() {
   const [pickerSggs, setPickerSggs] = useState([]); // 선택한 시군구 목록
   const [pickerFmt, setPickerFmt] = useState({ dong: true, guDong: false, gu: true, si: false, siDong: false });
   const [mergeNum, setMergeNum] = useState(true); // 번호 동 통합
+  const [pickerMsg, setPickerMsg] = useState(""); // 마지막 적용 결과(몇 개 추가/중복 제외)
 
   // ── 키워드 추천 (네이버 검색광고 API) 상태 ──
   const [recoHint, setRecoHint] = useState("");
@@ -348,14 +349,24 @@ export default function PowerLinkPage() {
   const toggleAllSgg = () => setPickerSggs(allSggSelected ? [] : [...pickerSggList]);
 
   // 생성한 지역명을 지역 컬럼(groupKeyCol)에 넣기
+  //   ⚠️ 기본 동작은 '누적(append)'. 실제 사용은 시/도를 바꿔가며 여러 번 담는 흐름이라
+  //      덮어쓰기를 기본에 두면 앞서 담은 시/도가 말없이 사라진다("넣어도 안 들어간다"의 정체).
+  //      덮어쓰기는 남겨두되 확인을 받는다.
   const applyRegions = (mode) => {
     if (pickerTerms.length === 0) return;
-    setColumns((prev) => prev.map((c) => {
-      if (c.id !== groupKeyCol) return c;
-      const existing = mode === "append" ? parseLines(c.text) : [];
-      const merged = [...new Set([...existing, ...pickerTerms])];
-      return { ...c, text: merged.join("\n") };
-    }));
+    const cur = columns.find((c) => c.id === groupKeyCol);
+    const existing = mode === "append" ? parseLines(cur?.text) : [];
+    if (mode === "replace" && parseLines(cur?.text).length &&
+        !window.confirm(`${colLabel(groupKeyCol)} 컬럼의 기존 ${parseLines(cur?.text).length}개를 지우고 ${pickerTerms.length}개로 바꿉니다. 계속할까요?`))
+      return;
+    const seen = new Set(existing);
+    const fresh = pickerTerms.filter((t) => !seen.has(t)); // 이미 담긴 지역은 건너뜀
+    const merged = [...existing, ...fresh];                // 기존 순서 유지 + 뒤에 이어붙임
+    setColumns((prev) => prev.map((c) => c.id === groupKeyCol ? { ...c, text: merged.join("\n") } : c));
+    const dup = pickerTerms.length - fresh.length;
+    setPickerMsg(mode === "append"
+      ? `${pickerSido} ${fresh.length.toLocaleString()}개 추가${dup ? ` (중복 ${dup.toLocaleString()}개 제외)` : ""} → ${colLabel(groupKeyCol)} 총 ${merged.length.toLocaleString()}개`
+      : `덮어씀 → ${colLabel(groupKeyCol)} ${merged.length.toLocaleString()}개`);
   };
 
   // ── 키워드 추천: 로컬 서버로 네이버 검색량 조회 ──
@@ -687,13 +698,17 @@ export default function PowerLinkPage() {
                 </span>
               )}
               <div style={{ flex: 1 }} />
-              <button onClick={() => applyRegions("replace")} disabled={!pickerTerms.length} style={{ ...btn("dark"), opacity: pickerTerms.length ? 1 : 0.4 }}>
-                {colLabel(groupKeyCol)} 컬럼에 넣기 (덮어쓰기)
+              {/* 기본 = 누적. 시/도를 바꿔가며 여러 번 눌러도 앞서 담은 지역이 유지된다. */}
+              <button onClick={() => applyRegions("append")} disabled={!pickerTerms.length} style={{ ...btn("dark"), opacity: pickerTerms.length ? 1 : 0.4 }}>
+                {colLabel(groupKeyCol)} 컬럼에 추가 (누적)
               </button>
-              <button onClick={() => applyRegions("append")} disabled={!pickerTerms.length} style={{ ...btn("ghost"), opacity: pickerTerms.length ? 1 : 0.4 }}>
-                추가
+              <button onClick={() => applyRegions("replace")} disabled={!pickerTerms.length} style={{ ...btn("ghost"), opacity: pickerTerms.length ? 1 : 0.4 }}>
+                덮어쓰기
               </button>
             </div>
+            {pickerMsg && (
+              <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700, color: COLORS.greenDark }}>✓ {pickerMsg}</div>
+            )}
           </div>
 
           {/* 키워드 추천 (네이버 검색량) */}
