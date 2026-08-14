@@ -44,7 +44,11 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
     const [loading, setLoading] = useState(true);
     const [q, setQ] = useState('');
     const [filter, setFilter] = useState<'all' | 'done' | 'waiting' | 'none'>('all');
-    const [openPhone, setOpenPhone] = useState(''); // 상세로 연 고객(연락처)
+    // 상세로 연 고객(연락처). null = 목록.
+    //   ⚠️ ''(빈 문자열)을 '안 열림'으로 쓰면 안 된다 — 번호 없는 고객의 phoneNorm 이 '' 라서
+    //      목록에 그 그룹이 하나라도 있으면 첫 렌더부터 그 고객 상세가 열려버리고, '← 목록'을 눌러도
+    //      다시 '' → 같은 상세로 되돌아와 영영 목록을 못 본다.
+    const [openPhone, setOpenPhone] = useState<string | null>(null);
     const [inqModal, setInqModal] = useState<{ edit: LeakInquiry | null; lock?: string } | null>(null);
     const [jobModal, setJobModal] = useState<{ edit: LeakJob | null; lock?: string } | null>(null);
 
@@ -124,7 +128,7 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
         };
     }, [customers]);
 
-    const opened = customers.find((c) => c.phoneNorm === openPhone) ?? null;
+    const opened = openPhone === null ? null : customers.find((c) => c.phoneNorm === openPhone) ?? null;
 
     const removeInq = async (r: LeakInquiry) => {
         if (!window.confirm(`상담 삭제 — ${fullPlace(r.sido, r.region, r.site_name)}\n되돌릴 수 없습니다.`)) return;
@@ -172,7 +176,7 @@ export default function LeakCustomersTab({ notify }: { notify: (m: string) => vo
             <div className="flex min-w-0 flex-col gap-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                        <Btn kind="ghost" onClick={() => setOpenPhone('')}>← 목록</Btn>
+                        <Btn kind="ghost" onClick={() => setOpenPhone(null)}>← 목록</Btn>
                         <div>
                             <div className="text-base font-bold text-[#0f172a]">
                                 {opened.phoneNorm ? fmtPhone(opened.phone) : '(연락처 없음)'}
