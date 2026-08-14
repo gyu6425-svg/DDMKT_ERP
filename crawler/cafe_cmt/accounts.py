@@ -137,6 +137,7 @@ COMMENT_EXCLUDE_BY_CAFE = {
     "dirtyclinic": {"rlawhddls25"},  "31768059": {"rlawhddls25"},   # 더티클리닉
     "loveyumi0926": {"rlawhddls25"}, "31768221": {"rlawhddls25"},   # 러브유미(방문요양/재활)
     "thekfix": {"rlawhddls25"},      "31770367": {"rlawhddls25"},   # 더케이픽스(바닥시공/DH크리트)
+    "kimhc4789": {"rlawhddls25"},    "31773937": {"rlawhddls25"},   # kimhc4789(기업인증/금융/창업)
 }
 
 
