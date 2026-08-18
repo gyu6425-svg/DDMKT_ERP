@@ -249,14 +249,38 @@ export async function cafeUnitPriceForClient(clientId: string): Promise<number> 
 }
 
 // 카페 등록(토큰 발행) 시 계약관리(client_contracts '카페 배포')에 자동 반영 — 기본 15,000(수동 조정 전 초기값).
-//   이미 '카페 배포' 계약이 있는 업체(더맨 등 수동 관리)는 건드리지 않는다(중복 방지). 없을 때만 생성.
+//   이미 '카페 배포' 계약이 있는 업체(더맨 등 수동 관리)는 금액을 건드리지 않는다.
+//
+//   ⚠️ 단 '껍데기 계약'은 예외다. 셀프가입 승인(PendingSignupsPanel)이 사이드바 '카페' 메뉴를 띄우려고
+//      goal_count=null · amount=null 인 빈 행을 미리 만든다. 예전 코드는 그 빈 행을 보고
+//      "이미 계약이 있다"며 그냥 돌아섰고, 그래서 **셀프가입 고객은 매출이 영구히 0원**이었다.
+//      (실측 2026-08-18: 카페 배포 계약 21건 중 6건이 amount=null — 대행사·올스마케팅·어퍼모스트·
+//       훼미리홈데코·미담공장·test1223. 그중 '대행사'는 결제·토큰발행까지 끝난 주문이다.)
+//      → 껍데기가 있으면 새로 만들지 않고 그 행을 채운다.
 export async function ensureCafeDeployContract(clientId: string, count: number) {
     if (!clientId || !count || count <= 0) return { error: null, created: false };
     const { data: existing } = await supabase.from('client_contracts')
-        .select('id').eq('client_id', clientId).eq('subtype', '카페 배포').limit(1);
-    if (existing && existing.length) return { error: null, created: false };
+        .select('id,goal_count,amount').eq('client_id', clientId).eq('subtype', '카페 배포');
+    const rows = (existing ?? []) as { id: string; goal_count: number | null; amount: number | null }[];
+    // 금액이 들어간 진짜 계약이 하나라도 있으면 손대지 않는다(수동 관리 업체 보호).
+    if (rows.some((r) => (r.amount ?? 0) > 0 || (r.goal_count ?? 0) > 0)) {
+        return { error: null, created: false };
+    }
     const unit = await cafeUnitPriceForClient(clientId);   // 기본 15,000(이후 계약관리에서 수동 조정)
     const today = new Date().toISOString().slice(0, 10);
+    const shell = rows[0];
+    if (shell) {
+        // 껍데기 채우기 — 행을 늘리지 않는다(계약이 2행이 되면 진행률 동기화가 같은 실적을 중복 반영한다).
+        const { error } = await supabase.from('client_contracts').update({
+            goal_count: count,
+            remain_count: count,
+            unit_price: unit,
+            amount: count * unit,
+            contract_date: today,
+            sheet_approved: true,
+        }).eq('id', shell.id);
+        return { error, created: !error };
+    }
     const { error } = await supabase.from('client_contracts').insert({
         client_id: clientId,
         category: '카페',

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { saleVat } from '../lib/erpUtils';
 import type { ErpClient } from '../api/erp';
 import { totalOutsource, type ClientContract } from '../api/clientContracts';
 import { useAuth } from '../hooks/useAuth';
 import { canIssueClientAccount } from '../lib/permissions';
 import { getClientBilling, maskAccount, upsertClientBilling, type ClientBilling } from '../api/clientBilling';
+import { supabase } from '../lib/supabase';
 
 // 고객 계정 정보 모달 — 발급된 고객 ERP 계정의 등록 정보를 카드식으로 표시.
 //   기본 정보 · 업종 정보 · 세금계산서(계약에서 금액 자동 계산) 세 섹션.
@@ -34,9 +36,12 @@ export default function CustomerInfoModal({
     const supply = contracts.reduce((s, ct) => s + (ct.amount || 0), 0);
     const outsource = contracts.reduce((s, ct) => s + totalOutsource(ct), 0);
     const net = supply - outsource;
-    // 부가세 — 계약별 no_vat(현금 등 부가세 제외) 반영. 그 외 공급가의 10%.
-    const vat = contracts.reduce((s, ct) => s + (ct.no_vat ? 0 : Math.round((ct.amount || 0) * 0.1)), 0);
-    const withVat = supply + vat;
+    // 실매출(부가세 포함) — 공용 saleVat 로 통일한다.
+    //   ⚠️ 예전엔 여기서만 `amount + round(amount×0.1)` 로 따로 계산해 sale_total(이카운트 실발행액)을
+    //      무시했다. 그래서 세금계산서 카드 금액이 실제 발행액과 어긋났다
+    //      (실측 2026-08-18 더티클리닉: amount 296,205 / sale_total 326,205 인데 모달은 325,826 → 379원 차이).
+    //      계약관리·고객상세는 이미 saleVat 을 쓴다. 세금계산서가 제일 정확해야 하는 화면이다.
+    const withVat = contracts.reduce((s, ct) => s + saleVat(ct.amount, ct.no_vat, ct.sale_total), 0);
 
     const Row = ({ k, v }: { k: string; v: string }) => (
         <div className="flex justify-between gap-3 border-b border-[#f1f5f9] py-1.5 last:border-b-0">
@@ -52,6 +57,16 @@ export default function CustomerInfoModal({
     );
 
     const id = (accountEmail || '').split('@')[0] || accountEmail || '-';
+
+    // 고객이 로그인/변경 시 저장한 현재 비번(관리자 조회용). 아직 로그인 전이면 없음.
+    const [pw, setPw] = useState<string | null>(null);
+    useEffect(() => {
+        let alive = true;
+        if (!accountEmail || !client.id) return;
+        void supabase.from('profiles').select('visible_pw').eq('client_id', client.id).eq('role', 'viewer').maybeSingle()
+            .then(({ data }) => { if (alive) setPw((data as { visible_pw?: string | null } | null)?.visible_pw ?? null); });
+        return () => { alive = false; };
+    }, [accountEmail, client.id]);
 
     return (
         <div
@@ -77,7 +92,7 @@ export default function CustomerInfoModal({
                         <Card title="고객 ERP 계정">
                             <Row k="아이디" v={id} />
                             <Row k="접속 주소" v="https://ddmkt-erp.pages.dev/" />
-                            <Row k="초기 비밀번호" v="아이디와 동일(첫 로그인 시 변경)" />
+                            <Row k="비밀번호" v={pw || '아직 없음 — 고객이 로그인하면 표시됩니다(초기값=아이디)'} />
                         </Card>
                     ) : null}
 

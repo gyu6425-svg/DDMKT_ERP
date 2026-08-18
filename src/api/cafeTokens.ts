@@ -54,11 +54,29 @@ export function balanceOf(rows: TokenLedger[], clientId?: string): number {
 //     · 돈 낸 고객의 충전내역에 "유상 0건 / 서비스 N건(무상)" 으로 표시됨(CafeTokenHistory 는 kind 로 가른다)
 //     · reverseDeployTokens 가 kind='충전' 만 뒤져 태그 매칭이 항상 0 → 접수 삭제 시 회수량이 틀림
 //       (실측: 더업스 접수 total_count 25 / 실지급 23 → 25 를 회수해 2건 과회수)
-export async function grantTokens(clientId: string, count: number, note?: string, kind: '충전' | '서비스' = '서비스') {
+//   idemKey: 같은 입금/접수로 두 번 지급되는 것을 DB 유니크로 막는다(docs/cafe-token-guard.sql).
+//     실측 2026-08-14 금융책사 — '토큰 발행'이 3초·14초 간격으로 3번 눌려 계약 100건에 300건이 나갔다.
+//     읽고-쓰는 애플리케이션 체크는 두 번째 클릭이 첫 INSERT 전에 읽으면 그대로 통과한다.
+//     유니크 위반은 '이미 발행됨'이므로 오류가 아니라 성공으로 돌려준다(중복 클릭이 에러로 보이면 안 된다).
+export async function grantTokens(
+    clientId: string, count: number, note?: string,
+    kind: '충전' | '서비스' = '서비스', idemKey?: string,
+) {
     if (!Number.isFinite(count) || count <= 0) return { error: { message: '건수를 1 이상 입력하세요' } as { message: string } };
-    const { error } = await supabase.from('cafe_tokens').insert({
+    const row: Record<string, unknown> = {
         client_id: clientId, delta: Math.floor(count), kind, note: note?.trim() || null,
-    });
+    };
+    if (idemKey) row.idem_key = idemKey;
+    const { error } = await supabase.from('cafe_tokens').insert(row);
+    if (error && /duplicate key|idem/i.test(error.message || '')) {
+        return { error: null, duplicate: true };
+    }
+    // idem_key 컬럼이 아직 없는 환경(SQL 미실행)에서는 컬럼 없이 한 번 더 시도한다.
+    if (error && idemKey && /idem_key|column|schema cache/i.test(error.message || '')) {
+        delete row.idem_key;
+        const retry = await supabase.from('cafe_tokens').insert(row);
+        return { error: retry.error };
+    }
     return { error };
 }
 

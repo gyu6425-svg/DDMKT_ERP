@@ -80,7 +80,7 @@ export default function CafeDeployAdminPanel() {
         if (already <= 0) {
             // 입금 확인분 = 유상. kind='충전' 으로 남겨야 고객 충전내역에 '유상'으로 뜨고,
             //   접수 삭제 시 reverseDeployTokens 가 이 태그 행을 찾아 정확히 그만큼만 회수한다.
-            const { error } = await grantTokens(r.client_id, count, `카페 배포 결제확인 · ${r.company_name} ${tag}`, '충전');
+            const { error } = await grantTokens(r.client_id, count, `카페 배포 결제확인 · ${r.company_name} ${tag}`, '충전', `req:${r.id}`);
             if (error) { setIssuing(null); return setMsg('토큰 발행 실패: ' + error.message); }
         }
         // 자동화 발행 탭 활성화(publish_enabled=true) — 실패하면 '발행할 고객사 선택'에 안 떠서 반드시 확인·경고.
