@@ -26,10 +26,19 @@ export async function listTokens(clientId?: string, limit = 500) {
 // 고객별 잔액만 한 번에 — 발행탭이 고객 수만큼 listTokens 를 돌리던 걸 1회 조회로 바꾼다.
 //   원장 전체(*) 대신 client_id·delta 만 받아 합산(실측 2026-08-14: 57 KB → 15 KB · 요청 N회 → 1회).
 export async function getTokenBalances(): Promise<Record<string, number>> {
-    const { data } = await supabase.from('cafe_tokens').select('client_id,delta').limit(20000);
+    // ★ PostgREST 는 서버 상한(db-max-rows)에 걸려 .limit(20000) 을 줘도 1000행에서 조용히 잘린다
+    //   (실측 2026-08-18: blog_posts?limit=10000 → content-range 0-999/*). 잘리면 오래된 충전이
+    //   빠져 잔액이 실제보다 작게 보이고, 그 값으로 발행을 막거나 재충전을 권하게 된다.
+    //   → range 로 끝까지 넘긴다. 정렬을 고정하지 않으면 페이지가 겹치거나 빠진다.
+    const PAGE = 1000;
     const m: Record<string, number> = {};
-    for (const r of (data ?? []) as { client_id: string; delta: number }[]) {
-        m[r.client_id] = (m[r.client_id] ?? 0) + (r.delta || 0);
+    for (let from = 0; from < 200000; from += PAGE) {
+        const { data, error } = await supabase
+            .from('cafe_tokens').select('client_id,delta').order('id', { ascending: true })
+            .range(from, from + PAGE - 1);
+        const rows = (data ?? []) as { client_id: string; delta: number }[];
+        for (const r of rows) m[r.client_id] = (m[r.client_id] ?? 0) + (r.delta || 0);
+        if (error || rows.length < PAGE) break;
     }
     return m;
 }
@@ -40,11 +49,15 @@ export function balanceOf(rows: TokenLedger[], clientId?: string): number {
 }
 
 // 관리자: 토큰 충전(+건수).
-// 서비스 토큰(무상) — 노출 안 될 때 우리가 주는 것. kind='서비스' 로 저장해 금액(15,000)에 안 잡히게(유상 충전과 구분). 잔액엔 포함(사용 가능).
-export async function grantTokens(clientId: string, count: number, note?: string) {
+//   kind 를 인자로 받는다 — '충전'=유상(입금 확인분) · '서비스'=무상(노출 안 될 때 우리가 주는 것).
+//   ⚠️ 예전엔 무조건 '서비스' 로 넣었다. 그 탓에 두 가지가 동시에 깨져 있었다:
+//     · 돈 낸 고객의 충전내역에 "유상 0건 / 서비스 N건(무상)" 으로 표시됨(CafeTokenHistory 는 kind 로 가른다)
+//     · reverseDeployTokens 가 kind='충전' 만 뒤져 태그 매칭이 항상 0 → 접수 삭제 시 회수량이 틀림
+//       (실측: 더업스 접수 total_count 25 / 실지급 23 → 25 를 회수해 2건 과회수)
+export async function grantTokens(clientId: string, count: number, note?: string, kind: '충전' | '서비스' = '서비스') {
     if (!Number.isFinite(count) || count <= 0) return { error: { message: '건수를 1 이상 입력하세요' } as { message: string } };
     const { error } = await supabase.from('cafe_tokens').insert({
-        client_id: clientId, delta: Math.floor(count), kind: '서비스', note: note?.trim() || null,
+        client_id: clientId, delta: Math.floor(count), kind, note: note?.trim() || null,
     });
     return { error };
 }
@@ -68,8 +81,12 @@ export async function syncTokensToContract(clientId: string, target: number, not
 //   해당 태그 grant 합계를 정확히 되돌린다. 태그가 없으면(구버전 발행) fallbackCount 를 사용.
 //   미발행(태그 없음 + fallback 0) 이면 0 반환(회수 안 함). 회수분은 고객 충전내역에 '조정 -N' 으로 남는다.
 export async function reverseDeployTokens(clientId: string, requestId: string, fallbackCount = 0, company = '') {
+    // ⚠️ kind 로 거르지 않는다. 지급은 '충전'(유상)과 '서비스'(무상) 둘 다 가능하고,
+    //   예전 코드가 kind='충전' 만 뒤지는 바람에 태그 매칭이 항상 0 이 돼 fallback 으로 떨어졌다.
+    //   판정 기준은 오직 "이 접수 태그가 붙은 양수 행". 회수행(-)은 delta>0 조건이 걸러낸다
+    //   (회수행에도 같은 태그를 남기므로, 이걸 빼면 두 번째 회수 때 또 전액을 회수한다).
     const { data } = await supabase.from('cafe_tokens')
-        .select('delta,note,kind').eq('client_id', clientId).eq('kind', '충전');
+        .select('delta,note,kind').eq('client_id', clientId).gt('delta', 0);
     const tag = `[req:${requestId}]`;
     const granted = (data ?? [])
         .filter((r) => ((r as { note: string | null }).note ?? '').includes(tag))

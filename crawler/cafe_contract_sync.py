@@ -30,9 +30,38 @@ _H = {"apikey": _KEY, "Authorization": f"Bearer {_KEY}", "Content-Type": "applic
 _SUBTYPE = "카페 배포"
 
 
+# PostgREST 는 서버 설정(db-max-rows)에 걸려 **limit 을 크게 줘도 1000행에서 조용히 잘린다.**
+#   실측 2026-08-18: blog_posts?select=id → 200 OK 인데 content-range 0-999/*.
+#   에러가 아니라 정상 응답이라 그대로 계산하면 충전/소진이 과소집계되고,
+#   target=min(published,grant) 가 매 실행마다 어긋나 **중복 차감 또는 무상 발행**이 난다.
+#   → Range 헤더로 끝까지 넘긴다. 정렬(order=id)을 고정하지 않으면 페이지가 겹치거나 빠진다.
+_PAGE = 1000
+
+
 def _get(path):
-    r = requests.get(f"{_SB}/rest/v1/{path}", headers=_H, timeout=30)
-    return r.json() if r.status_code == 200 else []
+    sep = "&" if "?" in path else "?"
+    if "order=" not in path:
+        path = f"{path}{sep}order=id"
+    out = []
+    start = 0
+    while True:
+        h = dict(_H)
+        h["Range-Unit"] = "items"
+        h["Range"] = f"{start}-{start + _PAGE - 1}"
+        r = requests.get(f"{_SB}/rest/v1/{path}", headers=h, timeout=30)
+        if r.status_code not in (200, 206):
+            break
+        chunk = r.json()
+        if not isinstance(chunk, list):
+            return chunk
+        out.extend(chunk)
+        if len(chunk) < _PAGE:
+            break
+        start += _PAGE
+        if start > 200000:      # 폭주 방지
+            print("  ! 페이지네이션 상한 도달 — 조회 중단", flush=True)
+            break
+    return out
 
 
 def _norm(s):
@@ -69,7 +98,7 @@ def sync(verbose=True):
         return 0
     accounts = _get("cafe_accounts?select=id,client_id,board_short,done_count")
     posts = _get("cafe_rank_posts?select=board,cafe_account_id,keyword,keyword_manual,"
-                 "top5_achieved_at,top5_seeded,excluded&limit=5000")
+                 "top5_achieved_at,top5_seeded,excluded")
     manual_kw = _manual_keywords()
     contracts = _get(f"client_contracts?subtype=eq.{quote(_SUBTYPE)}&select=id,client_id,goal_count,remain_count")
     changed = 0

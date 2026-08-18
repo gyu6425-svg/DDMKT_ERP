@@ -25,9 +25,38 @@ _KEY = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY
 _H = {"apikey": _KEY, "Authorization": f"Bearer {_KEY}", "Content-Type": "application/json"}
 
 
+# PostgREST 는 서버 설정(db-max-rows)에 걸려 **limit 을 크게 줘도 1000행에서 조용히 잘린다.**
+#   실측 2026-08-18: blog_posts?select=id → 200 OK 인데 content-range 0-999/*.
+#   에러가 아니라 정상 응답이라 그대로 계산하면 충전/소진이 과소집계되고,
+#   target=min(published,grant) 가 매 실행마다 어긋나 **중복 차감 또는 무상 발행**이 난다.
+#   → Range 헤더로 끝까지 넘긴다. 정렬(order=id)을 고정하지 않으면 페이지가 겹치거나 빠진다.
+_PAGE = 1000
+
+
 def _get(path):
-    r = requests.get(f"{_SB}/rest/v1/{path}", headers=_H, timeout=30)
-    return r.json() if r.status_code == 200 else []
+    sep = "&" if "?" in path else "?"
+    if "order=" not in path:
+        path = f"{path}{sep}order=id"
+    out = []
+    start = 0
+    while True:
+        h = dict(_H)
+        h["Range-Unit"] = "items"
+        h["Range"] = f"{start}-{start + _PAGE - 1}"
+        r = requests.get(f"{_SB}/rest/v1/{path}", headers=h, timeout=30)
+        if r.status_code not in (200, 206):
+            break
+        chunk = r.json()
+        if not isinstance(chunk, list):
+            return chunk
+        out.extend(chunk)
+        if len(chunk) < _PAGE:
+            break
+        start += _PAGE
+        if start > 200000:      # 폭주 방지
+            print("  ! 페이지네이션 상한 도달 — 조회 중단", flush=True)
+            break
+    return out
 
 
 def sync(verbose=True):
@@ -36,8 +65,8 @@ def sync(verbose=True):
             print("SUPABASE_URL/SERVICE_KEY 없음 — token sync 건너뜀", flush=True)
         return 0
     accounts = _get("cafe_accounts?select=id,client_id,board_short")
-    posts = _get("cafe_rank_posts?select=cafe_account_id,board&limit=10000")
-    tokens = _get("cafe_tokens?select=client_id,delta,kind&limit=5000")  # ★ kind 필수 — 없으면 회수/발행 구분이 통째로 무너진다
+    posts = _get("cafe_rank_posts?select=cafe_account_id,board")
+    tokens = _get("cafe_tokens?select=client_id,delta,kind")  # ★ kind 필수 — 없으면 회수/발행 구분이 통째로 무너진다
     # 고객별 충전(순증)·현재 소진 — ★ 부호가 아니라 kind 로 나눈다.
     #   예전엔 '음수 = 소진'으로 봤는데, 회수/취소('조정')도 음수라 소진으로 잡혔다.
     #   그러면 이미 소진이 발행건수보다 커 보여서 실제 발행분이 영영 안 깎인다.
