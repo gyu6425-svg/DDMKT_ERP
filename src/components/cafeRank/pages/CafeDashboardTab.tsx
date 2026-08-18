@@ -86,10 +86,19 @@ export function CafeDashboardTab() {
             const b = (a.board_short || '').trim();
             if (b && a.goal_count != null) goalByBoard.set(b, a.goal_count);
         });
-        const fixed = DAILY_TARGETS.map((t) => ({ ...t, goal: goalByBoard.get(t.board) ?? t.goal }));
+        // 계약이 끝나 정리한 업체(cafe_accounts.active=false)는 이 목록에서 통째로 뺀다.
+        //   ★ 이게 없으면 정리한 업체가 오히려 되살아난다 — 정리하면서 글을 excluded 로 내리면
+        //     실적이 0으로 계산돼 '완주(isEnded)' 판정이 풀리고, 0/50 짜리 줄이 다시 위로 올라온다.
+        //     (2026-08-18 더반클린 정리 때 실제로 그럴 뻔했다.)
+        const retiredBoards = new Set(
+            accounts.filter((a) => a.active === false).map((a) => (a.board_short || '').trim()).filter(Boolean),
+        );
+        const fixed = DAILY_TARGETS
+            .filter((t) => !retiredBoards.has(t.board))
+            .map((t) => ({ ...t, goal: goalByBoard.get(t.board) ?? t.goal }));
         const seen = new Set<string>();
         const dyn = deployTargets
-            .filter((d) => d.board && !fixedBoards.has(d.board) && d.mission_start <= today)
+            .filter((d) => d.board && !fixedBoards.has(d.board) && !retiredBoards.has(d.board) && d.mission_start <= today)
             .filter((d) => (seen.has(d.board) ? false : (seen.add(d.board), true)))
             .map((d) => ({ board: d.board, goal: d.goal, daily: d.daily, kpi: undefined as boolean | undefined, own: false }));
         return [...fixed, ...dyn];
