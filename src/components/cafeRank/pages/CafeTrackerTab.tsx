@@ -21,9 +21,9 @@ import { PER_FEED } from '../../blogRank/lib/helpers';
 //     게시판은 업체 칸 아래 작은 칩으로 표시해 정보는 그대로 남긴다.
 //   기능(재검색·전체 재검색·시트 등록·삭제·업체 스코프)은 전부 유지.
 
-// 카페 vanity → 표시명. 새 카페 추가 시 여기 매핑(크롤러 CLUB_TO_VANITY 와 짝).
-const CAFE_LABEL: Record<string, string> = { ddmkt2: '마이클의 정보 세상', thebanclean: '더반클린', ddnusu: '누수탐지 상담소' };
-const cafeLabel = (vanity?: string | null) => (vanity && CAFE_LABEL[vanity]) || vanity || '';
+// 여러 업체가 함께 쓰는 카페만 이름을 고정한다. 그 외 카페는 아래 cafeText 가
+//   cafe_accounts.display_name(업체명)으로 표시한다 — vanity(계정 아이디)를 화면에 내보내지 않는다.
+const CAFE_LABEL: Record<string, string> = { ddmkt2: '마이클의 정보 세상' };
 
 // 게시판(board) — 동일 카페 안에서 게시판별 구분. 표시 순서·색.
 const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템', '더반클린', '누수상담소'];
@@ -218,6 +218,27 @@ export function CafeTrackerTab({
         [posts, companyFilter, matchCompany],
     );
 
+    // 카페 표시는 vanity(ddnusu·themansys 같은 계정 아이디)가 아니라 업체명으로 — 사장님 요청 2026-08-18.
+    //   cafe_accounts.display_name 을 카페별로 모아 쓴다. 한 카페를 여러 업체가 쓰면(마이클) 카페 이름을 쓰고,
+    //   그마저 없으면 업체명을 나열한다. vanity 는 정말 아무것도 없을 때의 마지막 수단.
+    const cafeNames = useMemo(() => {
+        const m = new Map<string, Set<string>>();
+        for (const p of posts) {
+            const v = p.cafe_name || '기타';
+            const n = (p.cafe_accounts?.display_name || '').trim();
+            if (!n) continue;
+            (m.get(v) ?? m.set(v, new Set<string>()).get(v)!).add(n);
+        }
+        return m;
+    }, [posts]);
+    const cafeText = useCallback((v?: string | null) => {
+        const key = v || '';
+        if (CAFE_LABEL[key]) return CAFE_LABEL[key];
+        const names = [...(cafeNames.get(key) || [])];
+        if (names.length) return names.join(' · ');
+        return key || '기타';
+    }, [cafeNames]);
+
     // 카페(vanity) 목록 — 셀렉트용. 순서는 cafeNameRank.
     const cafes = useMemo(() => {
         const cnt = new Map<string, number>();
@@ -257,12 +278,12 @@ export function CafeTrackerTab({
         if (topOnly) r = r.filter((p) => { const n = lastRank(p); return n != null && n <= 5; });
         if (q) {
             const qq = q.trim();
-            r = r.filter((p) => cafeLabel(p.cafe_name).includes(qq) || (p.cafe_name || '').includes(qq));
+            r = r.filter((p) => cafeText(p.cafe_name).includes(qq) || (p.cafe_name || '').includes(qq));
         }
         if (search.trim()) {
             const s = search.trim();
             r = r.filter((p) =>
-                cafeLabel(p.cafe_name).includes(s) ||
+                cafeText(p.cafe_name).includes(s) ||
                 companyLabel(p).includes(s) ||
                 boardKey(p).includes(s) ||
                 (p.title || '').includes(s) ||
@@ -276,7 +297,7 @@ export function CafeTrackerTab({
                 (b.created_at || '').localeCompare(a.created_at || '') ||
                 String(a.id).localeCompare(String(b.id)),
         );
-    }, [posts, q, search, cafeFilter, boardFilter, month, pubFilter, topOnly, companyFilter, matchCompany, today, yesterday]);
+    }, [posts, q, search, cafeFilter, boardFilter, month, pubFilter, topOnly, companyFilter, matchCompany, today, yesterday, cafeText]);
 
     // 당일/전날 발행 글 수(버튼 옆 표시) — 지금 카페·게시판·업체 범위 기준(월/5위 필터는 빼고 센다).
     const pubCounts = useMemo(() => {
@@ -389,7 +410,7 @@ export function CafeTrackerTab({
                     <select className={SELECT} onChange={(e) => { setCafeFilter(e.target.value); setBoardFilter('전체'); }} value={cafeFilter}>
                         <option value="전체">카페 전체</option>
                         {cafes.map(([c, n]) => (
-                            <option key={c} value={c}>{cafeLabel(c)} ({n})</option>
+                            <option key={c} value={c}>{cafeText(c)} ({n})</option>
                         ))}
                     </select>
                 ) : null}
@@ -555,7 +576,10 @@ export function CafeTrackerTab({
                                             {/* 게시판은 그룹 헤더 대신 여기 작은 칩으로 — 줄 수를 늘리지 않고 구분은 남긴다. */}
                                             <div className="mt-0.5 flex items-center gap-1">
                                                 <span className="rounded px-1.5 py-0.5 text-[10px] font-bold" style={{ background: st.bg, color: st.fg }}>{bd}</span>
-                                                <span className="text-[10px] font-normal text-[#94a3b8]">{cafeLabel(p.cafe_name) || p.club_id}</span>
+                                                {/* 카페 이름이 업체명과 같으면 같은 말이 두 번 나오므로 감춘다. */}
+                                                {cafeText(p.cafe_name) !== companyLabel(p) ? (
+                                                    <span className="text-[10px] font-normal text-[#94a3b8]">{cafeText(p.cafe_name)}</span>
+                                                ) : null}
                                             </div>
                                         </td>
                                         <td className="px-3 py-2">
