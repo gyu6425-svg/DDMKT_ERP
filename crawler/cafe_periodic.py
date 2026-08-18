@@ -76,10 +76,39 @@ def _sleep_to_next_slot():
     time.sleep(wait)
 
 
+# ── Egress 절감 ─────────────────────────────────────────────────────────────
+#   왜: 이 데몬은 30분마다 cafe_rank_posts 를 통째로(select=*) 읽는다. measurements 가 무거워
+#       1회 428 KB · 하루 19.6 MB 였다. 그런데 '무엇을 잴지 고르는' 데는 마지막 측정 1건이면 충분하다.
+#       실측 2026-08-18: 428 KB -> 108 KB(75% 감소) · 하루 19.6 -> 4.9 MB.
+#   대신 저장 직전에 그 글의 measurements 원본만 따로 읽어 이력을 보존한다(1건 ~71 B).
+SEL_LITE = ("id,cafe_name,article_id,club_id,keyword,keyword_manual,board,"
+            "published_date,created_at,last:measurements->-1")
+
+
+def _lite(rows):
+    """last(마지막 측정 1건)를 measurements 리스트 모양으로 되돌린다 — 아래 판정 로직을 그대로 쓰기 위함."""
+    out = []
+    for r in rows:
+        last = r.pop("last", None)
+        r["measurements"] = [last] if last else []
+        out.append(r)
+    return out
+
+
+def _full_measurements(pid):
+    """저장 직전 이력 원본 — 선별 조회는 마지막 1건만 받았으므로 여기서 전체를 받아 이어붙인다.
+       ★ 이걸 빼먹으면 매 측정마다 이력이 1건으로 잘려 순위 추이가 통째로 사라진다."""
+    try:
+        rows = c.sb_get("cafe_rank_posts", {"id": f"eq.{pid}", "select": "measurements"})
+        return (rows[0].get("measurements") if rows else None) or []
+    except Exception:
+        return None          # 실패 시 None -> 호출부가 저장을 건너뛴다(이력 파괴 금지)
+
+
 def _measure_new():
     today = datetime.date.today().isoformat()
     # 최신 발행 우선 정렬 — 측정 창이 짧게 끊겨도 최근 등록 글이 뒤로 반복 밀리지 않게(독립검증 R3).
-    posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*", "order": "published_date.desc.nullslast"})
+    posts = _lite(c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": SEL_LITE, "order": "published_date.desc.nullslast"}))
     posts = [p for p in posts if (p.get("cafe_name") or "").strip() != "ddmkt2"]  # 마이클정보세상(ddmkt2) 순위체크 제외(사용자 지정)
     # 대상 = ① 오늘 미측정 글 + ② 매 사이클(15분) 재측정: 현재 순위권(ok) OR 최근 발행 신규글.
     #   순위권 글은 순위 변동을 바로바로 반영, 최근 신규글은 아직 변동이 커 매번 추적(진입/이탈 즉시 포착).
@@ -107,7 +136,11 @@ def _measure_new():
             continue
         club = str(p.get("club_id")).strip() if p.get("club_id") else None
         ti, ti_s = c.measure_cafe_rank(kw, (p.get("cafe_name") or "").strip() or None, aid, club_id=club)
-        recs = [r for r in (p.get("measurements") or []) if r.get("date") != today]
+        hist = _full_measurements(p["id"])
+        if hist is None:
+            print(f"    [건너뜀] #{aid}: 이력 조회 실패 — 덮어쓰지 않는다", flush=True)
+            continue
+        recs = [r for r in hist if r.get("date") != today]
         recs.append({"date": today, "ti": ti, "ti_status": ti_s})
         try:
             c.sb_patch("cafe_rank_posts", {"id": f"eq.{p['id']}"}, {"measurements": recs})
@@ -122,8 +155,8 @@ def _measure_priority(cap=20):
     """블로그 당일크롤 중에도 '오늘 발행 신규글'만 소량 우선 측정 — 발행 직후 순위 즉시 반영.
        대량(전체 순위권) 재측정은 블로그 끝난 자유슬롯에서 _measure_new 가 한다. m.search 소량이라 부하 낮음."""
     today = datetime.date.today().isoformat()
-    posts = c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": "*",
-                                         "published_date": f"eq.{today}", "order": "created_at.desc"})
+    posts = _lite(c.sb_get("cafe_rank_posts", {"excluded": "eq.false", "select": SEL_LITE,
+                                               "published_date": f"eq.{today}", "order": "created_at.desc"}))
     posts = [p for p in posts if (p.get("cafe_name") or "").strip() != "ddmkt2"]  # 마이클정보세상(ddmkt2) 순위체크 제외(사용자 지정)
     todo = [p for p in posts
             if not any((m.get("date") == today) for m in (p.get("measurements") or []))][:cap]
@@ -137,7 +170,11 @@ def _measure_priority(cap=20):
             continue
         club = str(p.get("club_id")).strip() if p.get("club_id") else None
         ti, ti_s = c.measure_cafe_rank(kw, (p.get("cafe_name") or "").strip() or None, aid, club_id=club)
-        recs = [r for r in (p.get("measurements") or []) if r.get("date") != today]
+        hist = _full_measurements(p["id"])
+        if hist is None:
+            print(f"    [건너뜀] #{aid}: 이력 조회 실패 — 덮어쓰지 않는다", flush=True)
+            continue
+        recs = [r for r in hist if r.get("date") != today]
         recs.append({"date": today, "ti": ti, "ti_status": ti_s})
         try:
             c.sb_patch("cafe_rank_posts", {"id": f"eq.{p['id']}"}, {"measurements": recs})
