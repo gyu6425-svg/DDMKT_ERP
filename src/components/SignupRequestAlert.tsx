@@ -17,7 +17,7 @@ export default function SignupRequestAlert() {
       void listPendingSignups().then(({ data, error }) => { if (!error) setCount(data.length) })
     }
     load()
-    const id = window.setInterval(load, 60000) // 폴링 60초
+    const id = window.setInterval(() => { if (document.visibilityState === 'visible') load() }, 60000) // 폴링 60초(보일 때만)
     const onFocus = () => load()
     const onVis = () => { if (document.visibilityState === 'visible') load() }
     window.addEventListener('app:navigate', load)

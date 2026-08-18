@@ -51,7 +51,8 @@ export function PublishHistory({ filterPrefixes }: { filterPrefixes?: string[] }
         // effect 동기 본문에서 바로 setState 하지 않도록 다음 틱에 첫 로드.
         const first = window.setTimeout(() => void load(), 0);
         // 작성중/대기 상태가 있으면 진행 상황이 바뀌므로 주기적으로 갱신.
-        const t = window.setInterval(() => void load(), 20000);
+        // 배경 탭에선 안 돈다 — Supabase Egress 절감(2026-08-18).
+        const t = window.setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 20000);
         return () => {
             window.clearTimeout(first);
             window.clearInterval(t);
