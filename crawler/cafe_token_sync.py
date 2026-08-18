@@ -37,19 +37,27 @@ def sync(verbose=True):
         return 0
     accounts = _get("cafe_accounts?select=id,client_id,board_short")
     posts = _get("cafe_rank_posts?select=cafe_account_id,board&limit=10000")
-    tokens = _get("cafe_tokens?select=client_id,delta&limit=5000")
-    # 고객별 충전(+합)·현재 소진(-합)
+    tokens = _get("cafe_tokens?select=client_id,delta,kind&limit=5000")  # ★ kind 필수 — 없으면 회수/발행 구분이 통째로 무너진다
+    # 고객별 충전(순증)·현재 소진 — ★ 부호가 아니라 kind 로 나눈다.
+    #   예전엔 '음수 = 소진'으로 봤는데, 회수/취소('조정')도 음수라 소진으로 잡혔다.
+    #   그러면 이미 소진이 발행건수보다 커 보여서 실제 발행분이 영영 안 깎인다.
+    #   실측 2026-08-18 금융책사: 지급 +300(발행 활성화 실패로 3번 지급) → 회수 -200 인데
+    #   그 -200 이 '소진 200'으로 잡혀, 24건을 발행하고도 잔여가 100 그대로였다.
+    #   충전 = 소진 이외 kind 의 합(회수는 마이너스로 그대로 반영) / 소진 = 발행 관련 kind 만.
+    CONSUME_KINDS = {"발행", "발행반영"}
     grant, consumed = {}, {}
     for t in tokens:
         cid = t.get("client_id")
         d = t.get("delta") or 0
-        if d > 0:
+        kind = (t.get("kind") or "").strip()
+        if kind in CONSUME_KINDS:
+            if d < 0:
+                consumed[cid] = consumed.get(cid, 0) + (-d)
+        else:
             grant[cid] = grant.get(cid, 0) + d
-        elif d < 0:
-            consumed[cid] = consumed.get(cid, 0) + (-d)
     changed = 0
     for cid, g in grant.items():
-        if not cid:
+        if not cid or g <= 0:
             continue
         accs = [a for a in accounts if a.get("client_id") == cid]
         acc_ids = {a["id"] for a in accs}
