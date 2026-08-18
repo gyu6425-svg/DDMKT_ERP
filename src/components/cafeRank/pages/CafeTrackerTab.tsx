@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     cafeTiStatus,
     excludeCafeRankPost,
@@ -11,14 +11,21 @@ import {
 import { CafeSearchCell } from '../components/CafeSearchCell';
 import { countCafePendingMeasures, enqueueCafeRankMeasures } from '../../../api/cafeRankSearch';
 import { cafeNameRank } from '../../../lib/cafeAccounts';
+import { Pager } from '../../blogRank/lib/ui';
+import { PER_FEED } from '../../blogRank/lib/helpers';
 
 // 카페 · 순위 트래커 — 자사 카페 글의 네이버 '인기글 테마 섹션' 내 순위. 측정은 PC 크롤러(cafe_rank_crawler.py)가 기록.
+//   화면 골격은 블로그 순위 트래커(blogRank/pages/TrackerTab)와 동일하게 맞춘다(사장님 요청 2026-08-18).
+//   · 위: 큰 검색창 한 줄 → 셀렉트/버튼 필터 한 줄 → 표 → 페이지 넘김
+//   · 예전엔 카페 칩 줄 + 게시판 칩 줄 + 표 안 그룹 헤더까지 3중이라 보기 복잡했다. 필터는 셀렉트로 접고,
+//     게시판은 업체 칸 아래 작은 칩으로 표시해 정보는 그대로 남긴다.
+//   기능(재검색·전체 재검색·시트 등록·삭제·업체 스코프)은 전부 유지.
 
-// 카페 vanity → 업체(카페) 표시명. 새 카페 추가 시 여기 매핑(크롤러 CLUB_TO_VANITY 와 짝).
+// 카페 vanity → 표시명. 새 카페 추가 시 여기 매핑(크롤러 CLUB_TO_VANITY 와 짝).
 const CAFE_LABEL: Record<string, string> = { ddmkt2: '마이클의 정보 세상', thebanclean: '더반클린', ddnusu: '누수탐지 상담소' };
 const cafeLabel = (vanity?: string | null) => (vanity && CAFE_LABEL[vanity]) || vanity || '';
 
-// 게시판(board) — 동일 카페 안에서 게시판별 구분. 표시 순서·색. 새 게시판은 자동으로 뒤에 붙는다.
+// 게시판(board) — 동일 카페 안에서 게시판별 구분. 표시 순서·색.
 const BOARD_ORDER = ['누수', '더티클리닉', '설고점', '더맨시스템', '더반클린', '누수상담소'];
 const BOARD_STYLE: Record<string, { bg: string; fg: string }> = {
     누수: { bg: '#eff6ff', fg: '#1d4ed8' },
@@ -36,12 +43,25 @@ const boardRank = (b: string) => {
 };
 const boardStyle = (b: string) => BOARD_STYLE[b] || { bg: '#f1f5f9', fg: '#475569' };
 
+const todayKST = () => {
+    const now = new Date();
+    return new Date(now.getTime() + (now.getTimezoneOffset() + 540) * 60000).toISOString().slice(0, 10);
+};
+
 // 순위 확인 링크 — 반드시 모바일(m.search).
 //   ★ 인기글 섹션은 PC 와 모바일이 다르다. 실측(2026-08-07) '광진 소방업체'는
 //     모바일엔 인기글 헤더가 있고 PC엔 없다(플레이스·뉴스만). CF 경유든 사무실 IP든 동일했다.
 //     우리 측정(measure_cafe_rank)이 m.search 전용이므로 확인도 모바일로 통일해야
 //     "화면엔 없는데 왜 있다고 하냐"는 어긋남이 안 생긴다.
 const cafeSearchUrl = (kw: string) => `https://m.search.naver.com/search.naver?query=${encodeURIComponent(kw)}`;
+
+// 마지막 측정이 '몇 위'인지(순위 없으면 null) — 5위 이내 필터·정렬용.
+const lastRank = (p: CafeRankPost): number | null => {
+    const ms = p.measurements;
+    if (!ms || !ms.length) return null;
+    const cur = ms[ms.length - 1];
+    return cafeTiStatus(cur.ti_status) === 'ranked' ? cur.ti : null;
+};
 
 // 순위 셀 — 인기글 테마 섹션 내 순위. 측정없음=측정대기, fail=실패, no_section=측정불가(섹션없음), out=권외.
 //   인기글 섹션은 보통 5~10개 → ≤3 초록(상위), ≤7 파랑, 그외 회색.
@@ -95,6 +115,11 @@ export function CafeTrackerTab({
     const [showAdd, setShowAdd] = useState(false);
     const [deleting, setDeleting] = useState<string | null>(null);
     const [boardFilter, setBoardFilter] = useState('전체');
+    const [cafeFilter, setCafeFilter] = useState('전체'); // 카페(vanity)별 필터
+    const [month, setMonth] = useState('');               // 발행 월(YYYY-MM)
+    const [pubFilter, setPubFilter] = useState<'all' | 'today' | 'yesterday'>('all');
+    const [topOnly, setTopOnly] = useState(false);        // 인기글 5위 이내만(= 실적 기준선)
+    const [page, setPage] = useState(1);
     // 관리시트에서 '순위 보기'(?company=company_key)로 들어오면 그 업체 글만 남긴다.
     //   ★ 예전엔 업체키→게시판 이름을 손으로 적어둔 표(6곳)로 게시판 탭만 골랐다. 표에 없는
     //     새 업체(출장뷔페·재활요양 등)는 전부 '전체'로 떨어져 남의 글까지 보였다.
@@ -103,7 +128,6 @@ export function CafeTrackerTab({
     const [companyFilter, setCompanyFilter] = useState(
         () => new URLSearchParams(window.location.search).get('company') || '',
     );
-    const [cafeFilter, setCafeFilter] = useState('전체'); // 카페(vanity)별 필터
 
     const reload = async () => {
         setLoading(true);
@@ -182,10 +206,55 @@ export function CafeTrackerTab({
         [companyClientId, companyFilter],
     );
 
+    const today = todayKST();
+    const yesterday = useMemo(() => {
+        const [y, m, d] = today.split('-').map(Number);
+        return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+    }, [today]);
+
+    // 업체를 골라 들어왔으면 카페·게시판 목록도 그 업체 것만 — 남의 게시판이 깔리지 않게.
+    const scopedPosts = useMemo(
+        () => (companyFilter ? posts.filter(matchCompany) : posts),
+        [posts, companyFilter, matchCompany],
+    );
+
+    // 카페(vanity) 목록 — 셀렉트용. 순서는 cafeNameRank.
+    const cafes = useMemo(() => {
+        const cnt = new Map<string, number>();
+        for (const p of scopedPosts) { const k = p.cafe_name || '기타'; cnt.set(k, (cnt.get(k) || 0) + 1); }
+        return [...cnt.entries()].sort((a, b) => cafeNameRank(a[0]) - cafeNameRank(b[0]) || a[0].localeCompare(b[0]));
+    }, [scopedPosts]);
+
+    // 게시판 목록 — 선택한 카페의 게시판만.
+    const boards = useMemo(() => {
+        const scoped = cafeFilter === '전체' ? scopedPosts : scopedPosts.filter((p) => (p.cafe_name || '기타') === cafeFilter);
+        const cnt = new Map<string, number>();
+        for (const p of scoped) cnt.set(boardKey(p), (cnt.get(boardKey(p)) || 0) + 1);
+        return [...cnt.entries()].sort((a, b) => boardRank(a[0]) - boardRank(b[0]) || a[0].localeCompare(b[0]));
+    }, [scopedPosts, cafeFilter]);
+
+    // 발행 월 목록(YYYY-MM) — 현재 카페/업체 범위 기준, 최신월 먼저.
+    const months = useMemo(() => {
+        const set = new Set<string>();
+        for (const p of scopedPosts) {
+            if (cafeFilter !== '전체' && (p.cafe_name || '기타') !== cafeFilter) continue;
+            const m = (p.published_date || '').slice(0, 7);
+            if (m) set.add(m);
+        }
+        return [...set].sort((a, b) => (a < b ? 1 : -1));
+    }, [scopedPosts, cafeFilter]);
+
     const rows = useMemo(() => {
         let r = [...posts];
         if (companyFilter) r = r.filter(matchCompany);
         if (cafeFilter !== '전체') r = r.filter((p) => (p.cafe_name || '기타') === cafeFilter);
+        if (boardFilter !== '전체') r = r.filter((p) => boardKey(p) === boardFilter);
+        if (month) r = r.filter((p) => (p.published_date || '').slice(0, 7) === month);
+        if (pubFilter !== 'all') {
+            const d = pubFilter === 'today' ? today : yesterday;
+            r = r.filter((p) => (p.published_date || '').slice(0, 10) === d);
+        }
+        if (topOnly) r = r.filter((p) => { const n = lastRank(p); return n != null && n <= 5; });
         if (q) {
             const qq = q.trim();
             r = r.filter((p) => cafeLabel(p.cafe_name).includes(qq) || (p.cafe_name || '').includes(qq));
@@ -207,7 +276,21 @@ export function CafeTrackerTab({
                 (b.created_at || '').localeCompare(a.created_at || '') ||
                 String(a.id).localeCompare(String(b.id)),
         );
-    }, [posts, q, search, cafeFilter, companyFilter, matchCompany]);
+    }, [posts, q, search, cafeFilter, boardFilter, month, pubFilter, topOnly, companyFilter, matchCompany, today, yesterday]);
+
+    // 당일/전날 발행 글 수(버튼 옆 표시) — 지금 카페·게시판·업체 범위 기준(월/5위 필터는 빼고 센다).
+    const pubCounts = useMemo(() => {
+        let t = 0;
+        let y = 0;
+        for (const p of scopedPosts) {
+            if (cafeFilter !== '전체' && (p.cafe_name || '기타') !== cafeFilter) continue;
+            if (boardFilter !== '전체' && boardKey(p) !== boardFilter) continue;
+            const d = (p.published_date || '').slice(0, 10);
+            if (d === today) t += 1;
+            else if (d === yesterday) y += 1;
+        }
+        return { today: t, yesterday: y };
+    }, [scopedPosts, cafeFilter, boardFilter, today, yesterday]);
 
     // 업체 필터 표시 이름 + 해제. 해제하면 주소의 ?company= 도 지워 새로고침해도 안 돌아온다.
     const companyName = useMemo(() => {
@@ -222,54 +305,19 @@ export function CafeTrackerTab({
         window.history.replaceState(null, '', u.pathname + u.search);
     };
 
-    // 업체를 골라 들어왔으면 카페·게시판 탭도 그 업체 것만 — 남의 게시판 탭이 깔리지 않게.
-    const scopedPosts = useMemo(
-        () => (companyFilter ? posts.filter(matchCompany) : posts),
-        [posts, companyFilter, matchCompany],
-    );
+    const pages = Math.max(1, Math.ceil(rows.length / PER_FEED));
+    const current = Math.min(page, pages);
+    const pageRows = rows.slice((current - 1) * PER_FEED, current * PER_FEED);
 
-    // 카페(vanity) 필터 목록 — 전체 + 데이터에 있는 카페. 순서는 cafeNameRank.
-    const cafes = useMemo(() => {
-        const cnt = new Map<string, number>();
-        for (const p of scopedPosts) { const k = p.cafe_name || '기타'; cnt.set(k, (cnt.get(k) || 0) + 1); }
-        return [...cnt.entries()].sort((a, b) => cafeNameRank(a[0]) - cafeNameRank(b[0]) || a[0].localeCompare(b[0]));
-    }, [scopedPosts]);
-
-    // 게시판 탭은 선택한 카페의 게시판만 보인다. 전체 카페일 때만 기본 게시판(0건)도 함께 노출.
-    const boards = useMemo(() => {
-        const scoped = cafeFilter === '전체' ? scopedPosts : scopedPosts.filter((p) => (p.cafe_name || '기타') === cafeFilter);
-        const cnt = new Map<string, number>();
-        for (const p of scoped) cnt.set(boardKey(p), (cnt.get(boardKey(p)) || 0) + 1);
-        // 마이클의 정보 세상(ddmkt2)에서는 '누수' 게시판 탭을 숨긴다(글은 보존 · 표시만 제외).
-        if (cafeFilter === 'ddmkt2') cnt.delete('누수');
-        // 고객 뷰(lockCompany)·스코프 뷰(누수 ERP 등)·업체 지정 진입에선 남의 0건 탭을 깔지 않는다.
-        if (cafeFilter === '전체' && !lockCompany && !scopeClientId && !companyFilter) for (const b of BOARD_ORDER) if (!cnt.has(b)) cnt.set(b, 0);
-        return [...cnt.entries()].sort((a, b) => boardRank(a[0]) - boardRank(b[0]) || a[0].localeCompare(b[0]));
-    }, [scopedPosts, cafeFilter, lockCompany, scopeClientId, companyFilter]);
-
-    // 게시판별 그룹 — 검색/필터 적용 후 게시판 순서대로 묶는다. '다 구분되어서' 보기 위함.
-    const groups = useMemo(() => {
-        const map = new Map<string, CafeRankPost[]>();
-        for (const p of rows) {
-            if (boardFilter !== '전체' && boardKey(p) !== boardFilter) continue;
-            const b = boardKey(p);
-            (map.get(b) || map.set(b, []).get(b)!).push(p);
-        }
-        return [...map.entries()].sort((a, b) => boardRank(a[0]) - boardRank(b[0]) || a[0].localeCompare(b[0]));
-    }, [rows, boardFilter]);
-
-    const shownCount = useMemo(() => groups.reduce((n, g) => n + g[1].length, 0), [groups]);
-    const shownPosts = useMemo(() => groups.flatMap((g) => g[1]), [groups]);
-
-    // 전체 재검색 — 지금 보이는 게시판(탭)의 글을 큐에 일괄 등록. 측정은 PC가 순차 처리(진행률만 폴링).
+    // 전체 재검색 — 지금 필터로 걸러진 글 전부를 큐에 등록. 측정은 PC가 순차 처리(진행률만 폴링).
+    //   ★ 페이지에 보이는 30건이 아니라 '필터 결과 전체'가 대상이다(예전 동작 유지).
     const [bulk, setBulk] = useState<{ busy: boolean; left: number; msg: string }>({ busy: false, left: 0, msg: '' });
     const bulkResearch = async () => {
         if (bulk.busy) return;
-        const targets = shownPosts.filter((p) => (p.keyword_manual || p.keyword || '').trim());
+        const targets = rows.filter((p) => (p.keyword_manual || p.keyword || '').trim());
         if (!targets.length) { setBulk({ busy: false, left: 0, msg: '재검색할 글이 없습니다' }); return; }
-        const where = boardFilter === '전체' ? '전체' : boardFilter;
         if (!window.confirm(
-            `${where} ${targets.length}건을 전체 재검색합니다.\n\n` +
+            `지금 보고 있는 ${targets.length}건을 전체 재검색합니다.\n\n` +
             `· PC가 1건씩 간격을 두고 순차 측정합니다(약 ${Math.ceil((targets.length * 3) / 60)}분)\n` +
             `· 블로그 크롤이 돌면 자동으로 멈췄다 재개합니다\n` +
             `· 이 창을 닫아도 계속 진행됩니다`,
@@ -300,10 +348,18 @@ export function CafeTrackerTab({
         setBulk({ busy: false, left: 0, msg: '전체 재검색 완료' });
     };
 
-    // 선택한 게시판이 더 이상 존재하지 않으면(모두 삭제/필터됨) '전체'로 되돌려 빈 화면에 갇히지 않게.
+    // 선택한 카페/게시판이 더 이상 없으면 '전체'로 되돌려 빈 화면에 갇히지 않게.
+    useEffect(() => {
+        if (cafeFilter !== '전체' && !cafes.some(([c]) => c === cafeFilter)) setCafeFilter('전체');
+    }, [cafes, cafeFilter]);
     useEffect(() => {
         if (boardFilter !== '전체' && !boards.some(([b]) => b === boardFilter)) setBoardFilter('전체');
     }, [boards, boardFilter]);
+    // 필터가 바뀌면 1페이지로.
+    useEffect(() => { setPage(1); }, [search, cafeFilter, boardFilter, month, pubFilter, topOnly, companyFilter]);
+
+    const SELECT = 'h-9 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs';
+    const colSpan = external ? 6 : 7;
 
     return (
         <div className="grid gap-3">
@@ -317,34 +373,89 @@ export function CafeTrackerTab({
                     </button>
                 </div>
             ) : null}
-            {/* 상단 안내 + 액션 바 (블로그 관리시트 스타일) */}
+
+            {/* 블로그 트래커와 동일 — 큰 검색창 한 줄 */}
+            <input
+                aria-label="업체·제목·키워드 검색"
+                className="h-11 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="업체·제목·키워드 검색 (예: 누수탐지) — 일부만 입력해도 됩니다"
+                value={search}
+            />
+
+            {/* 필터 한 줄 — 카페 / 게시판 / 발행 월 / 당일·전날 / 5위 이내 / 건수 */}
             <div className="flex flex-wrap items-center gap-2">
-                <input
-                    className="h-9 min-w-[180px] flex-1 rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="업체·제목·키워드 검색..."
-                    value={search}
-                />
-                <span className="ml-auto text-xs text-[#64748b]">{shownCount}개</span>
+                {cafes.length > 1 ? (
+                    <select className={SELECT} onChange={(e) => { setCafeFilter(e.target.value); setBoardFilter('전체'); }} value={cafeFilter}>
+                        <option value="전체">카페 전체</option>
+                        {cafes.map(([c, n]) => (
+                            <option key={c} value={c}>{cafeLabel(c)} ({n})</option>
+                        ))}
+                    </select>
+                ) : null}
+                {boards.length > 1 ? (
+                    <select className={SELECT} onChange={(e) => setBoardFilter(e.target.value)} value={boardFilter}>
+                        <option value="전체">게시판 전체</option>
+                        {boards.map(([b, n]) => (
+                            <option key={b} value={b}>{b} ({n})</option>
+                        ))}
+                    </select>
+                ) : null}
+                <select className={SELECT} onChange={(e) => setMonth(e.target.value)} value={month}>
+                    <option value="">발행 월 전체</option>
+                    {months.map((m) => {
+                        const [y, mo] = m.split('-');
+                        return <option key={m} value={m}>{y}년 {Number(mo)}월</option>;
+                    })}
+                </select>
                 <button
-                    className="inline-flex h-9 items-center rounded-md border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9]"
-                    onClick={() => void reload()}
+                    className={`rounded-full border-2 px-4 py-1.5 text-sm font-bold transition ${
+                        pubFilter === 'today'
+                            ? 'border-[#ea580c] bg-[#f97316] text-white shadow-sm'
+                            : 'border-[#fdba74] bg-white text-[#ea580c] hover:bg-[#fff7ed]'
+                    }`}
+                    onClick={() => setPubFilter((v) => (v === 'today' ? 'all' : 'today'))}
                     type="button"
                 >
-                    새로고침
+                    당일 올라온 글 ({pubCounts.today})
                 </button>
-                {!external ? (
+                <button
+                    className={`rounded-full border-2 px-4 py-1.5 text-sm font-bold transition ${
+                        pubFilter === 'yesterday'
+                            ? 'border-[#c2410c] bg-[#ea580c] text-white shadow-sm'
+                            : 'border-[#fdba74] bg-white text-[#c2410c] hover:bg-[#fff7ed]'
+                    }`}
+                    onClick={() => setPubFilter((v) => (v === 'yesterday' ? 'all' : 'yesterday'))}
+                    type="button"
+                >
+                    전날 올라온 글 ({pubCounts.yesterday})
+                </button>
+                <label className="flex items-center gap-1 text-xs text-[#334155]" title="실적 기준선 — 인기글 5위 이내로 측정된 글만">
+                    <input checked={topOnly} onChange={(e) => setTopOnly(e.target.checked)} type="checkbox" />
+                    인기글 5위 이내만
+                </label>
+                <span className="ml-auto text-xs text-[#64748b]">{rows.length}건</span>
+            </div>
+
+            {/* 내부 전용 동작 — 새로고침 / 전체 재검색 / 시트 등록. 필터 줄과 분리해 한 줄로 모은다. */}
+            {!external ? (
+                <div className="flex flex-wrap items-center gap-2">
                     <button
-                        className="inline-flex h-9 items-center rounded-md bg-[#0f766e] px-3 text-xs font-bold text-white hover:bg-[#115e59] disabled:opacity-50"
-                        disabled={bulk.busy || !shownCount}
-                        onClick={() => void bulkResearch()}
-                        title="지금 보이는 게시판 글을 전부 재검색(PC가 순차 측정 · 블로그 크롤과 자동 비겹침)"
+                        className="inline-flex h-9 items-center rounded-md border border-[#cbd5e1] bg-white px-3 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9]"
+                        onClick={() => void reload()}
                         type="button"
                     >
-                        {bulk.busy ? `측정 중… 남은 ${bulk.left}` : `전체 재검색 ${shownCount}`}
+                        새로고침
                     </button>
-                ) : null}
-                {!external ? (
+                    <button
+                        className="inline-flex h-9 items-center rounded-md bg-[#0f766e] px-3 text-xs font-bold text-white hover:bg-[#115e59] disabled:opacity-50"
+                        disabled={bulk.busy || !rows.length}
+                        onClick={() => void bulkResearch()}
+                        title="지금 필터로 보이는 글을 전부 재검색(PC가 순차 측정 · 블로그 크롤과 자동 비겹침)"
+                        type="button"
+                    >
+                        {bulk.busy ? `측정 중… 남은 ${bulk.left}` : `전체 재검색 ${rows.length}`}
+                    </button>
                     <button
                         className="inline-flex h-9 items-center rounded-md bg-[#1e40af] px-3 text-xs font-semibold text-white hover:bg-[#1e3a8a]"
                         onClick={() => setShowAdd((v) => !v)}
@@ -352,13 +463,11 @@ export function CafeTrackerTab({
                     >
                         시트 붙여넣기 등록
                     </button>
-                ) : null}
-            </div>
-
-            <p className="m-0 text-xs text-[#94a3b8]">
-                자사 카페 글의 <b className="text-[#64748b]">네이버 인기글 테마 섹션</b> 내 순위(광고 제외 기준). 카페·게시판 필터로 나눠 볼 수 있습니다.
-                PC의 <code className="rounded bg-[#f1f5f9] px-1">cafe_rank_crawler.py</code> 가 매일 측정. 섹션 없는 키워드는 ‘측정불가’.
-            </p>
+                    <span className="text-[11px] text-[#94a3b8]">
+                        네이버 <b className="text-[#64748b]">인기글 테마 섹션</b> 내 순위(광고 제외) · 섹션 없는 키워드는 ‘측정불가’
+                    </span>
+                </div>
+            ) : null}
 
             {/* 등록 폼 (시트 붙여넣기) — 접기/펼치기 */}
             {showAdd ? (
@@ -402,65 +511,14 @@ export function CafeTrackerTab({
                 </div>
             ) : null}
 
-            {/* 카페 필터 — 카페(마이클의 정보 세상 / 더반클린 / 누수탐지 상담소)별로 나눠 보기 */}
-            {cafes.length > 1 ? (
-                <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="mr-1 text-[11px] font-semibold text-[#94a3b8]">카페</span>
-                    {[['전체', posts.length] as [string, number], ...cafes].map(([cf, c]) => {
-                        const on = cafeFilter === cf;
-                        return (
-                            <button
-                                className="inline-flex items-center gap-1 rounded-md border px-3 py-1 text-[12px] font-bold"
-                                key={cf}
-                                onClick={() => { setCafeFilter(cf); setBoardFilter('전체'); }}
-                                style={on
-                                    ? { background: '#0f172a', color: '#ffffff', borderColor: '#0f172a' }
-                                    : { background: '#ffffff', color: '#334155', borderColor: '#e2e8f0' }}
-                                type="button"
-                            >
-                                {cf === '전체' ? '전체' : cafeLabel(cf)}
-                                <span className={`text-[10px] font-semibold ${on ? 'opacity-80' : 'text-[#94a3b8]'}`}>{c}</span>
-                            </button>
-                        );
-                    })}
-                </div>
-            ) : null}
-
-            {/* 게시판 필터 — 동일 카페 안의 게시판(누수 / 설고점 / 더맨시스템 / 더티클리닉…)별로 나눠 보기 */}
-            {boards.length > 1 ? (
-                <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="mr-1 text-[11px] font-semibold text-[#94a3b8]">게시판</span>
-                    {[['전체', cafeFilter === '전체' ? scopedPosts.length : (cafes.find(([c]) => c === cafeFilter)?.[1] ?? 0)] as [string, number], ...boards].map(([b, c]) => {
-                        const on = boardFilter === b;
-                        const st = b === '전체' ? { bg: '#1e293b', fg: '#ffffff' } : boardStyle(b);
-                        return (
-                            <button
-                                className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[12px] font-bold"
-                                key={b}
-                                onClick={() => setBoardFilter(b)}
-                                style={
-                                    on
-                                        ? { background: st.bg, color: st.fg, borderColor: st.fg }
-                                        : { background: '#ffffff', color: '#64748b', borderColor: '#e2e8f0' }
-                                }
-                                type="button"
-                            >
-                                {b}
-                                <span className={`text-[10px] font-semibold ${on ? 'opacity-80' : 'text-[#94a3b8]'}`}>{c}</span>
-                            </button>
-                        );
-                    })}
-                </div>
-            ) : null}
-
-            {/* 순위 표 — 블로그 관리시트 스타일 · 게시판별 그룹 */}
+            {/* 순위 표 — 블로그 순위 트래커와 동일 골격(그룹 헤더 없이 한 줄씩 · 하단 페이지 넘김) */}
             <div className="overflow-x-auto rounded-md border border-[#e2e8f0] bg-white">
                 <table className="w-full border-collapse text-left text-sm">
                     <thead>
                         <tr className="border-b-2 border-[#e2e8f0] bg-[#f1f5f9] text-[11px] text-[#64748b]">
                             <th className="px-3 py-2 font-semibold">발행</th>
                             <th className="px-3 py-2 font-semibold">업체(카페)</th>
-                            <th className="px-3 py-2 font-semibold">키워드</th>
+                            <th className="px-3 py-2 font-semibold">키워드 검색</th>
                             <th className="px-3 py-2 font-semibold">제목 · 자동 키워드</th>
                             <th className="px-3 py-2 text-center font-bold text-[#059669]">인기글 순위</th>
                             <th className="px-3 py-2 text-center font-semibold">최근 측정</th>
@@ -469,27 +527,15 @@ export function CafeTrackerTab({
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={external ? 6 : 7}>불러오는 중…</td></tr>
-                        ) : !shownCount ? (
-                            <tr><td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={external ? 6 : 7}>{posts.length ? '검색·게시판 필터 결과가 없습니다' : "등록된 카페 글이 없습니다 · '시트 붙여넣기 등록'으로 추가하세요"}</td></tr>
+                            <tr><td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={colSpan}>불러오는 중…</td></tr>
+                        ) : !rows.length ? (
+                            <tr><td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={colSpan}>{posts.length ? '검색·필터 결과가 없습니다' : "등록된 카페 글이 없습니다 · '시트 붙여넣기 등록'으로 추가하세요"}</td></tr>
                         ) : (
-                            groups.map(([groupBoard, groupPosts]) => (
-                                <Fragment key={groupBoard}>
-                                    {boardFilter === '전체' && boards.length > 1 ? (
-                                        <tr>
-                                            <td
-                                                className="border-b border-[#e2e8f0] px-3 py-1.5 text-[12px] font-bold"
-                                                colSpan={external ? 6 : 7}
-                                                style={{ background: boardStyle(groupBoard).bg, color: boardStyle(groupBoard).fg }}
-                                            >
-                                                {groupBoard}
-                                                <span className="ml-1 text-[11px] font-semibold opacity-70">{groupPosts.length}개</span>
-                                            </td>
-                                        </tr>
-                                    ) : null}
-                                    {groupPosts.map((p) => {
-                                        const last = p.measurements?.[p.measurements.length - 1];
-                                        return (
+                            pageRows.map((p) => {
+                                const last = p.measurements?.[p.measurements.length - 1];
+                                const bd = boardKey(p);
+                                const st = boardStyle(bd);
+                                return (
                                     <tr className="border-b border-[#e2e8f0]" key={p.id}>
                                         <td className="px-3 py-2 text-xs font-semibold text-[#475569]">
                                             {p.published_date
@@ -506,7 +552,11 @@ export function CafeTrackerTab({
                                             >
                                                 {companyLabel(p)}
                                             </a>
-                                            <div className="text-[10px] font-normal text-[#94a3b8]">{cafeLabel(p.cafe_name) || p.club_id}</div>
+                                            {/* 게시판은 그룹 헤더 대신 여기 작은 칩으로 — 줄 수를 늘리지 않고 구분은 남긴다. */}
+                                            <div className="mt-0.5 flex items-center gap-1">
+                                                <span className="rounded px-1.5 py-0.5 text-[10px] font-bold" style={{ background: st.bg, color: st.fg }}>{bd}</span>
+                                                <span className="text-[10px] font-normal text-[#94a3b8]">{cafeLabel(p.cafe_name) || p.club_id}</span>
+                                            </div>
                                         </td>
                                         <td className="px-3 py-2">
                                             <CafeSearchCell external={external} onSaved={reload} post={p} />
@@ -549,13 +599,12 @@ export function CafeTrackerTab({
                                             </td>
                                         ) : null}
                                     </tr>
-                                        );
-                                    })}
-                                </Fragment>
-                            ))
+                                );
+                            })
                         )}
                     </tbody>
                 </table>
+                <Pager pages={pages} current={current} onGo={setPage} />
             </div>
         </div>
     );
