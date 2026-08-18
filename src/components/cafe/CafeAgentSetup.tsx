@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase, backendUrl, backendKey } from '../../lib/supabase';
 
 // 고객 ERP 내 '발행 프로그램(에이전트) 설치' — 다운로드 + 설정파일(agent.env) 자동생성 + 안내.
 //   인증 = 고객 자기 계정(viewer). 발행측 RLS 가 고객 스코프로 열려 있어야 함(cpq 고객 발행 처리 정책).
 //   ⚠️ 에이전트 zip 은 우리가 호스팅(Supabase storage 공개버킷 등) — 아래 AGENT_DOWNLOAD_URL 에 지정.
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+// ★ import.meta.env 를 직접 읽으면 안 된다 — 백엔드 전환 오버라이드가 안 먹어서,
+//   리허설 브라우저에서 발급한 고객 agent.env 에 '옛 백엔드 주소'가 찍혀 나간다.
+//   supabase 클라이언트가 실제로 붙어 있는 곳과 항상 같은 값을 쓴다.
+const SUPABASE_URL = backendUrl;
 // 에이전트 zip 다운로드(자격 없는 배포본). ⚠️ 임시=구글드라이브 직접다운로드 링크(무료 Supabase 50MB 초과라).
 //   나중에 Cloudflare R2 등 영구 호스팅으로 교체 권장.
 const AGENT_DOWNLOAD_URL = 'https://drive.usercontent.google.com/download?id=1aaNZXivWFXoVXZNZEI4NsyMA9TzNqHqg&export=download&confirm=t';
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+const SUPABASE_PUBLISHABLE_KEY = backendKey;
 const GENERATE_API = 'https://ddmkt-erp.pages.dev/api/generate-cafe';
 
 export function CafeAgentSetup({ companyKey, board }: { companyKey: string | null; board: string | null }) {

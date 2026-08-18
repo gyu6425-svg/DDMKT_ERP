@@ -42,6 +42,8 @@ const fallbackSupabaseKey = 'placeholder-key'
 export const hasSupabaseConfig = Boolean(supabaseUrl && supabasePublishableKey)
 // 지금 어느 백엔드에 붙어 있는지 — 전환 리허설 때 '진짜 바뀌었는지' 눈으로 확인하는 근거.
 export const backendUrl = supabaseUrl || ''
+// 고객 agent.env 생성 등, 클라이언트 밖에서 같은 키가 필요한 곳이 쓴다(오버라이드 반영).
+export const backendKey = supabasePublishableKey || ''
 export const backendIsOverride = Boolean(override)
 
 export const supabase = createClient(

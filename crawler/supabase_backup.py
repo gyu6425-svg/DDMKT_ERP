@@ -57,27 +57,63 @@ print(f"테이블 {len(tables)}개", flush=True)
 
 # ── 테이블 행 ─────────────────────────────────────────────────────────────
 manifest = {}
+failed = []
 for t in tables:
-    rows, frm = [], 0
+    # 서버가 아는 실제 행수 — 다 받았는지 대조할 유일한 근거(조용한 절단·누락 검출).
+    server_n = None
+    try:
+        h = requests.get(f"{URL}/rest/v1/{t}?select=*&limit=1",
+                         headers={**H, "Prefer": "count=exact"}, timeout=120)
+        cr = h.headers.get("content-range", "")
+        if "/" in cr and cr.split("/")[-1].isdigit():
+            server_n = int(cr.split("/")[-1])
+    except Exception:
+        pass
+
+    rows, frm, err = [], 0, None
+    page = PAGE
     while True:
-        r = requests.get(f"{URL}/rest/v1/{t}?select=*",
-                         headers={**H, "Range-Unit": "items", "Range": f"{frm}-{frm+PAGE-1}"},
-                         timeout=180)
+        # ★ order 없는 Range 페이징은 안 된다 — Postgres 는 LIMIT/OFFSET 순서를 보장하지 않고,
+        #   백업 중 UPDATE 가 일어나면 행이 힙의 다른 위치로 옮겨가 페이지 사이에서 빠지거나 겹친다.
+        #   (cafe_kw_targets 는 26,590행 27페이지인데 워커가 계속 scanned_at 을 갱신한다.)
+        r = requests.get(f"{URL}/rest/v1/{t}?select=*&order=id",
+                         headers={**H, "Range-Unit": "items", "Range": f"{frm}-{frm+page-1}"},
+                         timeout=300)
+        if r.status_code == 400 and "column" in (r.text or "") and "id" in (r.text or ""):
+            r = requests.get(f"{URL}/rest/v1/{t}?select=*",   # id 컬럼이 없는 테이블 폴백
+                             headers={**H, "Range-Unit": "items", "Range": f"{frm}-{frm+page-1}"},
+                             timeout=300)
         if r.status_code >= 400:
-            print(f"  ! {t}: HTTP {r.status_code} {r.text[:80]}", flush=True)
+            # ★ 큰 행(base64 이미지 등)은 statement timeout(57014)으로 500 이 난다.
+            #   실측 2026-08-18: banner_outputs(행당 2.08MB) · blog_save_queue(행당 4.12MB) 가
+            #   0행으로 저장돼 '빈 테이블'과 구분이 안 됐다. 페이지를 줄여 다시 시도한다.
+            if page > 1:
+                page = max(1, page // 10)
+                print(f"    {t}: HTTP {r.status_code} → 페이지 {page} 로 낮춰 재시도", flush=True)
+                continue
+            err = f"HTTP {r.status_code} {r.text[:120]}"
+            print(f"  ! {t}: {err}", flush=True)
             break
         part = r.json()
         if not isinstance(part, list):
+            err = f"예상 밖 응답: {str(part)[:120]}"
             break
         rows += part
-        if len(part) < PAGE:
+        if len(part) < page:
             break
-        frm += PAGE
+        frm += page
     n = save(t, rows)
-    manifest[t] = {"rows": len(rows), "bytes": n}
+    # 서버 행수와 다르면 '성공'으로 기록하지 않는다 — 조용한 거짓 성공이 가장 위험하다.
+    ok = err is None and (server_n is None or len(rows) >= server_n)
+    manifest[t] = {"rows": len(rows), "server_count": server_n, "ok": ok, "bytes": n}
+    if err:
+        manifest[t]["error"] = err
+    if not ok:
+        failed.append(t)
     total_rows += len(rows)
     total_bytes += n
-    print(f"  {t:<34} {len(rows):>6}행  {n/1024:>9,.0f} KB", flush=True)
+    mark = "" if ok else f"  ⚠ 서버 {server_n}행"
+    print(f"  {t:<34} {len(rows):>6}행  {n/1024:>9,.0f} KB{mark}", flush=True)
 
 # ── 로그인 계정(auth.users) ───────────────────────────────────────────────
 users, page = [], 1
@@ -136,3 +172,5 @@ manifest["_meta"] = {
 }
 save("_manifest", manifest)
 print(f"\n=== 완료: {len(tables)}테이블 · {total_rows:,}행 · {total_bytes/1024/1024:,.1f} MB → {OUT} ===", flush=True)
+if failed:
+    sys.exit(1)          # 예약작업이 실패를 알 수 있게 — 항상 0 으로 끝나면 실패가 묻힌다

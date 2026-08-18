@@ -47,6 +47,10 @@ STEPS = [
     ("roles.sql", ["--role-only"]),
     ("schema.sql", []),
     ("data.sql", ["--data-only", "--use-copy"]),
+    # ★ supabase db dump 는 기본적으로 auth·storage 스키마를 제외한다.
+    #   이 단계가 없으면 비밀번호 해시(auth.users.encrypted_password)와 카카오 연동(auth.identities),
+    #   버킷 정의·storage RLS 가 안 넘어가 사용자 126명이 전원 로그인 불가가 된다.
+    ("auth_storage.sql", ["--schema", "auth,storage"]),
 ]
 
 ok = True
@@ -73,6 +77,12 @@ if ok:
         "트리거(create trigger)": schema.lower().count("create trigger"),
         "row level security 활성": schema.lower().count("enable row level security"),
     }
+    auth_sql = (OUT / "auth_storage.sql")
+    if auth_sql.exists():
+        a = auth_sql.read_text(encoding="utf-8", errors="ignore").lower()
+        checks["비밀번호 해시(encrypted_password)"] = a.count("encrypted_password")
+        checks["카카오 연동(auth.identities)"] = a.count("identities")
+        checks["버킷 정의(storage.buckets)"] = a.count("buckets")
     print("\n■ schema.sql 내용 점검")
     for k, v in checks.items():
         print(f"   {k:<26} {v}개  {'✓' if v else '✗ 없음!'}")
