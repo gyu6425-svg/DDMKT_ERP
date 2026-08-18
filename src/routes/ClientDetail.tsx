@@ -330,8 +330,12 @@ function ContractAddModal({
     const isLand = catKey === LAND_KEY; // 랜딩페이지 = 아이디 구매와 동일 방식
     const isExp = catKey === EXP_KEY; // 체험단 = 아이디 구매 방식 + 3.3% 실지급액 표시
     const isCafeBuy = catKey === CAFE_BUY_KEY; // 카페 구매 = 아이디 구매와 동일(우리가 카페 구매)
-    const isEtcOut = catKey === ETC_OUT_KEY; // 기타(외주비) = 아이디 구매와 동일 + 상품명 자유입력
-    const isOutOnly = isBuy || isLand || isExp || isCafeBuy || isEtcOut; // 외주비 전용 항목(매출 0)
+    const [etcMode, setEtcMode] = useState<'out' | 'sale'>('out'); // 기타: 외주비로 등록 | 공급가로 등록
+    const isEtcOut = catKey === ETC_OUT_KEY; // 기타 = 상품명 자유입력 + 외주비/공급가 선택
+    // 기타만 '외주비로 등록'과 '공급가로 등록'을 고른다(사장님 요청 2026-08-18).
+    //   아이디 구매·랜딩페이지·체험단·카페 구매는 '우리가 사는 것'이라 매출 0 이 정의라 그대로 둔다.
+    const isEtcSale = isEtcOut && etcMode === 'sale';
+    const isOutOnly = isBuy || isLand || isExp || isCafeBuy || (isEtcOut && !isEtcSale); // 외주비 전용(매출 0)
     const cat =
         PRODUCT_CATEGORIES.find((c) => c.key === catKey) ??
         (isFee ? FEE_CAT : isBuy ? BUY_CAT : isLand ? LAND_CAT : isExp ? EXP_CAT : isCafeBuy ? CAFE_BUY_CAT : isEtcOut ? ETC_OUT_CAT : isEtc ? ETC_CAT : PRODUCT_CATEGORIES[0]);
@@ -376,7 +380,7 @@ function ContractAddModal({
     //   아이디 구매·랜딩페이지는 매출 0 — 입력 금액을 전액 외주비로만 잡는다.
     const amt = isOutOnly
         ? 0
-        : isEtc || isFee
+        : isEtc || isFee || isEtcSale
           ? Number(onlyDigits(amountInput)) || 0
           : isService
             ? -(Number(onlyDigits(amountInput)) || 0)
@@ -425,15 +429,19 @@ function ContractAddModal({
             onToast('서비스 금액을 입력하세요');
             return;
         }
-        if (isOutOnly && !subtype.trim()) {
+        if ((isOutOnly || isEtcSale) && !subtype.trim()) {
             onToast('상품명을 입력하세요');
+            return;
+        }
+        if (isEtcSale && amt <= 0) {
+            onToast('금액(공급가)을 입력하세요');
             return;
         }
         if (isOutOnly && outAmt <= 0) {
             onToast('금액을 입력하세요');
             return;
         }
-        if (!isService && !isOutOnly && !n && !saleAmt) {
+        if (!isService && !isOutOnly && !isEtcSale && !n && !saleAmt) {
             onToast('수량 또는 단가(카드매출은 공급가)를 입력하세요');
             return;
         }
@@ -595,12 +603,32 @@ function ContractAddModal({
                                 />
                             </label>
                         </>
-                    ) : isOutOnly ? (
+                    ) : isOutOnly || isEtcSale ? (
                         <>
-                            <div className="rounded-md bg-[#ecfeff] px-3 py-2 text-xs font-semibold text-[#0e7490]">
-                                {isExp
-                                    ? '체험단 — 카테고리에 잡히지 않고, 입력 금액이 전액 외주비로 기록됩니다(매출·부가세 없음). 개인 지급이라 원천징수 3.3%를 뺀 실지급액을 아래에 표시합니다.'
-                                    : `${cat.label} — 카테고리에 잡히지 않고, 입력 금액이 전액 외주비로 기록됩니다(매출 반영 없음).`}
+                            {/* 기타만 등록 구분을 고른다 — 외주비(우리가 쓴 돈) vs 공급가(우리가 번 돈) */}
+                            {isEtcOut ? (
+                                <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-semibold text-[#475569]">등록 구분</span>
+                                    {([['out', '외주비로 등록'], ['sale', '공급가로 등록']] as const).map(([k, label]) => (
+                                        <button
+                                            className={`rounded-full px-3 py-1 text-xs font-bold ${
+                                                etcMode === k ? 'bg-[#1e40af] text-white' : 'bg-[#f1f5f9] text-[#64748b]'
+                                            }`}
+                                            key={k}
+                                            onClick={() => setEtcMode(k)}
+                                            type="button"
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : null}
+                            <div className={`rounded-md px-3 py-2 text-xs font-semibold ${isEtcSale ? 'bg-[#eff6ff] text-[#1e40af]' : 'bg-[#ecfeff] text-[#0e7490]'}`}>
+                                {isEtcSale
+                                    ? '기타(공급가) — 입력 금액이 매출(공급가)로 기록됩니다. 외주비는 잡히지 않습니다.'
+                                    : isExp
+                                      ? '체험단 — 카테고리에 잡히지 않고, 입력 금액이 전액 외주비로 기록됩니다(매출·부가세 없음). 개인 지급이라 원천징수 3.3%를 뺀 실지급액을 아래에 표시합니다.'
+                                      : `${cat.label} — 카테고리에 잡히지 않고, 입력 금액이 전액 외주비로 기록됩니다(매출 반영 없음).`}
                             </div>
                             <label className="block text-xs font-semibold text-[#475569]">
                                 {isExp ? '체험단 이름' : '상품명'}
@@ -627,7 +655,7 @@ function ContractAddModal({
                                     />
                                 </label>
                                 <label className="block text-xs font-semibold text-[#475569]">
-                                    금액(원) · 외주비
+                                    금액(원) · {isEtcSale ? '공급가' : '외주비'}
                                     <input
                                         className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] px-2 text-right text-sm"
                                         inputMode="numeric"
