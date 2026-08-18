@@ -143,6 +143,9 @@ export function CrawlStatusTab() {
     const [lastAt, setLastAt] = useState('');
     const reloadRef = useRef(onReload);
     reloadRef.current = onReload;
+    // 아래 crawl_status 폴링(deps [])에서도 토글 최신값을 봐야 한다 — state 를 직접 읽으면 최초값에 고정된다.
+    const autoRef = useRef(auto);
+    autoRef.current = auto;
     // ★ 화면에 보일 때만 — 이 재조회는 blog_posts 전체(1.5 MB)를 다시 받는다.
     //   배경 탭에서 15초마다 돌면 탭 하나로 하루 8.6 GB(무료 한도 5 GB/월)를 태운다.
     //   실측 2026-08-18: Egress 10.521/5 GB(210%). 간격도 15초 → 30초로.
@@ -173,7 +176,12 @@ export function CrawlStatusTab() {
             const next = (data as CrawlStatus) ?? null;
             setCs(next);
             // 진행(done)이 바뀌면 측정 데이터도 즉시 갱신 → 아래 KPI/칩(완료·실패·대기)/표가 실시간으로 따라감.
-            if (next && next.done !== prevDoneRef.current) {
+            // ★ 자동 새로고침을 끈 상태에서는 하지 않는다.
+            //   왜(2026-08-18): 이 재조회는 blog_posts+blog_accounts 전체(select '*')다. 그런데 이 useEffect 의
+            //   deps 가 [] 라 토글과 무관하게 돌고 있었다 — 크롤이 도는 동안 done 이 계속 늘어나므로
+            //   '자동 새로고침 끄기'를 눌러도 5초마다 전체 재조회가 나갔다(사용자는 껐다고 믿는다).
+            //   prevDoneRef 도 여기서만 갱신한다 — 토글을 다시 켜면 다음 폴링에서 곧바로 한 번 따라잡는다.
+            if (next && next.done !== prevDoneRef.current && autoRef.current) {
                 prevDoneRef.current = next.done;
                 void reloadRef.current().then(() => setLastAt(new Date().toLocaleTimeString('ko-KR')));
             }
@@ -370,7 +378,7 @@ export function CrawlStatusTab() {
                 <h3 className="m-0 text-base font-bold text-[#0f172a]">크롤링 현황 · {today}</h3>
                 <label className="flex items-center gap-1 text-xs text-[#334155]">
                     <input checked={auto} onChange={(e) => setAuto(e.target.checked)} type="checkbox" />
-                    실시간 자동 새로고침(15초)
+                    실시간 자동 새로고침(30초)
                 </label>
                 {lastAt ? <span className="text-[11px] text-[#94a3b8]">마지막 갱신 {lastAt}</span> : null}
                 <div className="ml-auto flex gap-2">
