@@ -31,11 +31,11 @@ DB = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "applicat
 
 # 추적 대상: (club_id, 카페 vanity, menuid, 게시판 표시명, company_key)
 #   vanity 는 순위 매칭(measure_cafe_rank)에 쓰이므로 정확해야 한다.
+#   ★ 마이클의 정보세상(ddmkt2, club 31754130) 4개 게시판은 2026-08-18 사장님 지시로 추적 중단.
+#     그 카페엔 더 발행하지 않는다(마지막 발행 08-04). 순위 측정은 이미 2026-08-06 부터 제외돼 있었고,
+#     이제 게시판 크롤도 끊어 새 글이 트래커로 들어오지 않게 한다. 옛 글은 excluded=true 로 내렸다.
+#     (설고점·더맨은 계약이 살아 있지만 자체카페 ojh097/themansys 로 계속 추적된다)
 TARGETS = [
-    ("31754130", "ddmkt2", "1", "누수", "leak"),
-    ("31754130", "ddmkt2", "2", "설고점", "seolgo"),
-    ("31754130", "ddmkt2", "3", "더맨시스템", "theman"),
-    ("31754130", "ddmkt2", "5", "더티클리닉", "dirty"),
     ("31761053", "thebanclean", "2", "더반클린", "theban"),   # 더반클린 - 청소 솔루션
     ("31762300", "ddnusu", "2", "누수상담소", "nusu"),         # 누수탐지 상담소 - 후기·시공사례
     ("31764949", "themansys", "1", "더맨시스템", "theman2"),   # 더맨 자체카페(마이클과 별개)
@@ -59,6 +59,9 @@ def derive_kw(subject):
     return " ".join(t.split()[:2]).strip() or (subject or "")[:12]
 
 
+# 발주 키워드로 인정할 최대 어절 수 — 이보다 길면 검색 키워드가 아니라 짜깁기 제목으로 본다.
+GEN_KW_MAXW = 2
+
 _genkw_cache = {}
 def gen_keywords(cid):
     """이 고객의 원고 생성 키워드 집합(cafe_gen_requests.company = dep_*_<client_id>)."""
@@ -79,15 +82,32 @@ def gen_keywords(cid):
 
 
 def derive_kw_b(subject, cid):
-    """모델B 키워드 — 기본은 2어절이되, '제목 첫 단어 자체가 발주 키워드'면 그 한 단어를 쓴다.
-       실측 2026-08-14(DH크리트): 지역 없는 키워드형이라 타깃이 '공장바닥공사' 한 단어인데
-       2어절 규칙이 '공장바닥공사 맞춤'을 만들어 통합검색에 인기글 섹션 자체가 안 잡혔다.
-       누수·방문재활처럼 '지역 제품' 발주(첫 단어=지역)는 발주 키워드에 없어 그대로 2어절을 쓴다."""
+    """모델B 키워드 — 제목이 발주 키워드로 시작하면 '거기까지만' 자른다. 아니면 종전 2어절.
+
+       왜: 원고 제목은 "<발주 키워드> <수식어…>" 로 나온다. 2어절 규칙은 발주 키워드가
+           한 단어일 때 뒤 수식어를 물고 들어간다.
+             '주택바닥공사 내구·위생기준별 …'  → '주택바닥공사 내구'   (실측 2026-08-18)
+             '공장바닥공사 맞춤 시공과 …'       → '공장바닥공사 맞춤'   (실측 2026-08-14)
+           그렇게 만든 키워드로 재면 인기글 섹션 자체가 안 잡혀 '권외/측정불가'가 된다.
+           실제로 '주택바닥공사'로 다시 재니 1위였다.
+       어떻게: 발주 키워드 중 '제목이 그것으로 시작하는' 것들 가운데 가장 긴 것을 쓴다.
+           단어 수와 무관하게 맞는다('헬스장바닥' 1어절 · '광교역 에폭시' 2어절 모두).
+       경계 검사: 매칭 뒤가 공백이거나 끝이어야 한다 — '주택바닥공사장'이 '주택바닥공사'로
+           잘리는 것을 막는다.
+       ★ 2어절까지만 인정한다(GEN_KW_MAXW). 발주 키워드가 짜깁기 제목인 업체가 있다 —
+           방문재활은 발주가 '구로 방문재활 방문요양 파킨슨병 장기요양등급'(5어절)이라
+           그대로 쓰면 검색되지도 않는 문장으로 순위를 재게 된다. 그런 건 종전 2어절로 둔다.
+       누수·방문재활처럼 '지역 제품' 발주는 결과가 2어절과 같아 사실상 종전 동작 유지."""
     t = re.sub(r"[,·|/:;~!?\"'()\[\]<>]", " ", subject or "").strip()
-    head = (t.split() or [""])[0]
-    if head and head in gen_keywords(cid):
-        return head
-    return derive_kw(subject)
+    norm = " ".join(t.split())
+    best = ""
+    for k in gen_keywords(cid):
+        kk = " ".join((k or "").split())
+        if not kk or len(kk.split()) > GEN_KW_MAXW or len(kk) <= len(best):
+            continue
+        if norm.startswith(kk) and (len(norm) == len(kk) or norm[len(kk)] == " "):
+            best = kk
+    return best or derive_kw(subject)
 
 
 def fetch_articles(club, menuid):
@@ -216,9 +236,26 @@ def _parse_club_menu(url):
 
 
 def main():
+    # ★ 발주 키워드 캐시는 매 사이클 비운다 — cafe_periodic 은 30분마다 main() 만 다시 부르는
+    #   장기 프로세스라, 캐시를 두면 '기동 이후 새로 들어온 발주'를 영영 모른다.
+    #   실측 2026-08-18: '주택바닥공사' 발주가 08-18 01:26 에 들어왔는데 데몬은 08-14 15:49 기동이라
+    #   그 키워드를 몰랐고, 2어절 규칙으로 '주택바닥공사 내구'가 저장돼 순위가 권외로 찍혔다
+    #   (같은 글을 '주택바닥공사'로 재면 1위).
+    _genkw_cache.clear()
     accounts = requests.get(f"{URL}/rest/v1/cafe_accounts", headers=DB,
                             params={"select": "id,company_key,client_id", "active": "eq.true"}, timeout=20, verify=False).json()
     acc_by_company = {a["company_key"]: a["id"] for a in accounts} if isinstance(accounts, list) else {}
+    # 계약이 끝나 정리한 업체(active=false)의 게시판은 아예 훑지 않는다.
+    #   ★ TARGETS 가 하드코딩이라, 계정만 active=false 로 내려도 크롤은 계속 돌아 새 글이
+    #     excluded=false 로 다시 들어왔다(2026-08-18 더반클린 정리하며 발견). 여기서 끊는다.
+    #     계정 자체가 없는 대상(company_key 미등록)은 예전처럼 그대로 크롤한다 — 계정 미등록과 정리는 다르다.
+    retired = set()
+    try:
+        allacc = requests.get(f"{URL}/rest/v1/cafe_accounts", headers=DB,
+                              params={"select": "company_key,active"}, timeout=20, verify=False).json()
+        retired = {a["company_key"] for a in allacc if a.get("active") is False and a.get("company_key")}
+    except Exception as exc:
+        print(f"  ! 정리 업체 조회 실패(전체 크롤 계속): {exc}", flush=True)
     # 모델B: dep_<client_id> cafe_account 를 client_id 로 매핑(포스트 링크용).
     acc_by_client = {a["client_id"]: a["id"] for a in (accounts if isinstance(accounts, list) else []) if a.get("client_id")}
 
@@ -228,6 +265,9 @@ def main():
 
     total_new = 0
     for club, vanity, mid, board, company in TARGETS:
+        if company in retired:
+            print(f"■ {board}({vanity}/menu {mid}): 계약 종료로 정리된 업체 — 크롤 건너뜀", flush=True)
+            continue
         arts = fetch_articles(club, mid)
         new = [a for a in arts if (vanity, a["aid"]) not in have]
         # 추적 시작일 이전(옛 글) 제외 — 정리한 옛 히스토리가 크롤로 재유입되지 않게.
