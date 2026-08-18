@@ -54,6 +54,9 @@ export async function onRequestGet({ params, env }: Ctx) {
             ? 'public, max-age=300, must-revalidate'
             : 'public, max-age=31536000, immutable');
         headers.set('ETag', obj.httpEtag);
+        // 이 응답이 어디서 나왔는지 — Supabase 원본을 지워도 되는지 판단하는 유일한 근거다.
+        //   200 이라는 사실만으로는 알 수 없다(아래 폴백도 200 을 준다).
+        headers.set('x-img-src', 'r2');
         return new Response(obj.body, { headers });
     }
     // 폴백 — R2 에 아직 없는 옛 이미지. ★ 302 로 넘기지 않고 여기서 받아 R2 에 채운 뒤 직접 준다(자가 치유).
@@ -79,9 +82,13 @@ export async function onRequestGet({ params, env }: Ctx) {
                         const buf = await src.arrayBuffer();
                         const ct = src.headers.get('content-type') || 'image/jpeg';
                         // R2 적재 실패해도 이미지는 내준다 — 사용자에게 깨진 이미지를 보이면 안 된다.
-                        try { await env.IMG_BUCKET.put(key, buf, { httpMetadata: { contentType: ct } }); } catch { /* 다음 요청에 재시도 */ }
+                        let healed = true;
+                        try { await env.IMG_BUCKET.put(key, buf, { httpMetadata: { contentType: ct } }); }
+                        catch { healed = false; /* 다음 요청에 재시도 */ }
                         const headers = new Headers(cors);
                         headers.set('Content-Type', ct);
+                        // supabase-heal = 이번에 R2 로 옮겼다 / supabase-miss = R2 적재 실패(원본 지우면 안 된다)
+                        headers.set('x-img-src', healed ? 'supabase-heal' : 'supabase-miss');
                         headers.set('Cache-Control', key.includes('/studio-settings/')
                             ? 'public, max-age=300, must-revalidate'
                             : 'public, max-age=31536000, immutable');
