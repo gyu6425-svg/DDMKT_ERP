@@ -72,7 +72,7 @@ export function PostSearchCell({
     if (!account) {
         return <span className="text-xs text-[#94a3b8]">—</span>;
     }
-    const blogId = account.blog_id || extractBlogId(account.blog_url);
+    const blogId = account.blog_id || extractBlogId(account.blog_url || '');
 
     // 검색 = 입력 키워드로 이 글을 측정 + '추가 키워드'로 저장(우측 1,2,3 슬롯).
     //   → 저장되면 다음 크롤부터 자동 키워드와 함께 매일 측정된다. (자동 키워드는 그대로.)

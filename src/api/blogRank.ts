@@ -60,7 +60,7 @@ export type BlogAccount = {
     name: string;
     manager: string | null;
     contact: string | null; // 연락처
-    blog_url: string;
+    blog_url: string | null; // 발행 URL — 미정이면 NULL(전제: docs/blog-url-nullable.sql)
     blog_id: string | null;
     goal_count: number | null;
     remain_count: number | null;
@@ -221,7 +221,8 @@ export async function ensureClientBlogAccount(
     const { error } = await insertBlogAccounts([
         {
             amounts: fields.amount ? [{ amount: fields.amount }] : [],
-            blog_url: url,
+            // URL 미입력은 null — ''로 넣으면 unique(blog_url)에 걸려 'URL 없는 업체'가 하나만 존재하게 된다.
+            blog_url: url || null,
             blog_id: url ? extractBlogId(url) : null,
             client_id: clientId,
             contract_date: fields.contract_date ?? null,
@@ -408,4 +409,14 @@ export async function insertBlogKeyword(blogAccountId: string, keyword: string) 
 export async function deleteBlogKeyword(id: string) {
     const { error } = await supabase.from('blog_keywords').delete().eq('id', id);
     return { error };
+}
+
+// 이 발행 URL 을 이미 쓰는 업체 — 중복 등록 시 '누가 쓰고 있는지' 알려주기 위함.
+//   blog_accounts.blog_url 은 UNIQUE 라, 원문 오류(duplicate key ... blog_url_key)만으론 원인을 알 수 없다.
+export async function findBlogAccountByUrl(url: string) {
+    const u = (url || '').trim();
+    if (!u) return null;
+    const { data } = await supabase.from('blog_accounts')
+        .select('id,name,client_id,is_active').eq('blog_url', u).maybeSingle();
+    return (data as { id: string; name: string; client_id: string | null; is_active: boolean } | null) ?? null;
 }

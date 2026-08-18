@@ -493,7 +493,7 @@ export function CrawlStatusTab() {
                                     <td className="px-3 py-2">
                                         <a
                                             className="font-semibold text-[#0f172a] hover:text-[#1e40af] hover:underline"
-                                            href={r.a.blog_url}
+                                            href={r.a.blog_url || undefined}
                                             rel="noreferrer"
                                             target="_blank"
                                         >

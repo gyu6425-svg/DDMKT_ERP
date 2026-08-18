@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { extractBlogId, insertBlogAccounts } from '../../../api/blogRank';
+import { extractBlogId, insertBlogAccounts, findBlogAccountByUrl } from '../../../api/blogRank';
 
 // 블로그 관리 시트 '가이드 추가' — 고정 라벨(삭제 불가) 옆 칸에 값을 입력하면 그대로 등록.
 //   업체명/계약일자/계약건수/잔여건수/총 발행건수/발행 URL/기자단.
@@ -40,10 +40,23 @@ export function GuideAddForm({
         let remain = v.remain ? Number.parseInt(v.remain, 10) : null;
         if (remain == null && goal != null && published != null) remain = goal - published; // 잔여 자동
         setSaving(true);
+        // 같은 URL 이 이미 등록돼 있으면 '어느 업체'인지 알려준다 — duplicate key 원문만으론 알 수 없다.
+        if (url) {
+            const owner = await findBlogAccountByUrl(url);
+            if (owner) {
+                setSaving(false);
+                onToast(`이미 등록된 발행 URL 입니다 — '${owner.name}'. 같은 블로그를 업체 두 개로 만들 수 없습니다.`);
+                return;
+            }
+        }
         const { error } = await insertBlogAccounts([
             {
                 name,
-                blog_url: url,
+                // ★ URL 을 비우면 반드시 null — 빈 문자열로 넣으면 안 된다.
+                //   blog_accounts.blog_url 은 unique 라 ''도 '값'으로 취급돼, URL 없이 등록할 수 있는
+                //   업체가 딱 하나뿐이 된다(두 번째부터 duplicate key). NULL 은 여러 개 허용된다.
+                //   실측 2026-08-18: 금융책사가 ''를 차지하고 있어 그 뒤 등록이 전부 실패했다.
+                blog_url: url || null,
                 blog_id: url ? extractBlogId(url) || null : null,
                 contract_date: (v.contract_date || '').trim() || null,
                 goal_count: goal,
@@ -54,7 +67,16 @@ export function GuideAddForm({
         ]);
         setSaving(false);
         if (error) {
-            onToast(`오류: ${error.message}`);
+            // 중복 URL 은 원문(duplicate key ... blog_accounts_blog_url_key)이 무슨 말인지 알 수 없다 → 사람 말로.
+            const msg = error.message || '';
+            if (/null value in column .?blog_url/i.test(msg)) {
+                // DB가 아직 NOT NULL — URL 없는 업체를 하나밖에 못 만든다.
+                onToast('발행 URL 없이 등록하려면 docs/blog-url-nullable.sql 을 먼저 실행해야 합니다. 지금은 URL 을 입력해 주세요.');
+            } else if (/duplicate key|blog_url_key/i.test(msg)) {
+                onToast('이미 등록된 발행 URL 입니다 — 관리시트에서 그 업체를 찾아 수정하세요.');
+            } else {
+                onToast(`오류: ${msg}`);
+            }
             return;
         }
         reset();

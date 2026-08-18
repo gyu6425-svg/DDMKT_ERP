@@ -61,7 +61,7 @@ function BlogSheet({ notify }: { notify: (m: string) => void }) {
                             <tr key={r.id} className="border-b border-[#f1f5f9]">
                                 <Td>{r.name}</Td>
                                 <Td>{r.blog_id || '—'}</Td>
-                                <Td><a className="text-[#2563eb] hover:underline" href={r.blog_url} target="_blank" rel="noreferrer">{r.blog_url}</a></Td>
+                                <Td><a className="text-[#2563eb] hover:underline" href={r.blog_url || undefined} target="_blank" rel="noreferrer">{r.blog_url}</a></Td>
                                 <Td align="center"><button type="button" onClick={() => void remove(r.id)} className="rounded border border-[#fecaca] px-2 py-0.5 text-[11px] font-bold text-[#dc2626] hover:bg-[#fef2f2]">삭제</button></Td>
                             </tr>
                         )) : <tr><td colSpan={4}><Empty>등록된 블로그가 없습니다. 위에서 추가하세요.</Empty></td></tr>}

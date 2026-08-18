@@ -441,7 +441,7 @@ export function SheetTab() {
                                             {a.blog_url ? (
                                                 <a
                                                     className="text-[13px] text-[#1d4ed8] hover:underline"
-                                                    href={a.blog_url}
+                                                    href={a.blog_url || undefined}
                                                     rel="noopener noreferrer"
                                                     target="_blank"
                                                 >
@@ -547,7 +547,7 @@ export function SheetTab() {
                                         <td className="px-3 py-2">
                                             <a
                                                 className="font-semibold text-[#0f172a] hover:text-[#1e40af] hover:underline"
-                                                href={a.blog_url}
+                                                href={a.blog_url || undefined}
                                                 rel="noreferrer"
                                                 target="_blank"
                                                 title="블로그로 이동"
