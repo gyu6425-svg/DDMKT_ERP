@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useErpData } from '../context/ErpDataContext'
 import { useAuth } from '../hooks/useAuth'
 import { getClientContracts, type ClientContract } from '../api/clientContracts'
-import { getReports } from '../api/blogPostReports'
+import { countReports } from '../api/blogPostReports'
 import { canSeeContractPending, canSeeNewContract, SHEET_CATEGORIES } from '../lib/permissions'
 import { SIDEBAR_CATEGORIES } from './categoryRank/categories'
 import { resolveScope } from './categoryRank/ContractSheetTab'
@@ -49,7 +49,8 @@ export default function NotificationBell() {
     if (!eligible) return
     const load = () => {
       if (myCats.length > 0) void getClientContracts().then(({ data }) => setContracts(data))
-      if (seeReports) void getReports({ status: 'pending' }).then(({ data }) => setReportPending(data.length))
+      // 숫자만 쓰는 자리 — 행 본문을 받지 않는다(페이지 이동마다 호출된다).
+      if (seeReports) void countReports({ status: 'pending' }).then(({ count }) => setReportPending(count))
     }
     load()
     window.addEventListener('app:navigate', load)

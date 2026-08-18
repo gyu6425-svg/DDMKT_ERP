@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
-import { getReports } from '../api/blogPostReports'
+import { countReports } from '../api/blogPostReports'
 import { supabase } from '../lib/supabase'
 
 // 기자단 발행 보고 알림 — 벨(우측 상단) 안이 아니라 화면 상단에 '크게' 상시 표시.
@@ -22,8 +22,8 @@ export default function ReportPublishAlert() {
     if (!eligible) return
     const load = () => {
       // 에러 시 이전 값 유지(일시적 네트워크/RLS 실패로 배너가 잘못 사라지지 않게 = 누락 방지).
-      void getReports({ status: 'pending', report_type: 'save' }).then(({ data, error }) => { if (!error) setSaveP(data.length) })
-      void getReports({ status: 'pending', report_type: 'publish' }).then(({ data, error }) => { if (!error) setPubP(data.length) })
+      void countReports({ status: 'pending', report_type: 'save' }).then(({ count, error }) => { if (!error) setSaveP(count) })
+      void countReports({ status: 'pending', report_type: 'publish' }).then(({ count, error }) => { if (!error) setPubP(count) })
     }
     load()
     // ① 실시간 — 기자단이 글 보고(insert)하는 즉시 반영. (Supabase Realtime, blog_post_reports 발행 필요: SQL 안내)

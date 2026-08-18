@@ -253,6 +253,19 @@ export async function getReports(opts?: { status?: ReportStatus; report_type?: R
     return { data: data ?? [], error };
 }
 
+// 보고 '건수'만 — 배너·벨의 대기 N건 표시용. 행 본문은 받지 않는다(head 조회).
+//   왜(실측 2026-08-18): getReports 는 select('*') + limit 없음인데, ReportPublishAlert 가
+//   Layout 에 상주하며 10초마다 2번 부른다 → 내부 직원 전 화면·전 탭에서 상시. 숫자만 쓰는 자리다.
+//   필터·RLS 조건은 getReports 와 동일하게 유지한다(집계가 갈라지면 안 된다).
+export async function countReports(opts?: { status?: ReportStatus; report_type?: ReportType; blog_account_id?: string }) {
+    let query = supabase.from('blog_post_reports').select('id', { count: 'exact', head: true });
+    if (opts?.status) query = query.eq('status', opts.status);
+    if (opts?.report_type) query = query.eq('report_type', opts.report_type);
+    if (opts?.blog_account_id) query = query.eq('blog_account_id', opts.blog_account_id);
+    const { count, error } = await query;
+    return { count: count ?? 0, error };
+}
+
 // (내부) 브랜드 블로그 계약 잔여 -1 + 진행처리 1건 · 외주비. 보고별 고유 week키(rpt-id)로 중복 계상 방지.
 async function bookContractCredit(report: BlogPostReport) {
     const { data: accs } = await supabase
