@@ -338,6 +338,7 @@ function Sidebar() {
                             const adminSubs = [
                                 ...(canManagePermissions(profile?.email) ? [{ key: 'users', label: '사원 관리' }] : []),
                                 ...(SIGNUP_ENABLED ? [{ key: 'signups', label: '가입 승인' }] : []),
+                                { key: 'orgs', label: '조직 관리' },
                                 { key: 'deploy', label: '카페 접수' },
                                 { key: 'cafe', label: '카페 원고 생성기' },
                                 { key: 'api', label: 'API 사용량' },
