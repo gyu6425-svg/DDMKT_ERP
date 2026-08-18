@@ -128,7 +128,7 @@ export default function BlogStudio() {
     const refreshJobs = () => void listSaveJobs(12).then(({ data }) => setJobs((data ?? []) as QueueJob[]));
     useEffect(() => {
         refreshJobs();
-        const t = window.setInterval(refreshJobs, 8000);
+        const t = window.setInterval(() => { if (document.visibilityState === 'visible') refreshJobs(); }, 8000);
         return () => window.clearInterval(t);
     }, []);
 
@@ -137,7 +137,7 @@ export default function BlogStudio() {
         let alive = true;
         const check = () => void blogLoginPing(chromePort).then((a) => { if (alive) setLoginAlive(a); });
         check();
-        const t = window.setInterval(check, 10000);
+        const t = window.setInterval(() => { if (document.visibilityState === 'visible') check(); }, 10000);
         return () => { alive = false; window.clearInterval(t); };
     }, [chromePort]);
 

@@ -49,7 +49,7 @@ function CafeCommentPage() {
 
     useEffect(() => {
         void refresh(tab);
-        const t = setInterval(() => void refresh(tab), 5000); // 데몬 처리 상태 자동 갱신
+        const t = setInterval(() => { if (document.visibilityState === 'visible') void refresh(tab); }, 5000); // 데몬 처리 상태 자동 갱신(보일 때만)
         return () => clearInterval(t);
     }, [tab]);
 

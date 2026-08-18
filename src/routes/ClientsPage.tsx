@@ -283,7 +283,7 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
         window.addEventListener('app:navigate', sync);
         window.addEventListener('popstate', sync);
         // 남은 TTL 동안 자동 만료되도록 주기 갱신(1분).
-        const timer = window.setInterval(sync, 60 * 1000);
+        const timer = window.setInterval(() => { if (document.visibilityState === 'visible') sync(); }, 60 * 1000);
         return () => {
             window.removeEventListener('app:navigate', sync);
             window.removeEventListener('popstate', sync);

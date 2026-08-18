@@ -143,12 +143,19 @@ export function CrawlStatusTab() {
     const [lastAt, setLastAt] = useState('');
     const reloadRef = useRef(onReload);
     reloadRef.current = onReload;
+    // ★ 화면에 보일 때만 — 이 재조회는 blog_posts 전체(1.5 MB)를 다시 받는다.
+    //   배경 탭에서 15초마다 돌면 탭 하나로 하루 8.6 GB(무료 한도 5 GB/월)를 태운다.
+    //   실측 2026-08-18: Egress 10.521/5 GB(210%). 간격도 15초 → 30초로.
     useEffect(() => {
         if (!auto) return;
-        const id = window.setInterval(() => {
+        const tick = () => {
+            if (document.visibilityState !== 'visible') return;
             void reloadRef.current().then(() => setLastAt(new Date().toLocaleTimeString('ko-KR')));
-        }, 15000);
-        return () => window.clearInterval(id);
+        };
+        const id = window.setInterval(tick, 30000);
+        const onVis = () => { if (document.visibilityState === 'visible') tick(); };
+        document.addEventListener('visibilitychange', onVis);
+        return () => { window.clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
     }, [auto]);
 
     // ── PC 크롤러 실시간 진행(crawl_status 폴링, 5초) ──
@@ -158,7 +165,9 @@ export function CrawlStatusTab() {
         const fetchCs = async () => {
             const { data } = await supabase
                 .from('crawl_status')
-                .select('updated_at,running,phase,current_blog,done,total,recent_runs')
+                // recent_runs(7.7 KB)는 5초 폴링에서 뺀다 — 진행 표시에 필요한 건 done/total 뿐이다.
+                //   기록 목록은 아래 60초 폴링에서 따로 받는다.
+                .select('updated_at,running,phase,current_blog,done,total')
                 .eq('id', 1)
                 .maybeSingle();
             const next = (data as CrawlStatus) ?? null;
@@ -170,8 +179,16 @@ export function CrawlStatusTab() {
             }
         };
         void fetchCs();
-        const id = window.setInterval(() => void fetchCs(), 5000);
-        return () => window.clearInterval(id);
+        const id = window.setInterval(() => { if (document.visibilityState === 'visible') void fetchCs(); }, 5000);
+        // 최근 크롤 기록(recent_runs)은 무겁고 자주 안 바뀐다 — 60초에 한 번, 보일 때만.
+        const fetchRuns = async () => {
+            const { data } = await supabase.from('crawl_status').select('recent_runs').eq('id', 1).maybeSingle();
+            const runs = (data as { recent_runs?: CrawlStatus['recent_runs'] } | null)?.recent_runs;
+            if (runs) setCs((cur) => (cur ? { ...cur, recent_runs: runs } : cur));
+        };
+        void fetchRuns();
+        const id2 = window.setInterval(() => { if (document.visibilityState === 'visible') void fetchRuns(); }, 60000);
+        return () => { window.clearInterval(id); window.clearInterval(id2); };
     }, []);
     // 라이브 판정: 활성(측정/RSS)은 5분, '휴식(분산 청크 갭)'은 30분까지 '진행 중'으로 본다.
     //   RSS 수집 중 느린 블로그가 있으면 갱신 간격이 1~3분 벌어져 90초 기준이면 배너가 꺼지던 문제 → 5분으로 완화.

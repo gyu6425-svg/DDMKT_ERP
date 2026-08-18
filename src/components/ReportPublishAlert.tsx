@@ -32,7 +32,7 @@ export default function ReportPublishAlert() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'blog_post_reports' }, () => load())
       .subscribe()
     // ② 폴링(10초) — 실시간이 끊겨도 절대 누락 없게 하는 안전망.
-    const id = window.setInterval(load, 10000)
+    const id = window.setInterval(() => { if (document.visibilityState === 'visible') load() }, 10000)
     // ③ 탭 복귀·포커스 시 즉시 갱신(백그라운드 있던 사이 온 보고도 놓치지 않게).
     const onFocus = () => load()
     const onVis = () => {
