@@ -13,18 +13,41 @@ export type OrgNode = {
     status: string | null;
     client_partner: string | null;
     created_at: string | null;
+    has_cafe: boolean;   // 카페 관련 업체인지 — 조직도는 카페 사업만 다룬다
 };
 
 const MISSING_COL = /parent_client_id|column .* does not exist|schema cache/i;
 
+// 카페 관련 client 집합 — 카페 계정 / 배포 접수 / 카페 계약 / 토큰 원장 중 하나라도 있으면 해당.
+//   조직도는 카페 사업 전용이라 나머지 160여 곳(블로그·플레이스만 하는 업체)은 목록에 안 올린다.
+//   ⚠️ 조회는 부분 실패를 허용한다 — 한 테이블이 막혀도 조직도 자체는 떠야 한다.
+async function cafeClientIds(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    const pick = (rows: unknown) => {
+        for (const r of (rows ?? []) as { client_id: string | null }[]) if (r.client_id) ids.add(r.client_id);
+    };
+    const [acc, dep, ctr, tok] = await Promise.all([
+        supabase.from('cafe_accounts').select('client_id'),
+        supabase.from('cafe_deploy_requests').select('client_id'),
+        supabase.from('client_contracts').select('client_id').eq('category', '카페'),
+        supabase.from('cafe_tokens').select('client_id'),
+    ]);
+    pick(acc.data); pick(dep.data); pick(ctr.data); pick(tok.data);
+    return ids;
+}
+
 // 조직도용 client 목록. ready=false = parent_client_id 컬럼 미적용(= SQL 미실행).
 export async function listOrgClients(): Promise<{ data: OrgNode[]; ready: boolean; error: string | null }> {
-    const full = await supabase
-        .from('clients')
-        .select('id,company,is_agency,parent_client_id,status,client_partner,created_at')
-        .order('company', { ascending: true });
+    const [full, cafeIds] = await Promise.all([
+        supabase
+            .from('clients')
+            .select('id,company,is_agency,parent_client_id,status,client_partner,created_at')
+            .order('company', { ascending: true }),
+        cafeClientIds(),
+    ]);
     if (!full.error) {
-        return { data: (full.data ?? []) as OrgNode[], ready: true, error: null };
+        const rows = (full.data ?? []) as Omit<OrgNode, 'has_cafe'>[];
+        return { data: rows.map((r) => ({ ...r, has_cafe: cafeIds.has(r.id) })), ready: true, error: null };
     }
     if (!MISSING_COL.test(full.error.message || '')) {
         return { data: [], ready: false, error: full.error.message };
@@ -34,9 +57,10 @@ export async function listOrgClients(): Promise<{ data: OrgNode[]; ready: boolea
         .from('clients')
         .select('id,company,is_agency,status,client_partner,created_at')
         .order('company', { ascending: true });
-    const rows = (lite.data ?? []) as Omit<OrgNode, 'parent_client_id'>[];
+    const rows = (lite.data ?? []) as Omit<OrgNode, 'parent_client_id' | 'has_cafe'>[];
+    const ids = await cafeClientIds();
     return {
-        data: rows.map((r) => ({ ...r, parent_client_id: null })),
+        data: rows.map((r) => ({ ...r, parent_client_id: null, has_cafe: ids.has(r.id) })),
         ready: false,
         error: lite.error?.message ?? null,
     };

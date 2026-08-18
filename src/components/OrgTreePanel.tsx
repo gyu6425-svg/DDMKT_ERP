@@ -30,6 +30,7 @@ export default function OrgTreePanel() {
     const [msg, setMsg] = useState('');
     const [invites, setInvites] = useState<AgencyInvite[]>([]);
     const [pickFor, setPickFor] = useState<string | null>(null);   // 소속 지정 중인 업체 id
+    const [showAll, setShowAll] = useState(false);                 // 카페 이력 없는 업체까지 보기
 
     const reload = async () => {
         setLoading(true);
@@ -52,10 +53,17 @@ export default function OrgTreePanel() {
         for (const list of m.values()) list.sort((a, b) => a.company.localeCompare(b.company));
         return m;
     }, [rows]);
-    // 직거래 = 대행사도 아니고 소속도 없는 업체. 트리 루트에 쏟아지면 못 쓰므로 접어 둔다.
-    const direct = useMemo(
+    // 직거래 = 대행사도 아니고 소속도 없는 업체.
+    //   ★ 조직도는 카페 사업 전용이므로 카페 관련 업체만 올린다(사장님 지시 2026-08-18).
+    //     전체 182곳 중 카페 관련은 18곳뿐 — 나머지는 블로그·플레이스만 하는 업체라 여기 섞이면 못 쓴다.
+    //     대행사로 새로 지정할 업체가 아직 카페 이력이 없을 수 있어 '전체 보기' 토글은 남긴다.
+    const directAll = useMemo(
         () => rows.filter((r) => !r.is_agency && !r.parent_client_id),
         [rows],
+    );
+    const direct = useMemo(
+        () => (showAll ? directAll : directAll.filter((r) => r.has_cafe)),
+        [directAll, showAll],
     );
     const invitesOf = (id: string) => invites.filter((i) => i.agency_client_id === id);
 
@@ -245,6 +253,10 @@ export default function OrgTreePanel() {
                 <span className="text-xs text-[#64748b]">
                     대행사 {agencies.length} · 소속 업체 {rows.filter((r) => r.parent_client_id).length} · 직거래 {direct.length}
                 </span>
+                <label className="flex items-center gap-1 text-xs text-[#334155]" title="카페 계정·접수·계약·토큰이 하나도 없는 업체까지 보기">
+                    <input checked={showAll} onChange={(e) => setShowAll(e.target.checked)} type="checkbox" />
+                    카페 외 업체도 ({directAll.length - directAll.filter((r) => r.has_cafe).length})
+                </label>
                 <button className={`${BTN} ml-auto`} onClick={() => void reload()} type="button">새로고침</button>
             </div>
 
@@ -273,7 +285,9 @@ export default function OrgTreePanel() {
                         >
                             <span className={`text-[10px] transition-transform ${open.__direct ? 'rotate-90' : ''}`}>▶</span>
                             직거래 업체 {shownDirect.length}
-                            <span className="font-normal text-[#94a3b8]">— 대행사 소속이 아닌 기존 업체</span>
+                            <span className="font-normal text-[#94a3b8]">
+                                — 대행사 소속이 아닌 카페 업체{showAll ? ' (카페 외 포함)' : ''}
+                            </span>
                         </button>
                         {open.__direct ? shownDirect.map((d) => row(d, 1)) : null}
                     </div>
@@ -281,6 +295,7 @@ export default function OrgTreePanel() {
             </div>
 
             <p className="m-0 text-[11px] text-[#94a3b8]">
+                카페 사업만 다룹니다 — 카페 계정·접수·계약·토큰 중 하나라도 있는 업체만 목록에 올립니다.
                 든든한마케팅 → 대행사 → 하위 업체 <b className="text-[#64748b]">2단</b> 구조입니다.
                 대행사는 발행하지 않고, 하위 업체가 각자 자기 카페로 발행합니다.
                 소속 해제는 삭제가 아니라 <b className="text-[#64748b]">직거래 전환</b>이라 계약·토큰이 그대로 남습니다.
