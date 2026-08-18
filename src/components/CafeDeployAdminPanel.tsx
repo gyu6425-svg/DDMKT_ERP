@@ -12,6 +12,7 @@ import {
 } from '../api/cafeDeployRequests';
 import { grantTokens, listTokens, listChargeRequests, setChargeRequestStatus, reverseDeployTokens } from '../api/cafeTokens';
 import { enablePublishByClient } from '../api/cafeAccounts';
+import { listOrgClients, type OrgNode } from '../api/orgs';
 
 // 관리자 — 카페 배포 접수 관리(전 고객). 접수 내용·사진·네이버계정·상태(접수→결제대기→세팅중→완료)를 한 화면에서.
 //   '승인' = 접수→결제대기. 이 순간 고객ERP에 결제(입금계좌) 안내가 노출된다.
@@ -35,6 +36,13 @@ export default function CafeDeployAdminPanel() {
     const [issueOpen, setIssueOpen] = useState<string | null>(null); // 토큰 발행 수 입력 중인 행
     const [issueCount, setIssueCount] = useState(''); // 발행할 토큰 수(편집)
     const [clubidEdit, setClubidEdit] = useState<Record<string, string>>({}); // 행별 clubid 입력값
+    // 소속(대행사) 판별 — clients.parent_client_id.
+    //   ★ 하위 업체가 대행사에게 넣는 접수는 대행사가 알아서 관리한다(승인·금액·토큰 배분 전부).
+    //     우리는 관여하지 않고 무슨 접수인지 보기만 한다(사장님 확정 2026-08-18).
+    //     그래서 그런 행에서는 승인·토큰 발행·상태 변경·clubid·삭제를 전부 감춘다 —
+    //     우리가 처리하면 대행사가 이미 정산한 건을 두 번 처리하게 된다.
+    const [orgById, setOrgById] = useState<Record<string, OrgNode>>({});
+    const [scope, setScope] = useState<'우리 처리' | '대행사 관리' | '전체'>('우리 처리');
     const saveClubid = async (id: string) => {
         const v = clubidEdit[id] ?? '';
         await updateDeployClubid(id, v);
@@ -56,6 +64,14 @@ export default function CafeDeployAdminPanel() {
         });
     };
     useEffect(load, []);
+    // 조직(대행사 소속) 정보 — 한 번만 받는다.
+    useEffect(() => {
+        void listOrgClients().then(({ data }) => {
+            const m: Record<string, OrgNode> = {};
+            for (const c of data) m[c.id] = c;
+            setOrgById(m);
+        });
+    }, []);
 
     const changeStatus = async (id: string, status: string) => {
         const { error } = await setCafeDeployStatus(id, status);
@@ -111,7 +127,19 @@ export default function CafeDeployAdminPanel() {
         setMsg(`${r.company_name} 접수내역 삭제됨${reversed ? ` · 발행 토큰 ${reversed}건 회수(고객 충전내역에 반영)` : ''}`);
     };
 
-    const shown = filter === '전체' ? rows : rows.filter((r) => r.status === filter);
+    // 이 접수가 '대행사가 관리하는 하위 업체 건'인가.
+    const agencyOf = (r: CafeDeployRequest): OrgNode | null => {
+        const pid = orgById[r.client_id]?.parent_client_id;
+        return pid ? orgById[pid] ?? null : null;
+    };
+    const isAgencyManaged = (r: CafeDeployRequest) => !!agencyOf(r);
+
+    const byStatus = filter === '전체' ? rows : rows.filter((r) => r.status === filter);
+    const shown = scope === '전체'
+        ? byStatus
+        : byStatus.filter((r) => (scope === '대행사 관리' ? isAgencyManaged(r) : !isAgencyManaged(r)));
+    const nMine = rows.filter((r) => !isAgencyManaged(r)).length;
+    const nAgency = rows.length - nMine;
 
     return (
         <div>
@@ -121,6 +149,15 @@ export default function CafeDeployAdminPanel() {
                     {['전체', ...STATUSES].map((s) => (
                         <button key={s} type="button" onClick={() => setFilter(s)}
                             className={`rounded-full px-3 py-1 text-xs font-semibold ${filter === s ? 'bg-[#1e40af] text-white' : 'bg-[#f1f5f9] text-[#64748b]'}`}>{s}</button>
+                    ))}
+                </div>
+                <div className="ml-2 flex gap-1 border-l border-[#e2e8f0] pl-3">
+                    {([['우리 처리', nMine], ['대행사 관리', nAgency], ['전체', rows.length]] as const).map(([k, n]) => (
+                        <button key={k} type="button" onClick={() => setScope(k)}
+                            title={k === '대행사 관리' ? '대행사가 자기 하위 업체에게 직접 받는 접수 — 우리는 열람만 합니다' : undefined}
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${scope === k ? 'bg-[#0f172a] text-white' : 'bg-[#f1f5f9] text-[#64748b]'}`}>
+                            {k} {n}
+                        </button>
                     ))}
                 </div>
                 <button className="ml-auto rounded-md border border-[#cbd5e1] px-3 py-1 text-sm font-semibold text-[#475569]" onClick={load} type="button">새로고침</button>
@@ -147,7 +184,16 @@ export default function CafeDeployAdminPanel() {
                                 return (
                                     <tr key={r.id} className="border-b border-[#f1f5f9] align-middle text-[#334155]">
                                         <td className="whitespace-nowrap px-2 py-2.5">{r.created_at.slice(0, 10)}</td>
-                                        <td className="whitespace-nowrap px-2 py-2.5 font-semibold">{r.company_name}</td>
+                                        <td className="whitespace-nowrap px-2 py-2.5 font-semibold">
+                                            {r.company_name}
+                                            {agencyOf(r) ? (
+                                                <div className="mt-0.5">
+                                                    <span className="rounded-full bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-bold text-[#6d28d9]">
+                                                        {agencyOf(r)!.company} 하위
+                                                    </span>
+                                                </div>
+                                            ) : null}
+                                        </td>
                                         <td className="whitespace-nowrap px-2 py-2.5">
                                             <div className="flex items-center gap-1.5">
                                                 <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.deploy_type === '키워드형' ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-[#e0e7ff] text-[#4338ca]'}`}>{r.deploy_type ?? '지역형'}</span>
@@ -225,6 +271,17 @@ export default function CafeDeployAdminPanel() {
                                         <td className="whitespace-nowrap px-2 py-2.5">{r.two_factor ? <span className="font-bold text-[#b45309]">사용</span> : <span className="text-[#94a3b8]">-</span>}</td>
                                         <td className="whitespace-nowrap px-2 py-2.5">
                                             <div className="flex items-center gap-1.5">
+                                                {/* 대행사가 관리하는 하위 업체 접수 — 우리는 열람만. 처리 버튼을 아예 안 그린다. */}
+                                                {isAgencyManaged(r) ? (
+                                                    <>
+                                                        <span className={`rounded-full px-2 py-1 text-xs font-bold ${ST_STYLE[r.status] ?? 'bg-[#f1f5f9] text-[#64748b]'}`}>{r.status}</span>
+                                                        <span className="rounded-full bg-[#f1f5f9] px-2 py-1 text-[11px] font-bold text-[#64748b]"
+                                                            title="이 접수는 대행사가 직접 관리합니다 — 승인·금액·토큰 배분 전부 대행사 몫입니다">
+                                                            🔒 대행사 관리
+                                                        </span>
+                                                    </>
+                                                ) : (
+                                                <>
                                                 <select className={`rounded-full px-2 py-1 text-xs font-bold ${ST_STYLE[r.status] ?? 'bg-[#f1f5f9] text-[#64748b]'}`} value={r.status} onChange={(e) => void changeStatus(r.id, e.target.value)}>
                                                     {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                                                 </select>
@@ -277,6 +334,8 @@ export default function CafeDeployAdminPanel() {
                                                     </span>
                                                 ) : (
                                                     <button type="button" onClick={() => setDelId(r.id)} className="rounded-md border border-[#fecaca] px-2 py-1 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]" title="이 접수내역 삭제(사진·계정 정리)">삭제</button>
+                                                )}
+                                                </>
                                                 )}
                                             </div>
                                         </td>
