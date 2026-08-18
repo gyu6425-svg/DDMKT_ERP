@@ -18,6 +18,7 @@ import re
 import time
 import json
 import socket
+import threading
 import datetime
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
@@ -41,6 +42,33 @@ H = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "applicati
 WID = f"{socket.gethostname()}-{os.getpid()}"
 POLL_SEC = 15
 SCAN_GAP = 2.0  # 스캔 간격(무리없게)
+
+# ── 동시 처리 슬롯 ───────────────────────────────────────────────────────────
+#   왜: 예전엔 요청을 한 건씩만 처리해서, 더티가 도는 동안 설고 스캔은 큐에서 대기만 했다.
+#       업체가 늘면 "내 것만 안 돈다"가 된다(사장님 요청 2026-08-18).
+#   어떻게: 슬롯(스레드)을 여러 개 두되, CF 호출은 아래 _pace() 로 전역 간격을 지킨다.
+#       → 동시에 여러 업체가 진행되지만 총 콜/분은 슬롯 1개일 때와 똑같다.
+#         차단은 순간 속도가 아니라 누적량에 걸리므로(실측: 연속 7건 1,148콜에서 차단),
+#         총량이 그대로면 차단 위험도 그대로다. 업체별 체감 속도만 나눠 갖는다.
+#   claim_kw_request 는 원자적이라 슬롯끼리 같은 요청을 집지 않는다.
+SLOTS = max(1, int(os.getenv("CAFE_KW_SLOTS", "2")))
+
+_pace_lock = threading.Lock()
+_pace_next = 0.0
+
+
+def _pace(gap):
+    """다음 CF 콜 차례까지 기다린다 — 슬롯이 몇 개든 전역 콜 간격을 gap 으로 유지.
+       슬롯이 1개면 종전(콜마다 gap 만큼 쉬던 것)과 사실상 동일하게 동작한다."""
+    global _pace_next
+    while True:
+        with _pace_lock:
+            now = time.monotonic()
+            if now >= _pace_next:
+                _pace_next = now + gap
+                return
+            wait = _pace_next - now
+        time.sleep(min(wait, 5.0))
 
 
 def _ts():
@@ -875,7 +903,7 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
                 break
             if aborted:
                 break
-            time.sleep(gap)                    # 청크 사이만 쉼(병렬이면 건당 실효 gap = gap/PAR)
+            _pace(gap)                    # 청크 사이만 쉼(병렬이면 건당 실효 gap = gap/PAR)
     finally:
         if ex:
             ex.shutdown(wait=False)
@@ -1253,7 +1281,7 @@ def process_recheck(req, payload):
         streak = 0
         r2, ok, v = adjudicate(kw, r, tok, product, {tok} if tok else set())
         _cache_put(kw, r2, v if ok else None)
-        time.sleep(gap)
+        _pace(gap)
         if ok:
             alive.append({"keyword": kw, "volume": v or 0, "theme": _disp_theme(r2),
                           "cafes": [x for x in (r2.get("rows") or []) if x.get("kind") == "카페"][:5]})
@@ -1382,7 +1410,7 @@ def process_related(req, payload):
         r, ok, v = adjudicate(kw, r, "", kw, set())
         v = v if v is not None else _real_volume(kw)
         _cache_put(kw, r, v)
-        time.sleep(gap)
+        _pace(gap)
         row = {"keyword": kw, "volume": v or 0, "theme": _disp_theme(r),
                "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]}
         (national if ok else miss).append(row)
@@ -1464,7 +1492,7 @@ def process_related(req, payload):
             r2 = p.classify(kw2)
             _budget_note(1)
             plive += 1
-            time.sleep(gap)
+            _pace(gap)
             if r2.get("err"):
                 continue
             r2, ok2, v2 = adjudicate(kw2, r2, tok, prod, known)
@@ -1559,7 +1587,7 @@ def process_list(req, payload):
         v = v if v is not None else _real_volume(kw)
         _cache_put(kw, r, v)
         scraped += 1
-        time.sleep(gap)
+        _pace(gap)
         if ok:
             found.append({"keyword": kw, "volume": v, "theme": _disp_theme(r),
                           "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
@@ -1641,7 +1669,7 @@ def process(req):
             r, _ok, _v = adjudicate(kw, r, tok0, kw[len(tok0):].strip() if tok0 else kw, _known)
             _cache_put(kw, r, _v if _ok else vol)
             scraped += 1
-            time.sleep(SCAN_GAP)
+            _pace(SCAN_GAP)
         if _is_pop(r):
             v = vol or _real_volume(kw)  # hier 생성어(volume 0)는 실제 검색량 백필
             if tok0 and tok0 not in _known and (v or 0) <= 10:
@@ -1680,7 +1708,7 @@ def process(req):
                 if not r.get("err"):          # C1 — 차단/일시실패는 캐시 안 함(영구 위음성 방지)
                     _cache_put(kw, r, None)
                 scraped += 1
-                time.sleep(SCAN_GAP)
+                _pace(SCAN_GAP)
             if _is_pop(r):
                 found.append({"keyword": kw, "volume": _real_volume(kw), "theme": _disp_theme(r),
                               "cafes": [x for x in (r.get("rows") or []) if x.get("kind") == "카페"][:5]})
@@ -1700,6 +1728,33 @@ def process(req):
     print(f"[{_ts()}][{req['id']}] {info.get('name')} → 인기탭 {len(found)}건 · 후보 {len(cands)} · 스크랩 {scraped}회 · {time.time() - t0:.0f}s | {top}", flush=True)
 
 
+def _slot_loop(once, slot=1):
+    """슬롯 하나의 처리 루프 — 요청을 집어 끝까지 처리하고 다음 것을 집는다.
+       슬롯이 여러 개면 서로 다른 요청을 동시에 진행한다(claim_kw_request 가 원자적이라 중복 없음).
+       CF 콜 간격은 _pace() 가 전역으로 지키므로, 슬롯 수를 늘려도 총 콜/분은 그대로다."""
+    while True:
+        row = _claim()
+        if row:
+            # 항상 CF 경유(분산IP) — 차단 방지 + 사무실 IP 미노출(검증됨: 차단 0). CAFE_KW_DIRECT=1 이면 직접(구형).
+            p._USE_CF = (os.getenv("CAFE_KW_DIRECT") != "1") or p.blog_crawl_active()
+            print(f"[slot{slot}][{row['id']}] 스캔 IP: {'CF 분산' if p._USE_CF else '직접'}", flush=True)
+            try:
+                process(row)
+            except Exception as e:
+                _finish(row["id"], "failed", note=str(e)[:200])
+                print(f"[slot{slot}][{row['id']}] 실패: {e}", flush=True)
+            if once:
+                return
+            # 요청 사이 휴식 — 차단은 순간 속도보다 '누적량'에 걸린다(실측: 연속 7건 1,148콜에서 차단).
+            #   한 건은 2~4분이라 10분 기준에 여유가 있으므로, 다음 건 전에 쉬어 누적을 흩는다.
+            time.sleep(REQ_REST)
+        else:
+            if once:
+                print(f"[slot{slot}] 대기 요청 없음")
+                return
+            time.sleep(POLL_SEC)
+
+
 def main():
     if not SB or not KEY:
         print("SUPABASE_URL/SERVICE_KEY 없음 (.env 확인)")
@@ -1712,28 +1767,22 @@ def main():
     #   → HOST_TAG · NEG_TTL_DAYS · FIX_CUTOFF_UTC · prescan 불신 네 방어가 한꺼번에 무력화된다.
     #   워커는 이미 _cache_get_many 로 DB 배치캐시를 쓰므로 로컬 캐시는 불필요하다.
     p._USE_CACHE = False
-    print(f"=== 카페 인기탭 워커 시작 · {WID} · 로컬캐시 OFF(DB 권위) ===", flush=True)
-    while True:
-        row = _claim()
-        if row:
-            # 항상 CF 경유(분산IP) — 차단 방지 + 사무실 IP 미노출(검증됨: 차단 0). CAFE_KW_DIRECT=1 이면 직접(구형).
-            p._USE_CF = (os.getenv("CAFE_KW_DIRECT") != "1") or p.blog_crawl_active()
-            print(f"[{row['id']}] 스캔 IP: {'CF 분산' if p._USE_CF else '직접'}", flush=True)
-            try:
-                process(row)
-            except Exception as e:
-                _finish(row["id"], "failed", note=str(e)[:200])
-                print(f"[{row['id']}] 실패: {e}", flush=True)
-            if once:
-                break
-            # 요청 사이 휴식 — 차단은 순간 속도보다 '누적량'에 걸린다(실측: 연속 7건 1,148콜에서 차단).
-            #   한 건은 2~4분이라 10분 기준에 여유가 있으므로, 다음 건 전에 쉬어 누적을 흩는다.
-            time.sleep(REQ_REST)
-        else:
-            if once:
-                print("대기 요청 없음")
-                break
-            time.sleep(POLL_SEC)
+    print(f"=== 카페 인기탭 워커 시작 · {WID} · 슬롯 {SLOTS}개 · 로컬캐시 OFF(DB 권위) ===", flush=True)
+    if SLOTS <= 1:
+        _slot_loop(once, 1)
+        return
+    # 슬롯 여러 개 — 업체별 요청이 서로 기다리지 않게. CF 콜 총속도는 _pace() 가 그대로 지킨다.
+    ths = [threading.Thread(target=_slot_loop, args=(once, i + 1), name=f"slot{i + 1}", daemon=True)
+           for i in range(SLOTS)]
+    for i, t in enumerate(ths):
+        t.start()
+        time.sleep(i and 3)          # 시작을 살짝 어긋나게 — 같은 순간에 몰려 claim/폴링하지 않게
+    try:
+        while any(t.is_alive() for t in ths):
+            for t in ths:
+                t.join(timeout=1)
+    except KeyboardInterrupt:
+        print("중지 요청 — 진행 중인 슬롯이 끝나면 종료됩니다", flush=True)
 
 
 if __name__ == "__main__":

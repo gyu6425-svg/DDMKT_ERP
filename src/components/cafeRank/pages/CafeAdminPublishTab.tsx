@@ -4,6 +4,7 @@ import { getTokenBalances } from '../../../api/cafeTokens';
 import { getPendingGenRequests } from '../../../api/cafeGenRequests';
 import { getClientLabels } from '../../../api/erp';
 import { useVisiblePolling } from '../../../lib/useVisiblePolling';
+import { loadPendingScan } from '../../../api/cafeKwScan';
 import { CafeCustomerStudio } from '../../cafe/CafeCustomerStudio';
 
 // 카페 자동화 발행(관리자) — 접수 승인 후 토큰이 발행된 고객사를 골라 '우리가' 대신 발행한다.
@@ -103,12 +104,16 @@ export function CafeAdminPublishTab() {
                         const bal = Math.max(0, (balById[a.client_id!] ?? 0) - reserved);
                         const active = sel === a.client_id;
                         const bizName = clientInfo[a.client_id!]?.company || a.display_name || a.company_key;
+                        // 다른 업체 스캔이 도는 중에도 이 업체 스캔을 새로 걸 수 있다(워커 슬롯 2개 · 2026-08-18).
+                        //   어느 업체가 도는지 보이게 배지로 표시한다 — 이 브라우저에서 건 스캔 기준(localStorage).
+                        const scanning = (loadPendingScan(a.client_id!)?.ids.length ?? 0) > 0;
                         return (
                             <button key={a.id} type="button" onClick={() => setSel(a.client_id!)}
                                 className={`min-w-[160px] rounded-lg border px-3 py-2 text-left text-sm ${active ? 'border-[#7c3aed] bg-[#f5f3ff]' : 'border-[#e2e8f0] bg-white hover:bg-[#f8fafc]'}`}>
                                 <div className={`font-bold ${active ? 'text-[#6d28d9]' : 'text-[#334155]'}`}>{showBiz ? bizName : (a.display_name || bizName)}</div>
                                 {a.display_name && a.display_name !== bizName ? <div className="truncate text-[11px] text-[#94a3b8]" title={a.display_name}>{a.display_name}</div> : null}
                                 <div className={`text-[12px] ${bal > 0 ? 'text-[#059669]' : 'text-[#dc2626]'}`}>잔여 토큰 {bal}건{reserved ? <span className="text-[#b45309]"> · 발행중 {reserved}</span> : null}</div>
+                                {scanning ? <div className="mt-0.5 text-[11px] font-bold text-[#7c3aed]">🔎 인기탭 스캔중</div> : null}
                             </button>
                         );
                     };
