@@ -28,6 +28,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import threading
 import time
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -78,7 +79,16 @@ def log(msg):
 
 
 def notify(title, body):
-    """윈도우 알림 — DB·터널이 죽어도 뜬다(전부 로컬). 실패해도 감시는 계속한다."""
+    """윈도우 알림 — DB·터널이 죽어도 뜬다(전부 로컬).
+
+    ★ 반드시 비동기여야 한다. MessageBoxW 는 사람이 [확인]을 누를 때까지 **호출한 스레드를 붙잡는다**.
+      감시 루프에서 직접 부르면, 새벽에 VM 이 죽어 경보가 뜬 순간 감시가 그 자리에 멈춘다
+      — 아침에 아무도 없으면 그 뒤로 무슨 일이 있었는지 전혀 알 수 없다.
+      경보를 울리려고 만든 것이 경보 때문에 죽는 셈이라, 알림은 별도 스레드로 던지고 루프는 계속 돈다."""
+    threading.Thread(target=_notify_blocking, args=(title, body), daemon=True).start()
+
+
+def _notify_blocking(title, body):
     safe = lambda s: s.replace("'", "").replace("\n", " ")
     ps = (
         "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime]"

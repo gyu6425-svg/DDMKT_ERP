@@ -473,8 +473,30 @@ def sb_headers(extra=None):
     return h
 
 
+# DB 호출 전용 세션 — 순간 끊김 1회로 8시간 크롤이 통째로 중단되지 않게 재시도를 붙인다.
+#   왜 지금 필요해졌나(2026-08-19 컷오버): 백엔드가 AWS 관리형에서
+#   사무실 PC → Hyper-V → Docker → Cloudflare 터널로 바뀌었다. 끊길 구간이 훨씬 많아졌고,
+#   그중 하나만 잠깐 흔들려도 raise_for_status() 가 그대로 예외를 올려 크롤이 죽는다.
+#   ★ POST 를 재시도해도 안전한 이유: sb_insert 호출부 3곳이 전부 on_conflict 업서트라
+#     같은 요청이 두 번 들어가도 행이 늘지 않는다. PATCH 는 고정값 대입이라 역시 멱등이다.
+#     (멱등이 아닌 INSERT 를 추가한다면 이 세션을 쓰면 안 된다 — 중복이 생긴다)
+_SB = requests.Session()
+try:
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    _SB.mount("https://", HTTPAdapter(max_retries=Retry(
+        total=5, connect=5, read=5, status=5,
+        backoff_factor=1.5,                                   # 0 → 1.5 → 3 → 6 → 12초
+        status_forcelist=(408, 429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET", "POST", "PATCH"]),
+        raise_on_status=False,
+    ), pool_maxsize=20))
+except Exception as _exc:                                     # urllib3 버전 차이로 실패해도 크롤은 돌아야 한다
+    print(f"  ! DB 재시도 설정 실패({_exc}) — 재시도 없이 진행합니다", flush=True)
+
+
 def sb_get(path, params=None):
-    r = requests.get(f"{SUPABASE_URL}/rest/v1/{path}", headers=sb_headers(), params=params, timeout=30)
+    r = _SB.get(f"{SUPABASE_URL}/rest/v1/{path}", headers=sb_headers(), params=params, timeout=30)
     r.raise_for_status()
     return r.json()
 
@@ -486,7 +508,7 @@ def sb_insert(path, rows, on_conflict=None):
         prefer.append("resolution=merge-duplicates")
 
     def _post(rs):
-        return requests.post(
+        return _SB.post(
             f"{SUPABASE_URL}/rest/v1/{path}",
             headers=sb_headers({"Prefer": ",".join(prefer)}),
             params=params, data=json.dumps(rs), timeout=30,
@@ -507,7 +529,7 @@ def sb_insert(path, rows, on_conflict=None):
 
 
 def sb_patch(path, params, payload):
-    r = requests.patch(
+    r = _SB.patch(
         f"{SUPABASE_URL}/rest/v1/{path}",
         headers=sb_headers({"Prefer": "return=representation"}),
         params=params, data=json.dumps(payload), timeout=30,
@@ -1901,8 +1923,18 @@ def run_breadth(force=False, max_posts=None, only_ids=None):
             ti, bl, ti_s, bl_s, ws = measure_rank(kw, blog_id, item["url"])
             recs = [r for r in (row.get("measurements") or []) if r.get("date") != TODAY]
             recs.append({"date": TODAY, "ti": ti, "bl": bl, "ti_status": ti_s, "bl_status": bl_s, "ws": ws})
-            sb_patch("blog_posts", {"id": f"eq.{row['id']}"}, {"measurements": recs})
-            row["measurements"] = recs                  # 메모리 갱신(다음 라운드 스킵 판단용)
+            # ★ 저장 실패가 크롤 전체를 끝내지 않게 한다. 재시도(_SB)로도 안 되면 이 글 하나만 포기한다.
+            #   글 한 건 때문에 남은 수백 건의 측정을 통째로 버리는 것이 훨씬 큰 손해다.
+            #   조용히 넘기지는 않는다 — 로그에 남기고 fail 로 세서 '크롤링 현황'에 그대로 보이게 한다.
+            #   memory 갱신도 안 한다 → 다음 라운드에서 이 글을 다시 시도한다.
+            try:
+                sb_patch("blog_posts", {"id": f"eq.{row['id']}"}, {"measurements": recs})
+                row["measurements"] = recs              # 메모리 갱신(다음 라운드 스킵 판단용)
+            except Exception as exc:
+                print(f"  ! 측정 저장 실패 — {acc.get('name','')} · {kw} : {exc}", flush=True)
+                done += 1
+                fail += 1
+                continue
             done += 1
             ok += 0 if (ti_s == "fail" or bl_s == "fail") else 1
             fail += 1 if (ti_s == "fail" or bl_s == "fail") else 0

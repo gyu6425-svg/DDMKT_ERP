@@ -10,7 +10,7 @@ JSON 백업(supabase_backup.py)에 없는 것
 
 전제
   · PostgreSQL 클라이언트(pg_dump) 설치 — winget install PostgreSQL.PostgreSQL.17
-  · .env 에 SUPABASE_DB_URL (Session pooler · 포트 5432)
+  · .env 에 SUPABASE_DB_URL_CLOUD_FROZEN (Session pooler · 포트 5432) — 옛 클라우드 전용
       postgresql://postgres.<ref>:<pw>@aws-1-<region>.pooler.supabase.com:5432/postgres
     ⚠ Direct connection(db.<ref>.supabase.co)은 IPv6 전용이라 IPv4 회선에서 못 쓴다.
     ⚠ Transaction pooler(6543)는 pg_dump 가 안 된다.
@@ -38,9 +38,11 @@ for envp in (HERE / ".env", ROOT / ".env"):
             if m and m.group(1) not in os.environ:
                 os.environ[m.group(1)] = m.group(2).strip()
 
-DB = os.environ.get("SUPABASE_DB_URL", "").strip()
+# ⚠ 이 스크립트가 뜨는 것은 **얼어붙은 옛 클라우드**다(2026-08-19 컷오버).
+#   라이브(자체호스팅) 백업은 selfhost_backup.py 가 맡는다. 헷갈리지 않게 변수명 자체를 분리했다.
+DB = os.environ.get("SUPABASE_DB_URL_CLOUD_FROZEN", "").strip()
 if not DB:
-    print("SUPABASE_DB_URL 이 없습니다(.env). Session pooler 주소를 넣어주세요.", flush=True)
+    print("SUPABASE_DB_URL_CLOUD_FROZEN 이 없습니다(.env). 옛 클라우드를 뜨려면 그 값을 넣으세요.", flush=True)
     sys.exit(1)
 u = up.urlparse(DB)
 PW = up.unquote(u.password or "")
