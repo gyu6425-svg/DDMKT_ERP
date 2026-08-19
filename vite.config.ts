@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -26,7 +26,11 @@ function writeVersionJson() {
 }
 
 // https://vite.dev/config/
-export default defineConfig({
+// ⚠ vite.config 의 process.env 에는 .env* 파일 값이 자동으로 안 들어온다.
+//   loadEnv 로 직접 읽어야 VITE_API_PROXY 같은 설정이 먹는다(2026-08-19 실측 — 안 읽혀 502).
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  return {
   define: {
     __APP_VERSION__: JSON.stringify(BUILD_ID),
   },
@@ -46,9 +50,13 @@ export default defineConfig({
         changeOrigin: true,
         // 이미지 생성은 1~2분 이상 걸릴 수 있어 프록시가 중간에 연결을 끊지 않도록 넉넉히.
         proxyTimeout: 600000,
-        target: 'http://127.0.0.1:8787',
+        // 기본은 로컬 wrangler(8787). 안 띄웠으면 502 가 나고 이미지(/api/img)도 안 보인다.
+        //   VITE_API_PROXY 로 배포본을 가리키면 wrangler 없이도 이미지·생성 API 가 그대로 동작한다.
+        //   예) .env.development.local 에  VITE_API_PROXY=https://ddmkt-erp.pages.dev
+        target: env.VITE_API_PROXY || 'http://127.0.0.1:8787',
         timeout: 600000,
       },
     },
   },
+  }
 })

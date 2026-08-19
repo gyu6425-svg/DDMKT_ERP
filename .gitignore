@@ -67,3 +67,8 @@ crawler/cafe_cmt/.hb_*
 crawler/cafe_pub/scan_proxy.txt
 crawler/cafe_kw_cache.json
 _backup/
+
+# 데몬 런타임 산출물(커밋 대상 아님) — 상태파일·로그 백업·디버그로 받아둔 원본 HTML
+crawler/*.state
+crawler/*.bak_*
+crawler/_serp_*.html
