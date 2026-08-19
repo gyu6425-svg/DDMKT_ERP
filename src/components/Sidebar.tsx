@@ -58,6 +58,8 @@ function Sidebar() {
     // 대행사 여부 — 대행사로 로그인한 고객에게만 '조직 관리' 메뉴를 연다.
     //   ★ profile.is_agency 가 아니라 clients.is_agency 를 본다. 가입 때 체크를 안 했어도
     //     우리가 조직 관리에서 대행사로 전환한 업체가 있어서, 프로필 값만 믿으면 메뉴가 안 뜬다.
+    //   ★ 대행사라고 무조건 띄우지 않는다 — 하위 업체나 초대 코드가 하나라도 있을 때만 연다.
+    //     조직이 아직 없는 대행사에게 빈 화면부터 보이면 "우리한테 뭘 하라는 거지"가 된다.
     const [isAgencyClient, setIsAgencyClient] = useState(false);
     useEffect(() => {
         const cid = previewAs || profile?.client_id || '';
@@ -66,12 +68,19 @@ function Sidebar() {
             return;
         }
         let alive = true;
-        void supabase
-            .from('clients')
-            .select('is_agency')
-            .eq('id', cid)
-            .maybeSingle()
-            .then(({ data }) => alive && setIsAgencyClient(!!data?.is_agency));
+        void (async () => {
+            const { data } = await supabase.from('clients').select('is_agency').eq('id', cid).maybeSingle();
+            if (!alive) return;
+            if (!data?.is_agency) {
+                setIsAgencyClient(false);
+                return;
+            }
+            const [kids, invs] = await Promise.all([
+                supabase.from('clients').select('id', { count: 'exact', head: true }).eq('parent_client_id', cid),
+                supabase.from('agency_invites').select('code', { count: 'exact', head: true }).eq('agency_client_id', cid),
+            ]);
+            if (alive) setIsAgencyClient((kids.count ?? 0) > 0 || (invs.count ?? 0) > 0);
+        })();
         return () => {
             alive = false;
         };
