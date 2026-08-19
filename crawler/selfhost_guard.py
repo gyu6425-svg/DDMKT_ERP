@@ -191,6 +191,30 @@ def probe():
         if db.isdigit():
             info.append(f"DB {int(db)/1048576:.0f}MB")
 
+    # 크롤 멈춤 감지 — 예약작업은 크롤 실패를 절대 못 본다.
+    #   run_crawler.bat 이 `start /min` 으로 별도 콘솔에 띄우고 즉시 끝나므로, 작업 스케줄러에는
+    #   언제나 '성공(0)' 으로 기록된다(실측: 오늘 01:00 도 LastResult=0). RestartCount 도 0 이다.
+    #   그래서 새벽 3시에 크롤이 죽어도 아무도 모르고 다음 실행은 24시간 뒤다.
+    #   → crawl_status 가 '진행 중(running=true)' 인데 갱신이 끊긴 것을 멈춤으로 본다.
+    #     크롤은 글마다 상태를 갱신하므로, 60분간 갱신이 없으면 정상 진행일 수 없다.
+    #     (차단예방 휴식이 가장 길어야 수십 초라 오탐 여지가 없다)
+    try:
+        r = requests.get(f"{URL}/rest/v1/crawl_status", headers=H,
+                         params={"select": "running,phase,done,total,updated_at"}, timeout=25)
+        rows = r.json() if r.ok else []
+        if rows:
+            st = rows[0]
+            import datetime as _dt
+            upd = _dt.datetime.fromisoformat((st.get("updated_at") or "").replace("Z", "+00:00"))
+            age_m = (_dt.datetime.now(_dt.timezone.utc) - upd).total_seconds() / 60
+            if st.get("running") and age_m > 60:
+                problems.append(f"크롤 멈춤 — '{st.get('phase')}' {st.get('done')}/{st.get('total')} 에서 "
+                                f"{age_m:.0f}분째 갱신 없음")
+            elif st.get("running"):
+                info.append(f"크롤 진행 {st.get('done')}/{st.get('total')}")
+    except Exception:
+        pass                                   # 크롤 상태 조회 실패는 터널 점검에서 이미 잡힌다
+
     # 백업 신선도 — 예약작업이 조용히 멈춰도 여기서 잡힌다.
     newest, age_h = None, None
     if BACKUP_DIR.exists():
