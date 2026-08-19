@@ -4,6 +4,7 @@ import AdminUsersPanel from '../components/AdminUsersPanel'
 import PendingSignupsPanel from '../components/PendingSignupsPanel'
 import CafeDeployAdminPanel from '../components/CafeDeployAdminPanel'
 import OrgTreePanel from '../components/OrgTreePanel'
+import TokenChargePanel from '../components/TokenChargePanel'
 import { useAuth } from '../hooks/useAuth'
 import { canManagePermissions, canSeeAdminPage } from '../lib/permissions'
 import { SIGNUP_ENABLED } from '../lib/authConfig'
@@ -11,7 +12,7 @@ import { SIGNUP_ENABLED } from '../lib/authConfig'
 function AdminPage() {
     const { isAdmin, profile } = useAuth()
     const canUsers = canManagePermissions(profile?.email) // 사원 관리 = 김종인(대표)만
-    type AdminTab = 'users' | 'signups' | 'api' | 'cafe' | 'deploy' | 'orgs'
+    type AdminTab = 'users' | 'signups' | 'api' | 'cafe' | 'deploy' | 'orgs' | 'tokens'
     const tabFromUrl = () => (new URLSearchParams(window.location.search).get('tab') || '') as AdminTab
     const [tab, setTab] = useState<AdminTab>(() => tabFromUrl() || (canUsers ? 'users' : 'api'))
     // 사이드바 하위메뉴(/admin?tab=)로 진입 시 탭 동기화.
@@ -44,7 +45,9 @@ function AdminPage() {
                   ? 'deploy'
                   : tab === 'orgs'
                     ? 'orgs'
-                    : 'api'
+                    : tab === 'tokens'
+                      ? 'tokens'
+                      : 'api'
 
     return (
         <section className="min-h-[320px] rounded-[8px] border border-[#e5e7eb] bg-white p-8">
@@ -55,6 +58,7 @@ function AdminPage() {
                     : active === 'cafe' ? '카페 원고 생성기'
                     : active === 'deploy' ? '카페 접수'
                     : active === 'orgs' ? '조직 관리'
+                    : active === 'tokens' ? '토큰 구매'
                     : 'API 사용량'}
             </div>
 
@@ -68,6 +72,8 @@ function AdminPage() {
                 <CafeDeployAdminPanel />
             ) : active === 'orgs' ? (
                 <OrgTreePanel />
+            ) : active === 'tokens' ? (
+                <TokenChargePanel />
             ) : (
                 <ApiUsagePanel />
             )}

@@ -379,6 +379,7 @@ function Sidebar() {
                                 ...(SIGNUP_ENABLED ? [{ key: 'signups', label: '가입 승인' }] : []),
                                 { key: 'orgs', label: '조직 관리' },
                                 { key: 'deploy', label: '카페 접수' },
+                                { key: 'tokens', label: '토큰 구매' },
                                 { key: 'cafe', label: '카페 원고 생성기' },
                                 { key: 'api', label: 'API 사용량' },
                             ];

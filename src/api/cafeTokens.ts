@@ -127,10 +127,31 @@ export async function consumeToken(clientId: string, note?: string) {
 }
 
 // ── 충전 요청(고객 → 관리자) ──────────────────────────────
+export type TokenRequestStatus = 'pending' | 'quoted' | 'paid' | 'done' | 'rejected';
+
+// 충전 신청 1건의 전 과정. 신청 → 금액 통보 → 입금 신고 → 발행.
 export type TokenRequest = {
     id: string; created_at: string; client_id: string;
     requested_count: number | null; note: string | null; status: string;
+    handled_at?: string | null;
+    unit_price?: number | null;        // 통보 단가(원/건)
+    amount?: number | null;            // 공급가 = 건수 x 단가 (부가세 미포함)
+    quoted_at?: string | null;
+    quoted_count?: number | null;      // 통보 기준 건수(신청 건수와 다를 수 있다)
+    paid_declared_at?: string | null;  // 대행사가 '계좌이체 완료' 누른 시각
+    depositor?: string | null;         // 입금자명(통장 대조용)
+    granted_count?: number | null;
 };
+
+// 대행사 단가·최소 수량. 일반 고객은 TOKEN_PRICE_KRW(15,000).
+//   ★ 화면 기본값일 뿐이다 — 실제 금액은 통보할 때 행에 저장한다(단가가 바뀌어도 과거 근거가 남게).
+export const AGENCY_TOKEN_PRICE_KRW = 10000;
+export const AGENCY_MIN_COUNT = 30;
+
+// 부가세 별도. 통보 금액(공급가)에 10% 를 더한 값이 실제 입금액이다.
+export const vatOf = (supply: number) => Math.round(supply * 0.1);
+export const totalOf = (supply: number) => supply + vatOf(supply);
+export const won = (n: number) => (n || 0).toLocaleString('ko-KR');
 
 // 고객: 충전 요청.
 export async function requestCharge(clientId: string, count: number | null, note?: string) {
@@ -153,4 +174,40 @@ export async function setChargeRequestStatus(id: string, status: string) {
     const { error } = await supabase.from('cafe_token_requests')
         .update({ status, handled_at: new Date().toISOString() }).eq('id', id);
     return { error };
+}
+
+// 내부: 금액 통보 — 건수·단가를 확정해 대행사에게 알린다(status=quoted).
+export async function quoteChargeRequest(id: string, count: number, unitPrice: number) {
+    const { error } = await supabase
+        .from('cafe_token_requests')
+        .update({
+            status: 'quoted',
+            quoted_count: count,
+            unit_price: unitPrice,
+            amount: Math.round(count * unitPrice),   // 공급가(부가세 미포함)
+            quoted_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+    return { error };
+}
+
+// 고객(대행사): 계좌이체 완료 신고. 토큰은 여기서 지급되지 않는다 — 우리가 통장을 보고 발행한다.
+//   ★ UPDATE 정책이 아니라 함수로 처리한다. 정책을 열면 고객이 status 를 done 으로 바꿀 수 있다.
+export async function declareTokenPayment(requestId: string, depositor?: string) {
+    const { error } = await supabase.rpc('declare_token_payment', {
+        p_request_id: requestId,
+        p_depositor: depositor?.trim() || null,
+    });
+    return { error };
+}
+
+// 내부: 입금 확인 → 토큰 발행 + 신청 종료. 같은 신청으로 두 번 발행되지 않게 멱등키를 건다.
+export async function fulfillChargeRequest(req: TokenRequest, count: number, note?: string) {
+    const { error } = await grantTokens(req.client_id, count, note, '충전', `ctr:${req.id}`);
+    if (error) return { error };
+    const { error: upErr } = await supabase
+        .from('cafe_token_requests')
+        .update({ status: 'done', granted_count: count, handled_at: new Date().toISOString() })
+        .eq('id', req.id);
+    return { error: upErr };
 }

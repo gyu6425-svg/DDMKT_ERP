@@ -1,62 +1,104 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { listTokens, grantTokens, balanceOf, listChargeRequests, setChargeRequestStatus, tokenWon, type TokenLedger, type TokenRequest } from '../api/cafeTokens';
+import {
+    listTokens, grantTokens, balanceOf, listChargeRequests, setChargeRequestStatus,
+    quoteChargeRequest, fulfillChargeRequest,
+    tokenWon, won, vatOf, totalOf, TOKEN_PRICE_KRW, AGENCY_TOKEN_PRICE_KRW,
+    type TokenLedger, type TokenRequest,
+} from '../api/cafeTokens';
 
-type ClientLite = { id: string; company: string | null };
+type ClientLite = { id: string; company: string | null; is_agency?: boolean | null };
 
-// 관리자 — 카페 발행 토큰 충전(입금 확인 후 건수 지급) + 전체 충전/사용 내역.
+// 관리자 — 토큰 구매 처리. 신청 → 금액 통보 → 입금 신고 → 발행 4단계를 한 화면에서 본다.
+//   ★ 흐름을 상태 하나로 두는 이유: "돈은 들어왔는데 토큰을 안 줬다" / "토큰은 줬는데 입금이 없다" 를
+//     사람 기억이 아니라 화면에서 잡아야 한다. 각 단계의 시각이 행에 남는다.
+//   ★ 금액은 공급가(부가세 미포함)로 다룬다. 실제 입금액은 공급가 + VAT 10%.
+
+const STATUS: Record<string, { label: string; cls: string }> = {
+    pending:  { label: '신청',      cls: 'bg-[#fef9c3] text-[#854d0e]' },
+    quoted:   { label: '금액 통보', cls: 'bg-[#dbeafe] text-[#1d4ed8]' },
+    paid:     { label: '입금 신고', cls: 'bg-[#ffedd5] text-[#c2410c]' },
+    done:     { label: '발행 완료', cls: 'bg-[#dcfce7] text-[#166534]' },
+    rejected: { label: '반려',      cls: 'bg-[#fee2e2] text-[#b91c1c]' },
+};
+const chip = (s: string) => STATUS[s] ?? { label: s, cls: 'bg-[#f1f5f9] text-[#64748b]' };
+const dt = (s?: string | null) => (s ? new Date(s).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '');
+
 export default function TokenChargePanel() {
     const [clients, setClients] = useState<ClientLite[]>([]);
     const [rows, setRows] = useState<TokenLedger[]>([]);
     const [reqs, setReqs] = useState<TokenRequest[]>([]);
-    const [fulfilling, setFulfilling] = useState<string | null>(null); // 이 요청을 충전으로 처리 중
+    const [scope, setScope] = useState<'open' | 'all'>('open'); // 처리 대기 / 전체(히스토리)
     const [pick, setPick] = useState('');
     const [search, setSearch] = useState('');
     const [count, setCount] = useState('');
     const [note, setNote] = useState('');
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
+    // 행별 입력값 — 금액 통보(건수·단가).
+    const [qCount, setQCount] = useState<Record<string, string>>({});
+    const [qPrice, setQPrice] = useState<Record<string, string>>({});
 
     const load = () => {
         void Promise.all([
-            supabase.from('clients').select('id,company').order('company'),
+            supabase.from('clients').select('id,company,is_agency').order('company'),
             listTokens(),
-        ]).then(([cl, tk]) => {
-            setClients(((cl.data as ClientLite[]) ?? []));
+            listChargeRequests(),
+        ]).then(([cl, tk, rq]) => {
+            setClients((cl.data as ClientLite[]) ?? []);
             setRows(tk.data);
+            setReqs(rq.data);
             if (tk.error) setMsg(tk.error.message);
         });
-        void listChargeRequests().then(({ data }) => setReqs(data.filter((r) => r.status === 'pending')));
     };
     useEffect(load, []);
 
-    const fromRequest = (q: TokenRequest) => {
-        setPick(q.client_id);
-        setSearch(clients.find((c) => c.id === q.client_id)?.company || '');
-        if (q.requested_count) setCount(String(q.requested_count));
-        if (q.note) setNote(q.note);
-        setFulfilling(q.id);
-    };
-    const rejectReq = async (id: string) => {
-        await setChargeRequestStatus(id, 'rejected'); load();
-    };
+    const clientOf = (id: string) => clients.find((c) => c.id === id);
+    const clientName = (id: string) => clientOf(id)?.company || id.slice(0, 8);
+    // 대행사는 10,000 / 일반 15,000 을 기본값으로 채워준다. 실제 값은 통보할 때 행에 저장된다.
+    const defaultPrice = (id: string) => (clientOf(id)?.is_agency ? AGENCY_TOKEN_PRICE_KRW : TOKEN_PRICE_KRW);
 
-    const clientName = (id: string) => clients.find((c) => c.id === id)?.company || id.slice(0, 8);
     const matches = useMemo(() => {
         const q = search.replace(/\s+/g, '').toLowerCase();
         return (q ? clients.filter((c) => (c.company || '').replace(/\s+/g, '').toLowerCase().includes(q)) : clients).slice(0, 8);
     }, [clients, search]);
     const pickedBalance = pick ? balanceOf(rows, pick) : 0;
 
+    const open = reqs.filter((r) => r.status !== 'done' && r.status !== 'rejected');
+    const view = scope === 'open' ? open : reqs;
+
+    const act = async (fn: () => Promise<{ error: { message: string } | null }>, ok: string) => {
+        setBusy(true); setMsg('');
+        const { error } = await fn();
+        setBusy(false);
+        setMsg(error ? `실패: ${error.message}` : ok);
+        if (!error) load();
+    };
+
+    const quote = (q: TokenRequest) => {
+        const n = Number(qCount[q.id] ?? q.quoted_count ?? q.requested_count ?? 0);
+        const p = Number(qPrice[q.id] ?? q.unit_price ?? defaultPrice(q.client_id));
+        if (!n || n <= 0) return setMsg('통보할 건수를 입력하세요.');
+        if (!p || p <= 0) return setMsg('단가를 입력하세요.');
+        void act(() => quoteChargeRequest(q.id, n, p), `${clientName(q.client_id)} ${n}건 · 공급가 ₩${won(n * p)} 통보`);
+    };
+
+    const fulfill = (q: TokenRequest) => {
+        const n = q.quoted_count ?? q.requested_count ?? 0;
+        if (!n) return setMsg('발행할 건수가 없습니다. 먼저 금액을 통보하세요.');
+        if (!window.confirm(`${clientName(q.client_id)} 에 ${n}건을 발행합니다.\n통장에서 입금(₩${won(totalOf(q.amount ?? 0))})을 확인하셨습니까?`)) return;
+        void act(() => fulfillChargeRequest(q, n, `충전신청 ${n}건`), `${clientName(q.client_id)} +${n}건 발행 완료`);
+    };
+
+    // 신청과 무관한 수동 충전(서비스 지급·보정 등). 흐름을 안 타므로 별도로 남겨둔다.
     const charge = async () => {
         if (!pick) return setMsg('충전할 업체를 선택하세요.');
         const n = Number(count);
         if (!n || n <= 0) return setMsg('건수를 1 이상 입력하세요.');
         setBusy(true); setMsg('');
         const { error } = await grantTokens(pick, n, note);
-        if (error) { setBusy(false); return setMsg('충전 실패: ' + error.message); }
-        if (fulfilling) { await setChargeRequestStatus(fulfilling, 'done'); setFulfilling(null); }
         setBusy(false);
+        if (error) return setMsg('충전 실패: ' + error.message);
         setMsg(`${clientName(pick)} +${n}건 (₩${tokenWon(n)}) 충전 완료`);
         setCount(''); setNote('');
         load();
@@ -64,84 +106,197 @@ export default function TokenChargePanel() {
 
     return (
         <div className="grid gap-5">
-            {/* 충전 요청 대기 */}
-            {reqs.length ? (
-                <div className="rounded-xl border-2 border-[#f59e0b] bg-[#fffbeb] p-4">
-                    <div className="mb-2 text-[14px] font-bold text-[#92400e]">충전 요청 대기 ({reqs.length})</div>
-                    <div className="grid gap-2">
-                        {reqs.map((q) => (
-                            <div key={q.id} className="flex flex-wrap items-center gap-2 rounded border border-[#fde68a] bg-white px-3 py-2 text-[13px]">
-                                <span className="font-bold text-[#334155]">{clientName(q.client_id)}</span>
-                                <span className="text-[#4338ca] font-semibold">{q.requested_count ? `${q.requested_count}건 요청` : '건수 미지정'}</span>
-                                {q.requested_count ? <span className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[11px] font-bold text-[#3730a3]">₩{tokenWon(q.requested_count)} 입금확인</span> : null}
-                                {q.note ? <span className="text-[#64748b]">· {q.note}</span> : null}
-                                <span className="text-[11px] text-[#cbd5e1]">{new Date(q.created_at).toLocaleString('ko-KR')}</span>
-                                <div className="ml-auto flex gap-2">
-                                    <button className="rounded bg-[#059669] px-3 py-1 text-[11px] font-bold text-white" onClick={() => fromRequest(q)} type="button">이 요청으로 충전</button>
-                                    <button className="rounded border border-[#cbd5e1] px-2 py-1 text-[11px] font-semibold text-[#64748b]" onClick={() => void rejectReq(q.id)} type="button">반려</button>
-                                </div>
-                            </div>
+            {/* ── 구매 처리 ─────────────────────────────────────────── */}
+            <div className="rounded-xl border border-[#e2e8f0] p-5">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <div className="text-[15px] font-bold text-[#0f172a]">토큰 구매 처리</div>
+                    <div className="inline-flex rounded-lg border border-[#e2e8f0] p-0.5">
+                        {([['open', `처리 대기 ${open.length}`], ['all', `전체 ${reqs.length}`]] as const).map(([k, label]) => (
+                            <button
+                                className={`rounded-md px-3 py-1 text-xs font-bold ${scope === k ? 'bg-[#1e40af] text-white' : 'text-[#64748b] hover:text-[#334155]'}`}
+                                key={k}
+                                onClick={() => setScope(k)}
+                                type="button"
+                            >
+                                {label}
+                            </button>
                         ))}
                     </div>
-                    <p className="m-0 mt-2 text-[11px] text-[#92400e]">"이 요청으로 충전" → 아래 폼에 업체·건수 채워짐 → 충전하면 요청이 자동으로 완료 처리됩니다.</p>
+                    <button className="ml-auto rounded-md border border-[#cbd5e1] px-3 py-1 text-xs font-semibold text-[#475569]" onClick={load} type="button">
+                        새로고침
+                    </button>
                 </div>
-            ) : null}
+                <p className="m-0 mb-3 text-[12px] leading-5 text-[#64748b]">
+                    신청 → <b>금액 통보</b> → 대행사가 계좌이체 후 <b>입금 신고</b> → 통장 확인 후 <b>토큰 발행</b>.
+                    {' '}금액은 <b>공급가(부가세 미포함)</b> 이고, 실제 입금액은 여기에 VAT 10% 를 더한 값입니다.
+                </p>
 
-            {/* 충전 */}
+                {view.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-4 py-10 text-center text-sm text-[#94a3b8]">
+                        {scope === 'open' ? '처리할 신청이 없습니다.' : '신청 내역이 없습니다.'}
+                    </div>
+                ) : (
+                    <div className="grid gap-2">
+                        {view.map((q) => {
+                            const c = chip(q.status);
+                            const n = q.quoted_count ?? q.requested_count ?? 0;
+                            const price = qPrice[q.id] ?? String(q.unit_price ?? defaultPrice(q.client_id));
+                            const cnt = qCount[q.id] ?? String(n || '');
+                            const preview = Number(cnt) * Number(price) || 0;
+                            return (
+                                <div className="rounded-lg border border-[#e2e8f0] px-3 py-2.5 text-[13px]" key={q.id}>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${c.cls}`}>{c.label}</span>
+                                        <span className="font-bold text-[#0f172a]">{clientName(q.client_id)}</span>
+                                        {clientOf(q.client_id)?.is_agency ? (
+                                            <span className="rounded bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-bold text-[#6d28d9]">대행사</span>
+                                        ) : null}
+                                        <span className="text-[#4338ca]">{q.requested_count ? `${q.requested_count}건 신청` : '건수 미지정'}</span>
+                                        {q.note ? <span className="text-[#64748b]">· {q.note}</span> : null}
+                                        <span className="ml-auto text-[11px] text-[#cbd5e1]">{dt(q.created_at)}</span>
+                                    </div>
+
+                                    {/* 통보된 금액 */}
+                                    {q.amount != null ? (
+                                        <div className="mt-1.5 text-[12px] text-[#334155]">
+                                            통보 <b>{q.quoted_count}건</b> × ₩{won(q.unit_price ?? 0)} =
+                                            {' '}공급가 <b>₩{won(q.amount)}</b>
+                                            <span className="text-[#94a3b8]"> + VAT ₩{won(vatOf(q.amount))}</span>
+                                            {' '}→ 입금액 <b className="text-[#c2410c]">₩{won(totalOf(q.amount))}</b>
+                                            <span className="ml-2 text-[11px] text-[#94a3b8]">{dt(q.quoted_at)}</span>
+                                        </div>
+                                    ) : null}
+                                    {q.paid_declared_at ? (
+                                        <div className="mt-1 text-[12px] font-semibold text-[#c2410c]">
+                                            입금 신고 {dt(q.paid_declared_at)}
+                                            {q.depositor ? <span className="ml-1 font-normal text-[#64748b]">· 입금자 {q.depositor}</span> : null}
+                                        </div>
+                                    ) : null}
+                                    {q.status === 'done' ? (
+                                        <div className="mt-1 text-[12px] text-[#166534]">발행 {q.granted_count ?? '-'}건 · {dt(q.handled_at)}</div>
+                                    ) : null}
+
+                                    {/* 조작 */}
+                                    {q.status === 'done' || q.status === 'rejected' ? null : (
+                                        <div className="mt-2 flex flex-wrap items-end gap-2">
+                                            <div>
+                                                <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">건수</div>
+                                                <input
+                                                    className="h-8 w-20 rounded border border-[#cbd5e1] px-2 text-[13px]"
+                                                    min={1}
+                                                    onChange={(e) => setQCount((m) => ({ ...m, [q.id]: e.target.value }))}
+                                                    type="number"
+                                                    value={cnt}
+                                                />
+                                            </div>
+                                            <div>
+                                                <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">단가</div>
+                                                <input
+                                                    className="h-8 w-24 rounded border border-[#cbd5e1] px-2 text-[13px]"
+                                                    min={0}
+                                                    onChange={(e) => setQPrice((m) => ({ ...m, [q.id]: e.target.value }))}
+                                                    step={1000}
+                                                    type="number"
+                                                    value={price}
+                                                />
+                                            </div>
+                                            <div className="pb-1 text-[12px] text-[#475569]">
+                                                공급가 <b>₩{won(preview)}</b> · 입금 <b className="text-[#c2410c]">₩{won(totalOf(preview))}</b>
+                                            </div>
+                                            <button
+                                                className="h-8 rounded bg-[#1e40af] px-3 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
+                                                disabled={busy}
+                                                onClick={() => quote(q)}
+                                                type="button"
+                                            >
+                                                {q.status === 'pending' ? '금액 통보' : '금액 재통보'}
+                                            </button>
+                                            <button
+                                                className="h-8 rounded bg-[#059669] px-3 text-[12px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                                                disabled={busy || q.status !== 'paid'}
+                                                onClick={() => fulfill(q)}
+                                                title={q.status === 'paid' ? '통장 확인 후 토큰을 발행합니다' : '대행사의 입금 신고 후에 활성화됩니다'}
+                                                type="button"
+                                            >
+                                                입금 확인 · 토큰 발행
+                                            </button>
+                                            <button
+                                                className="h-8 rounded border border-[#cbd5e1] px-2 text-[12px] font-semibold text-[#64748b] disabled:opacity-50"
+                                                disabled={busy}
+                                                onClick={() => void act(() => setChargeRequestStatus(q.id, 'rejected'), '반려했습니다')}
+                                                type="button"
+                                            >
+                                                반려
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+                {msg ? <p className="m-0 mt-3 text-[12px] text-[#475569]">{msg}</p> : null}
+            </div>
+
+            {/* ── 수동 충전(신청과 무관 — 서비스 지급·보정) ─────────── */}
             <div className="rounded-xl border border-[#e2e8f0] p-5">
-                <div className="mb-3 text-[15px] font-bold text-[#0f172a]">토큰 충전 (입금 확인 후 건수 지급)</div>
+                <div className="mb-1 text-[15px] font-bold text-[#0f172a]">직접 충전</div>
+                <p className="m-0 mb-3 text-[12px] text-[#64748b]">신청 없이 지급할 때만 씁니다(서비스 지급·보정). 정상 구매는 위에서 처리하세요.</p>
                 <div className="grid gap-3 md:grid-cols-2">
                     <div>
                         <div className="mb-1 text-[12px] font-semibold text-[#64748b]">업체 선택</div>
-                        <input className="mb-1.5 h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" placeholder="업체명 검색" value={search} onChange={(e) => setSearch(e.target.value)} />
+                        <input className="mb-1.5 h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" onChange={(e) => setSearch(e.target.value)} placeholder="업체명 검색" value={search} />
                         <div className="flex flex-wrap gap-1.5">
                             {matches.map((c) => (
-                                <button key={c.id} type="button" onClick={() => setPick(c.id)}
-                                    className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${pick === c.id ? 'border-[#1e40af] bg-[#1e40af] text-white' : 'border-[#cbd5e1] bg-white text-[#475569]'}`}>
+                                <button
+                                    className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${pick === c.id ? 'border-[#1e40af] bg-[#1e40af] text-white' : 'border-[#cbd5e1] bg-white text-[#475569]'}`}
+                                    key={c.id}
+                                    onClick={() => setPick(c.id)}
+                                    type="button"
+                                >
                                     {c.company || '(이름없음)'}
                                 </button>
                             ))}
                             {matches.length === 0 ? <span className="text-xs text-[#94a3b8]">일치 업체 없음</span> : null}
                         </div>
-                        {pick ? <div className="mt-1.5 text-[12px] text-[#1e40af]">선택: <b>{clientName(pick)}</b> · 현재 잔액 <b>{pickedBalance}건</b> <span className="text-[#94a3b8]">(₩{tokenWon(pickedBalance)})</span></div> : null}
+                        {pick ? (
+                            <div className="mt-1.5 text-[12px] text-[#1e40af]">
+                                선택: <b>{clientName(pick)}</b> · 현재 잔액 <b>{pickedBalance}건</b>
+                            </div>
+                        ) : null}
                     </div>
                     <div className="grid content-start gap-2">
                         <div>
                             <div className="mb-1 text-[12px] font-semibold text-[#64748b]">충전 건수</div>
-                            <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" type="number" min={1} placeholder="예: 30" value={count} onChange={(e) => setCount(e.target.value)} />
-                            {count && Number(count) > 0 ? <div className="mt-1 text-[12px] font-bold text-[#059669]">입금 확인 금액: ₩{tokenWon(Number(count))}</div> : null}
+                            <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" min={1} onChange={(e) => setCount(e.target.value)} placeholder="예: 30" type="number" value={count} />
                         </div>
                         <div>
                             <div className="mb-1 text-[12px] font-semibold text-[#64748b]">메모 (선택)</div>
-                            <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" placeholder="입금자명/일자 등" value={note} onChange={(e) => setNote(e.target.value)} />
+                            <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" onChange={(e) => setNote(e.target.value)} placeholder="입금자명/일자 등" value={note} />
                         </div>
                         <button className="mt-1 h-10 rounded-md bg-[#059669] px-5 text-sm font-bold text-white hover:bg-[#047857] disabled:opacity-50" disabled={busy || !pick} onClick={() => void charge()} type="button">
                             {busy ? '충전 중…' : '충전'}
                         </button>
-                        {msg && <span className="text-[12px] text-[#475569]">{msg}</span>}
                     </div>
                 </div>
             </div>
 
-            {/* 전체 내역 */}
+            {/* ── 원장 ──────────────────────────────────────────────── */}
             <div className="rounded-xl border border-[#e2e8f0] p-5">
-                <div className="mb-3 flex items-center justify-between">
-                    <div className="text-[15px] font-bold text-[#0f172a]">토큰 충전·사용 내역 (전체)</div>
-                    <button className="rounded-md border border-[#cbd5e1] px-3 py-1 text-xs font-semibold text-[#475569]" onClick={load} type="button">새로고침</button>
-                </div>
+                <div className="mb-3 text-[15px] font-bold text-[#0f172a]">토큰 충전·사용 내역 (전체)</div>
                 <div className="overflow-x-auto">
                     <table className="w-full min-w-[640px] border-collapse text-[13px]">
                         <thead>
                             <tr className="border-b border-[#e2e8f0] text-left text-[#64748b]">
-                                {['일시', '업체', '구분', '건수', '메모'].map((h) => <th key={h} className="px-2 py-2 font-semibold">{h}</th>)}
+                                {['일시', '업체', '구분', '건수', '메모'].map((h) => <th className="px-2 py-2 font-semibold" key={h}>{h}</th>)}
                             </tr>
                         </thead>
                         <tbody>
                             {rows.length === 0 ? (
                                 <tr><td className="px-2 py-8 text-center text-[#94a3b8]" colSpan={5}>내역이 없습니다.</td></tr>
                             ) : rows.map((r) => (
-                                <tr key={r.id} className="border-b border-[#f1f5f9] text-[#334155]">
-                                    <td className="whitespace-nowrap px-2 py-2">{new Date(r.created_at).toLocaleString('ko-KR')}</td>
+                                <tr className="border-b border-[#f1f5f9] text-[#334155]" key={r.id}>
+                                    <td className="whitespace-nowrap px-2 py-2">{dt(r.created_at)}</td>
                                     <td className="whitespace-nowrap px-2 py-2 font-semibold">{clientName(r.client_id)}</td>
                                     <td className="whitespace-nowrap px-2 py-2">
                                         <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${r.kind === '충전' ? 'bg-[#dcfce7] text-[#166534]' : r.kind === '발행' ? 'bg-[#e0e7ff] text-[#4338ca]' : 'bg-[#f1f5f9] text-[#64748b]'}`}>{r.kind}</span>

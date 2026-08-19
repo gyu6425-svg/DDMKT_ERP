@@ -1,7 +1,22 @@
 import { useEffect, useState } from 'react';
-// ★ 고객 화면에는 금액을 노출하지 않는다(건수만) — 사장님 지시 2026-08-10.
-//   단가·환산금액은 내부 관리자(TokenChargePanel)에서만 본다. tokenWon/TOKEN_PRICE_KRW 는 그래서 여기서 안 쓴다.
-import { listTokens, balanceOf, requestCharge, listChargeRequests, type TokenLedger, type TokenRequest } from '../../api/cafeTokens';
+import { supabase } from '../../lib/supabase';
+// ★ 일반 고객 화면에는 금액을 노출하지 않는다(건수만) — 사장님 지시 2026-08-10.
+//   예외는 대행사다. 대행사는 우리에게 '사서 되파는' 거래처라 통보 금액을 보고 입금해야 한다
+//   (2026-08-19 확정). 그래서 금액 표시는 is_agency 일 때만 켠다.
+import {
+    listTokens, balanceOf, requestCharge, listChargeRequests, declareTokenPayment,
+    won, vatOf, totalOf, AGENCY_MIN_COUNT,
+    type TokenLedger, type TokenRequest,
+} from '../../api/cafeTokens';
+
+// 신청 상태 — 신청 → 금액 통보 → 입금 신고 → 발행 완료.
+const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
+    pending: { label: '접수', cls: 'bg-[#fef9c3] text-[#854d0e]' },
+    quoted: { label: '금액 통보', cls: 'bg-[#dbeafe] text-[#1d4ed8]' },
+    paid: { label: '입금 확인 중', cls: 'bg-[#ffedd5] text-[#c2410c]' },
+    done: { label: '충전완료', cls: 'bg-[#dcfce7] text-[#166534]' },
+    rejected: { label: '반려', cls: 'bg-[#fee2e2] text-[#b91c1c]' },
+};
 
 // 고객 '충전내역' — 발행 토큰 잔액 + 충전/사용 히스토리(본인, RLS 스코프).
 export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
@@ -13,6 +28,9 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
     const [reqMsg, setReqMsg] = useState('');
     const [reqBusy, setReqBusy] = useState(false);
     const [txFilter, setTxFilter] = useState<'all' | 'charge' | 'use'>('all'); // 충전·사용 내역 토글
+    const [isAgency, setIsAgency] = useState(false);   // 대행사만 금액·입금 신고 UI 를 본다
+    const [payer, setPayer] = useState<Record<string, string>>({}); // 신청별 입금자명
+    const [payBusy, setPayBusy] = useState<string | null>(null);
 
     const reloadReqs = () => { void listChargeRequests(clientId ?? undefined).then(({ data }) => setReqs(data)); };
     useEffect(() => {
@@ -24,16 +42,35 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
             setLoading(false);
         });
         reloadReqs();
+        if (clientId) {
+            void supabase.from('clients').select('is_agency').eq('id', clientId).maybeSingle()
+                .then(({ data }) => alive && setIsAgency(!!data?.is_agency));
+        }
         return () => { alive = false; };
     }, [clientId]);
 
+    // 계좌이체 완료 신고 — 토큰은 여기서 지급되지 않는다. 우리가 통장을 확인하고 발행한다.
+    const declarePaid = async (q: TokenRequest) => {
+        setPayBusy(q.id); setReqMsg('');
+        const { error } = await declareTokenPayment(q.id, payer[q.id]);
+        setPayBusy(null);
+        if (error) return setReqMsg('신고 실패: ' + error.message);
+        setReqMsg('입금 신고가 접수되었습니다. 확인 후 발행해 드립니다.');
+        reloadReqs();
+    };
+
     const submitReq = async () => {
         if (!clientId) return setReqMsg('고객 계정이 연결되어 있지 않습니다.');
+        // 대행사는 최소 수량이 있다. 서버에서 막는 값이 아니라 안내이므로 문구로 분명히 알린다.
+        if (isAgency && Number(reqCount) < AGENCY_MIN_COUNT)
+            return setReqMsg(`대행사 최소 신청 수량은 ${AGENCY_MIN_COUNT}건입니다.`);
         setReqBusy(true); setReqMsg('');
         const { error } = await requestCharge(clientId, reqCount ? Number(reqCount) : null, reqNote);
         setReqBusy(false);
         if (error) return setReqMsg('요청 실패: ' + error.message);
-        setReqMsg('충전 요청이 접수되었습니다. 입금 확인 후 충전해 드립니다.');
+        setReqMsg(isAgency
+            ? '신청이 접수되었습니다. 담당자가 금액을 통보해 드립니다.'
+            : '충전 요청이 접수되었습니다. 입금 확인 후 충전해 드립니다.');
         setReqCount(''); setReqNote(''); reloadReqs();
     };
 
@@ -64,7 +101,11 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
             {/* 충전 요청 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
                 <div className="mb-1 text-[15px] font-bold text-[#0f172a]">충전 요청</div>
-                <p className="mb-3 mt-0 text-[12px] text-[#64748b]">입금 후 충전을 요청하시면 담당자가 확인하고 충전해 드립니다. <b className="text-[#4338ca]">발행 1건 = 1토큰</b></p>
+                <p className="mb-3 mt-0 text-[12px] text-[#64748b]">
+                    {isAgency
+                        ? <>필요 건수를 신청하시면 담당자가 <b>금액을 통보</b>해 드립니다. 입금 후 <b>계좌이체 완료</b>를 눌러 주시면 확인 후 토큰을 발행합니다. 최소 {AGENCY_MIN_COUNT}건 · 금액은 부가세 별도입니다.</>
+                        : <>입금 후 충전을 요청하시면 담당자가 확인하고 충전해 드립니다. <b className="text-[#4338ca]">발행 1건 = 1토큰</b></>}
+                </p>
                 <div className="flex flex-wrap items-end gap-2">
                     <div>
                         <div className="mb-1 text-[12px] font-semibold text-[#64748b]">희망 건수</div>
@@ -78,15 +119,54 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                     {reqMsg && <span className="text-[12px] text-[#475569]">{reqMsg}</span>}
                 </div>
                 {reqs.length ? (
-                    <div className="mt-3 grid gap-1">
-                        {reqs.slice(0, 5).map((q) => (
-                            <div key={q.id} className="flex items-center gap-2 rounded border border-[#f1f5f9] px-2 py-1 text-[12px]">
-                                <span className="text-[#64748b]">{new Date(q.created_at).toLocaleDateString('ko-KR')}</span>
-                                <span className="font-semibold">{q.requested_count ? `${q.requested_count}건` : '건수 미지정'}</span>
-                                <span className="text-[#94a3b8]">{q.note ?? ''}</span>
-                                <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold ${q.status === 'done' ? 'bg-[#dcfce7] text-[#166534]' : q.status === 'rejected' ? 'bg-[#fee2e2] text-[#b91c1c]' : 'bg-[#fef9c3] text-[#854d0e]'}`}>{q.status === 'done' ? '충전완료' : q.status === 'rejected' ? '반려' : '대기'}</span>
-                            </div>
-                        ))}
+                    <div className="mt-3 grid gap-1.5">
+                        {reqs.slice(0, 5).map((q) => {
+                            const st = STATUS_LABEL[q.status] ?? { label: q.status, cls: 'bg-[#f1f5f9] text-[#64748b]' };
+                            const n = q.quoted_count ?? q.requested_count;
+                            return (
+                                <div className="rounded border border-[#f1f5f9] px-2 py-1.5 text-[12px]" key={q.id}>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-[#64748b]">{new Date(q.created_at).toLocaleDateString('ko-KR')}</span>
+                                        <span className="font-semibold">{n ? `${n}건` : '건수 미지정'}</span>
+                                        <span className="text-[#94a3b8]">{q.note ?? ''}</span>
+                                        <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold ${st.cls}`}>{st.label}</span>
+                                    </div>
+
+                                    {/* 통보 금액 — 대행사만. 일반 고객 화면에는 금액을 띄우지 않는다. */}
+                                    {isAgency && q.amount != null ? (
+                                        <div className="mt-1 text-[12px] text-[#334155]">
+                                            {q.quoted_count}건 × ₩{won(q.unit_price ?? 0)} = 공급가 <b>₩{won(q.amount)}</b>
+                                            <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(q.amount))}</span>
+                                            {' '}→ <b className="text-[#c2410c]">입금액 ₩{won(totalOf(q.amount))}</b>
+                                        </div>
+                                    ) : null}
+
+                                    {/* 입금 신고 — 금액을 통보받은 뒤에만. */}
+                                    {isAgency && q.status === 'quoted' ? (
+                                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                            <input
+                                                className="h-8 w-36 rounded border border-[#cbd5e1] px-2 text-[12px]"
+                                                onChange={(e) => setPayer((m) => ({ ...m, [q.id]: e.target.value }))}
+                                                placeholder="입금자명"
+                                                value={payer[q.id] ?? ''}
+                                            />
+                                            <button
+                                                className="h-8 rounded bg-[#c2410c] px-3 text-[12px] font-bold text-white hover:bg-[#9a3412] disabled:opacity-50"
+                                                disabled={payBusy === q.id}
+                                                onClick={() => void declarePaid(q)}
+                                                type="button"
+                                            >
+                                                {payBusy === q.id ? '신고 중…' : '계좌이체 완료'}
+                                            </button>
+                                            <span className="text-[11px] text-[#94a3b8]">입금 확인 후 토큰이 발행됩니다.</span>
+                                        </div>
+                                    ) : null}
+                                    {q.status === 'paid' ? (
+                                        <div className="mt-1 text-[11px] text-[#c2410c]">입금 확인 중입니다{q.depositor ? ` (입금자 ${q.depositor})` : ''}.</div>
+                                    ) : null}
+                                </div>
+                            );
+                        })}
                     </div>
                 ) : null}
             </div>
