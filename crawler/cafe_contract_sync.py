@@ -19,6 +19,11 @@ import truststore
 
 truststore.inject_into_ssl()
 import requests
+
+# Supabase REST 전용 재시도 세션 — 터널/컨테이너 순간 끊김 1회로 사이클이 통째로
+#   날아가는 것을 막는다. POST 재시도 제외: POST 없음(GET/PATCH 만).
+import sb_retry
+_SBS = sb_retry.session(allow_post=False)
 from dotenv import load_dotenv
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -48,7 +53,7 @@ def _get(path):
         h = dict(_H)
         h["Range-Unit"] = "items"
         h["Range"] = f"{start}-{start + _PAGE - 1}"
-        r = requests.get(f"{_SB}/rest/v1/{path}", headers=h, timeout=30)
+        r = _SBS.get(f"{_SB}/rest/v1/{path}", headers=h, timeout=30)
         if r.status_code not in (200, 206):
             break
         chunk = r.json()
@@ -132,7 +137,7 @@ def sync(verbose=True):
         remain = max(0, goal - done)
         if remain == (ct.get("remain_count")):
             continue
-        r = requests.patch(
+        r = _SBS.patch(
             f"{_SB}/rest/v1/client_contracts?id=eq.{ct['id']}",
             headers=_H, json={"remain_count": remain}, timeout=15,
         )

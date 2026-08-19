@@ -12,6 +12,11 @@ import pathlib
 import datetime
 import requests
 
+
+# Supabase REST 전용 재시도 세션 — 터널/컨테이너 순간 끊김 1회로 사이클이 통째로
+#   날아가는 것을 막는다. POST 재시도 제외: POST 가 on_conflict 없는 INSERT — 재시도하면 409 '등록실패' 거짓 로그.
+import sb_retry
+_SBS = sb_retry.session(allow_post=False)
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import truststore
 truststore.inject_into_ssl()
@@ -71,7 +76,7 @@ def gen_keywords(cid):
         return _genkw_cache[cid]
     out = set()
     try:
-        rows = requests.get(f"{URL}/rest/v1/cafe_gen_requests", headers=DB, timeout=20, verify=False,
+        rows = _SBS.get(f"{URL}/rest/v1/cafe_gen_requests", headers=DB, timeout=20, verify=False,
                             params={"select": "keyword", "company": f"like.*{cid}*", "limit": "2000"}).json()
         for x in (rows if isinstance(rows, list) else []):
             k = (x.get("keyword") or "").strip()
@@ -194,7 +199,7 @@ def model_b_targets():
        반환: [(club, menuid, client_id, board_name)]. 더맨·설고처럼 이들 게시판도 크롤해 순위트래커에 등록.
        ⚠ 파싱 실패는 조용히 넘기지 않는다 — 안 잡히는 업체가 로그에 보여야 한다."""
     try:
-        rows = requests.get(f"{URL}/rest/v1/cafe_studio_settings",
+        rows = _SBS.get(f"{URL}/rest/v1/cafe_studio_settings",
                             params={"select": "client_id,board_url,board_name"}, headers=DB, timeout=20, verify=False).json()
     except Exception:
         return []
@@ -244,7 +249,7 @@ def main():
     #   그 키워드를 몰랐고, 2어절 규칙으로 '주택바닥공사 내구'가 저장돼 순위가 권외로 찍혔다
     #   (같은 글을 '주택바닥공사'로 재면 1위).
     _genkw_cache.clear()
-    accounts = requests.get(f"{URL}/rest/v1/cafe_accounts", headers=DB,
+    accounts = _SBS.get(f"{URL}/rest/v1/cafe_accounts", headers=DB,
                             params={"select": "id,company_key,client_id", "active": "eq.true"}, timeout=20, verify=False).json()
     acc_by_company = {a["company_key"]: a["id"] for a in accounts} if isinstance(accounts, list) else {}
     # 계약이 끝나 정리한 업체(active=false)의 게시판은 아예 훑지 않는다.
@@ -253,7 +258,7 @@ def main():
     #     계정 자체가 없는 대상(company_key 미등록)은 예전처럼 그대로 크롤한다 — 계정 미등록과 정리는 다르다.
     retired = set()
     try:
-        allacc = requests.get(f"{URL}/rest/v1/cafe_accounts", headers=DB,
+        allacc = _SBS.get(f"{URL}/rest/v1/cafe_accounts", headers=DB,
                               params={"select": "company_key,active"}, timeout=20, verify=False).json()
         retired = {a["company_key"] for a in allacc if a.get("active") is False and a.get("company_key")}
     except Exception as exc:
@@ -261,7 +266,7 @@ def main():
     # 모델B: dep_<client_id> cafe_account 를 client_id 로 매핑(포스트 링크용).
     acc_by_client = {a["client_id"]: a["id"] for a in (accounts if isinstance(accounts, list) else []) if a.get("client_id")}
 
-    existing = requests.get(f"{URL}/rest/v1/cafe_rank_posts", headers=DB,
+    existing = _SBS.get(f"{URL}/rest/v1/cafe_rank_posts", headers=DB,
                             params={"select": "cafe_name,article_id"}, timeout=30, verify=False).json()
     have = {(str(x.get("cafe_name")), str(x["article_id"])) for x in existing} if isinstance(existing, list) else set()
 

@@ -12,6 +12,11 @@ import pathlib
 import datetime
 import requests
 
+
+# Supabase REST 전용 재시도 세션 — 터널/컨테이너 순간 끊김 1회로 사이클이 통째로
+#   날아가는 것을 막는다. POST 재시도 허용: POST 가 Prefer: resolution=merge-duplicates 업서트라 멱등.
+import sb_retry
+_SBS = sb_retry.session(allow_post=True)
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 requests.packages.urllib3.disable_warnings()
 
@@ -37,7 +42,7 @@ BOARD_COMPANY = {v: k for k, v in COMPANY_BOARD.items()}
 
 
 def _rest_get(table, select):
-    r = requests.get(f"{URL}/rest/v1/{table}", headers=H, params={"select": select, "order": "created_at.desc"}, timeout=40, verify=False)
+    r = _SBS.get(f"{URL}/rest/v1/{table}", headers=H, params={"select": select, "order": "created_at.desc"}, timeout=40, verify=False)
     data = r.json()
     return data if r.status_code < 300 else {"status": r.status_code, "body": data}
 
@@ -111,7 +116,7 @@ def done_date(x):
 
 
 def get_accounts():
-    data = requests.get(f"{URL}/rest/v1/cafe_accounts", headers=H,
+    data = _SBS.get(f"{URL}/rest/v1/cafe_accounts", headers=H,
                         params={"select": "id,company_key,board_short", "active": "eq.true"}, timeout=30, verify=False).json()
     return {x["company_key"]: x for x in data} if isinstance(data, list) else {}
 
@@ -121,11 +126,11 @@ def main():
     accounts = get_accounts()
 
     fields = "id,cafe_name,article_id,board,published_date,cafe_account_id"
-    r = requests.get(f"{URL}/rest/v1/cafe_rank_posts", headers=H, params={"select": fields}, timeout=30, verify=False)
+    r = _SBS.get(f"{URL}/rest/v1/cafe_rank_posts", headers=H, params={"select": fields}, timeout=30, verify=False)
     existing = r.json()
     account_column = isinstance(existing, list)
     if not account_column:
-        r = requests.get(f"{URL}/rest/v1/cafe_rank_posts", headers=H,
+        r = _SBS.get(f"{URL}/rest/v1/cafe_rank_posts", headers=H,
                          params={"select": "id,cafe_name,article_id,board,published_date"}, timeout=30, verify=False)
         existing = r.json()
     if not isinstance(existing, list):
@@ -156,7 +161,7 @@ def main():
             if account_column and account_id and row.get("cafe_account_id") != account_id:
                 patch["cafe_account_id"] = account_id
             if patch:
-                pr = requests.patch(f"{URL}/rest/v1/cafe_rank_posts", headers=H,
+                pr = _SBS.patch(f"{URL}/rest/v1/cafe_rank_posts", headers=H,
                                     params={"id": f"eq.{row['id']}"}, json=patch, timeout=20, verify=False)
                 if pr.status_code < 300:
                     updated += 1
@@ -177,7 +182,7 @@ def main():
         }
         if account_column and account_id:
             body["cafe_account_id"] = account_id
-        pr = requests.post(f"{URL}/rest/v1/cafe_rank_posts", headers={**H, "Prefer": "resolution=merge-duplicates"},
+        pr = _SBS.post(f"{URL}/rest/v1/cafe_rank_posts", headers={**H, "Prefer": "resolution=merge-duplicates"},
                            json=body, timeout=20, verify=False)
         if pr.status_code < 300:
             inserted += 1

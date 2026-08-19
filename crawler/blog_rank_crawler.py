@@ -39,11 +39,16 @@ socket.setdefaulttimeout(25)
 
 # Windows 백신/방화벽이 TLS를 가로채(자체 루트 CA 주입) certifi 검증이 실패하는 환경 대응.
 # OS(윈도) 신뢰 저장소를 그대로 쓰게 해 SSL CERTIFICATE_VERIFY_FAILED 를 막는다. 없으면 무시.
+#   ⚠ 컷오버(2026-08-19) 이후로는 이게 실패하면 **모든 DB 호출이 SSL 로 죽는다.**
+#     db.ddmktcloud.com 인증서는 certifi 번들만으로는 검증이 안 되고 윈도 신뢰 저장소 CA 가 필요하다
+#     (실측: truststore 없이 SSLCertVerificationError / 주입 후 200 OK).
+#     예전엔 조용히 넘어가도 무해했지만 지금은 침묵하면 원인을 못 찾는다 — 크게 남긴다.
 try:
     import truststore
     truststore.inject_into_ssl()
-except Exception:
-    pass
+except Exception as _tsx:
+    print(f"  !! truststore 주입 실패({_tsx}) — db.ddmktcloud.com 인증서 검증이 실패할 수 있습니다. "
+          f"`pip install truststore` 확인 필요", flush=True)
 
 # 작업 스케줄러로 stdout 이 파일/파이프로 갈 때 인코딩이 cp949 가 되어, 이모지·일부 한글(자모 등)에서
 # UnicodeEncodeError 가 나면 '측정 도중 전체 크래시'(→ 뒤쪽 블로그 미측정)로 이어진다. UTF-8 로 강제.
@@ -477,20 +482,34 @@ def sb_headers(extra=None):
 #   왜 지금 필요해졌나(2026-08-19 컷오버): 백엔드가 AWS 관리형에서
 #   사무실 PC → Hyper-V → Docker → Cloudflare 터널로 바뀌었다. 끊길 구간이 훨씬 많아졌고,
 #   그중 하나만 잠깐 흔들려도 raise_for_status() 가 그대로 예외를 올려 크롤이 죽는다.
-#   ★ POST 를 재시도해도 안전한 이유: sb_insert 호출부 3곳이 전부 on_conflict 업서트라
-#     같은 요청이 두 번 들어가도 행이 늘지 않는다. PATCH 는 고정값 대입이라 역시 멱등이다.
-#     (멱등이 아닌 INSERT 를 추가한다면 이 세션을 쓰면 안 된다 — 중복이 생긴다)
+#   ★ POST 를 재시도해도 안전한 이유: sb_insert 는 호출부가 전부 on_conflict 업서트다.
+#     이 파일 3곳뿐 아니라 이 함수를 import 해 쓰는 다른 모듈(crawl_bydate·crawl_pick·
+#     _crawl_clients·verify_keyword 등)까지 확인했다. PATCH 는 고정값 대입이라 역시 멱등이다.
+#     ⚠ 앞으로 **이 함수를 쓰는 어느 모듈에든** on_conflict 없는 INSERT 를 추가하면 안 된다 — 재시도로 중복된다.
 _SB = requests.Session()
+# 요청 하나가 붙잡을 수 있는 최대 시간을 좁게 묶는다. 무인 크롤에서는 '죽는 것'보다 '조용히 오래 자는 것'이
+#   더 나쁘다 — 죽으면 다음 단계로 넘어가지만, 자면 아무 로그도 없이 마감을 넘긴다.
+SB_TIMEOUT = (10, 30)                                          # (연결, 응답) 초
 try:
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
-    _SB.mount("https://", HTTPAdapter(max_retries=Retry(
-        total=5, connect=5, read=5, status=5,
-        backoff_factor=1.5,                                   # 0 → 1.5 → 3 → 6 → 12초
+    _retry = Retry(
+        total=4, connect=4, read=3, status=3,
+        backoff_factor=1.0,                                   # 실측 사다리: 0 → 2 → 4 → 8초 (합 14초)
         status_forcelist=(408, 429, 500, 502, 503, 504),
         allowed_methods=frozenset(["GET", "POST", "PATCH"]),
         raise_on_status=False,
-    ), pool_maxsize=20))
+        # ★ 반드시 False. urllib3 기본값(True)이면 429/503 에 붙어 오는 Retry-After 헤더를 그대로 믿고
+        #   **최대 6시간(DEFAULT_RETRY_AFTER_MAX=21600)** 동안 time.sleep 한다. 백오프 사다리도 건너뛴다.
+        #   경로에 Cloudflare 터널과 게이트웨이가 있어 그 헤더가 실제로 올 수 있고, 그러면 요청 하나가
+        #   아무 로그 없이 밤을 통째로 삼킨다. requests 의 timeout 은 시도당 소켓 타임아웃이라 이걸 못 막는다.
+        #   (2026-08-19 독립검증에서 지적 — 재시도를 넣기 전에는 존재할 수 없던 실패 모드다)
+        respect_retry_after_header=False,
+    )
+    # https 뿐 아니라 http 에도 붙인다 — 나중에 터널을 우회해 내부 IP(http://…:8000)로 바꿔도
+    #   재시도가 조용히 사라지지 않게.
+    for _scheme in ("https://", "http://"):
+        _SB.mount(_scheme, HTTPAdapter(max_retries=_retry, pool_maxsize=20))
 except Exception as _exc:                                     # urllib3 버전 차이로 실패해도 크롤은 돌아야 한다
     print(f"  ! DB 재시도 설정 실패({_exc}) — 재시도 없이 진행합니다", flush=True)
 
@@ -2027,7 +2046,14 @@ def run_spread(force=False, max_posts=None, chunk_size=5, gap_min=6, deadline=No
             print(f"  ⏹ 마감({deadline}) 초과 — 남은 {nch - i}청크 중단(다음 크롤과 겹침 방지)", flush=True)
             break
         print(f"[청크 {i + 1}/{nch}] 블로그 {len(group)}개 측정", flush=True)
-        run_breadth(force=force, only_ids=set(group))
+        # ★ 청크 하나가 터져도 밤 전체를 버리지 않는다(2026-08-19 독립검증 지적).
+        #   run_breadth 안에는 try 로 안 감싼 sb_get/sb_insert/sb_patch 가 청크당 20건 넘게 있고,
+        #   그 위(run_spread·__main__)에 잡아주는 곳이 없었다. 청크 3에서 예외 하나가 나면
+        #   남은 12청크(약 250글)가 통째로 유실된다 — 재시도를 넣은 목적과 정반대 결과다.
+        try:
+            run_breadth(force=force, only_ids=set(group))
+        except Exception as exc:
+            print(f"  ! 청크 {i + 1} 실패({type(exc).__name__}: {exc}) — 다음 청크로 넘어갑니다", flush=True)
         ETA_HINT = _eta_hint(i + 1)                        # 청크 완료마다 예상 완료시각 갱신
         if i < nch - 1:
             if interval is not None:
