@@ -25,6 +25,7 @@ import PowerLinkPage from './routes/PowerLinkPage';
 import ReportsPage from './routes/ReportsPage';
 import CustomerOverviewPage from './routes/CustomerOverviewPage';
 import CustomerCategoryPage from './routes/CustomerCategoryPage';
+import AgencyOrgPanel from './components/portal/AgencyOrgPanel';
 import ReporterPortalPage from './routes/ReporterPortalPage';
 import { SkeletonRankPage, PlaceRankPage, CategoryDashPage } from './components/categoryRank/SkeletonRankPage';
 import InstaRankPage from './routes/InstaRankPage';
@@ -63,6 +64,8 @@ const routes = [
     { path: '/portal/powerlink', element: <CustomerCategoryPage /> },
     { path: '/portal/video', element: <CustomerCategoryPage /> },
     { path: '/portal/blog', element: <CustomerCategoryPage /> },
+    // 조직 관리 — 대행사 고객만(사이드바에도 대행사일 때만 노출). 화면 자체에서도 대행사 여부를 한 번 더 본다.
+    { path: '/portal/org', element: <AgencyOrgPanel /> },
     { path: '/reporter', element: <ReporterPortalPage /> },
     // 누수탐지 ERP(4인 전용 — 페이지 자체에서 게이트). 메뉴 전환은 사이드바.
     { path: '/leak', element: <LeakPage section="customers" /> },

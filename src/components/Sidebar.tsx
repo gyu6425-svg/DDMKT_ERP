@@ -2,6 +2,7 @@ import { SIDEBAR_CATEGORIES } from './categoryRank/categories';
 import { useAuth } from '../hooks/useAuth';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { getClientContracts, type ClientContract } from '../api/clientContracts';
+import { supabase } from '../lib/supabase';
 import { CONTAINER_SUBS, PRODUCT_CATEGORIES } from '../lib/products';
 import { canSeeAdminPage, canManagePermissions } from '../lib/permissions';
 import { SIGNUP_ENABLED } from '../lib/authConfig';
@@ -54,6 +55,28 @@ function Sidebar() {
             alive = false;
         };
     }, [role, previewAs, isCustomerViewPath]);
+    // 대행사 여부 — 대행사로 로그인한 고객에게만 '조직 관리' 메뉴를 연다.
+    //   ★ profile.is_agency 가 아니라 clients.is_agency 를 본다. 가입 때 체크를 안 했어도
+    //     우리가 조직 관리에서 대행사로 전환한 업체가 있어서, 프로필 값만 믿으면 메뉴가 안 뜬다.
+    const [isAgencyClient, setIsAgencyClient] = useState(false);
+    useEffect(() => {
+        const cid = previewAs || profile?.client_id || '';
+        if (!cid || (role !== 'viewer' && !(isCustomerViewPath && previewAs))) {
+            setIsAgencyClient(false);
+            return;
+        }
+        let alive = true;
+        void supabase
+            .from('clients')
+            .select('is_agency')
+            .eq('id', cid)
+            .maybeSingle()
+            .then(({ data }) => alive && setIsAgencyClient(!!data?.is_agency));
+        return () => {
+            alive = false;
+        };
+    }, [role, previewAs, isCustomerViewPath, profile?.client_id]);
+
     // 계약 → (카테고리 → 하위유형 집합). 컨테이너(보장형/종합광고) 하위는 실제 카테고리로 역추적.
     const custCatMap = useMemo(() => {
         const m = new Map<string, Set<string>>();
@@ -164,6 +187,13 @@ function Sidebar() {
                     <>
                         {/* 통합 대시보드 + 계약(승인)된 카테고리·하위유형만 */}
                         {renderNavItem({ path: previewAs ? `/portal?as=${previewAs}` : '/portal', label: '통합 대시보드' })}
+                        {/* 조직 관리 — 대행사 고객만. 자기 하위 업체·초대 코드를 읽기 전용으로 본다. */}
+                        {isAgencyClient
+                            ? renderNavItem({
+                                  path: previewAs ? `/portal/org?as=${previewAs}` : '/portal/org',
+                                  label: '조직 관리',
+                              })
+                            : null}
                         {[...custCatMap.entries()].map(([catLabel, subSet]) => {
                             const scat = SIDEBAR_CATEGORIES.find((c) => c.label === catLabel);
                             if (!scat) return null;

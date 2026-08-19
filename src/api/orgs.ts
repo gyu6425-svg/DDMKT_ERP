@@ -131,3 +131,32 @@ export async function setInviteActive(code: string, active: boolean) {
     const { error } = await supabase.from('agency_invites').update({ active }).eq('code', code);
     return { error };
 }
+
+// ── 대행사 본인 화면(고객 포털 '조직 관리') ──────────────────────────────
+//   대행사로 로그인한 고객이 자기 조직만 본다. 읽기 전용 — 소속 지정·코드 발급은 우리(내부)만 한다.
+//   ★ 여기서 client_id 를 화면이 넘겨주지만, 그 값을 믿고 권한을 주는 게 아니다.
+//     실제 차단은 RLS(docs/agency-portal-rls.sql)가 한다 — 남의 id 를 넣어도 0행이 돌아온다.
+export type MyOrg = {
+    me: OrgNode | null;
+    children: OrgNode[];
+    invites: AgencyInvite[];
+};
+
+export async function getMyOrg(clientId: string): Promise<{ data: MyOrg; error: string | null }> {
+    const cols = 'id,company,is_agency,parent_client_id,status,client_partner,created_at';
+    const [meRes, kidRes, invRes] = await Promise.all([
+        supabase.from('clients').select(cols).eq('id', clientId).maybeSingle(),
+        supabase.from('clients').select(cols).eq('parent_client_id', clientId).order('company'),
+        supabase.from('agency_invites').select('*').eq('agency_client_id', clientId).order('created_at', { ascending: false }),
+    ]);
+    const asNode = (r: unknown) => ({ ...(r as Omit<OrgNode, 'has_cafe'>), has_cafe: true }) as OrgNode;
+    return {
+        data: {
+            me: meRes.data ? asNode(meRes.data) : null,
+            children: ((kidRes.data ?? []) as unknown[]).map(asNode),
+            // 초대 코드 조회가 막혀 있어도(정책 미적용) 조직 목록은 떠야 한다.
+            invites: (invRes.data ?? []) as AgencyInvite[],
+        },
+        error: meRes.error?.message ?? kidRes.error?.message ?? null,
+    };
+}
