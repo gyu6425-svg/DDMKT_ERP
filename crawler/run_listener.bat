@@ -7,5 +7,8 @@ cd /d "%~dp0"
 echo [START] %date% %time% >> listener.log
 "C:\Users\ddmkt\AppData\Local\Python\pythoncore-3.14-64\python.exe" run_listener.py >> listener.log 2>&1
 echo [END]   %date% %time% (exit=%errorlevel%) - 30s 후 재시작 >> listener.log
-timeout /t 30 /nobreak >nul
+REM   Wait with ping, not timeout: timeout returns INSTANTLY when stdin is not a console
+REM   (VBS launch). SUB4 measured 1.3 restarts/sec - 429 in 5 min, each hitting the backend.
+REM   Reproduced on main 2026-08-19: timeout /t 3 = 0.1s, ping -n 4 = 3.1s.
+ping -n 31 127.0.0.1 >nul
 goto loop

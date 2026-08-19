@@ -26,5 +26,9 @@ if errorlevel 1 (
 echo [START] %date% %time% >> cafe_scan_daemon.log
 python cafe_scan_daemon.py >> cafe_scan_daemon.log 2>&1
 echo [END]   %date% %time% (exit=%errorlevel%) - restart in 60s >> cafe_scan_daemon.log
-timeout /t 60 /nobreak >nul
+REM   Wait with ping, not timeout: `timeout` returns INSTANTLY when stdin is not a console
+REM   (VBS/service launch). SUB4 measured 429 restarts in ~5 min - 1.3/sec, each one hitting
+REM   the self-hosted backend. ping always waits. Measured on main 2026-08-19 too:
+REM   timeout /t 3 with non-console stdin returned in 0.1s; ping -n 4 took 3.1s.
+ping -n 61 127.0.0.1 >nul
 goto loop
