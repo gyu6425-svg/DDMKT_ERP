@@ -25,6 +25,17 @@ import truststore
 
 truststore.inject_into_ssl()
 import requests
+
+# Supabase REST 재시도 세션 — 터널 순간 끊김 1회로 스캔 사이클이 날아가는 것을 막는다.
+#   ★ POST 는 재시도하지 않는다(allow_post=False). SUB4 전수 점검 결과:
+#     rpc/scan_budget_take · rpc/claim_kw_request 는 멱등이 아니라 재시도하면
+#     예산이 이중 차감되거나 한 요청을 두 워커가 잡는다. cafe_kw_audit INSERT 도 중복 행이 생긴다.
+#     그래서 GET·PATCH 만 보호하고 POST 는 맨 requests 로 남겨 둔다(의도적).
+# sb_retry 는 이 폴더에 있다 — 작업 디렉터리가 어디든 찾도록 경로를 먼저 넣는다.
+#   (예약작업은 WorkingDirectory 가 다를 수 있어, 이게 없으면 import 가 통째로 실패한다)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sb_retry
+_S = sb_retry.session(allow_post=False)
 from dotenv import load_dotenv
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -136,7 +147,7 @@ def main():
     # ② 음성 표본 재검증 — 없다고 한 게 정말 없는가
     fn = []
     try:
-        rows = requests.get(f"{SB}/rest/v1/cafe_kw_targets", headers=H, timeout=30, verify=False,
+        rows = _S.get(f"{SB}/rest/v1/cafe_kw_targets", headers=H, timeout=30, verify=False,
                             params={"select": "keyword", "has_section": "eq.false",
                                     "scanned_by": "like.*/m", "limit": "400"}).json()
     except Exception:

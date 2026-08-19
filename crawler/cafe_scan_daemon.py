@@ -27,6 +27,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import truststore
 truststore.inject_into_ssl()
 import requests
+
+# Supabase REST 재시도 세션 — 터널 순간 끊김 1회로 스캔 사이클이 날아가는 것을 막는다.
+#   ★ POST 는 재시도하지 않는다(allow_post=False). SUB4 전수 점검 결과:
+#     rpc/scan_budget_take · rpc/claim_kw_request 는 멱등이 아니라 재시도하면
+#     예산이 이중 차감되거나 한 요청을 두 워커가 잡는다. cafe_kw_audit INSERT 도 중복 행이 생긴다.
+#     그래서 GET·PATCH 만 보호하고 POST 는 맨 requests 로 남겨 둔다(의도적).
+import sb_retry
+_S = sb_retry.session(allow_post=False)
 from dotenv import load_dotenv
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -65,7 +73,7 @@ def busy():
          실측(SUB4 2026-08-07): 재기동 후 18시간 동안 유효 작업 0건
          (양보 55회 + 공회전 703회). 이중 방어를 하나로 줄인다."""
     try:
-        r = requests.get(f"{SB}/rest/v1/cafe_kw_requests?status=in.(queued,claimed)&select=id&limit=1",
+        r = _S.get(f"{SB}/rest/v1/cafe_kw_requests?status=in.(queued,claimed)&select=id&limit=1",
                          headers=H, timeout=10)
         return r.status_code == 200 and bool(r.json())
     except Exception:
@@ -123,7 +131,7 @@ def pick_plans():
          남은 0이 된 뒤에도 계속 그 둘만 뽑혀, 64초 주기로 703회를 헛돌고 prio 20 으로 넘어가지
          못했다(SUB4 실측 2026-08-07, 20:47~09:40). 남은 0인 계획을 후보에서 빼야 한다."""
     try:
-        r = requests.get(f"{SB}/rest/v1/cafe_scan_plan?active=is.true"
+        r = _S.get(f"{SB}/rest/v1/cafe_scan_plan?active=is.true"
                          f"&select=id,product,sidos,include_dong,prio,done_count"
                          f"&order=prio.asc,last_run_at.asc.nullsfirst&limit=30", headers=H, timeout=15)
         if r.status_code != 200:
@@ -137,7 +145,7 @@ def pick_plans():
 
 def mark_plan(pid, done):
     try:
-        requests.patch(f"{SB}/rest/v1/cafe_scan_plan?id=eq.{pid}", headers=H,
+        _S.patch(f"{SB}/rest/v1/cafe_scan_plan?id=eq.{pid}", headers=H,
                        json={"last_run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                              "done_count": done}, timeout=15)
     except Exception:

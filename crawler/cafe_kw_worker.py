@@ -28,6 +28,17 @@ import truststore
 
 truststore.inject_into_ssl()
 import requests
+
+# Supabase REST 재시도 세션 — 터널 순간 끊김 1회로 스캔 사이클이 날아가는 것을 막는다.
+#   ★ POST 는 재시도하지 않는다(allow_post=False). SUB4 전수 점검 결과:
+#     rpc/scan_budget_take · rpc/claim_kw_request 는 멱등이 아니라 재시도하면
+#     예산이 이중 차감되거나 한 요청을 두 워커가 잡는다. cafe_kw_audit INSERT 도 중복 행이 생긴다.
+#     그래서 GET·PATCH 만 보호하고 POST 는 맨 requests 로 남겨 둔다(의도적).
+# sb_retry 는 이 폴더에 있다 — 작업 디렉터리가 어디든 찾도록 경로를 먼저 넣는다.
+#   (예약작업은 WorkingDirectory 가 다를 수 있어, 이게 없으면 import 가 통째로 실패한다)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sb_retry
+_S = sb_retry.session(allow_post=False)
 from dotenv import load_dotenv
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -109,7 +120,7 @@ def _claim():
 
 def _cache_get(kw):
     try:
-        r = requests.get(f"{SB}/rest/v1/cafe_kw_targets?keyword=eq.{quote(kw)}&select=*", headers=H, timeout=15)
+        r = _S.get(f"{SB}/rest/v1/cafe_kw_targets?keyword=eq.{quote(kw)}&select=*", headers=H, timeout=15)
         a = r.json() if r.status_code == 200 else []
         return a[0] if a else None
     except Exception:
@@ -140,7 +151,7 @@ def _finish(rid, status, result=None, note=None, extra=None):
     if extra:
         body.update(extra)
     try:
-        requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{rid}", headers=H, json=body, timeout=15)
+        _S.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{rid}", headers=H, json=body, timeout=15)
     except Exception:
         pass
 
@@ -323,7 +334,7 @@ def _sb_page(url):
     rows, off = [], 0
     while True:
         try:
-            r = requests.get(f"{url}&limit=1000&offset={off}", headers=H, timeout=30).json()
+            r = _S.get(f"{url}&limit=1000&offset={off}", headers=H, timeout=30).json()
         except Exception:
             return None
         if not isinstance(r, list) or not r:
@@ -413,7 +424,7 @@ def _cache_get_many(kws):
         chunk = kws[i:i + 80]
         vals = ",".join('"' + k.replace('"', '') + '"' for k in chunk)
         try:
-            r = requests.get(f"{SB}/rest/v1/cafe_kw_targets?keyword=in.({quote(vals)})"
+            r = _S.get(f"{SB}/rest/v1/cafe_kw_targets?keyword=in.({quote(vals)})"
                              f"&select=keyword,has_section,theme,verdict,volume,cafes,scanned_by,scanned_at", headers=H, timeout=20)
             for row in (r.json() if r.status_code == 200 else []):
                 out[(row.get("keyword") or "").replace(" ", "")] = row
@@ -749,7 +760,7 @@ def _is_canceled(req_id):
        ★ DB 읽기 1회뿐이라 CF 콜·차단 예산과 무관하다. 5건마다만 본다(회차당 24회).
        ★ 못 읽으면 False — 네트워크가 흔들린다고 멀쩡한 스캔을 죽이지 않는다."""
     try:
-        r = requests.get(f"{SB}/rest/v1/cafe_kw_requests?select=status&id=eq.{req_id}",
+        r = _S.get(f"{SB}/rest/v1/cafe_kw_requests?select=status&id=eq.{req_id}",
                          headers=H, timeout=8)
         rows = r.json()
         return bool(rows) and rows[0].get("status") != "claimed"
@@ -854,7 +865,7 @@ def _run_scan(req, kws, target, scope, extra=None, tag="스캔", max_live=None):
                 if len(found) != pushed_n:
                     body["result"] = sorted(found, key=lambda f: -(f.get("volume") or 0))
                     pushed_n = len(found)
-                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                _S.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
                                json=body, timeout=10)
             except Exception:
                 pass
@@ -1261,7 +1272,7 @@ def process_recheck(req, payload):
     for i, kw in enumerate(kws, 1):
         if i % 5 == 1:
             try:
-                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                _S.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
                                json={"note": f"재확인 {i}/{len(kws)} · 살아있음 {len(alive)} · 죽음 {len(dead)}",
                                      "result": alive}, timeout=10)
             except Exception:
@@ -1390,7 +1401,7 @@ def process_related(req, payload):
     for i, kw in enumerate(kws[:MAX_A], 1):
         if i % 5 == 1:
             try:
-                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                _S.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
                                json={"note": f"전국 판정 {i}/{min(len(kws), MAX_A)} · 발견 {len(national)}"}, timeout=10)
             except Exception:
                 pass
@@ -1476,7 +1487,7 @@ def process_related(req, payload):
             if len(regional) != pushed_r:
                 body["result"] = national + regional
                 pushed_r = len(regional)
-            requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H, json=body, timeout=10)
+            _S.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H, json=body, timeout=10)
         except Exception:
             pass
         for tok in probes:
@@ -1557,7 +1568,7 @@ def process_list(req, payload):
     for idx, kw in enumerate(kws, 1):
         if idx % 5 == 1:
             try:
-                requests.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
+                _S.patch(f"{SB}/rest/v1/cafe_kw_requests?id=eq.{req['id']}", headers=H,
                                json={"note": f"진행 {idx}/{total} · 인기탭 {len(found)}"}, timeout=10)
             except Exception:
                 pass
