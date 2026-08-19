@@ -33,7 +33,12 @@ def session(allow_post=False, pool=20):
         retry = Retry(
             total=4, connect=4, read=3, status=3,
             backoff_factor=1.0,                       # 실측 사다리: 0 → 2 → 4 → 8초 (합 14초)
-            status_forcelist=(408, 429, 500, 502, 503, 504),
+            status_forcelist=(408, 429, 500, 502, 503, 504,
+                              # ★ Cloudflare 고유 5xx — 터널이 재기동하는 몇 초 동안 실제로 이게 온다.
+                              #   2026-08-19 터널 재시작을 실측하다 확인: 530 두 번 뒤 200.
+                              #   표준 5xx 만 넣어두면 이 창을 못 넘겨 그 요청이 그대로 실패한다.
+                              #   520~527 = origin 오류/타임아웃, 530 = origin 도달 불가.
+                              520, 521, 522, 523, 524, 525, 526, 527, 530),
             allowed_methods=frozenset(methods),
             raise_on_status=False,
             respect_retry_after_header=False,         # 위 주석 참조 — 절대 True 로 두지 말 것
