@@ -193,12 +193,23 @@ export default function PendingSignupsPanel() {
                                 <div className="mt-1 text-xs text-[#475569]">
                                     신청 업체: <b>{r.signup_company || '-'}</b>
                                     {r.signup_biz_no ? ` · 사업자 ${r.signup_biz_no}` : ''}
+                                    {r.is_agency ? <span className="ml-1 rounded bg-[#fef3c7] px-1.5 py-0.5 text-[11px] font-bold text-[#92400e]">대행사</span> : null}
                                 </div>
                             ) : (
                                 <div className="mt-1 text-xs text-[#94a3b8]">
                                     승인 후 블로그 관리 시트에서 담당 블로그를 배정하세요.
                                 </div>
                             )}
+
+                            {/* 초대 코드 가입 — 승인하면 아래에서 고른 업체가 이 대행사 하위로 붙는다.
+                                자동 매칭은 '어느 업체에 붙일지'만 정하고, 소속(대행사)은 코드가 정한다 — 서로 덮어쓰지 않는다. */}
+                            {r.role === 'viewer' && r.signup_agency_client_id ? (
+                                <div className="mt-2 rounded-lg border border-[#fdba74] bg-[#fff7ed] px-3 py-2 text-[12px] text-[#9a3412]">
+                                    🏷 초대 코드 <b className="font-mono">{r.signup_invite_code || '-'}</b> — 승인하면{' '}
+                                    <b>{clients.find((c) => c.id === r.signup_agency_client_id)?.company || '알 수 없는 대행사'}</b>{' '}
+                                    하위 업체로 등록됩니다.
+                                </div>
+                            ) : null}
 
                             {/* 자동 매칭 안내 — 기존 업체를 찾았으면 그 이유까지 보여 준다(중복 생성 방지) */}
                             {r.role === 'viewer' ? (() => {

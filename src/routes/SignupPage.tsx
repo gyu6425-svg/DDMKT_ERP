@@ -23,9 +23,11 @@ function SignupPage() {
     const [bizNo, setBizNo] = useState('');
     const [phone, setPhone] = useState('');
     const [agency, setAgency] = useState(false); // 대행사 여부(고객만)
+    const [invite, setInvite] = useState(''); // 대행사 초대 코드(고객만) — 있으면 그 대행사 하위로 붙는다
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [done, setDone] = useState(false);
+    const [doneAgency, setDoneAgency] = useState<string | null>(null);
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -35,8 +37,11 @@ function SignupPage() {
         if (password !== password2) return setError('비밀번호가 일치하지 않습니다.');
         if (role === 'reporter' && !name.trim()) return setError('이름을 입력하세요.');
         if (role === 'viewer' && !company.trim()) return setError('업체명을 입력하세요.');
+        // 대행사 본인과 대행사 하위는 서로 배타적이다(2단 고정 — 대행사는 상위를 가질 수 없음).
+        if (role === 'viewer' && agency && invite.trim())
+            return setError('대행사는 초대 코드로 가입할 수 없습니다. 둘 중 하나만 선택하세요.');
         setLoading(true);
-        const { ok, error: err } = await requestSignup({
+        const { ok, error: err, agency: joined } = await requestSignup({
             login: login.trim(),
             password,
             // 고객은 담당자명 없이 업체명을 표시 이름으로 사용.
@@ -46,9 +51,11 @@ function SignupPage() {
             bizNo: bizNo.trim() || undefined,
             phone: phone.trim() || undefined,
             isAgency: role === 'viewer' ? agency : false,
+            inviteCode: role === 'viewer' ? invite.trim() || undefined : undefined,
         });
         setLoading(false);
         if (!ok) return setError(err || '가입에 실패했습니다.');
+        setDoneAgency(joined ?? null);
         setDone(true);
     }
 
@@ -69,6 +76,11 @@ function SignupPage() {
                                 ? '입력하신 업체 정보로 담당자가 확인 후 연결합니다.'
                                 : '담당자가 담당 블로그를 배정한 뒤 이용 가능합니다.'}
                         </p>
+                        {doneAgency ? (
+                            <p className="m-0 rounded-lg bg-[#fff6f1] px-4 py-2.5 text-[15px] font-semibold text-[#c2410c]">
+                                {doneAgency} 소속으로 신청되었습니다.
+                            </p>
+                        ) : null}
                         <Button className="mt-2 w-full" onClick={goLogin} type="button">
                             로그인 화면으로
                         </Button>
@@ -150,6 +162,21 @@ function SignupPage() {
                                     <input type="checkbox" checked={agency} onChange={(e) => setAgency(e.target.checked)} className="h-5 w-5 accent-[#ff5a00]" />
                                     대행사입니다
                                 </label>
+                                {/* 초대 코드 — 대행사에서 받은 업체만 입력. 대행사 본인은 상위를 가질 수 없어 감춘다. */}
+                                {agency ? null : (
+                                    <>
+                                        <input
+                                            autoCapitalize="characters"
+                                            className={`${inputClass} font-mono tracking-wider uppercase`}
+                                            onChange={(e) => setInvite(e.target.value)}
+                                            placeholder="초대 코드(선택)"
+                                            value={invite}
+                                        />
+                                        <p className="m-0 -mt-1 px-1 text-[13px] leading-5 text-[#999999]">
+                                            대행사를 통해 가입하시는 경우에만 대행사에서 받은 코드를 입력하세요.
+                                        </p>
+                                    </>
+                                )}
                             </>
                         ) : null}
                         <input

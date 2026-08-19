@@ -11,6 +11,7 @@ export default function OnboardingGate() {
     const [name, setName] = useState('');
     const [phone, setPhone] = useState('');
     const [agency, setAgency] = useState(false); // 대행사 여부(고객만)
+    const [invite, setInvite] = useState(''); // 대행사 초대 코드(고객만)
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -19,10 +20,16 @@ export default function OnboardingGate() {
     const submit = async () => {
         setError('');
         if (!name.trim()) return setError(role === 'viewer' ? '업체명을 입력하세요.' : '이름을 입력하세요.');
+        // 대행사 본인은 상위를 가질 수 없다(2단 고정) — 서버에서도 막지만 여기서 먼저 알려 준다.
+        if (role === 'viewer' && agency && invite.trim())
+            return setError('대행사는 초대 코드로 가입할 수 없습니다. 둘 중 하나만 선택하세요.');
         setLoading(true);
-        const { error: err } = await submitKakaoOnboarding(role, name, phone, role === 'viewer' ? agency : false);
+        const { error: err } = await submitKakaoOnboarding(
+            role, name, phone, role === 'viewer' ? agency : false, role === 'viewer' ? invite : '',
+        );
         setLoading(false);
-        if (err) return setError('저장 실패: ' + err.message);
+        // 초대 코드가 무효면 RPC 예외 메시지가 그대로 온다('초대 코드를 찾을 수 없습니다' 등).
+        if (err) return setError(err.message.includes('초대') ? err.message : '저장 실패: ' + err.message);
         // 프로필이 갱신되도록 새로고침 → 승인 대기 화면으로 이동.
         window.location.reload();
     };
@@ -70,10 +77,22 @@ export default function OnboardingGate() {
                         autoComplete="tel"
                     />
                     {role === 'viewer' ? (
-                        <label className="flex cursor-pointer items-center gap-2.5 px-1 text-[15px] font-medium text-[#555555]">
-                            <input type="checkbox" checked={agency} onChange={(e) => setAgency(e.target.checked)} className="h-5 w-5 accent-[#ff5a00]" />
-                            대행사입니다
-                        </label>
+                        <>
+                            <label className="flex cursor-pointer items-center gap-2.5 px-1 text-[15px] font-medium text-[#555555]">
+                                <input type="checkbox" checked={agency} onChange={(e) => setAgency(e.target.checked)} className="h-5 w-5 accent-[#ff5a00]" />
+                                대행사입니다
+                            </label>
+                            {/* 초대 코드 — 대행사를 통해 들어오는 하위 업체만. 대행사 본인은 감춘다. */}
+                            {agency ? null : (
+                                <input
+                                    autoCapitalize="characters"
+                                    className={`${inputCls} font-mono tracking-wider uppercase`}
+                                    onChange={(e) => setInvite(e.target.value)}
+                                    placeholder="초대 코드(선택)"
+                                    value={invite}
+                                />
+                            )}
+                        </>
                     ) : null}
                     {error ? <p className="m-0 text-[14px] text-[#b91c1c]">{error}</p> : null}
                     <button

@@ -205,8 +205,16 @@ export default function OrgTreePanel() {
                                 }`}
                                 key={i.code}
                             >
-                                {i.code}
-                                <span className="opacity-60">{i.used_count}회</span>
+                                <button
+                                    className="font-mono hover:underline"
+                                    onClick={() => void navigator.clipboard?.writeText(i.code)}
+                                    title="클릭하면 복사 — 대행사에 이 코드를 전달하면 하위 업체가 가입 화면 '초대 코드'에 넣는다"
+                                    type="button"
+                                >
+                                    {i.code}
+                                </button>
+                                {/* 사용 횟수는 '승인'에서 오른다(신청이 아니라) — 거절된 신청이 한도를 갉아먹지 않게. */}
+                                <span className="opacity-60">{i.used_count}{i.max_uses ? `/${i.max_uses}` : ''}회</span>
                                 {i.active ? (
                                     <button
                                         className="font-sans text-[10px] font-bold text-[#94a3b8] hover:text-[#dc2626]"

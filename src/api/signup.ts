@@ -13,6 +13,10 @@ export type PendingSignup = {
     phone: string | null;
     signup_company: string | null;
     signup_biz_no: string | null;
+    is_agency: boolean | null;
+    // 초대 코드 가입 — 원문 코드와 해석된 대행사 client_id. 승인 시 parent_client_id 로 확정된다.
+    signup_invite_code: string | null;
+    signup_agency_client_id: string | null;
     created_at: string;
 };
 
@@ -40,14 +44,16 @@ export async function requestSignup(input: {
     bizNo?: string;
     phone?: string;
     isAgency?: boolean; // 대행사 여부(고객만) — 카페 배포 기본 15,000(일반 업체는 계약관리에서 수동 조정)
-}): Promise<{ ok: boolean; error: string | null }> {
+    inviteCode?: string; // 대행사 초대 코드(고객만) — 유효하면 승인 시 그 대행사 하위로 붙는다
+}): Promise<{ ok: boolean; error: string | null; agency?: string | null }> {
     const { data, error } = await supabase.functions.invoke('clever-processor', {
         body: { action: 'signup', ...input },
     });
     const err = await detailError(error);
     if (err) return { ok: false, error: err };
     if (data?.error) return { ok: false, error: data.error };
-    return { ok: !!data?.ok, error: data?.ok ? null : '알 수 없는 응답' };
+    // agency = 초대 코드가 유효했을 때 그 대행사명. 완료 화면에서 "○○ 대행사 소속으로 신청됨"을 보여 준다.
+    return { ok: !!data?.ok, error: data?.ok ? null : '알 수 없는 응답', agency: data?.agency ?? null };
 }
 
 // 승인 대기 목록(관리자).

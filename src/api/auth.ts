@@ -61,8 +61,15 @@ export async function signInWithKakao() {
     });
 }
 
-// 카카오 가입 후 온보딩 — 본인 비활성 프로필에 역할/이름·업체명/연락처·대행사여부 저장(kakao_onboard RPC).
-export async function submitKakaoOnboarding(role: 'viewer' | 'reporter', name: string, phone: string, isAgency = false) {
+// 카카오 가입 후 온보딩 — 본인 비활성 프로필에 역할/이름·업체명/연락처·대행사여부·초대코드 저장(kakao_onboard RPC).
+//   초대 코드가 무효면 RPC 가 예외를 던진다 → 저장 자체가 안 되고 화면에 사유가 그대로 뜬다.
+export async function submitKakaoOnboarding(
+    role: 'viewer' | 'reporter',
+    name: string,
+    phone: string,
+    isAgency = false,
+    inviteCode = '',
+) {
     if (!hasSupabaseConfig) {
         return { error: missingConfigError };
     }
@@ -71,6 +78,7 @@ export async function submitKakaoOnboarding(role: 'viewer' | 'reporter', name: s
         p_name: name.trim(),
         p_phone: phone.trim(),
         p_is_agency: role === 'viewer' ? isAgency : false,
+        p_invite_code: role === 'viewer' ? inviteCode.trim() : '',
     });
     return { error };
 }
