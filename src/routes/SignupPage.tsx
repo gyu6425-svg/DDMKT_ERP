@@ -167,7 +167,8 @@ function SignupPage() {
                                     <>
                                         <input
                                             autoCapitalize="characters"
-                                            className={`${inputClass} font-mono tracking-wider uppercase`}
+                                            // 다른 칸과 같은 서체. 고정폭(font-mono)은 같은 크기에서도 획이 얇아 보여 혼자 떠 보인다.
+                                            className={`${inputClass} uppercase`}
                                             onChange={(e) => setInvite(e.target.value)}
                                             placeholder="초대 코드(선택)"
                                             value={invite}
