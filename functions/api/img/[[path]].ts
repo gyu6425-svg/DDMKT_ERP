@@ -12,7 +12,9 @@ type Env = {
     IMG_BUCKET: R2Bucket;
     SUPABASE_URL?: string;
     // 이전(컷오버) 기간 전용 — 두 번째로 허용할 백엔드. 둘 중 아무 토큰이나 통과시킨다.
+    //   ALT 도 anon key 가 반드시 있어야 한다(GoTrue 가 apikey 헤더를 요구 — 실측 2026-08-19).
     SUPABASE_URL_ALT?: string;
+    SUPABASE_ANON_KEY_ALT?: string;
     SUPABASE_SERVICE_KEY?: string;
     SUPABASE_ANON_KEY?: string;
 };
@@ -119,13 +121,15 @@ export async function onRequestPut({ request, params, env }: Ctx) {
     // ★ 백엔드가 둘일 수 있는 기간(자체호스팅 이전) — 어느 쪽 토큰이든 통과시킨다.
     //   안 그러면 컷오버 순간, 아직 재로그인하지 않은 사람은 이미지 업로드가 막힌다.
     //   (실측 2026-08-19 리허설: 자체호스팅 토큰인데 함수는 클라우드로 검증해 401)
-    //   ALT 는 apikey 를 안 붙인다 — 백엔드가 다르면 anon key 도 다르기 때문.
-    const bases: { url: string; key?: string }[] = [{ url: env.SUPABASE_URL, key: apikey }];
-    if (env.SUPABASE_URL_ALT) bases.push({ url: env.SUPABASE_URL_ALT.replace(/\/$/, '') });
+    //   ⚠ apikey 는 생략할 수 없다. 실측 2026-08-19: apikey 없이 /auth/v1/user 는 401,
+    //     사용자 토큰을 apikey 로 대신 넣어도 401. 그 백엔드의 anon key 가 따로 필요하다.
+    const bases: { url: string; key: string }[] = [{ url: env.SUPABASE_URL, key: apikey }];
+    if (env.SUPABASE_URL_ALT && env.SUPABASE_ANON_KEY_ALT) {
+        bases.push({ url: env.SUPABASE_URL_ALT.replace(/\/$/, ''), key: env.SUPABASE_ANON_KEY_ALT });
+    }
     let ok = false;
     for (const b of bases) {
-        const h: Record<string, string> = { Authorization: `Bearer ${token}` };
-        if (b.key) h.apikey = b.key;
+        const h: Record<string, string> = { Authorization: `Bearer ${token}`, apikey: b.key };
         try {
             const r = await fetch(`${b.url}/auth/v1/user`, { headers: h });
             if (r.ok) { ok = true; break; }
