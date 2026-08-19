@@ -28,6 +28,7 @@ function SignupPage() {
     const [loading, setLoading] = useState(false);
     const [done, setDone] = useState(false);
     const [doneAgency, setDoneAgency] = useState<string | null>(null);
+    const [doneWarn, setDoneWarn] = useState(false);
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -55,6 +56,10 @@ function SignupPage() {
         });
         setLoading(false);
         if (!ok) return setError(err || '가입에 실패했습니다.');
+        // 코드를 넣었는데 서버가 대행사명을 안 돌려줬다 = 코드가 처리되지 않은 것(Edge Function 구버전).
+        //   계정은 이미 만들어졌으므로 막을 수 없다. 조용히 넘어가면 직거래 고객으로 승인돼
+        //   대행사 화면에서 자기 하위가 안 보이게 되므로, 반드시 화면에 남긴다.
+        setDoneWarn(!!invite.trim() && !joined);
         setDoneAgency(joined ?? null);
         setDone(true);
     }
@@ -79,6 +84,11 @@ function SignupPage() {
                         {doneAgency ? (
                             <p className="m-0 rounded-lg bg-[#fff6f1] px-4 py-2.5 text-[15px] font-semibold text-[#c2410c]">
                                 {doneAgency} 소속으로 신청되었습니다.
+                            </p>
+                        ) : null}
+                        {doneWarn ? (
+                            <p className="m-0 rounded-lg bg-[#fef2f2] px-4 py-2.5 text-[15px] font-semibold text-[#b91c1c]">
+                                ⚠️ 초대 코드가 적용되지 않았습니다. 가입은 접수되었으니 담당자에게 코드를 알려 주세요.
                             </p>
                         ) : null}
                         <Button className="mt-2 w-full" onClick={goLogin} type="button">
