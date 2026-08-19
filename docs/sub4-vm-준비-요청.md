@@ -52,7 +52,10 @@ Hyper-V (Windows 기능 켜기 → Hyper-V 체크 → 재부팅)
 
 ```bash
 sudo apt update && sudo apt -y upgrade
-sudo apt -y install docker.io docker-compose-plugin git curl
+sudo apt -y install docker.io docker-compose-v2 git curl
+     # ⚠ docker-compose-plugin 은 Ubuntu 저장소에 없다(Docker 공식 저장소 전용).
+     #   Ubuntu 24.04 는 docker-compose-v2 가 같은 `docker compose` 명령을 준다.
+     #   (SUB4 실측 2026-08-19 — Unable to locate package)
 sudo usermod -aG docker $USER      # 로그아웃 후 재로그인
 docker --version && docker compose version
 ```

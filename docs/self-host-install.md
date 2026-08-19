@@ -5,6 +5,13 @@
 
 ---
 
+> **전제 확인** — Docker 는 아래로 설치한다(Ubuntu 24.04).
+> ```bash
+> sudo apt -y install docker.io docker-compose-v2 git curl
+> ```
+> `docker-compose-plugin` 은 Ubuntu 저장소에 없다(Docker 공식 저장소 전용).
+> SUB4 실측 2026-08-19 — `Unable to locate package` 로 막혔다.
+
 ## 1. Supabase 내려받기
 
 ```bash
