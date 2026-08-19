@@ -216,4 +216,19 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # ★ 첫 조회(cafe_rank_posts) 는 try 밖이라, 그 한 번이 실패하면 **그날 카페 순위 크롤 전체가 무산**된다.
+    #   세션 재시도(14초)로도 못 넘긴 장애면 대개 몇십 초 뒤엔 돌아온다(터널 재기동 등).
+    #   그래서 프로세스 수준에서 한 번 더 기다렸다 시도한다 — 하루치를 통째로 버리는 것보다 낫다.
+    #   측정 자체는 멱등(같은 글을 다시 재도 결과만 덮어씀)이라 재시도로 데이터가 틀어지지 않는다.
+    #   (2026-08-19 독립검증 지적. 01:00 무인 체인의 마지막 단계라 아무도 못 지켜본다)
+    import time as _t
+    for _attempt in (1, 2, 3):
+        try:
+            main()
+            break
+        except Exception as _exc:
+            if _attempt == 3:
+                print(f"  ! 카페 순위 크롤 최종 실패({type(_exc).__name__}: {_exc})", flush=True)
+                raise
+            print(f"  ! 카페 순위 크롤 {_attempt}차 실패({type(_exc).__name__}: {_exc}) — 60초 뒤 재시도", flush=True)
+            _t.sleep(60)
