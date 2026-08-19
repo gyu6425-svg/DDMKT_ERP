@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { isUserPresent } from '../../../lib/useVisiblePolling';
 import { crawlBlog } from '../../../api/crawlBlog';
 import { todayKST, type BlogAccount } from '../../../api/blogRank';
 import { supabase } from '../../../lib/supabase';
@@ -156,7 +157,7 @@ export function CrawlStatusTab() {
             void reloadRef.current().then(() => setLastAt(new Date().toLocaleTimeString('ko-KR')));
         };
         const id = window.setInterval(tick, 30000);
-        const onVis = () => { if (document.visibilityState === 'visible') tick(); };
+        const onVis = () => { if (isUserPresent()) tick(); };
         document.addEventListener('visibilitychange', onVis);
         return () => { window.clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
     }, [auto]);
@@ -187,7 +188,7 @@ export function CrawlStatusTab() {
             }
         };
         void fetchCs();
-        const id = window.setInterval(() => { if (document.visibilityState === 'visible') void fetchCs(); }, 5000);
+        const id = window.setInterval(() => { if (isUserPresent()) void fetchCs(); }, 5000);
         // 최근 크롤 기록(recent_runs)은 무겁고 자주 안 바뀐다 — 60초에 한 번, 보일 때만.
         const fetchRuns = async () => {
             const { data } = await supabase.from('crawl_status').select('recent_runs').eq('id', 1).maybeSingle();
@@ -195,7 +196,7 @@ export function CrawlStatusTab() {
             if (runs) setCs((cur) => (cur ? { ...cur, recent_runs: runs } : cur));
         };
         void fetchRuns();
-        const id2 = window.setInterval(() => { if (document.visibilityState === 'visible') void fetchRuns(); }, 60000);
+        const id2 = window.setInterval(() => { if (isUserPresent()) void fetchRuns(); }, 60000);
         return () => { window.clearInterval(id); window.clearInterval(id2); };
     }, []);
     // 라이브 판정: 활성(측정/RSS)은 5분, '휴식(분산 청크 갭)'은 30분까지 '진행 중'으로 본다.

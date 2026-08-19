@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isUserPresent } from '../../lib/useVisiblePolling';
 import { listPublishJobs } from '../../api/cafePublishQueue';
 
 // 발행 히스토리 — cafe_publish_queue 의 최근 작업을 보여준다. 자동발행 탭 하단에 상시 노출.
@@ -52,7 +53,7 @@ export function PublishHistory({ filterPrefixes }: { filterPrefixes?: string[] }
         const first = window.setTimeout(() => void load(), 0);
         // 작성중/대기 상태가 있으면 진행 상황이 바뀌므로 주기적으로 갱신.
         // 배경 탭에선 안 돈다 — Supabase Egress 절감(2026-08-18).
-        const t = window.setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 20000);
+        const t = window.setInterval(() => { if (isUserPresent()) void load(); }, 20000);
         return () => {
             window.clearTimeout(first);
             window.clearInterval(t);

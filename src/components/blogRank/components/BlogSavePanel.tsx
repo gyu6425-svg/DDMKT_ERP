@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isUserPresent } from '../../../lib/useVisiblePolling';
 import {
     clearSaveJob,
     createSaveJob,
@@ -82,7 +83,7 @@ export default function BlogSavePanel({
     useEffect(() => {
         void refresh();
         // 작성에 5~10분이 걸리므로 느슨하게 폴링.
-        const t = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 20000);
+        const t = window.setInterval(() => { if (isUserPresent()) void refresh(); }, 20000);
         return () => window.clearInterval(t);
     }, [refresh]);
 

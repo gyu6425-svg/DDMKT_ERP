@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isUserPresent } from '../../lib/useVisiblePolling';
 import { listSavableBlogs, createSaveJob, listSaveJobs } from '../../api/blogSaveQueue';
 import { generateBlog, type GenerateBlogInput } from '../../api/aiBlog';
 import { parseBlogTitle } from '../../api/blogOutputs';
@@ -128,7 +129,7 @@ export default function BlogStudio() {
     const refreshJobs = () => void listSaveJobs(12).then(({ data }) => setJobs((data ?? []) as QueueJob[]));
     useEffect(() => {
         refreshJobs();
-        const t = window.setInterval(() => { if (document.visibilityState === 'visible') refreshJobs(); }, 8000);
+        const t = window.setInterval(() => { if (isUserPresent()) refreshJobs(); }, 8000);
         return () => window.clearInterval(t);
     }, []);
 
@@ -137,7 +138,7 @@ export default function BlogStudio() {
         let alive = true;
         const check = () => void blogLoginPing(chromePort).then((a) => { if (alive) setLoginAlive(a); });
         check();
-        const t = window.setInterval(() => { if (document.visibilityState === 'visible') check(); }, 10000);
+        const t = window.setInterval(() => { if (isUserPresent()) check(); }, 10000);
         return () => { alive = false; window.clearInterval(t); };
     }, [chromePort]);
 

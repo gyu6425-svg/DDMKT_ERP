@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { countReports } from '../api/blogPostReports'
 import { supabase } from '../lib/supabase'
+import { isUserPresent } from '../lib/useVisiblePolling'
 
 // 기자단 발행 보고 알림 — 벨(우측 상단) 안이 아니라 화면 상단에 '크게' 상시 표시.
 //   승인 대기(pending, 새 글 보고)만 카운트 — 0건이면 배너 숨김.
@@ -32,11 +33,11 @@ export default function ReportPublishAlert() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'blog_post_reports' }, () => load())
       .subscribe()
     // ② 폴링(10초) — 실시간이 끊겨도 절대 누락 없게 하는 안전망.
-    const id = window.setInterval(() => { if (document.visibilityState === 'visible') load() }, 10000)
+    const id = window.setInterval(() => { if (isUserPresent()) load() }, 10000)
     // ③ 탭 복귀·포커스 시 즉시 갱신(백그라운드 있던 사이 온 보고도 놓치지 않게).
     const onFocus = () => load()
     const onVis = () => {
-      if (document.visibilityState === 'visible') load()
+      if (isUserPresent()) load()
     }
     window.addEventListener('app:navigate', load)
     window.addEventListener('focus', onFocus)

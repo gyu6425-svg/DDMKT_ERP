@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isUserPresent } from '../lib/useVisiblePolling';
 import {
     createCommentJob,
     listCommentJobs,
@@ -49,7 +50,7 @@ function CafeCommentPage() {
 
     useEffect(() => {
         void refresh(tab);
-        const t = setInterval(() => { if (document.visibilityState === 'visible') void refresh(tab); }, 5000); // 데몬 처리 상태 자동 갱신(보일 때만)
+        const t = setInterval(() => { if (isUserPresent()) void refresh(tab); }, 5000); // 데몬 처리 상태 자동 갱신(보일 때만)
         return () => clearInterval(t);
     }, [tab]);
 

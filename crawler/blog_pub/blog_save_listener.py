@@ -186,34 +186,40 @@ def main():
     _init_last_save_from_db()
 
     while True:
+        # ★ 시간대 게이트를 '조회 앞'으로 옮겼다 (2026-08-19, SUB3 지적).
+        #   예전엔 select=* 로 먼저 받아놓고 뒤에서 시간대를 봤다. manifest 가 행당 4.12MB 라
+        #   운영시간 밖에도 대기건이 있으면 6초마다 4MB 를 계속 받았다(이론상 하룻밤 27GB).
+        #   운영시간 밖이면 아예 조회하지 않는다.
+        start_at = os.environ.get("BLOG_START_AT", "10:00").strip()
+        stop_at = os.environ.get("BLOG_STOP_AT", "23:00").strip()
         try:
-            reqs = bc.sb_get("blog_save_queue",
-                             {"status": "eq.pending", **_owned_filter(),
-                              "order": "created_at.asc", "limit": "1", "select": "*"})
+            now_dt = datetime.datetime.now()
+            if start_at:
+                th, tm = (int(x) for x in start_at.split(":"))
+                if (now_dt.hour, now_dt.minute) < (th, tm):
+                    time.sleep(POLL_SEC)
+                    continue
+            if stop_at:
+                sh, sm = (int(x) for x in stop_at.split(":"))
+                if (now_dt.hour, now_dt.minute) >= (sh, sm):
+                    time.sleep(POLL_SEC)
+                    continue
+        except Exception:
+            pass
+
+        try:
+            # 폴링은 id 만 본다 — 처리 직전에만 전체(manifest 포함)를 받는다.
+            probe = bc.sb_get("blog_save_queue",
+                              {"status": "eq.pending", **_owned_filter(),
+                               "order": "created_at.asc", "limit": "1", "select": "id"})
+            reqs = []
+            if probe:
+                reqs = bc.sb_get("blog_save_queue",
+                                 {"id": f"eq.{probe[0]['id']}", "select": "*"})
         except Exception as e:
             print(f"폴링 오류: {e}", flush=True)
             time.sleep(8)
             continue
-
-        # 실행 시간대 — main PC 의 크롤 윈도우(01:00~09:45)와 겹치지 않게 기본 10:00~23:00.
-        #   같은 사무실=같은 공인 IP 라 크롤과 쓰기 트래픽이 겹치면 계정 리스크가 커진다.
-        start_at = os.environ.get("BLOG_START_AT", "10:00").strip()
-        stop_at = os.environ.get("BLOG_STOP_AT", "23:00").strip()
-        if reqs and (start_at or stop_at):
-            now_dt = datetime.datetime.now()
-            try:
-                if start_at:
-                    th, tm = (int(x) for x in start_at.split(":"))
-                    if (now_dt.hour, now_dt.minute) < (th, tm):
-                        time.sleep(POLL_SEC)
-                        continue
-                if stop_at:
-                    sh, sm = (int(x) for x in stop_at.split(":"))
-                    if (now_dt.hour, now_dt.minute) >= (sh, sm):
-                        time.sleep(POLL_SEC)
-                        continue
-            except Exception:
-                pass
 
         if reqs and DAILY_CAP > 0 and _saved_today() >= DAILY_CAP:
             if not _capped[0]:

@@ -78,10 +78,16 @@ def _parse(ts):
 
 def run():
     try:
+        # measurements 는 마지막 1건만 쓴다(아래 ms[-1]). 전체를 받으면 이력이 큰 글에서
+        #   payload 가 통째로 나간다 — Egress 절감(2026-08-19, SUB3 지적).
+        #   서버에서 잘라 받고, 아래 로직이 그대로 돌게 리스트 모양으로 되돌린다.
         posts = c.sb_get("cafe_rank_posts", {
             "excluded": "eq.false",
-            "select": "id,measurements,top5_since,top5_achieved_at,top5_seeded",
+            "select": "id,top5_since,top5_achieved_at,top5_seeded,last:measurements->-1",
         })
+        for _p in posts:
+            _last = _p.pop("last", None)
+            _p["measurements"] = [_last] if _last else []
     except Exception as exc:
         print(f"[top5 tracker] 조회 실패(SQL 미적용?): {exc}", flush=True)
         return

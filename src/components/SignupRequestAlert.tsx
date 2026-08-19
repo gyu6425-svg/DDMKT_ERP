@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { listPendingSignups } from '../api/signup'
 import { SIGNUP_ENABLED } from '../lib/authConfig'
+import { isUserPresent } from '../lib/useVisiblePolling'
 
 // 고객·기자단 가입 요청(승인 대기) 알림 — 관리자에게 화면 상단 배너로 상시 표시.
 //   가입(이메일/카카오 온보딩)으로 생긴 비활성 프로필(is_active=false) 수. 0건이면 숨김.
@@ -17,9 +18,9 @@ export default function SignupRequestAlert() {
       void listPendingSignups().then(({ data, error }) => { if (!error) setCount(data.length) })
     }
     load()
-    const id = window.setInterval(() => { if (document.visibilityState === 'visible') load() }, 60000) // 폴링 60초(보일 때만)
+    const id = window.setInterval(() => { if (isUserPresent()) load() }, 60000) // 폴링 60초(보일 때만)
     const onFocus = () => load()
-    const onVis = () => { if (document.visibilityState === 'visible') load() }
+    const onVis = () => { if (isUserPresent()) load() }
     window.addEventListener('app:navigate', load)
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVis)

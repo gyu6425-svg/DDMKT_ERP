@@ -24,9 +24,12 @@
 
 ## 1. 이전 전에 반드시 확보 (클라우드 살아 있을 때만 가능)
 
-- [ ] **Edge Function 소스** — `npx supabase functions download clever-processor`
-      레포에 없고 클라우드에만 있다. 못 받으면 **회원가입 승인·고객계정 생성이 복구 불가**.
-      호출처: `src/api/signup.ts`, `src/api/blogRank.ts:164`, `src/components/CustomerAccountModal.tsx:46`
+- [x] ~~Edge Function 소스~~ — **레포에 있다**(2026-08-19 정정, SUB3 지적).
+      `supabase/functions/create-customer/index.ts` (배포명 clever-processor).
+      배포본 동작도 대조 확인함(OPTIONS→`ok` · GET→405 `POST only`).
+      · 남은 확인 1건(선택): 클라우드 배포본이 레포보다 최신인지
+        `npx supabase functions download clever-processor` 후 diff.
+      · 호출처: `src/api/signup.ts`, `src/api/blogRank.ts:164`, `src/components/CustomerAccountModal.tsx:46`
 - [ ] **PostgREST max-rows 확인** — 대시보드 Settings → API. 자체호스팅 `.env` 의 `PGRST_DB_MAX_ROWS` 를 같은 값으로.
       다르면 **에러 없이 결과가 잘린다**(가장 알아채기 힘든 고장).
 - [ ] **R2 이미지 전량 백업** — 이미지 실물은 R2 에만 있다(Supabase 원본 삭제됨). Supabase 백업으로 커버 안 됨.
