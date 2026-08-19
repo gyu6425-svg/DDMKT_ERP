@@ -5,6 +5,14 @@
 
 ---
 
+> **⚠ Hyper-V 콘솔에 긴 문자열을 붙여넣지 말 것**
+> 콘솔은 Ctrl+V 가 안 되고 `클립보드 → 클립보드 텍스트 입력` 으로 자동 타이핑하는데,
+> 공개키(68자) 같은 긴 문자열은 글자가 누락된다(SUB4 실측 2026-08-19 — 여러 번 시도 후 파일이 빔).
+> SSH 키 등록은 콘솔이 아니라 **비밀번호 SSH 접속으로 한 번에** 처리한다:
+> ```powershell
+> type $env:USERPROFILE\.ssh\ddmkt_vm.pub | ssh ddmkt@<VM_IP> "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+> ```
+
 > **전제 확인** — Docker 는 아래로 설치한다(Ubuntu 24.04).
 > ```bash
 > sudo apt -y install docker.io docker-compose-v2 git curl
