@@ -56,6 +56,20 @@ IDLE_SEC = 60       # 예산이 없거나 할 일이 없을 때 쉬는 시간
 YIELD_SEC = 90      # 온디맨드 요청이 있어 양보할 때 쉬는 시간
 
 
+
+def _why(code):
+    """상태코드별 안내 — 5xx 를 'SQL 미실행' 으로 오안내하지 않게(2026-08-19 SUB4 지적).
+       520~527·530 은 Cloudflare 가 origin(터널/VM)에 못 닿을 때 주는 코드다."""
+    if code in (520, 521, 522, 523, 524, 525, 526, 527, 530):
+        return "터널/VM 일시 장애 — 다음 사이클에 자동 복구됨(조치 불필요)"
+    if code in (500, 502, 503, 504):
+        return "백엔드 일시 오류 — 다음 사이클에 자동 복구됨"
+    if code in (401, 403):
+        return "인증 실패 — SUPABASE_SERVICE_KEY 확인 필요"
+    if code == 404:
+        return "docs/cafe-scan-budget.sql 실행 필요"
+    return "확인 필요"
+
 def _ts():
     return datetime.datetime.now().strftime("%H:%M:%S")
 
@@ -116,7 +130,7 @@ def take(want, share):
         r = requests.post(f"{SB}/rest/v1/rpc/scan_budget_take", headers=H,
                           json={"want": want, "cap": share}, timeout=15)
         if r.status_code != 200:
-            log(f"⚠ 예산 RPC 실패 {r.status_code} {r.text[:120]} — docs/cafe-scan-budget.sql 실행 필요")
+            log(f"⚠ 예산 RPC 실패 {r.status_code} {r.text[:120]} — {_why(r.status_code)}")
             return 0
         return int(r.json() or 0)
     except Exception as e:
@@ -135,7 +149,7 @@ def pick_plans():
                          f"&select=id,product,sidos,include_dong,prio,done_count"
                          f"&order=prio.asc,last_run_at.asc.nullsfirst&limit=30", headers=H, timeout=15)
         if r.status_code != 200:
-            log(f"⚠ 계획 조회 실패 {r.status_code} — docs/cafe-scan-budget.sql 실행 필요")
+            log(f"⚠ 계획 조회 실패 {r.status_code} — {_why(r.status_code)}")
             return []
         return r.json() or []
     except Exception as e:
