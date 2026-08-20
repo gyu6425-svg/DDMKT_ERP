@@ -208,12 +208,23 @@ export default function AgencyOrgPanel() {
                 )}
             </div>
 
-            {/* ── 하위 충전 신청 처리 ────────────────────────────── */}
-            <div className="rounded-xl border border-[#e2e8f0]">
-                <div className="border-b border-[#e2e8f0] px-4 py-3">
-                    <div className="text-[14px] font-bold text-[#0f172a]">
-                        하위 충전 신청 <span className="text-[#c2410c]">{openReqs.length}</span>
-                        <span className="ml-1 text-[12px] font-normal text-[#94a3b8]">/ 전체 {subReqs.length}</span>
+            {/* ── 하위 충전 신청 처리 ──────────────────────────────
+                처리할 건이 있으면 테두리·배경으로 띄운다. 돈이 걸린 대기 건이라
+                다른 카드에 묻히면 며칠씩 방치된다. 없을 때는 평범한 카드로 돌아간다
+                — 늘 강조돼 있으면 강조가 아니게 된다. */}
+            <div className={openReqs.length
+                ? 'rounded-xl border-2 border-[#fb923c] bg-[#fffbf7] shadow-[0_2px_12px_rgba(251,146,60,0.18)]'
+                : 'rounded-xl border border-[#e2e8f0]'}>
+                <div className={`px-4 py-3 ${openReqs.length ? 'border-b border-[#fed7aa]' : 'border-b border-[#e2e8f0]'}`}>
+                    <div className="flex flex-wrap items-center gap-2 text-[14px] font-bold text-[#0f172a]">
+                        {openReqs.length ? <span className="text-[16px] leading-none">🔔</span> : null}
+                        <span>하위 충전 신청</span>
+                        {openReqs.length ? (
+                            <span className="rounded-full bg-[#c2410c] px-2 py-0.5 text-[12px] font-bold text-white">
+                                {openReqs.length}건 대기
+                            </span>
+                        ) : null}
+                        <span className="text-[12px] font-normal text-[#94a3b8]">전체 {subReqs.length}</span>
                     </div>
                     {/* 입금 계좌 — 금액 통보 시 하위 업체에게 함께 전달된다. */}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -241,7 +252,9 @@ export default function AgencyOrgPanel() {
                             const supply = (Number(q.count) || 0) * (Number(q.price) || 0);
                             const closed = r.status === 'done' || r.status === 'rejected';
                             return (
-                                <div className="rounded-lg border border-[#e2e8f0] px-3 py-2 text-[13px]" key={r.id}>
+                                <div className={`rounded-lg px-3 py-2 text-[13px] ${
+                                    closed ? 'border border-[#e2e8f0] bg-white' : 'border border-[#fdba74] bg-white shadow-sm'
+                                }`} key={r.id}>
                                     {/* 한 줄로 눕힌다 — 항목마다 줄을 나누면 건수가 늘수록 세로로 길어져 한눈에 안 들어온다.
                                         좁은 화면에서는 flex-wrap 이 알아서 접는다. */}
                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
