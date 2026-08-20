@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
     listSubRequests, subRequestTokens, subDeclarePayment, type SubTokenRequest,
 } from '../../api/orgs';
-import { won, vatOf, totalOf } from '../../api/cafeTokens';
+import { won, vatOf, totalOf, intOnly, MAX_COUNT } from '../../api/cafeTokens';
 
 // 하위 업체 화면 — 소속 대행사에게 토큰을 산다. 우리↔대행사와 같은 4단계.
 //   신청 → 대행사가 금액 통보 → 계좌이체 후 '완료' 신고 → 대행사가 확인 후 발행.
@@ -71,7 +71,7 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                     <div>
                         <div className="mb-1 text-[12px] font-semibold text-[#64748b]">희망 건수</div>
                         <input className="h-9 w-28 rounded border border-[#cbd5e1] px-2 text-sm" min={1}
-                            onChange={(e) => setCount(e.target.value)} placeholder="예: 10" type="number" value={count} />
+                            onChange={(e) => setCount(intOnly(e.target.value, MAX_COUNT))} placeholder="예: 10" type="number" value={count} />
                     </div>
                     <div className="min-w-[160px] flex-1">
                         <div className="mb-1 text-[12px] font-semibold text-[#64748b]">메모 (선택)</div>

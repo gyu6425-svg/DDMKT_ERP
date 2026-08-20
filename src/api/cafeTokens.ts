@@ -153,6 +153,17 @@ export const vatOf = (supply: number) => Math.round(supply * 0.1);
 export const totalOf = (supply: number) => supply + vatOf(supply);
 export const won = (n: number) => (n || 0).toLocaleString('ko-KR');
 
+// 정수만·상한까지. 소수점이나 21억 넘는 수를 그대로 보내면 Postgres 영문 원문
+// ("invalid input syntax for type integer")이 사용자 화면에 그대로 뜬다.
+export const MAX_COUNT = 100000;
+export const MAX_UNIT_PRICE = 10000000;
+export const intOnly = (v: string, max: number) => {
+    const d = (v || '').replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+    if (!d) return '';
+    return String(Math.min(Number(d), max));
+};
+
+
 // 고객: 충전 요청.
 export async function requestCharge(clientId: string, count: number | null, note?: string) {
     const { error } = await supabase.from('cafe_token_requests').insert({

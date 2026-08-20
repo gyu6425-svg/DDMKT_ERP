@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import {
     listTokens, grantTokens, balanceOf, listChargeRequests, setChargeRequestStatus,
     quoteChargeRequest, fulfillChargeRequest,
-    tokenWon, won, vatOf, totalOf, TOKEN_PRICE_KRW, AGENCY_TOKEN_PRICE_KRW,
+    tokenWon, won, vatOf, totalOf, intOnly, MAX_COUNT, MAX_UNIT_PRICE, TOKEN_PRICE_KRW, AGENCY_TOKEN_PRICE_KRW,
     type TokenLedger, type TokenRequest,
 } from '../api/cafeTokens';
 import { listSubRequests, type SubTokenRequest } from '../api/orgs';
@@ -189,7 +189,7 @@ export default function TokenChargePanel() {
                                                 <input
                                                     className="h-8 w-20 rounded border border-[#cbd5e1] px-2 text-[13px]"
                                                     min={1}
-                                                    onChange={(e) => setQCount((m) => ({ ...m, [q.id]: e.target.value }))}
+                                                    onChange={(e) => setQCount((m) => ({ ...m, [q.id]: intOnly(e.target.value, MAX_COUNT) }))}
                                                     type="number"
                                                     value={cnt}
                                                 />
@@ -199,7 +199,7 @@ export default function TokenChargePanel() {
                                                 <input
                                                     className="h-8 w-24 rounded border border-[#cbd5e1] px-2 text-[13px]"
                                                     min={0}
-                                                    onChange={(e) => setQPrice((m) => ({ ...m, [q.id]: e.target.value }))}
+                                                    onChange={(e) => setQPrice((m) => ({ ...m, [q.id]: intOnly(e.target.value, MAX_UNIT_PRICE) }))}
                                                     step={1000}
                                                     type="number"
                                                     value={price}
@@ -320,7 +320,7 @@ export default function TokenChargePanel() {
                     <div className="grid content-start gap-2">
                         <div>
                             <div className="mb-1 text-[12px] font-semibold text-[#64748b]">충전 건수</div>
-                            <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" min={1} onChange={(e) => setCount(e.target.value)} placeholder="예: 30" type="number" value={count} />
+                            <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" min={1} onChange={(e) => setCount(intOnly(e.target.value, MAX_COUNT))} placeholder="예: 30" type="number" value={count} />
                         </div>
                         <div>
                             <div className="mb-1 text-[12px] font-semibold text-[#64748b]">메모 (선택)</div>

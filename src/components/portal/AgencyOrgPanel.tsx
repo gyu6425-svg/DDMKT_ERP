@@ -6,7 +6,7 @@ import {
     listSubRequests, agencyQuoteRequest, agencyFulfillRequest, agencyRejectRequest,
     type MyOrg, type AgencyPendingSignup, type AgencyChild, type AgencyTransfer, type SubTokenRequest,
 } from '../../api/orgs';
-import { listTokens, balanceOf, won, vatOf, totalOf } from '../../api/cafeTokens';
+import { listTokens, balanceOf, won, vatOf, totalOf, intOnly, MAX_COUNT, MAX_UNIT_PRICE } from '../../api/cafeTokens';
 
 // 고객 포털 '조직 관리' — 대행사 콘솔.
 //   대행사가 자기 조직만 다룬다: 하위 가입 승인 · 하위 업체 현황 · 토큰 배분 · 초대 코드.
@@ -257,12 +257,12 @@ export default function AgencyOrgPanel() {
                                             <div>
                                                 <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">건수</div>
                                                 <input className="h-8 w-20 rounded border border-[#cbd5e1] px-2 text-[13px]" min={1} type="number"
-                                                    onChange={(e) => setQuote((m) => ({ ...m, [r.id]: { ...q, count: e.target.value } }))} value={q.count} />
+                                                    onChange={(e) => setQuote((m) => ({ ...m, [r.id]: { ...q, count: intOnly(e.target.value, MAX_COUNT) } }))} value={q.count} />
                                             </div>
                                             <div>
                                                 <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">판매 단가</div>
                                                 <input className="h-8 w-24 rounded border border-[#cbd5e1] px-2 text-[13px]" min={0} step={1000} type="number"
-                                                    onChange={(e) => setQuote((m) => ({ ...m, [r.id]: { ...q, price: e.target.value } }))} value={q.price} />
+                                                    onChange={(e) => setQuote((m) => ({ ...m, [r.id]: { ...q, price: intOnly(e.target.value, MAX_UNIT_PRICE) } }))} value={q.price} />
                                             </div>
                                             {supply > 0 ? (
                                                 <div className="pb-1 text-[12px] text-[#475569]">
@@ -270,7 +270,7 @@ export default function AgencyOrgPanel() {
                                                 </div>
                                             ) : null}
                                             <button className="h-8 rounded bg-[#1e40af] px-3 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
-                                                disabled={busy !== null || !Number(q.count) || q.price === ''}
+                                                disabled={busy !== null || !Number(q.count) || !Number(q.price)}
                                                 onClick={() => void run(r.id, () => agencyQuoteRequest(r.id, Number(q.count), Number(q.price)),
                                                     `${childName(r.child_client_id)} 에 ${q.count}건 · 공급가 \u20A9${won(supply)} 통보`)}
                                                 type="button">
@@ -339,7 +339,7 @@ export default function AgencyOrgPanel() {
                                             <input
                                                 className="h-8 w-20 rounded border border-[#cbd5e1] px-2 text-[13px]"
                                                 min={1}
-                                                onChange={(e) => setGive((m) => ({ ...m, [k.client_id]: { ...g, count: e.target.value } }))}
+                                                onChange={(e) => setGive((m) => ({ ...m, [k.client_id]: { ...g, count: intOnly(e.target.value, MAX_COUNT) } }))}
                                                 type="number"
                                                 value={g.count}
                                             />
@@ -349,7 +349,7 @@ export default function AgencyOrgPanel() {
                                             <input
                                                 className="h-8 w-24 rounded border border-[#cbd5e1] px-2 text-[13px]"
                                                 min={0}
-                                                onChange={(e) => setGive((m) => ({ ...m, [k.client_id]: { ...g, price: e.target.value } }))}
+                                                onChange={(e) => setGive((m) => ({ ...m, [k.client_id]: { ...g, price: intOnly(e.target.value, MAX_UNIT_PRICE) } }))}
                                                 step={1000}
                                                 type="number"
                                                 value={g.price}
@@ -364,7 +364,7 @@ export default function AgencyOrgPanel() {
                                         ) : null}
                                         <button
                                             className="h-8 rounded bg-[#4338ca] px-4 text-[12px] font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
-                                            disabled={busy !== null || !Number(g.count) || !g.price}
+                                            disabled={busy !== null || !Number(g.count) || !Number(g.price)}
                                             onClick={() => void run(k.client_id,
                                                 () => agencyTransferTokens(k.client_id, Number(g.count), Number(g.price)),
                                                 `${k.company} 에 ${g.count}건 배분 완료`)}
