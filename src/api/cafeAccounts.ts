@@ -12,6 +12,11 @@ export type CafeAccount = {
     client_id: string | null;
     active: boolean;
     publish_enabled: boolean;   // 고객 셀프 발행 승인(기본 false) — docs/cafe-customer-publish-rls.sql
+    // 자체 카페(우리 콘텐츠) — 토큰 차감 대상이 아니다. 고객 대신발행과 한 목록에 섞이면
+    //   '잔여 토큰 0건'이 빨갛게 떠서 문제처럼 보인다(SUB2 요청 2026-08-20).
+    //   ⚠ 처음엔 note 에 '자체' 를 적어 구분했는데, 자유 입력 메모라 누가 고치면 그룹핑이 조용히 깨진다.
+    //     그래서 정식 컬럼으로 옮겼다. note 는 메모 그대로 둔다.
+    is_own: boolean;
     note: string | null;
     // 계약 정보(관리시트) — docs/cafe-account-contract.sql
     goal_count: number | null;   // 목표 발행 건수

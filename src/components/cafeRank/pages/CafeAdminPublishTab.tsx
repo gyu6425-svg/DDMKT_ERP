@@ -91,9 +91,15 @@ export function CafeAdminPublishTab() {
                     <button type="button" onClick={reload} className="ml-auto rounded-md border border-[#cbd5e1] px-2.5 py-1 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9]">새로고침</button>
                 </div>
                 {(() => {
+                    // ── 자체 카페는 따로 뺀다(SUB2 요청 2026-08-20) ─────────────────
+                    //   우리 콘텐츠용 카페는 토큰을 안 쓴다. 고객 대신발행과 한 목록에 섞이면
+                    //   '잔여 토큰 0건'이 빨갛게 떠서 문제처럼 보이고, 매번 다시 짚어야 한다.
+                    const own = accts.filter((a) => a.is_own);
+                    const client = accts.filter((a) => !a.is_own);
+
                     // 상위 그룹(parent_company: 더업스)으로 묶어 표시 — "더업스 › 방문요양 / 순댓국 …"으로 카페 구별.
                     const byParent = new Map<string, CafeAccount[]>();
-                    for (const a of accts) {
+                    for (const a of client) {
                         const parent = clientInfo[a.client_id!]?.parent || '';
                         (byParent.get(parent) ?? byParent.set(parent, []).get(parent)!).push(a);
                     }
@@ -107,12 +113,21 @@ export function CafeAdminPublishTab() {
                         // 다른 업체 스캔이 도는 중에도 이 업체 스캔을 새로 걸 수 있다(워커 슬롯 2개 · 2026-08-18).
                         //   어느 업체가 도는지 보이게 배지로 표시한다 — 이 브라우저에서 건 스캔 기준(localStorage).
                         const scanning = (loadPendingScan(a.client_id!)?.ids.length ?? 0) > 0;
+                        // 자체 카페는 청록, 고객은 보라 — 어느 쪽을 고르고 있는지 색으로 바로 보이게.
+                        const accent = a.is_own
+                            ? { on: 'border-[#0d9488] bg-[#f0fdfa]', txt: 'text-[#0f766e]' }
+                            : { on: 'border-[#7c3aed] bg-[#f5f3ff]', txt: 'text-[#6d28d9]' };
                         return (
                             <button key={a.id} type="button" onClick={() => setSel(a.client_id!)}
-                                className={`min-w-[160px] rounded-lg border px-3 py-2 text-left text-sm ${active ? 'border-[#7c3aed] bg-[#f5f3ff]' : 'border-[#e2e8f0] bg-white hover:bg-[#f8fafc]'}`}>
-                                <div className={`font-bold ${active ? 'text-[#6d28d9]' : 'text-[#334155]'}`}>{showBiz ? bizName : (a.display_name || bizName)}</div>
+                                className={`min-w-[160px] rounded-lg border px-3 py-2 text-left text-sm ${active ? accent.on : 'border-[#e2e8f0] bg-white hover:bg-[#f8fafc]'}`}>
+                                <div className={`font-bold ${active ? accent.txt : 'text-[#334155]'}`}>{showBiz ? bizName : (a.display_name || bizName)}</div>
                                 {a.display_name && a.display_name !== bizName ? <div className="truncate text-[11px] text-[#94a3b8]" title={a.display_name}>{a.display_name}</div> : null}
-                                <div className={`text-[12px] ${bal > 0 ? 'text-[#059669]' : 'text-[#dc2626]'}`}>잔여 토큰 {bal}건{reserved ? <span className="text-[#b45309]"> · 발행중 {reserved}</span> : null}</div>
+                                {/* 자체 카페는 토큰을 안 쓴다 — '잔여 0건'을 빨갛게 띄우면 매번 문제로 오해한다. */}
+                                {a.is_own ? (
+                                    <div className="text-[12px] text-[#0d9488]">자체 콘텐츠{reserved ? <span className="text-[#b45309]"> · 발행중 {reserved}</span> : null}</div>
+                                ) : (
+                                    <div className={`text-[12px] ${bal > 0 ? 'text-[#059669]' : 'text-[#dc2626]'}`}>잔여 토큰 {bal}건{reserved ? <span className="text-[#b45309]"> · 발행중 {reserved}</span> : null}</div>
+                                )}
                                 {scanning ? <div className="mt-0.5 text-[11px] font-bold text-[#7c3aed]">🔎 인기탭 스캔중</div> : null}
                             </button>
                         );
@@ -129,6 +144,17 @@ export function CafeAdminPublishTab() {
                                     </div>
                                 </div>
                             ))}
+                            {/* ── 자체 발행 ── 고객 목록 아래에 선으로 끊어 따로 둔다. */}
+                            {own.length ? (
+                                <div className="mt-1 border-t border-dashed border-[#cbd5e1] pt-3">
+                                    <div className="mb-1.5 text-[12px] font-bold text-[#0f766e]">
+                                        🏠 자체 발행 <span className="font-normal text-[#94a3b8]">— 우리 카페 {own.length}개 · 토큰 차감 없음</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {own.map((a) => btn(a, false))}
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
                     );
                 })()}
