@@ -53,10 +53,23 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
     };
 
     const openOne = reqs.find((r) => ['pending', 'quoted', 'paid'].includes(r.status));
+    // 금액을 통보받아 내가 입금할 차례인 건.
+    const payDue = reqs.filter((r) => r.status === 'quoted').length;
 
     return (
-        <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
-            <div className="mb-3 text-[15px] font-bold text-[#0f172a]">충전 신청 <span className="text-[12px] font-normal text-[#94a3b8]">→ {agencyName}</span></div>
+        <div className={payDue
+            ? 'rounded-xl border-2 border-[#3b82f6] bg-[#f5f9ff] p-5 shadow-[0_2px_12px_rgba(59,130,246,0.18)]'
+            : 'rounded-xl border border-[#e2e8f0] bg-white p-5'}>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+                {payDue ? <span className="text-[16px] leading-none">💰</span> : null}
+                <span className="text-[15px] font-bold text-[#0f172a]">충전 신청</span>
+                <span className="text-[12px] font-normal text-[#94a3b8]">→ {agencyName}</span>
+                {payDue ? (
+                    <span className="rounded-full bg-[#1d4ed8] px-2 py-0.5 text-[12px] font-bold text-white">
+                        입금 대기 {payDue}건
+                    </span>
+                ) : null}
+            </div>
 
             {openOne ? (
                 <div className="mb-3 rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 text-[12px] text-[#64748b]">

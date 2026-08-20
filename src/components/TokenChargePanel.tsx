@@ -81,6 +81,7 @@ export default function TokenChargePanel() {
     const pickedBalance = pick ? balanceOf(rows, pick) : 0;
 
     const open = reqs.filter((r) => r.status !== 'done' && r.status !== 'rejected');
+    const openCount = open.length;
     const view = scope === 'open' ? open : reqs;
 
     const act = async (fn: () => Promise<{ error: { message: string } | null }>, ok: string) => {
@@ -125,10 +126,20 @@ export default function TokenChargePanel() {
 
     return (
         <div className="grid gap-5">
-            {/* ── 구매 처리 ─────────────────────────────────────────── */}
-            <div className="rounded-xl border border-[#e2e8f0] p-5">
+            {/* ── 구매 처리 ───────────────────────────────────────────
+                처리할 건이 있으면 테두리·배경으로 띄운다(알림 배너와 같은 주황).
+                돈이 걸린 대기 건이 평범한 카드에 묻히면 며칠씩 방치된다. */}
+            <div className={openCount
+                ? 'rounded-xl border-2 border-[#fb923c] bg-[#fffbf7] p-5 shadow-[0_2px_12px_rgba(251,146,60,0.18)]'
+                : 'rounded-xl border border-[#e2e8f0] p-5'}>
                 <div className="mb-3 flex flex-wrap items-center gap-2">
+                    {openCount ? <span className="text-[16px] leading-none">🔔</span> : null}
                     <div className="text-[15px] font-bold text-[#0f172a]">토큰 구매 처리</div>
+                    {openCount ? (
+                        <span className="rounded-full bg-[#c2410c] px-2 py-0.5 text-[12px] font-bold text-white">
+                            {openCount}건 대기
+                        </span>
+                    ) : null}
                     <div className="inline-flex rounded-lg border border-[#e2e8f0] p-0.5">
                         {([['open', `처리 대기 ${open.length}`], ['all', `전체 ${reqs.length}`]] as const).map(([k, label]) => (
                             <button
@@ -175,7 +186,11 @@ export default function TokenChargePanel() {
                             const cnt = qCount[q.id] ?? String(n || '');
                             const preview = Number(cnt) * Number(price) || 0;
                             return (
-                                <div className="rounded-lg border border-[#e2e8f0] px-3 py-2.5 text-[13px]" key={q.id}>
+                                <div className={`rounded-lg px-3 py-2.5 text-[13px] ${
+                                    q.status === 'done' || q.status === 'rejected'
+                                        ? 'border border-[#e2e8f0] bg-white'
+                                        : 'border border-[#fdba74] bg-white shadow-sm'
+                                }`} key={q.id}>
                                     <div className="flex flex-wrap items-center gap-2">
                                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${c.cls}`}>{c.label}</span>
                                         <span className="font-bold text-[#0f172a]">{clientName(q.client_id)}</span>

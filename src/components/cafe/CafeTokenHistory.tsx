@@ -80,6 +80,8 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
         setReqCount(''); setReqNote(''); reloadReqs();
     };
 
+    // 금액을 통보받아 내가 입금할 차례인 건 — 이게 있으면 카드를 띄운다.
+    const payDue = reqs.filter((r) => r.status === 'quoted').length;
     const balance = balanceOf(rows);
     // 유상 충전(금액에 잡힘) vs 서비스(무상, 노출 안 될 때 지급 — 금액 미포함). 잔액엔 둘 다 포함(사용 가능).
     const paidCharged = rows.filter((r) => r.delta > 0 && r.kind !== '서비스').reduce((s, r) => s + r.delta, 0);
@@ -108,12 +110,23 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                 </div>
             </div>
 
-            {/* 충전 요청 — 대행사 소속 업체는 그 대행사에게, 직거래 업체는 우리에게. */}
+            {/* 충전 요청 — 대행사 소속 업체는 그 대행사에게, 직거래 업체는 우리에게.
+                내가 입금할 차례(금액 통보받음)면 파랑으로 띄운다 — 알림 배너와 같은 색. */}
             {parentAgency.id && clientId ? (
                 <SubTokenPurchase agencyName={parentAgency.company || '소속 대행사'} clientId={clientId} />
             ) : (
-            <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
-                <div className="mb-3 text-[15px] font-bold text-[#0f172a]">충전 요청</div>
+            <div className={payDue
+                ? 'rounded-xl border-2 border-[#3b82f6] bg-[#f5f9ff] p-5 shadow-[0_2px_12px_rgba(59,130,246,0.18)]'
+                : 'rounded-xl border border-[#e2e8f0] bg-white p-5'}>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                    {payDue ? <span className="text-[16px] leading-none">💰</span> : null}
+                    <span className="text-[15px] font-bold text-[#0f172a]">충전 요청</span>
+                    {payDue ? (
+                        <span className="rounded-full bg-[#1d4ed8] px-2 py-0.5 text-[12px] font-bold text-white">
+                            입금 대기 {payDue}건
+                        </span>
+                    ) : null}
+                </div>
                 {/* 항목을 한 줄에 늘어놓으면 무엇을 적어야 하는지 눈에 안 들어온다 — 라벨을 왼쪽에 세운다. */}
                 <div className="grid max-w-[560px] gap-2.5">
                     <label className="flex items-center gap-3">
