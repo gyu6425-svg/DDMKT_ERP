@@ -72,6 +72,27 @@ export default function SubDashboard() {
 
     return (
         <div className="grid gap-4">
+            {/* 남은 건수를 큰 숫자로 — 카드 밑 작은 글씨로만 두면 "지금 몇 건 쓸 수 있나"가 한눈에 안 들어온다. */}
+            <div className="grid grid-cols-3 gap-3 max-[560px]:grid-cols-1">
+                <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                    <div className="text-[12px] text-[#64748b]">받은 건수</div>
+                    <div className="mt-0.5 text-2xl font-bold text-[#0f172a]">{granted}<span className="ml-1 text-[15px] text-[#94a3b8]">건</span></div>
+                </div>
+                <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+                    <div className="text-[12px] text-[#64748b]">발행</div>
+                    <div className="mt-0.5 text-2xl font-bold text-[#475569]">{used}<span className="ml-1 text-[15px] text-[#94a3b8]">건</span></div>
+                </div>
+                <div className={`rounded-xl border p-4 ${balance > 0 ? 'border-[#bfdbfe] bg-[#eff6ff]' : 'border-[#e2e8f0] bg-white'}`}>
+                    <div className="text-[12px] text-[#64748b]">남은 건수</div>
+                    <div className={`mt-0.5 text-2xl font-bold ${balance > 0 ? 'text-[#1e40af]' : 'text-[#b45309]'}`}>
+                        {balance}<span className="ml-1 text-[15px] text-[#94a3b8]">건</span>
+                    </div>
+                    {balance === 0 ? (
+                        <div className="mt-0.5 text-[11px] text-[#b45309]">충전 요청 탭에서 신청하세요</div>
+                    ) : null}
+                </div>
+            </div>
+
             {/* 카페 배포 — 계약 카드 한 장 */}
             <div>
                 <div className="mb-2 flex items-center gap-2">
