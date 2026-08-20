@@ -20,6 +20,13 @@ except Exception:
     pass
 import requests
 
+# Supabase REST 전용 재시도 세션 — 터널/컨테이너 순간 끊김 한 번으로 그날 측정이 통째로
+#   날아가는 것을 막는다(카페·블로그는 8/19 적용, 플레이스만 빠져 있었다).
+#   PATCH 만 재시도한다: place_keywords 의 measurements 를 통째로 덮어쓰는 멱등 갱신이라 안전하다.
+#   POST 는 쓰지 않으므로 허용하지 않는다.
+import sb_retry
+_SB = sb_retry.session()
+
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -63,13 +70,13 @@ def sb_headers(extra=None):
 
 
 def sb_get(path, params=None):
-    r = requests.get(f"{SUPABASE_URL}/rest/v1/{path}", headers=sb_headers(), params=params, timeout=30)
+    r = _SB.get(f"{SUPABASE_URL}/rest/v1/{path}", headers=sb_headers(), params=params, timeout=30)
     r.raise_for_status()
     return r.json()
 
 
 def sb_patch(path, params, payload):
-    r = requests.patch(
+    r = _SB.patch(
         f"{SUPABASE_URL}/rest/v1/{path}",
         headers=sb_headers({"Content-Type": "application/json", "Prefer": "return=minimal"}),
         params=params,
@@ -195,6 +202,7 @@ def main():
     keywords = sb_get("place_keywords", {"select": "*"})
     print(f"플레이스 순위 크롤 시작 — 업체 {len(accounts)} · 키워드 {len(keywords)} · {TODAY}")
     done = 0
+    failed = 0
     for row in keywords:
         acc = accounts.get(row.get("place_account_id"))
         if not acc:
@@ -206,14 +214,26 @@ def main():
         # 오늘 이미 측정했으면 스킵.
         if any(m.get("date") == TODAY for m in (row.get("measurements") or [])):
             continue
-        rank, status = measure_place_rank(place_id, kw)
-        recs = upsert_today(row.get("measurements"), {"date": TODAY, "rank": rank, "status": status})
-        sb_patch("place_keywords", {"id": f"eq.{row['id']}"}, {"measurements": recs})
+        # ★ 한 건이 실패해도 다음 키워드로 간다.
+        #   예전엔 sb_patch 예외가 그대로 올라와 루프가 멈췄다 — 40번째에서 끊기면 나머지는
+        #   측정 시도조차 안 된 채 '완료' 처럼 끝났다. 실패는 세어서 끝에 드러낸다.
+        try:
+            rank, status = measure_place_rank(place_id, kw)
+            recs = upsert_today(row.get("measurements"), {"date": TODAY, "rank": rank, "status": status})
+            sb_patch("place_keywords", {"id": f"eq.{row['id']}"}, {"measurements": recs})
+        except Exception as e:
+            failed += 1
+            print(f"  ! [{acc.get('name')}] {kw} 저장/측정 실패: {type(e).__name__} {e}", flush=True)
+            _pause()
+            continue
         disp = f"{rank}위" if status == "ok" else ("권외" if status == "out" else "실패")
         print(f"  [{acc.get('name')}] {kw} -> {disp}")
         done += 1
         _pause()
-    print(f"완료 — {done}건 측정")
+    print(f"완료 — {done}건 측정" + (f" · 실패 {failed}건" if failed else ""))
+    if failed:
+        # 예약작업이 결과 코드를 본다. 조용히 성공으로 끝나면 실패를 아무도 모른다.
+        sys.exit(1)
 
 
 if __name__ == "__main__":
