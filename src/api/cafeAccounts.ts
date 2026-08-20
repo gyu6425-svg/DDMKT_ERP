@@ -45,9 +45,14 @@ export async function upsertCafeAccount(input: Partial<CafeAccount> & { company_
         active: input.active ?? true,
         board_name: input.board_name || input.board_short || input.display_name,
         board_short: input.board_short || input.display_name,
-        cafe_name: input.cafe_name || 'ddmkt2',
+        // ⚠️ 예전엔 여기 'ddmkt2' / '31754130'(마이클의 정보세상)이 박혀 있었다.
+        //   카페 정보를 안 넣고 등록하면 **새 업체가 조용히 남의 카페로 묶인다** —
+        //   그 카페 글이 새 업체 실적으로 잡히고 발행도 남의 카페로 나갈 수 있다. 에러가 안 나서 한참 뒤에나 안다.
+        //   DB 기본값은 2026-08-20 에 제거했는데 코드가 같은 값을 넣고 있어 구멍이 그대로였다.
+        //   → 빈 값으로 둔다. 틀린 값보다 빈 값이 낫다 — 빈 값은 화면에 '카페 URL 미등록'으로 보인다.
+        cafe_name: input.cafe_name || '',
         client_id: input.client_id || null,
-        club_id: input.club_id || '31754130',
+        club_id: input.club_id || '',
         company_key: input.company_key.trim(),
         display_name: input.display_name.trim(),
         note: input.note || null,

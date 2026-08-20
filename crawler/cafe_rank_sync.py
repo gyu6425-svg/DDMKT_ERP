@@ -170,7 +170,12 @@ def main():
                     print(f"  ! 갱신실패 {ckey}/#{aid}: {pr.status_code} {pr.text[:120]}", flush=True)
             continue
         body = {
-            "club_id": item.get("club_id") or DEFAULT_CLUB,
+            # ⚠️ 예전엔 club_id 가 없으면 DEFAULT_CLUB(마이클의 정보세상)으로 채웠다.
+            #   그러면 그 글이 **남의 카페 글로 기록**된다 — 순위 트래커에서 엉뚱한 카페로 묶이고,
+            #   에러가 안 나서 한참 뒤에나 안다. 측정 쪽은 빈 값을 None 으로 받아 처리하므로
+            #   (cafe_rank_crawler: club_id = ... or None) 비워두는 편이 안전하다.
+            #   틀린 값보다 빈 값이 낫다 — 빈 값은 눈에 띄고, 틀린 값은 안 띈다. (2026-08-20)
+            "club_id": item.get("club_id") or "",
             "cafe_name": cafe_name,
             "article_id": aid,
             "post_url": item.get("posted_url"),
