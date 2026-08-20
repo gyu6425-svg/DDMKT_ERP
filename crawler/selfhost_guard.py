@@ -221,7 +221,9 @@ def probe():
         days = sorted([d for d in BACKUP_DIR.glob("20*") if d.is_dir()])
         if days:
             newest = days[-1].name
-            dumps = list(days[-1].glob("*.dump"))
+            # ★ 백업이 gpg 로 잠기면서 확장자가 .dump → .dump.gpg 로 바뀌었다(2026-08-20).
+            #   glob 을 안 고쳐서 "백업 없음" 오탐이 실제로 떴다. 두 형태 모두 본다.
+            dumps = list(days[-1].glob("*.dump")) + list(days[-1].glob("*.dump.gpg"))
             if dumps:
                 age_h = (time.time() - max(f.stat().st_mtime for f in dumps)) / 3600
     if age_h is None:

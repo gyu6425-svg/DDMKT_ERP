@@ -14,13 +14,13 @@
   · 네트워크를 안 탄다(71MB 를 터널로 끌지 않는다) · main PC 에 pg_dump 설치가 필요 없다
   · DB 비밀번호가 main PC .env 에 남지 않는다(컨테이너 안에서는 peer 인증)
 
-어디에 남기나  ── 두 곳에 둔다. 한 곳이 죽어도 살아남게.
+어디에 남기나  ── 두 곳에 둔다. 한 곳이 죽어도 살아남게. **양쪽 다 gpg AES-256 으로 잠근다.**
   · VM     ~/backups/<날짜>/          (최근 SELF_KEEP 일)
   · main   _backup/selfhost/<날짜>/   (최근 MAIN_KEEP 일 + 일요일분은 계속)
 
 검증 — "떴다"와 "되살릴 수 있다"는 다르다. 그래서 매번 세 가지를 확인한다.
-  ① sha256 이 VM 과 main 에서 같은가(전송 중 깨짐)
-  ② pg_restore -l 로 목차가 읽히는가(파일이 온전한가)
+  ① sha256 이 VM 과 main 에서 같은가(전송 중 깨짐)  ※ 암호화된 파일 기준
+  ② 복호화가 되는가 + pg_restore -l 로 목차가 읽히는가(잠긴 쓰레기가 아닌지)
   ③ 임시 DB 에 **데이터까지** 실제로 복원해 테이블·RLS·auth.users·비번해시·주요 행수가 맞는가
   하나라도 실패하면 종료코드 1 — 예약작업 기록에 실패로 남는다.
 
@@ -82,9 +82,18 @@ def psql(query, db="postgres"):
 log("=" * 62)
 log(f"자체호스팅 백업 시작 — {DAY}")
 
-# ── ① VM 안에서 덤프 ────────────────────────────────────────────
+# ── ① VM 안에서 덤프 → 즉시 암호화 ──────────────────────────────
+#   ★ 평문 덤프는 VM 밖으로 나가지 않는다. 만든 자리에서 바로 잠그고, 잠긴 것만 전송한다.
+#     백업에는 비밀번호 해시 100개·고객 네이버 계정 비밀번호·개인정보가 들어 있다.
+#     디스크 미암호화 PC 에 평문으로 1.4GB 쌓아두는 것이 지금까지의 가장 큰 노출이었다.
+#   암호는 VM 의 ~/.backup-pass (600) 에 있다 — 백업 파일과 다른 곳에 둔다.
+#     ⚠ 이 PC 를 통째로 도난당하면 SSH 키로 VM 에 붙을 수 있으므로, 로컬 도난까지 막으려면
+#       디스크 암호화(BitLocker)가 함께 있어야 한다. 암호화만으로 다 막힌다고 착각하지 말 것.
+#   gpg 대칭키(AES-256)를 쓰는 이유: 우리 스크립트가 없어져도 사람이
+#     `gpg --decrypt` 한 줄로 열 수 있다. 복구 수단이 특정 코드에 묶이면 안 된다.
 base = f"ddmkt-{DAY}"
 rc, out, err = ssh(f"""set -e
+test -s ~/.backup-pass || {{ echo 'NO_PASSPHRASE'; exit 9; }}
 mkdir -p ~/backups/{DAY}
 docker exec {CT} sh -c 'pg_dump -U postgres -d postgres -Fc --no-owner --no-privileges -f /tmp/{base}.dump'
 docker exec {CT} sh -c 'pg_dump -U postgres -d postgres --schema-only --no-owner --no-privileges -f /tmp/{base}.schema.sql'
@@ -92,7 +101,18 @@ docker cp {CT}:/tmp/{base}.dump      ~/backups/{DAY}/{base}.dump
 docker cp {CT}:/tmp/{base}.schema.sql ~/backups/{DAY}/{base}.schema.sql
 docker exec {CT} sh -c 'rm -f /tmp/{base}.dump /tmp/{base}.schema.sql'
 gzip -f ~/backups/{DAY}/{base}.schema.sql
-cd ~/backups/{DAY} && sha256sum {base}.dump {base}.schema.sql.gz > SHA256 && stat -c '%n %s' *""")
+cd ~/backups/{DAY}
+for f in {base}.dump {base}.schema.sql.gz; do
+  gpg --batch --yes --quiet --symmetric --cipher-algo AES256 \\
+      --passphrase-file ~/.backup-pass -o "$f.gpg" "$f"
+  test -s "$f.gpg"
+  rm -f "$f"                      # 평문 즉시 제거 — 잠긴 것만 남긴다
+done
+sha256sum {base}.dump.gpg {base}.schema.sql.gz.gpg > SHA256
+stat -c '%n %s' *""")
+if rc == 9 or "NO_PASSPHRASE" in (out or "") + (err or ""):
+    log("❌ VM 에 ~/.backup-pass 가 없습니다 — 암호 없이는 백업하지 않습니다")
+    sys.exit(1)
 if rc != 0:
     log(f"❌ 덤프 실패: {err[:300]}")
     sys.exit(1)
@@ -130,8 +150,19 @@ for name, want in vm_sha.items():
         fails.append(f"{name} sha256 불일치")
 
 # ── 검증 ② 덤프 목차가 읽히는가 ─────────────────────────────────
-rc, toc, err = ssh(f"docker cp ~/backups/{DAY}/{base}.dump {CT}:/tmp/v.dump && "
+#   ★ 복호화부터 한다 — 이 한 줄 덕분에 '암호가 실제로 풀린다'가 매일 밤 증명된다.
+#     암호화한 백업은 복호화를 안 해보면 잠긴 쓰레기인지 알 수가 없고, 알게 되는 시점이
+#     하필 복구가 급한 때다. 그래서 검증을 복호화에서 시작한다.
+rc, toc, err = ssh(f"set -e\n"
+                   f"gpg --batch --yes --quiet --decrypt --passphrase-file ~/.backup-pass "
+                   f"-o /tmp/v.dump ~/backups/{DAY}/{base}.dump.gpg\n"
+                   f"test -s /tmp/v.dump\n"
+                   f"docker cp /tmp/v.dump {CT}:/tmp/v.dump >/dev/null\n"
+                   f"rm -f /tmp/v.dump\n"
                    f"docker exec {CT} sh -c 'pg_restore -l /tmp/v.dump | grep -c \"^[0-9]\"'")
+if rc != 0:
+    log(f"❌ 복호화 실패 — 백업을 열 수 없습니다: {err[:200]}")
+    fails.append("복호화 실패")
 n_toc = int(toc) if rc == 0 and toc.isdigit() else -1
 log(f"  목차 항목 {n_toc}개  {'✅' if n_toc > 100 else '❌ 너무 적음'}")
 if n_toc <= 100:
