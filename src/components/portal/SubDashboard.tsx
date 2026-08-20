@@ -88,7 +88,15 @@ export default function SubDashboard() {
                         {balance}<span className="ml-1 text-[15px] text-[#94a3b8]">건</span>
                     </div>
                     {balance === 0 ? (
-                        <div className="mt-0.5 text-[11px] text-[#b45309]">충전 요청 탭에서 신청하세요</div>
+                        <button className="mt-1 rounded-md bg-[#4338ca] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#3730a3]"
+                            onClick={() => {
+                                const as = new URLSearchParams(window.location.search).get('as');
+                                window.history.pushState(null, '', `/portal/cafe?tab=charge${as ? `&as=${encodeURIComponent(as)}` : ''}`);
+                                window.dispatchEvent(new Event('app:navigate'));
+                            }}
+                            type="button">
+                            충전 요청하러 가기
+                        </button>
                     ) : null}
                 </div>
             </div>
@@ -103,7 +111,7 @@ export default function SubDashboard() {
                     <div className="flex flex-col rounded-lg border-2 border-[#e2e8f0] bg-white px-3.5 py-3 shadow-sm">
                         <div className="text-[13px] font-bold text-[#334155]">카페 배포</div>
                         {prog == null ? (
-                            <div className="mt-1 text-[13px] font-bold text-[#b45309]">배분 대기</div>
+                            <div className="mt-1 text-[13px] font-bold text-[#b45309]">충전 전</div>
                         ) : (
                             <>
                                 <div className="mt-0.5 text-2xl font-bold" style={{ color: progColor(prog) }}>{prog}%</div>

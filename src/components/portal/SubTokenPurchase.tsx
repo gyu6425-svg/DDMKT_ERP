@@ -47,7 +47,7 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
         const { error } = await subDeclarePayment(q.id, payer[q.id]);
         setBusy(null);
         if (error) return setErr(error.message);
-        setMsg('입금 신고가 접수되었습니다. 확인 후 충전됩니다.');
+        setMsg(`입금 신고가 접수되었습니다. ${agencyName || '소속 대행사'} 확인 후 충전됩니다.`);
         load();
     };
 
@@ -62,10 +62,10 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
             <div className="mb-3 flex flex-wrap items-center gap-2">
                 {payDue ? <span className="text-[16px] leading-none">💰</span> : null}
                 <span className="text-[15px] font-bold text-[#0f172a]">충전 신청</span>
+                <span className="text-[12px] font-normal text-[#94a3b8]">→ {agencyName}</span>
                 <button type="button" onClick={() => window.dispatchEvent(new Event('charge-guide:open'))}
                     className="ml-auto inline-flex items-center gap-1 rounded-md border border-[#c7d2fe] bg-[#eef2ff] px-2.5 py-1 text-[12px] font-bold text-[#4338ca] hover:bg-[#e0e7ff]"
                     title="충전 신청 방법을 처음부터 안내합니다">📖 가이드 보기</button>
-                <span className="text-[12px] font-normal text-[#94a3b8]">→ {agencyName}</span>
                 {payDue ? (
                     <span className="rounded-full bg-[#1d4ed8] px-2 py-0.5 text-[12px] font-bold text-white">
                         입금 대기 {payDue}건

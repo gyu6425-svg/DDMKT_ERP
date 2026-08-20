@@ -198,6 +198,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                                             />
                                             <button
                                                 className="h-8 rounded bg-[#c2410c] px-3 text-[12px] font-bold text-white hover:bg-[#9a3412] disabled:opacity-50"
+                                                data-tour="charge-declare"
                                                 disabled={payBusy === q.id}
                                                 onClick={() => void declarePaid(q)}
                                                 type="button"
@@ -251,7 +252,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                     <div className="py-8 text-center text-sm text-[#94a3b8]">{txFilter === 'charge' ? '충전 내역이 없습니다.'
                         : txFilter === 'use' ? '사용(발행) 내역이 없습니다.'
                         : txFilter === 'give' ? '하위 업체에 배분한 내역이 없습니다.'
-                        : '아직 충전 내역이 없습니다. 입금 후 담당자가 충전해 드립니다.'}</div>
+                        : (parentAgency.id ? '아직 충전 내역이 없습니다. 위에서 충전 신청을 넣어 주세요.' : '아직 충전 내역이 없습니다. 입금 후 담당자가 충전해 드립니다.')}</div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full min-w-[520px] border-collapse text-[13px]">

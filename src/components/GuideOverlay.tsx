@@ -157,7 +157,7 @@ export function GuideOverlay({ steps, onFinish }: { steps: GuideStep[]; onFinish
                     </p>
                 ) : missing ? (
                     <p className="m-0 mb-3 rounded-md bg-[#fff7ed] px-2 py-1.5 text-[12px] font-semibold text-[#9a3412]">
-                        이 항목은 지금 화면에 없습니다 — 위에서 고른 방식에 따라 안 나오는 항목입니다. 다음으로 넘어가세요.
+                        이 항목은 지금 화면에 없습니다 — 아직 이 단계가 아니라 화면에 없는 항목입니다. 다음으로 넘어가세요.
                     </p>
                 ) : null}
                 <div className="flex items-center gap-2">

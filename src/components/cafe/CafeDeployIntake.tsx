@@ -867,7 +867,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   ★ 직거래 고객에게는 적용하지 않는다 — 기존 계약 방식(후정산)으로 쓰던 업체가 갑자기 막히면 안 된다.
     const [tokenBal, setTokenBal] = useState<number | null>(null);   // null = 아직 모름(게이트 미적용)
     const [gated, setGated] = useState(false);                       // 이 업체에 토큰 게이트를 적용하는가
-    const [hasParent, setHasParent] = useState(false);               // 대행사 소속 = 결제도 대행사에게 한다
+    // ★ null = 아직 판정 전. false 로 시작하면 판정이 끝나기 전 한 순간 우리 계좌 안내가
+    //   대행사 하위 업체에게 노출된다(그쪽 거래 상대는 대행사다).
+    const [hasParent, setHasParent] = useState<boolean | null>(null);
     useEffect(() => {
         if (!clientId) return;
         let alive = true;
@@ -884,7 +886,13 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         })();
         return () => { alive = false; };
     }, [clientId]);
-    const bal = tokenBal ?? 0;
+    // ★ 토큰은 '발행이 실제로 잡힐 때' 차감된다(크롤러의 발행반영). 접수 시점엔 아무것도 안 빠진다.
+    //   그래서 잔액만 보고 막으면 10건짜리 주문서를 몇 번이고 다시 넣을 수 있다(검증 2026-08-20:
+    //   잔액 10 · 10건 접수 완료 상태에서 또 10건 접수 가능). 처리 중인 접수의 건수를 미리 뺀다.
+    const reserved = rows
+        .filter((r) => r.status !== '완료')
+        .reduce((a, r) => a + (r.total_count ?? r.selected_keywords?.length ?? 0), 0);
+    const bal = Math.max(0, (tokenBal ?? 0) - reserved);
     const noToken = gated && bal <= 0;
     const overBal = gated && (form.total_count ?? 0) > bal;
 
@@ -1183,7 +1191,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             {/* 결제 안내 알림 — 접수가 '승인(결제대기)'되면 노출.
                 ★ 대행사 소속 업체에는 띄우지 않는다. 우리 계좌를 안내하고 우리 큐로 넣으면
                   대행사에게 사야 할 업체가 우리에게 입금하게 된다('충전 요청' 탭이 대행사 앞으로 가 있다). */}
-            {pendingPay.length && !hasParent ? (
+            {pendingPay.length && hasParent === false ? (
                 <div className="rounded-xl border-2 border-[#fb923c] bg-[#fff7ed] p-5">
                     <div className="mb-1 flex items-center gap-2">
                         <span className="text-lg">🔔</span>
@@ -1247,18 +1255,34 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         📖 가이드 보기
                     </button>
                 </div>
-                <p className="mb-4 mt-0 text-[13px] text-[#64748b]">배포를 원하시는 내용과 사진을 접수해 주세요. 담당자 확인 후 세팅해 드립니다. (금액·정산은 별도 안내)</p>
+                <p className="mb-4 mt-0 text-[13px] text-[#64748b]">
+                    배포를 원하시는 내용과 사진을 접수해 주세요. 담당자 확인 후 세팅해 드립니다.
+                    {hasParent ? ' 결제는 이미 충전으로 끝났습니다 — 추가 청구는 없습니다.' : ' (금액·정산은 별도 안내)'}
+                </p>
 
                 {/* 선불 토큰 안내 — 잔액이 없으면 접수 버튼을 막고 어디로 가야 하는지 알려 준다. */}
                 {gated ? (
                     noToken ? (
                         <div className="mb-4 rounded-lg border border-[#fca5a5] bg-[#fef2f2] px-4 py-3 text-[13px] leading-6 text-[#b91c1c]">
-                            <b>발행 토큰이 없습니다.</b> 주문서를 넣으시려면 <b>‘충전 요청’ 탭</b>에서 먼저 충전해 주세요.
-                            <br />충전이 완료되면 보유 건수만큼 주문서를 작성하실 수 있습니다.
+                            <b>지금 주문할 수 있는 건수가 없습니다.</b>
+                            {reserved ? <> 보유 {tokenBal}건이 처리 중인 주문 {reserved}건에 모두 잡혀 있습니다.</>
+                                : <> <b>‘충전 요청’ 탭</b>에서 먼저 충전해 주세요.</>}
+                            <br />
+                            <button className="mt-1 rounded-md bg-[#4338ca] px-3 py-1 text-[12px] font-bold text-white hover:bg-[#3730a3]"
+                                onClick={() => {
+                                    const as = new URLSearchParams(window.location.search).get('as');
+                                    window.history.pushState(null, '', `/portal/cafe?tab=charge${as ? `&as=${encodeURIComponent(as)}` : ''}`);
+                                    window.dispatchEvent(new Event('app:navigate'));
+                                }}
+                                type="button">
+                                충전 요청하러 가기
+                            </button>
                         </div>
                     ) : (
                         <div className="mb-4 rounded-lg border border-[#bfdbfe] bg-[#eff6ff] px-4 py-2.5 text-[13px] font-semibold text-[#1e40af]">
-                            보유 발행 토큰 <b>{bal}건</b> — 총 발행건수는 이 범위 안에서만 작성하실 수 있습니다.
+                            지금 주문할 수 있는 건수 <b>{bal}건</b>
+                            {reserved ? <span className="font-normal"> (보유 {tokenBal}건 − 처리 중인 주문 {reserved}건)</span> : null}
+                            {' '}— 총 발행건수는 이 범위 안에서만 작성하실 수 있습니다.
                         </div>
                     )
                 ) : null}
@@ -1948,7 +1972,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                         <table className="w-full min-w-[980px] border-collapse text-[13px]">
                             <thead>
                                 <tr className="border-b border-[#e2e8f0] text-left text-[#64748b]">
-                                    {['작성일', '업체명', '유형', 'URL', '키워드(업종)', '미션 시작일', '일 발행', '총 발행', '사진', '발행정보', '비고', '상태'].map((h) => (
+                                    {['작성일', '업체명', 'URL', '유형', '키워드(업종)', '미션 시작일', '일 발행', '총 발행', '사진', '발행정보', '비고', '상태'].map((h) => (
                                         <th key={h} className="whitespace-nowrap px-2 py-2 font-semibold">{h}</th>
                                     ))}
                                 </tr>
@@ -2015,7 +2039,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                             </td>
                                             <td className="max-w-[140px] truncate px-2 py-2" title={r.note ?? ''}>{r.note ?? '-'}</td>
                                             <td className="whitespace-nowrap px-2 py-2">
-                                                <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${STATUS_STYLE[r.status] ?? 'bg-[#f1f5f9] text-[#64748b]'}`}>{r.status}</span>
+                                                <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${STATUS_STYLE[r.status] ?? 'bg-[#f1f5f9] text-[#64748b]'}`}>
+                                                    {/* 하부 업체는 대행사에 이미 선불로 냈다 — '결제대기'로 보이면 또 내라는 걸로 읽힌다. */}
+                                                    {hasParent && r.status === '결제대기' ? '접수 확인 중' : r.status}
+                                                </span>
                                             </td>
                                         </tr>
                                     );
