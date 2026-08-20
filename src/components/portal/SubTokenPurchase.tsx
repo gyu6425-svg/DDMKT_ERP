@@ -62,6 +62,9 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
             <div className="mb-3 flex flex-wrap items-center gap-2">
                 {payDue ? <span className="text-[16px] leading-none">💰</span> : null}
                 <span className="text-[15px] font-bold text-[#0f172a]">충전 신청</span>
+                <button type="button" onClick={() => window.dispatchEvent(new Event('charge-guide:open'))}
+                    className="ml-auto inline-flex items-center gap-1 rounded-md border border-[#c7d2fe] bg-[#eef2ff] px-2.5 py-1 text-[12px] font-bold text-[#4338ca] hover:bg-[#e0e7ff]"
+                    title="충전 신청 방법을 처음부터 안내합니다">📖 가이드 보기</button>
                 <span className="text-[12px] font-normal text-[#94a3b8]">→ {agencyName}</span>
                 {payDue ? (
                     <span className="rounded-full bg-[#1d4ed8] px-2 py-0.5 text-[12px] font-bold text-white">
@@ -75,10 +78,11 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                     처리 중인 신청이 있어 새 신청은 완료 후에 가능합니다.
                 </div>
             ) : (
-                <div className="mb-3 grid max-w-[560px] gap-2.5">
+                <div className="mb-3 grid max-w-[560px] gap-2.5" data-tour="charge-form">
                     <label className="flex items-center gap-3">
                         <span className="w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">결제 방식</span>
                         <select className="h-9 flex-1 rounded border border-[#cbd5e1] bg-white px-2 text-sm"
+                            data-tour="charge-method"
                             onChange={(e) => setPay(e.target.value)} value={pay}>
                             {PAY_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
                         </select>
@@ -87,12 +91,14 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                         <span className="w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">건수</span>
                         <div className="flex flex-1 items-center gap-2">
                             <input className="h-9 w-32 rounded border border-[#cbd5e1] px-2 text-sm" min={1}
+                                data-tour="charge-count"
                                 onChange={(e) => setCount(intOnly(e.target.value, MAX_COUNT))} placeholder="예: 10" type="number" value={count} />
                             <span className="text-[13px] text-[#64748b]">건</span>
                         </div>
                     </label>
                     <div className="pl-[100px]">
                         <button className="h-9 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
+                            data-tour="charge-submit"
                             disabled={busy !== null} onClick={() => void submit()} type="button">
                             {busy === 'new' ? '신청 중…' : '충전 신청'}
                         </button>
@@ -104,7 +110,7 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
             {err ? <p className="m-0 mb-2 text-[12px] font-semibold text-[#b91c1c]">{err}</p> : null}
 
             {reqs.length ? (
-                <div className="grid gap-1.5">
+                <div className="grid gap-1.5" data-tour="charge-list">
                     {reqs.slice(0, 6).map((q) => {
                         const st = STATUS[q.status] ?? { label: q.status, cls: 'bg-[#f1f5f9] text-[#64748b]' };
                         const n = q.quoted_count ?? q.requested_count;
@@ -126,7 +132,7 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                                 </div>
 
                                 {q.status === 'quoted' && q.pay_account ? (
-                                    <div className="mt-1.5 rounded-lg border border-[#fed7aa] bg-[#fff7ed] px-3 py-2 text-[12px] leading-6 text-[#7c2d12]">
+                                    <div className="mt-1.5 rounded-lg border border-[#fed7aa] bg-[#fff7ed] px-3 py-2 text-[12px] leading-6 text-[#7c2d12]" data-tour="charge-account">
                                         <b>입금 계좌</b> · {q.pay_bank} <b className="font-mono">{q.pay_account}</b> ({q.pay_holder})
                                     </div>
                                 ) : null}
@@ -136,6 +142,7 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                                             onChange={(e) => setPayer((m) => ({ ...m, [q.id]: e.target.value }))}
                                             placeholder="입금자명" value={payer[q.id] ?? ''} />
                                         <button className="h-8 rounded bg-[#c2410c] px-3 text-[12px] font-bold text-white hover:bg-[#9a3412] disabled:opacity-50"
+                                            data-tour="charge-declare"
                                             disabled={busy === q.id} onClick={() => void declare(q)} type="button">
                                             {busy === q.id ? '신고 중…' : '계좌이체 완료'}
                                         </button>

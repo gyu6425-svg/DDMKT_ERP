@@ -92,7 +92,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
 
     return (
         <div className="grid gap-4">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-3" data-tour="charge-balance">
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                     <div className="text-[12px] text-[#64748b]">잔여 발행</div>
                     <div className="text-2xl font-bold text-[#1e40af]">{balance}건</div>
@@ -120,6 +120,9 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                     {payDue ? <span className="text-[16px] leading-none">💰</span> : null}
                     <span className="text-[15px] font-bold text-[#0f172a]">충전 요청</span>
+                    <button type="button" onClick={() => window.dispatchEvent(new Event('charge-guide:open'))}
+                        className="ml-auto inline-flex items-center gap-1 rounded-md border border-[#c7d2fe] bg-[#eef2ff] px-2.5 py-1 text-[12px] font-bold text-[#4338ca] hover:bg-[#e0e7ff]"
+                        title="충전 요청 방법을 처음부터 안내합니다">📖 가이드 보기</button>
                     {payDue ? (
                         <span className="rounded-full bg-[#1d4ed8] px-2 py-0.5 text-[12px] font-bold text-white">
                             입금 대기 {payDue}건
@@ -127,10 +130,11 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                     ) : null}
                 </div>
                 {/* 항목을 한 줄에 늘어놓으면 무엇을 적어야 하는지 눈에 안 들어온다 — 라벨을 왼쪽에 세운다. */}
-                <div className="grid max-w-[560px] gap-2.5">
+                <div className="grid max-w-[560px] gap-2.5" data-tour="charge-form">
                     <label className="flex items-center gap-3">
                         <span className="w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">결제 방식</span>
                         <select className="h-9 flex-1 rounded border border-[#cbd5e1] bg-white px-2 text-sm"
+                            data-tour="charge-method"
                             onChange={(e) => setReqPay(e.target.value)} value={reqPay}>
                             {PAY_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
                         </select>
@@ -139,6 +143,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                         <span className="w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">건수</span>
                         <div className="flex flex-1 items-center gap-2">
                             <input className="h-9 w-32 rounded border border-[#cbd5e1] px-2 text-sm" min={1}
+                                data-tour="charge-count"
                                 onChange={(e) => setReqCount(intOnly(e.target.value, MAX_COUNT))}
                                 placeholder={isAgency ? `최소 ${AGENCY_MIN_COUNT}` : '예: 30'} type="number" value={reqCount} />
                             <span className="text-[13px] text-[#64748b]">건</span>
@@ -146,6 +151,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                     </label>
                     <div className="flex items-center gap-3 pl-[100px]">
                         <button className="h-9 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
+                            data-tour="charge-submit"
                             disabled={reqBusy || !clientId} onClick={() => void submitReq()} type="button">
                             {reqBusy ? '요청 중…' : '충전 요청'}
                         </button>
@@ -153,7 +159,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                     </div>
                 </div>
                 {reqs.length ? (
-                    <div className="mt-3 grid gap-1.5">
+                    <div className="mt-3 grid gap-1.5" data-tour="charge-list">
                         {reqs.slice(0, 5).map((q) => {
                             const st = STATUS_LABEL[q.status] ?? { label: q.status, cls: 'bg-[#f1f5f9] text-[#64748b]' };
                             const n = q.quoted_count ?? q.requested_count;
@@ -177,7 +183,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                                     ) : null}
 
 {q.status === 'quoted' && q.pay_account ? (
-                                        <div className="mt-1.5 rounded-lg border border-[#fed7aa] bg-[#fff7ed] px-3 py-2 text-[12px] leading-6 text-[#7c2d12]">
+                                        <div className="mt-1.5 rounded-lg border border-[#fed7aa] bg-[#fff7ed] px-3 py-2 text-[12px] leading-6 text-[#7c2d12]" data-tour="charge-account">
                                             <b>입금 계좌</b> · {q.pay_bank} <b className="font-mono">{q.pay_account}</b> ({q.pay_holder})
                                         </div>
                                     ) : null}
