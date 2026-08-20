@@ -266,11 +266,13 @@ export default function AgencyOrgPanel() {
                                         <span className="ml-auto text-[11px] text-[#cbd5e1]">{fmtDT(r.created_at)}</span>
                                     </div>
 
-                                    {closed ? null : (
+                                    {/* 단계마다 누를 것이 하나만 보이게 한다.
+                                        '금액 재통보' 는 없앴다 — 하부 업체가 그 금액을 보고 입금하는 중이거나
+                                        이미 입금한 뒤라, 금액이 바뀌면 실제 입금액과 기록이 어긋난다.
+                                        금액을 바꿔야 하면 반려하고 다시 신청받는다. */}
+                                    {r.status === 'pending' ? (
                                         <div className="mt-2 flex flex-wrap items-end gap-2">
-                                            {/* 건수는 하부 업체가 신청한 값으로 고정한다 — 대행사가 임의로 바꾸면
-                                                신청한 건수와 통보받은 건수가 어긋나 어디에 맞춰 입금할지 알 수 없다.
-                                                건수를 바꿔야 하면 반려하고 다시 신청받는다. */}
+                                            {/* 건수는 하부 업체가 신청한 값으로 고정 — 대행사가 정하는 것은 판매 단가뿐이다. */}
                                             <div>
                                                 <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">건수 <span className="font-normal text-[#94a3b8]">신청</span></div>
                                                 <div className="flex h-8 w-20 items-center justify-center rounded border border-[#e2e8f0] bg-[#f8fafc] text-[13px] font-bold text-[#334155]">
@@ -287,18 +289,37 @@ export default function AgencyOrgPanel() {
                                                     공급가 <b>₩{won(supply)}</b> · 입금 <b className="text-[#c2410c]">₩{won(totalOf(supply))}</b>
                                                 </div>
                                             ) : null}
-                                            <button className="h-8 rounded bg-[#1e40af] px-3 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
+                                            <button className="h-8 rounded bg-[#1e40af] px-4 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
                                                 disabled={busy !== null || !n || !Number(q.price)
                                                     || !acct.bank.trim() || !acct.account.trim() || !acct.holder.trim()}
-                                                onClick={() => void run(r.id, () => agencyQuoteRequest(r.id, Number(q.count), Number(q.price), acct),
-                                                    `${childName(r.child_client_id)} 에 ${q.count}건 · 공급가 \u20A9${won(supply)} 통보 (계좌 전달)`)}
-                                                title={acct.account.trim() ? '금액과 입금 계좌를 함께 보냅니다' : '아래 입금 계좌를 먼저 입력하세요'}
+                                                onClick={() => void run(r.id, () => agencyQuoteRequest(r.id, n, Number(q.price), acct),
+                                                    `${childName(r.child_client_id)} 에 ${n}건 · 공급가 \u20A9${won(supply)} 통보 (계좌 전달)`)}
+                                                title={acct.account.trim() ? '금액과 입금 계좌를 함께 보냅니다' : '위 입금 계좌를 먼저 입력하세요'}
                                                 type="button">
-                                                {r.status === 'pending' ? '금액 통보' : '금액 재통보'}
+                                                금액 통보
                                             </button>
-                                            <button className="h-8 rounded bg-[#059669] px-3 text-[12px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
-                                                disabled={busy !== null || r.status !== 'paid'}
-                                                title={r.status === 'paid' ? '입금을 확인하셨다면 발행합니다' : '하위 업체의 입금 신고 후에 활성화됩니다'}
+                                            <button className="h-8 rounded border border-[#cbd5e1] px-2 text-[12px] font-semibold text-[#64748b] disabled:opacity-50"
+                                                disabled={busy !== null}
+                                                onClick={() => void run(r.id, () => agencyRejectRequest(r.id), '반려했습니다')}
+                                                type="button">
+                                                반려
+                                            </button>
+                                        </div>
+                                    ) : r.status === 'quoted' ? (
+                                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                                            <span className="text-[12px] text-[#64748b]">금액을 통보했습니다 — 입금 신고를 기다리는 중입니다.</span>
+                                            <button className="h-8 rounded border border-[#cbd5e1] px-2 text-[12px] font-semibold text-[#64748b] disabled:opacity-50"
+                                                disabled={busy !== null}
+                                                onClick={() => void run(r.id, () => agencyRejectRequest(r.id), '반려했습니다')}
+                                                type="button">
+                                                반려
+                                            </button>
+                                        </div>
+                                    ) : r.status === 'paid' ? (
+                                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                                            <button className="h-8 rounded bg-[#059669] px-4 text-[12px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                                                disabled={busy !== null}
+                                                title="입금을 확인하셨다면 발행합니다"
                                                 onClick={() => {
                                                     if (!window.confirm(CONFIRM_MSG(childName(r.child_client_id), n, r.amount ?? 0, balance))) return;
                                                     void run(r.id, () => agencyFulfillRequest(r.id), `${childName(r.child_client_id)} 에 ${n}건 발행 완료`);
@@ -313,7 +334,7 @@ export default function AgencyOrgPanel() {
                                                 반려
                                             </button>
                                         </div>
-                                    )}
+                                    ) : null}
                                 </div>
                             );
                         })}
