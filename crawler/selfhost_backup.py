@@ -108,7 +108,16 @@ for f in {base}.dump {base}.schema.sql.gz; do
   test -s "$f.gpg"
   rm -f "$f"                      # 평문 즉시 제거 — 잠긴 것만 남긴다
 done
-sha256sum {base}.dump.gpg {base}.schema.sql.gz.gpg > SHA256
+> SHA256
+for f in {base}.dump {base}.schema.sql.gz; do
+  # 암호문 해시 — 전송이 깨졌는지 본다(scp 로 같은 바이트가 왔는지).
+  sha256sum "$f.gpg" >> SHA256
+  # 평문 해시 — 이게 진짜 '내용' 지문이다. gpg 대칭암호는 매번 난수 솔트를 쓰므로
+  #   같은 데이터라도 다시 암호화하면 암호문 해시가 달라진다. 그래서 암호문 해시만 적어두면
+  #   재암호화한 사본을 '손상' 으로 오판한다(2026-08-20 QA 실측: 멀쩡한 백업이 FAILED 로 나왔다).
+  #   복호화한 뒤 이 값과 맞춰보면, 어느 PC 에서 언제 다시 잠갔든 내용 동일성을 확인할 수 있다.
+  echo "$(gpg --batch --quiet --decrypt --passphrase-file ~/.backup-pass "$f.gpg" | sha256sum | cut -d' ' -f1)  $f  (평문)" >> SHA256
+done
 stat -c '%n %s' *""")
 if rc == 9 or "NO_PASSPHRASE" in (out or "") + (err or ""):
     log("❌ VM 에 ~/.backup-pass 가 없습니다 — 암호 없이는 백업하지 않습니다")
@@ -121,8 +130,11 @@ for line in out.splitlines():
 vm_sha = {}
 rc, shaout, _ = ssh(f"cat ~/backups/{DAY}/SHA256")
 for line in shaout.splitlines():
+    if "(평문)" in line:          # 평문 지문은 전송 대조 대상이 아니다(파일로 존재하지 않는다)
+        continue
     h, _, n = line.partition("  ")
-    vm_sha[n.strip()] = h.strip()
+    if h.strip() and n.strip():
+        vm_sha[n.strip()] = h.strip()
 
 # ── ② main PC 로 가져오기 ───────────────────────────────────────
 OUT.mkdir(parents=True, exist_ok=True)
