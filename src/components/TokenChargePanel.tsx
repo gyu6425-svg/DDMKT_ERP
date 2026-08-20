@@ -6,6 +6,7 @@ import {
     tokenWon, won, vatOf, totalOf, TOKEN_PRICE_KRW, AGENCY_TOKEN_PRICE_KRW,
     type TokenLedger, type TokenRequest,
 } from '../api/cafeTokens';
+import { listSubRequests, type SubTokenRequest } from '../api/orgs';
 
 type ClientLite = { id: string; company: string | null; is_agency?: boolean | null };
 
@@ -28,6 +29,8 @@ export default function TokenChargePanel() {
     const [clients, setClients] = useState<ClientLite[]>([]);
     const [rows, setRows] = useState<TokenLedger[]>([]);
     const [reqs, setReqs] = useState<TokenRequest[]>([]);
+    // 대행사 ↔ 하위 거래 — 우리는 관여하지 않고 보기만 한다(정산·분쟁 대비).
+    const [subReqs, setSubReqs] = useState<SubTokenRequest[]>([]);
     const [scope, setScope] = useState<'open' | 'all'>('open'); // 처리 대기 / 전체(히스토리)
     const [pick, setPick] = useState('');
     const [search, setSearch] = useState('');
@@ -44,10 +47,12 @@ export default function TokenChargePanel() {
             supabase.from('clients').select('id,company,is_agency').order('company'),
             listTokens(),
             listChargeRequests(),
-        ]).then(([cl, tk, rq]) => {
+            listSubRequests(),
+        ]).then(([cl, tk, rq, sr]) => {
             setClients((cl.data as ClientLite[]) ?? []);
             setRows(tk.data);
             setReqs(rq.data);
+            setSubReqs(sr.data);
             if (tk.error) setMsg(tk.error.message);
         });
     };
@@ -236,6 +241,53 @@ export default function TokenChargePanel() {
                     </div>
                 )}
                 {msg ? <p className="m-0 mt-3 text-[12px] text-[#475569]">{msg}</p> : null}
+            </div>
+
+            {/* ── 대행사 ↔ 하위 (읽기 전용) ─────────────────────────── */}
+            <div className="rounded-xl border border-[#e2e8f0] p-5">
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <div className="text-[15px] font-bold text-[#0f172a]">대행사 ↔ 하위 업체 거래</div>
+                    <span className="rounded bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-bold text-[#64748b]">읽기 전용</span>
+                </div>
+                <p className="m-0 mb-3 text-[12px] leading-5 text-[#64748b]">
+                    대행사가 자기 하위 업체에 되파는 건입니다. <b>처리는 대행사가 하고 우리는 관여하지 않습니다.</b>
+                    {' '}금액이 우리 DB에 남아 정산·분쟁 때 근거가 됩니다.
+                </p>
+                {subReqs.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-4 py-8 text-center text-sm text-[#94a3b8]">
+                        아직 거래가 없습니다.
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[720px] border-collapse text-[13px]">
+                            <thead>
+                                <tr className="border-b border-[#e2e8f0] text-left text-[#64748b]">
+                                    {['일시', '대행사', '하위 업체', '상태', '건수', '단가', '공급가'].map((h) => (
+                                        <th className="px-2 py-2 font-semibold" key={h}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {subReqs.slice(0, 30).map((r) => {
+                                    const c = chip(r.status);
+                                    return (
+                                        <tr className="border-b border-[#f1f5f9] text-[#334155]" key={r.id}>
+                                            <td className="whitespace-nowrap px-2 py-2">{dt(r.created_at)}</td>
+                                            <td className="whitespace-nowrap px-2 py-2 font-semibold">{clientName(r.agency_client_id)}</td>
+                                            <td className="whitespace-nowrap px-2 py-2">{clientName(r.child_client_id)}</td>
+                                            <td className="whitespace-nowrap px-2 py-2">
+                                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${c.cls}`}>{c.label}</span>
+                                            </td>
+                                            <td className="px-2 py-2 font-bold">{r.quoted_count ?? r.requested_count ?? '-'}</td>
+                                            <td className="px-2 py-2">{r.unit_price != null ? `\u20A9${won(r.unit_price)}` : '-'}</td>
+                                            <td className="px-2 py-2 font-semibold">{r.amount != null ? `\u20A9${won(r.amount)}` : '-'}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
 
             {/* ── 수동 충전(신청과 무관 — 서비스 지급·보정) ─────────── */}

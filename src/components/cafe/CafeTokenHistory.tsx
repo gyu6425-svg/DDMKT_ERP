@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { myParentAgency } from '../../api/orgs';
+import { SubTokenPurchase } from '../portal/SubTokenPurchase';
 // ★ 일반 고객 화면에는 금액을 노출하지 않는다(건수만) — 사장님 지시 2026-08-10.
 //   예외는 대행사다. 대행사는 우리에게 '사서 되파는' 거래처라 통보 금액을 보고 입금해야 한다
 //   (2026-08-19 확정). 그래서 금액 표시는 is_agency 일 때만 켠다.
@@ -29,6 +31,8 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
     const [reqBusy, setReqBusy] = useState(false);
     const [txFilter, setTxFilter] = useState<'all' | 'charge' | 'use'>('all'); // 충전·사용 내역 토글
     const [isAgency, setIsAgency] = useState(false);   // 대행사만 금액·입금 신고 UI 를 본다
+    // 소속 대행사 — 있으면 우리가 아니라 그 대행사에게 신청한다(두 곳에 신청하면 어디 입금할지 알 수 없다).
+    const [parentAgency, setParentAgency] = useState<{ id: string | null; company: string | null }>({ id: null, company: null });
     const [payer, setPayer] = useState<Record<string, string>>({}); // 신청별 입금자명
     const [payBusy, setPayBusy] = useState<string | null>(null);
 
@@ -45,6 +49,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
         if (clientId) {
             void supabase.from('clients').select('is_agency').eq('id', clientId).maybeSingle()
                 .then(({ data }) => alive && setIsAgency(!!data?.is_agency));
+            void myParentAgency().then((a) => alive && setParentAgency(a));
         }
         return () => { alive = false; };
     }, [clientId]);
@@ -98,7 +103,10 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                 </div>
             </div>
 
-            {/* 충전 요청 */}
+            {/* 충전 요청 — 대행사 소속 업체는 그 대행사에게, 직거래 업체는 우리에게. */}
+            {parentAgency.id && clientId ? (
+                <SubTokenPurchase agencyName={parentAgency.company || '소속 대행사'} clientId={clientId} />
+            ) : (
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
                 <div className="mb-1 text-[15px] font-bold text-[#0f172a]">충전 요청</div>
                 <p className="mb-3 mt-0 text-[12px] text-[#64748b]">
@@ -170,6 +178,8 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                     </div>
                 ) : null}
             </div>
+
+            )}
 
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
                 <div className="mb-3 flex flex-wrap items-center gap-2">

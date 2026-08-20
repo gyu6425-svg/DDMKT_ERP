@@ -242,3 +242,72 @@ export async function agencyTransfers(agencyClientId: string) {
         .limit(50);
     return { data: (data ?? []) as AgencyTransfer[], error };
 }
+
+// ── 하위 업체 → 대행사 토큰 구매 (docs/agency-subrequest.sql) ────────────
+//   우리↔대행사(cafe_token_requests)와 같은 4단계지만 표가 다르다.
+//   이건 대행사가 처리하는 큐다 — 우리 큐에 섞이면 처리할 건과 구경만 할 건이 뒤섞인다.
+//   우리는 관여하지 않지만 볼 수는 있다(is_internal 읽기 정책).
+
+export type SubTokenRequest = {
+    id: string;
+    created_at: string;
+    child_client_id: string;
+    agency_client_id: string;
+    requested_count: number | null;
+    note: string | null;
+    status: string;                    // pending | quoted | paid | done | rejected
+    quoted_count: number | null;
+    unit_price: number | null;
+    amount: number | null;             // 공급가(부가세 미포함)
+    quoted_at: string | null;
+    paid_declared_at: string | null;
+    depositor: string | null;
+    granted_count: number | null;
+    handled_at: string | null;
+};
+
+// 조회는 RLS 가 알아서 좁힌다 — 하위는 자기 것, 대행사는 자기 하위 것, 내부는 전부.
+export async function listSubRequests(filter?: { agencyId?: string; childId?: string }) {
+    let q = supabase.from('agency_token_requests').select('*').order('created_at', { ascending: false });
+    if (filter?.agencyId) q = q.eq('agency_client_id', filter.agencyId);
+    if (filter?.childId) q = q.eq('child_client_id', filter.childId);
+    const { data, error } = await q;
+    return { data: (data ?? []) as SubTokenRequest[], error };
+}
+
+// 하위 업체
+export async function subRequestTokens(count: number, note?: string) {
+    const { error } = await supabase.rpc('sub_request_tokens', { p_count: count, p_note: note?.trim() || null });
+    return { error };
+}
+export async function subDeclarePayment(requestId: string, depositor?: string) {
+    const { error } = await supabase.rpc('sub_declare_payment', {
+        p_request_id: requestId, p_depositor: depositor?.trim() || null,
+    });
+    return { error };
+}
+
+// 대행사
+export async function agencyQuoteRequest(requestId: string, count: number, unitPrice: number) {
+    const { error } = await supabase.rpc('agency_quote_request', {
+        p_request_id: requestId, p_count: count, p_unit_price: unitPrice,
+    });
+    return { error };
+}
+export async function agencyFulfillRequest(requestId: string) {
+    const { error } = await supabase.rpc('agency_fulfill_request', { p_request_id: requestId });
+    return { error };
+}
+export async function agencyRejectRequest(requestId: string) {
+    const { error } = await supabase.rpc('agency_reject_request', { p_request_id: requestId });
+    return { error };
+}
+
+// 내 상위 대행사(하위 업체 화면에서 '누구에게 신청하는지' 표시용). 없으면 직거래.
+export async function myParentAgency(): Promise<{ id: string | null; company: string | null }> {
+    const { data } = await supabase.rpc('my_parent_agency_id');
+    const id = (data as string | null) ?? null;
+    if (!id) return { id: null, company: null };
+    const { data: c } = await supabase.from('clients').select('company').eq('id', id).maybeSingle();
+    return { id, company: (c as { company: string | null } | null)?.company ?? null };
+}

@@ -3,7 +3,8 @@ import { useAuth } from '../../hooks/useAuth';
 import {
     getMyOrg, agencyPendingSignups, agencyChildren, agencyApproveSignup, agencyReleaseSignup,
     agencyTransferTokens, agencyTransfers,
-    type MyOrg, type AgencyPendingSignup, type AgencyChild, type AgencyTransfer,
+    listSubRequests, agencyQuoteRequest, agencyFulfillRequest, agencyRejectRequest,
+    type MyOrg, type AgencyPendingSignup, type AgencyChild, type AgencyTransfer, type SubTokenRequest,
 } from '../../api/orgs';
 import { listTokens, balanceOf, won, vatOf, totalOf } from '../../api/cafeTokens';
 
@@ -14,7 +15,21 @@ import { listTokens, balanceOf, won, vatOf, totalOf } from '../../api/cafeTokens
 //   ※ 하위 업체가 대행사에 넣는 접수는 대행사가 자기 시스템에서 관리한다(우리는 관여하지 않음).
 
 const fmtDate = (s: string | null) => (s ? s.slice(0, 10) : '-');
+// 하위 → 대행사 충전 신청 상태. 우리↔대행사 화면과 같은 4단계다.
+const REQ_STATUS: Record<string, { label: string; cls: string }> = {
+    pending:  { label: '신청',      cls: 'bg-[#fef9c3] text-[#854d0e]' },
+    quoted:   { label: '금액 통보', cls: 'bg-[#dbeafe] text-[#1d4ed8]' },
+    paid:     { label: '입금 신고', cls: 'bg-[#ffedd5] text-[#c2410c]' },
+    done:     { label: '발행 완료', cls: 'bg-[#dcfce7] text-[#166534]' },
+    rejected: { label: '반려',      cls: 'bg-[#fee2e2] text-[#b91c1c]' },
+};
 const fmtDT = (s: string | null) => (s ? new Date(s).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '');
+// 발행 직전 확인 — 내 잔액에서 빠진다는 사실을 반드시 보여준다(되돌릴 수 없다).
+const CONFIRM_MSG = (child: string, n: number, amount: number, bal: number) =>
+    [`${child} 에 ${n}건을 발행합니다.`,
+     `입금(\u20A9${won(totalOf(amount))})을 확인하셨습니까?`,
+     '',
+     `내 잔여 토큰 ${bal}건에서 ${n}건이 빠집니다.`].join('\n');
 
 export default function AgencyOrgPanel() {
     const { profile } = useAuth();
@@ -26,6 +41,8 @@ export default function AgencyOrgPanel() {
     const [pending, setPending] = useState<AgencyPendingSignup[]>([]);
     const [kids, setKids] = useState<AgencyChild[]>([]);
     const [transfers, setTransfers] = useState<AgencyTransfer[]>([]);
+    const [subReqs, setSubReqs] = useState<SubTokenRequest[]>([]);
+    const [quote, setQuote] = useState<Record<string, { count: string; price: string }>>({});
     const [balance, setBalance] = useState(0);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -41,13 +58,14 @@ export default function AgencyOrgPanel() {
         setLoading(true);
         void Promise.all([
             getMyOrg(clientId), agencyPendingSignups(), agencyChildren(),
-            listTokens(clientId), agencyTransfers(clientId),
-        ]).then(([o, p, c, t, tr]) => {
+            listTokens(clientId), agencyTransfers(clientId), listSubRequests({ agencyId: clientId }),
+        ]).then(([o, p, c, t, tr, sr]) => {
             setOrg(o.data);
             setPending(p.data);
             setKids(c.data);
             setBalance(balanceOf(t.data, clientId));
             setTransfers(tr.data);
+            setSubReqs(sr.data);
             setErr(o.error || p.error?.message || c.error?.message || '');
             setLoading(false);
         });
@@ -83,6 +101,8 @@ export default function AgencyOrgPanel() {
     const live = org.invites.filter((i) => i.active);
     // 하위도 없고 대기 신청도 없는데 코드가 쓰인 적은 있다 = 권한 미설정이거나 그 업체가 이미 정리된 것.
     const usedAny = org.invites.some((i) => i.used_count > 0);
+    const openReqs = subReqs.filter((r) => r.status !== 'done' && r.status !== 'rejected');
+    const childName = (id: string) => kids.find((k) => k.client_id === id)?.company || '-';
 
     return (
         <section className="grid gap-5">
@@ -96,7 +116,7 @@ export default function AgencyOrgPanel() {
             </header>
 
             {/* 요약 */}
-            <div className="grid grid-cols-3 gap-3 max-[700px]:grid-cols-1">
+            <div className="grid grid-cols-4 gap-3 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1">
                 <div className="rounded-xl border border-[#e2e8f0] p-4">
                     <div className="text-[12px] font-semibold text-[#64748b]">하위 업체</div>
                     <div className="mt-1 text-[26px] font-bold text-[#0f172a]">{kids.length}<span className="ml-1 text-[15px] font-semibold text-[#94a3b8]">곳</span></div>
@@ -109,6 +129,12 @@ export default function AgencyOrgPanel() {
                     <div className="text-[12px] font-semibold text-[#64748b]">가입 승인 대기</div>
                     <div className={`mt-1 text-[26px] font-bold ${pending.length ? 'text-[#c2410c]' : 'text-[#0f172a]'}`}>
                         {pending.length}<span className="ml-1 text-[15px] font-semibold text-[#94a3b8]">건</span>
+                    </div>
+                </div>
+                <div className={`rounded-xl border p-4 ${openReqs.length ? 'border-[#fdba74] bg-[#fff7ed]' : 'border-[#e2e8f0]'}`}>
+                    <div className="text-[12px] font-semibold text-[#64748b]">충전 신청 대기</div>
+                    <div className={`mt-1 text-[26px] font-bold ${openReqs.length ? 'text-[#c2410c]' : 'text-[#0f172a]'}`}>
+                        {openReqs.length}<span className="ml-1 text-[15px] font-semibold text-[#94a3b8]">건</span>
                     </div>
                 </div>
             </div>
@@ -173,6 +199,104 @@ export default function AgencyOrgPanel() {
                                 </div>
                             </div>
                         ))}
+                    </div>
+                )}
+            </div>
+
+            {/* ── 하위 충전 신청 처리 ────────────────────────────── */}
+            <div className="rounded-xl border border-[#e2e8f0]">
+                <div className="border-b border-[#e2e8f0] px-4 py-3">
+                    <div className="text-[14px] font-bold text-[#0f172a]">
+                        하위 충전 신청 <span className="text-[#c2410c]">{openReqs.length}</span>
+                        <span className="ml-1 text-[12px] font-normal text-[#94a3b8]">/ 전체 {subReqs.length}</span>
+                    </div>
+                    <p className="m-0 mt-1 text-[12px] leading-5 text-[#64748b]">
+                        신청 → <b>금액 통보</b> → 하위 업체가 계좌이체 후 <b>입금 신고</b> → 확인 후 <b>토큰 발행</b>.
+                        {' '}발행하면 내 잔여 토큰에서 그만큼 빠져 하위 업체로 넘어갑니다. 금액은 부가세 별도입니다.
+                    </p>
+                </div>
+                {subReqs.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-[13px] text-[#94a3b8]">받은 충전 신청이 없습니다.</div>
+                ) : (
+                    <div className="grid gap-2 p-3">
+                        {subReqs.slice(0, 20).map((r) => {
+                            const st = REQ_STATUS[r.status] ?? { label: r.status, cls: 'bg-[#f1f5f9] text-[#64748b]' };
+                            const n = r.quoted_count ?? r.requested_count ?? 0;
+                            const q = quote[r.id] ?? { count: String(n || ''), price: String(r.unit_price ?? '') };
+                            const supply = (Number(q.count) || 0) * (Number(q.price) || 0);
+                            const closed = r.status === 'done' || r.status === 'rejected';
+                            return (
+                                <div className="rounded-lg border border-[#e2e8f0] px-3 py-2.5 text-[13px]" key={r.id}>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${st.cls}`}>{st.label}</span>
+                                        <b className="text-[#0f172a]">{childName(r.child_client_id)}</b>
+                                        <span className="text-[#4338ca]">{r.requested_count ? `${r.requested_count}건 신청` : '건수 미지정'}</span>
+                                        {r.note ? <span className="text-[#64748b]">· {r.note}</span> : null}
+                                        <span className="ml-auto text-[11px] text-[#cbd5e1]">{fmtDT(r.created_at)}</span>
+                                    </div>
+
+                                    {r.amount != null ? (
+                                        <div className="mt-1.5 text-[12px] text-[#334155]">
+                                            통보 <b>{r.quoted_count}건</b> × ₩{won(r.unit_price ?? 0)} = 공급가 <b>₩{won(r.amount)}</b>
+                                            <span className="text-[#94a3b8]"> + VAT ₩{won(vatOf(r.amount))}</span>
+                                            {' '}→ 입금액 <b className="text-[#c2410c]">₩{won(totalOf(r.amount))}</b>
+                                        </div>
+                                    ) : null}
+                                    {r.paid_declared_at ? (
+                                        <div className="mt-1 text-[12px] font-semibold text-[#c2410c]">
+                                            입금 신고 {fmtDT(r.paid_declared_at)}
+                                            {r.depositor ? <span className="ml-1 font-normal text-[#64748b]">· 입금자 {r.depositor}</span> : null}
+                                        </div>
+                                    ) : null}
+                                    {r.status === 'done' ? (
+                                        <div className="mt-1 text-[12px] text-[#166534]">발행 {r.granted_count}건 · {fmtDT(r.handled_at)}</div>
+                                    ) : null}
+
+                                    {closed ? null : (
+                                        <div className="mt-2 flex flex-wrap items-end gap-2">
+                                            <div>
+                                                <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">건수</div>
+                                                <input className="h-8 w-20 rounded border border-[#cbd5e1] px-2 text-[13px]" min={1} type="number"
+                                                    onChange={(e) => setQuote((m) => ({ ...m, [r.id]: { ...q, count: e.target.value } }))} value={q.count} />
+                                            </div>
+                                            <div>
+                                                <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">판매 단가</div>
+                                                <input className="h-8 w-24 rounded border border-[#cbd5e1] px-2 text-[13px]" min={0} step={1000} type="number"
+                                                    onChange={(e) => setQuote((m) => ({ ...m, [r.id]: { ...q, price: e.target.value } }))} value={q.price} />
+                                            </div>
+                                            {supply > 0 ? (
+                                                <div className="pb-1 text-[12px] text-[#475569]">
+                                                    공급가 <b>₩{won(supply)}</b> · 입금 <b className="text-[#c2410c]">₩{won(totalOf(supply))}</b>
+                                                </div>
+                                            ) : null}
+                                            <button className="h-8 rounded bg-[#1e40af] px-3 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
+                                                disabled={busy !== null || !Number(q.count) || q.price === ''}
+                                                onClick={() => void run(r.id, () => agencyQuoteRequest(r.id, Number(q.count), Number(q.price)),
+                                                    `${childName(r.child_client_id)} 에 ${q.count}건 · 공급가 \u20A9${won(supply)} 통보`)}
+                                                type="button">
+                                                {r.status === 'pending' ? '금액 통보' : '금액 재통보'}
+                                            </button>
+                                            <button className="h-8 rounded bg-[#059669] px-3 text-[12px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                                                disabled={busy !== null || r.status !== 'paid'}
+                                                title={r.status === 'paid' ? '입금을 확인하셨다면 발행합니다' : '하위 업체의 입금 신고 후에 활성화됩니다'}
+                                                onClick={() => {
+                                                    if (!window.confirm(CONFIRM_MSG(childName(r.child_client_id), n, r.amount ?? 0, balance))) return;
+                                                    void run(r.id, () => agencyFulfillRequest(r.id), `${childName(r.child_client_id)} 에 ${n}건 발행 완료`);
+                                                }}
+                                                type="button">
+                                                입금 확인 · 토큰 발행
+                                            </button>
+                                            <button className="h-8 rounded border border-[#cbd5e1] px-2 text-[12px] font-semibold text-[#64748b] disabled:opacity-50"
+                                                disabled={busy !== null}
+                                                onClick={() => void run(r.id, () => agencyRejectRequest(r.id), '반려했습니다')}
+                                                type="button">
+                                                반려
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>
