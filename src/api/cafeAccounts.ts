@@ -40,7 +40,39 @@ export async function getCafeAccounts() {
     return { data: (data ?? []) as CafeAccount[], error };
 }
 
+// 등록/수정. ⚠️ 정체성은 client_id 다 — company_key 가 아니다.
+//   예전엔 upsert(onConflict:'company_key') 하나뿐이라, 담당자가 업체 키를 한 글자라도 다르게 적으면
+//   기존 행이 안 잡히고 **새 행이 조용히 생겼다**. 새 행은 is_own·publish_enabled 가 DB 기본값(false)이라
+//   자체 발행 섹션에도 안 뜨고, 화면엔 값이 빈 원래 행만 보인다 — 눌러도 "반영이 안 된다"로만 보인다.
+//   (실측: 든든한누수탐지 경기 · company_key 자리에 UI 라벨 '자체 발행'이 들어감 · 3회 반복. 2026-08-20)
+//   그래서 client_id 로 기존 행을 먼저 찾아 UPDATE 한다. 못 찾을 때만 새로 만든다.
 export async function upsertCafeAccount(input: Partial<CafeAccount> & { company_key: string; display_name: string }) {
+    if (input.client_id) {
+        const { data: rows } = await supabase.from('cafe_accounts')
+            .select('id,company_key').eq('client_id', input.client_id);
+        // 같은 고객이 카페를 여럿 가질 수 있다 — 업체 키가 맞는 행을 먼저, 하나뿐이면 그 행을.
+        //   여러 행인데 키가 하나도 안 맞으면 진짜 '두 번째 카페' 이므로 새로 만든다.
+        const match = (rows ?? []).find((r) => r.company_key === input.company_key.trim())
+            ?? ((rows ?? []).length === 1 ? rows![0] : null);
+        if (match) {
+            // ★ 값이 들어온 필드만 덮는다. 빈 칸을 그대로 밀면 이미 등록된 카페 URL·게시판명이 지워진다
+            //   (등록 폼엔 club_id 칸이 없어서 매번 빈 값으로 들어온다).
+            const patch: Record<string, unknown> = {};
+            const put = (k: keyof CafeAccount, v: unknown) => { if (v !== undefined && v !== null && v !== '') patch[k] = v; };
+            put('display_name', input.display_name?.trim());
+            put('board_name', input.board_name);
+            put('board_short', input.board_short);
+            put('cafe_name', input.cafe_name);
+            put('club_id', input.club_id);
+            put('note', input.note);
+            // ⚠️ company_key 는 **절대 갱신하지 않는다**. 크롤러·발행큐가 이 키로 업체를 찾는다
+            //   (cafe_rank_sync COMPANY_BOARD, cafe_gen_requests.company). 담당자가 폼에 뭘 적든
+            //   기존 키를 그대로 둔다 — 이번 사고도 이 칸에 UI 라벨이 들어가서 생겼다.
+            if (!Object.keys(patch).length) return { error: null };
+            const { error } = await supabase.from('cafe_accounts').update(patch).eq('id', match.id);
+            return { error };
+        }
+    }
     const payload = {
         active: input.active ?? true,
         board_name: input.board_name || input.board_short || input.display_name,

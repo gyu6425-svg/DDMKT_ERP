@@ -11,8 +11,10 @@ import { CafeCustomerStudio } from '../../cafe/CafeCustomerStudio';
 //   고객사 목록 = publish_enabled 된 카페 계정. 각 업체의 잔여 토큰 표시. 선택 시 그 업체 발행 스튜디오 노출.
 export function CafeAdminPublishTab() {
     const [accts, setAccts] = useState<CafeAccount[]>([]);
-    // client_id → { company, parent } — 그룹(부모: 더업스) + 업체명 표시용.
-    const [clientInfo, setClientInfo] = useState<Record<string, { company: string; parent: string | null }>>({});
+    // client_id → { company, isAgency, agencyId } — 업체명 + 대행사 계층 표시용.
+    //   ⚠️ 예전엔 parent(=parent_company)로 묶었는데 그 값을 늘 null 로 넣고 있어 그룹이 한 번도 안 잡혔다.
+    //      계층의 근거는 clients.parent_client_id 하나뿐이다(src/api/orgs.ts 와 같은 기준).
+    const [clientInfo, setClientInfo] = useState<Record<string, { company: string; isAgency: boolean; agencyId: string | null }>>({});
     const [balById, setBalById] = useState<Record<string, number>>({}); // client_id → 잔여 토큰(원장)
     const [reservedById, setReservedById] = useState<Record<string, number>>({}); // client_id → 예약(발행요청 미완료) 건수 = 즉시 차감분
     // 선택 고객 client_id — 세팅해두면 유지(새로고침·재방문에도). localStorage 지속.
@@ -49,11 +51,11 @@ export function CafeAdminPublishTab() {
             setReservedById(reserved);
             setLoading(false);
         });
-        // 클라이언트 회사명·상위그룹(parent_company) — 발행 선택에 "더업스 › 방문요양" 표시용.
-        // 이름표만 필요하다 — clients 전체(*) 107 KB 를 8초마다 받던 걸 id·company(15 KB)로 줄였다.
+        // 클라이언트 회사명 + 대행사 계층 — 발행 선택을 업체/대행사/하부업체로 가르는 근거.
+        // 이름표만 필요하다 — clients 전체(*) 107 KB 를 8초마다 받던 걸 4개 컬럼(15 KB)으로 줄였다.
         void getClientLabels().then(({ data }) => {
-            const m: Record<string, { company: string; parent: string | null }> = {};
-            for (const c of data) m[c.id] = { company: c.company || '', parent: null };
+            const m: Record<string, { company: string; isAgency: boolean; agencyId: string | null }> = {};
+            for (const c of data) m[c.id] = { company: c.company || '', isAgency: !!c.is_agency, agencyId: c.parent_client_id };
             setClientInfo(m);
         });
     };
@@ -97,15 +99,21 @@ export function CafeAdminPublishTab() {
                     const own = accts.filter((a) => a.is_own);
                     const client = accts.filter((a) => !a.is_own);
 
-                    // 상위 그룹(parent_company: 더업스)으로 묶어 표시 — "더업스 › 방문요양 / 순댓국 …"으로 카페 구별.
-                    const byParent = new Map<string, CafeAccount[]>();
-                    for (const a of client) {
-                        const parent = clientInfo[a.client_id!]?.parent || '';
-                        (byParent.get(parent) ?? byParent.set(parent, []).get(parent)!).push(a);
-                    }
-                    // 그룹 있는 것 먼저(이름순), 단독(그룹 없음)은 마지막.
-                    const groups = [...byParent.entries()].sort((x, y) => (x[0] ? 0 : 1) - (y[0] ? 0 : 1) || x[0].localeCompare(y[0]));
-                    const btn = (a: CafeAccount, showBiz: boolean) => {
+                    // ── 4단 구분(요청 2026-08-20) ────────────────────────────────
+                    //   업체 발행(직거래) / 대행사 업체 / 하부 업체 / 자체 발행.
+                    //   판정 근거는 clients 두 컬럼뿐이다 — is_agency, parent_client_id.
+                    //   ⚠️ 컬럼 없는 DB 로 폴백되면 둘 다 null 이라 전부 '업체 발행'으로 모인다.
+                    //      섹션이 어긋나는 편이 낫다 — 카드가 사라지면 그 업체는 발행 자체를 못 한다.
+                    const info = (a: CafeAccount) => clientInfo[a.client_id!];
+                    const agency = client.filter((a) => info(a)?.isAgency);
+                    const sub = client.filter((a) => !info(a)?.isAgency && info(a)?.agencyId);
+                    const direct = client.filter((a) => !info(a)?.isAgency && !info(a)?.agencyId);
+                    // 하부 업체 카드에 붙일 소속 대행사 이름 — 대행사가 카페 계정이 없어도 clients 이름표엔 있다.
+                    const agencyName = (a: CafeAccount) => {
+                        const pid = info(a)?.agencyId;
+                        return pid ? (clientInfo[pid]?.company || '') : '';
+                    };
+                    const btn = (a: CafeAccount, showBiz: boolean, agencyLabel?: string) => {
                         const reserved = reservedById[a.client_id!] ?? 0;   // 발행요청 미완료 = 즉시 차감
                         const bal = Math.max(0, (balById[a.client_id!] ?? 0) - reserved);
                         const active = sel === a.client_id;
@@ -120,7 +128,13 @@ export function CafeAdminPublishTab() {
                         return (
                             <button key={a.id} type="button" onClick={() => setSel(a.client_id!)}
                                 className={`min-w-[160px] rounded-lg border px-3 py-2 text-left text-sm ${active ? accent.on : 'border-[#e2e8f0] bg-white hover:bg-[#f8fafc]'}`}>
-                                <div className={`font-bold ${active ? accent.txt : 'text-[#334155]'}`}>{showBiz ? bizName : (a.display_name || bizName)}</div>
+                                <div className="flex items-start gap-2">
+                                    <div className={`font-bold ${active ? accent.txt : 'text-[#334155]'}`}>{showBiz ? bizName : (a.display_name || bizName)}</div>
+                                    {/* 소속 대행사 — 하부 업체 카드에만. 대행사마다 같은 업종 업체가 있어 이게 없으면 구별이 안 된다. */}
+                                    {agencyLabel ? (
+                                        <span className="ml-auto shrink-0 rounded bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-bold text-[#6d28d9]" title={`소속 대행사: ${agencyLabel}`}>{agencyLabel}</span>
+                                    ) : null}
+                                </div>
                                 {a.display_name && a.display_name !== bizName ? <div className="truncate text-[11px] text-[#94a3b8]" title={a.display_name}>{a.display_name}</div> : null}
                                 {/* 자체 카페는 토큰을 안 쓴다 — '잔여 0건'을 빨갛게 띄우면 매번 문제로 오해한다. */}
                                 {a.is_own ? (
@@ -140,25 +154,50 @@ export function CafeAdminPublishTab() {
                     };
                     return (
                         <div className="grid gap-3">
-                            {groups.map(([parent, list]) => (
-                                <div key={parent || '_none'}>
-                                    {parent ? (
-                                        <div className="mb-1.5 text-[12px] font-bold text-[#6d28d9]">🏢 {parent} <span className="font-normal text-[#94a3b8]">— 카페 {list.length}개</span></div>
-                                    ) : null}
-                                    <div className="flex flex-wrap gap-2">
-                                        {list.map((a) => btn(a, !!parent))}
+                            {/* ── ① 업체 발행 ── 대행사를 끼지 않은 직거래(설고점·더맨시스템·더티클리닉 …) */}
+                            {direct.length ? (
+                                <div>
+                                    <div className="mb-1.5 text-[12px] font-bold text-[#334155]">
+                                        🏢 업체 발행 <span className="font-normal text-[#94a3b8]">— 직거래 {direct.length}곳</span>
                                     </div>
+                                    <div className="flex flex-wrap gap-2">{direct.map((a) => btn(a, false))}</div>
                                 </div>
-                            ))}
-                            {/* ── 자체 발행 ── 고객 목록 아래에 선으로 끊어 따로 둔다. */}
+                            ) : null}
+                            {/* ── ② 대행사 업체 ── clients.is_agency */}
+                            {agency.length ? (
+                                <div className="border-t border-dashed border-[#cbd5e1] pt-3">
+                                    <div className="mb-1.5 text-[12px] font-bold text-[#6d28d9]">
+                                        🏬 대행사 업체 <span className="font-normal text-[#94a3b8]">— {agency.length}곳</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">{agency.map((a) => btn(a, false))}</div>
+                                </div>
+                            ) : null}
+                            {/* ── ③ 하부 업체 ── 대행사에 속한 업체. 카드마다 소속 대행사를 우측 상단에 적는다.
+                                   비어 있어도 대행사가 있으면 자리를 남긴다 — 섹션이 통째로 사라지면
+                                   '안 만들어졌다'로 보이고, 정작 손봐야 할 곳(조직도 연결)이 안 보인다. */}
+                            {sub.length || agency.length ? (
+                                <div className="border-t border-dashed border-[#cbd5e1] pt-3">
+                                    <div className="mb-1.5 text-[12px] font-bold text-[#6d28d9]">
+                                        🔗 하부 업체 <span className="font-normal text-[#94a3b8]">
+                                            {sub.length ? `— ${sub.length}곳 · 우측이 소속 대행사` : '— 아직 없음'}
+                                        </span>
+                                    </div>
+                                    {sub.length ? (
+                                        <div className="flex flex-wrap gap-2">{sub.map((a) => btn(a, false, agencyName(a)))}</div>
+                                    ) : (
+                                        <div className="rounded-lg border border-dashed border-[#e2e8f0] bg-[#f8fafc] px-3 py-2 text-[11px] text-[#94a3b8]">
+                                            조직도에서 대행사 아래로 연결하고 토큰을 발행하면 여기에 나타납니다.
+                                        </div>
+                                    )}
+                                </div>
+                            ) : null}
+                            {/* ── ④ 자체 발행 ── 우리 카페. 토큰을 안 쓴다. */}
                             {own.length ? (
-                                <div className="mt-1 border-t border-dashed border-[#cbd5e1] pt-3">
+                                <div className="border-t border-dashed border-[#cbd5e1] pt-3">
                                     <div className="mb-1.5 text-[12px] font-bold text-[#0f766e]">
                                         🏠 자체 발행 <span className="font-normal text-[#94a3b8]">— 우리 카페 {own.length}개 · 토큰 차감 없음</span>
                                     </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {own.map((a) => btn(a, false))}
-                                    </div>
+                                    <div className="flex flex-wrap gap-2">{own.map((a) => btn(a, false))}</div>
                                 </div>
                             ) : null}
                         </div>

@@ -120,9 +120,18 @@ export async function getClients() {
 
 // 이름표만 필요한 화면(발행탭 등)용 — clients 전체(*)는 1회 107 KB 라 반복 폴링에 쓰면 안 된다.
 //   실측 2026-08-14: 8초 폴링에 물려 하루 1 GB 넘게 나갔다. id·company 만 받으면 15 KB.
+export type ClientLabel = { id: string; company: string | null; is_agency: boolean | null; parent_client_id: string | null };
+
+// 이름표 + 대행사 계층(is_agency · parent_client_id). 카페 발행 선택을
+//   업체 / 대행사 / 하부업체 로 나누는 근거가 이 두 컬럼뿐이다(docs/agency-org-phase1.sql).
+//   ⚠️ parent_client_id 미적용 DB 도 있을 수 있어 컬럼 없으면 이름표만으로 폴백한다 —
+//      여기서 죽으면 발행 화면 전체가 빈 목록이 된다(그러면 발행을 아예 못 한다).
 export async function getClientLabels() {
+    const full = await supabase.from('clients').select('id,company,is_agency,parent_client_id');
+    if (!full.error) return { data: (full.data ?? []) as ClientLabel[], error: null };
     const { data, error } = await supabase.from('clients').select('id,company');
-    return { data: (data ?? []) as { id: string; company: string | null }[], error };
+    const rows = (data ?? []) as { id: string; company: string | null }[];
+    return { data: rows.map((r) => ({ ...r, is_agency: null, parent_client_id: null })) as ClientLabel[], error };
 }
 
 export async function insertClient(payload: Partial<ErpClient>) {

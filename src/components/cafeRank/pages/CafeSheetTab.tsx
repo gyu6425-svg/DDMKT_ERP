@@ -69,11 +69,15 @@ export function CafeSheetTab({
     };
     const prefillFromReq = (r: CafeRequest) => {
         setLinkedReq({ id: r.id, client_id: r.client_id, cafe_url: r.cafe_url });
+        // ★ 업체 키를 빈칸으로 두면 담당자가 그때그때 지어낸다 — 화면에 보이던 라벨('자체 발행')이
+        //   그대로 들어가 새 행이 생긴 사고가 있었다(2026-08-20). 이미 있는 계정의 키를 그대로 채운다.
+        const mine = accounts.filter((a) => a.client_id === r.client_id);
+        const base = mine.length === 1 ? mine[0] : null;
         setForm({
-            company_key: '',
-            display_name: r.cafe_name || r.business || '',
-            board_name: r.board_name || '',
-            board_short: r.board_name || '',
+            company_key: base?.company_key || '',
+            display_name: r.cafe_name || r.business || base?.display_name || '',
+            board_name: r.board_name || base?.board_name || '',
+            board_short: r.board_name || base?.board_short || '',
         });
         setShowAdd(true);
     };
@@ -219,7 +223,23 @@ export function CafeSheetTab({
 
             {showAdd && !readOnly ? (
                 <div className="grid gap-2 rounded-md border border-[#bfdbfe] bg-[#eff6ff] p-3 md:grid-cols-2">
-                    <input className="h-9 rounded border border-[#cbd5e1] px-3 text-sm" placeholder="업체 키 (예: dirty)" value={form.company_key} onChange={(e) => setForm({ ...form, company_key: e.target.value })} />
+                    {/* 무엇이 바뀔지 누르기 전에 보여준다 — '갱신인 줄 알았는데 새 행' 이 이 화면의 사고였다. */}
+                    {(() => {
+                        const cid = linkedReq?.client_id || scopeClientId;
+                        if (!cid) return null;
+                        const mine = accounts.filter((a) => a.client_id === cid);
+                        const hit = mine.find((a) => a.company_key === form.company_key.trim()) ?? (mine.length === 1 ? mine[0] : null);
+                        return hit ? (
+                            <div className="md:col-span-2 rounded border border-[#a7f3d0] bg-[#ecfdf5] px-2 py-1 text-[11px] font-semibold text-[#047857]">
+                                ↻ 기존 업체 <b>{hit.display_name || hit.company_key}</b>(<code>{hit.company_key}</code>) 를 갱신합니다 · 빈 칸은 기존 값 유지
+                            </div>
+                        ) : (
+                            <div className="md:col-span-2 rounded border border-[#fde68a] bg-[#fffbeb] px-2 py-1 text-[11px] font-semibold text-[#92400e]">
+                                ＋ <b>새 업체</b>로 등록됩니다{mine.length ? ` — 이 고객에 이미 카페 계정 ${mine.length}개가 있습니다` : ''}
+                            </div>
+                        );
+                    })()}
+                    <input className="h-9 rounded border border-[#cbd5e1] px-3 text-sm" placeholder="업체 키 (예: dirty · 영문·숫자·_)" value={form.company_key} onChange={(e) => setForm({ ...form, company_key: e.target.value })} />
                     <input className="h-9 rounded border border-[#cbd5e1] px-3 text-sm" placeholder="업체명 (예: 더티클리닉)" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} />
                     <input className="h-9 rounded border border-[#cbd5e1] px-3 text-sm" placeholder="전체 게시판명" value={form.board_name} onChange={(e) => setForm({ ...form, board_name: e.target.value })} />
                     <input className="h-9 rounded border border-[#cbd5e1] px-3 text-sm" placeholder="표시 탭명" value={form.board_short} onChange={(e) => setForm({ ...form, board_short: e.target.value })} />
