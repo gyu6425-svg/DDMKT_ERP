@@ -128,6 +128,12 @@ export function CafeAdminPublishTab() {
                                 ) : (
                                     <div className={`text-[12px] ${bal > 0 ? 'text-[#059669]' : 'text-[#dc2626]'}`}>잔여 토큰 {bal}건{reserved ? <span className="text-[#b45309]"> · 발행중 {reserved}</span> : null}</div>
                                 )}
+                                {/* 카페 URL 이 아직 없는 계정 — 이 상태로 발행하면 어디로 나갈지 알 수 없다.
+                                    club_id 기본값이 예전엔 마이클 카페였어서 '조용히 남의 카페로' 묶이는 사고가 가능했다(2026-08-20 제거).
+                                    지금은 빈 값이라 안전하지만, 비어 있다는 사실 자체가 보여야 설정을 채우게 된다. */}
+                                {!a.club_id ? (
+                                    <div className="mt-0.5 text-[11px] font-bold text-[#b45309]">⚠ 카페 URL 미등록 — 선택 후 아래에서 설정</div>
+                                ) : null}
                                 {scanning ? <div className="mt-0.5 text-[11px] font-bold text-[#7c3aed]">🔎 인기탭 스캔중</div> : null}
                             </button>
                         );
