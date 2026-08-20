@@ -57,6 +57,44 @@ def log(msg):
         f.write(line + "\n")
 
 
+def notify_failure(reasons):
+    """백업 실패를 사람에게 밀어 보낸다.
+
+    ★ 왜 필요한가: 이 작업은 03:30 에 무인으로 돈다. 실패해도 남는 곳이 작업 스케줄러의
+      LastTaskResult 뿐이라 아무도 안 본다 — 조용히 30일이 흐를 수 있다(2026-08-20 독립검증 지적).
+      백업은 '없다는 걸 알게 되는 순간' 이 하필 복구가 급한 때라, 실패는 반드시 밀어야 한다.
+    메일이 안 되면 윈도우 알림이라도 띄운다. 알림 실패가 백업 스크립트를 죽이지는 않는다."""
+    body = ("자체호스팅 백업이 실패했습니다.\n\n  " + "\n  ".join(reasons) +
+            f"\n\n로그: {LOGP}\n"
+            "옛 백업은 지우지 않았습니다(실패한 날의 옛 백업이 유일한 사본일 수 있어서).\n"
+            "복구 절차: docs/백업-복구절차.md\n")
+    try:
+        import smtplib
+        from email.message import EmailMessage
+        p = subprocess.run(["ssh", "-n", "-i", KEY, "-o", "BatchMode=yes", VM,
+                            "grep -E '^SMTP_PASS=' ~/ddmkt-db/.env"],
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+        pw = (p.stdout.split("=", 1)[1].strip() if "=" in p.stdout else "")
+        if pw:
+            m = EmailMessage()
+            m["Subject"] = "⛔ [DDMKT] 백업 실패"
+            m["From"] = "든든한마케팅 <rlawhddls@ddmkt.com>"
+            m["To"] = "dog6425@ddmkt.com"
+            m.set_content(body)
+            s = smtplib.SMTP("smtp.worksmobile.com", 587, timeout=30)
+            s.ehlo(); s.starttls(); s.ehlo(); s.login("rlawhddls@ddmkt.com", pw)
+            s.send_message(m); s.quit()
+            log("  실패 알림 메일 발송")
+            return
+    except Exception as exc:
+        log(f"  실패 알림 메일 실패({type(exc).__name__}) — 윈도우 알림으로 대체")
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, body, "⛔ DDMKT 백업 실패", 0x10 | 0x1000)
+    except Exception:
+        pass
+
+
 def ssh(cmd, timeout=900):
     """VM 에서 셸 명령 실행. (rc, stdout, stderr)
 
@@ -102,25 +140,43 @@ docker cp {CT}:/tmp/{base}.schema.sql ~/backups/{DAY}/{base}.schema.sql
 docker exec {CT} sh -c 'rm -f /tmp/{base}.dump /tmp/{base}.schema.sql'
 gzip -f ~/backups/{DAY}/{base}.schema.sql
 cd ~/backups/{DAY}
+> SHA256
 for f in {base}.dump {base}.schema.sql.gz; do
+  # ★ 평문 지문은 **지우기 전에** 뜬다. 암호화한 뒤 복호화해서 뜨면 자기참조라,
+  #   암호화 도중 잘리거나 깨져도 그 손상본의 해시가 그대로 '정상' 으로 기록된다
+  #   (2026-08-20 독립검증 지적 — 원래 그렇게 돼 있었다).
+  PLAIN=$(sha256sum "$f" | cut -d' ' -f1)
+
   gpg --batch --yes --quiet --symmetric --cipher-algo AES256 \\
       --passphrase-file ~/.backup-pass -o "$f.gpg" "$f"
   test -s "$f.gpg"
-  rm -f "$f"                      # 평문 즉시 제거 — 잠긴 것만 남긴다
-done
-> SHA256
-for f in {base}.dump {base}.schema.sql.gz; do
-  # 암호문 해시 — 전송이 깨졌는지 본다(scp 로 같은 바이트가 왔는지).
-  sha256sum "$f.gpg" >> SHA256
-  # 평문 해시 — 이게 진짜 '내용' 지문이다. gpg 대칭암호는 매번 난수 솔트를 쓰므로
-  #   같은 데이터라도 다시 암호화하면 암호문 해시가 달라진다. 그래서 암호문 해시만 적어두면
-  #   재암호화한 사본을 '손상' 으로 오판한다(2026-08-20 QA 실측: 멀쩡한 백업이 FAILED 로 나왔다).
-  #   복호화한 뒤 이 값과 맞춰보면, 어느 PC 에서 언제 다시 잠갔든 내용 동일성을 확인할 수 있다.
-  echo "$(gpg --batch --quiet --decrypt --passphrase-file ~/.backup-pass "$f.gpg" | sha256sum | cut -d' ' -f1)  $f  (평문)" >> SHA256
+
+  # ★ 왕복 확인: 방금 잠근 것을 풀어 원본과 같은지 본다. 여기서 같아야만 평문을 지운다.
+  #   `set -e` 는 파이프라인 끝(cut)의 종료코드만 보므로 gpg 실패를 놓친다(실측) →
+  #   중간 파일로 받아 종료코드를 직접 확인한다.
+  gpg --batch --quiet --decrypt --passphrase-file ~/.backup-pass -o "$f.rt" "$f.gpg"
+  RT=$(sha256sum "$f.rt" | cut -d' ' -f1)
+  rm -f "$f.rt"
+  if [ "$PLAIN" != "$RT" ]; then
+    echo "ROUNDTRIP_MISMATCH $f"; exit 8
+  fi
+
+  rm -f "$f"                      # 왕복이 맞을 때만 평문 제거
+  sha256sum "$f.gpg" >> SHA256    # 암호문 해시 — 전송이 깨졌는지(scp 바이트 동일성)
+  # 평문 해시 — 진짜 '내용' 지문. gpg 대칭암호는 매번 난수 솔트를 써서 다시 잠그면
+  #   암호문 해시가 달라진다. 암호문 해시만 적어두면 재암호화한 사본을 '손상' 으로 오판한다
+  #   (QA 실측: 멀쩡한 백업이 FAILED 로 나왔다).
+  echo "$PLAIN  $f  (평문)" >> SHA256
 done
 stat -c '%n %s' *""")
 if rc == 9 or "NO_PASSPHRASE" in (out or "") + (err or ""):
     log("❌ VM 에 ~/.backup-pass 가 없습니다 — 암호 없이는 백업하지 않습니다")
+    notify_failure(["VM 에 ~/.backup-pass 없음"])
+    sys.exit(1)
+if rc == 8 or "ROUNDTRIP_MISMATCH" in (out or ""):
+    # 암호화한 것을 풀었더니 원본과 다르다 = 잠긴 쓰레기. 평문은 아직 안 지웠다.
+    log(f"❌ 암호화 왕복 불일치 — 평문은 보존했습니다: {out[:200]}")
+    notify_failure(["암호화 왕복 불일치(잠근 파일이 원본과 다름)"])
     sys.exit(1)
 if rc != 0:
     log(f"❌ 덤프 실패: {err[:300]}")
@@ -210,6 +266,17 @@ if not ok3:
     fails.append("전체복원 행수 불일치")
 ssh(f"docker exec {CT} sh -c 'psql -U postgres -d postgres -c \"drop database if exists bkverify\" >/dev/null 2>&1; rm -f /tmp/v.dump'")
 
+# ── 검증에 실패했으면 여기서 끝낸다 — 정리보다 먼저 ──────────────
+#   ★ 순서가 핵심이다. 예전엔 fails 판정이 정리 코드 뒤에 있어서, **오늘 백업이 깨져도
+#     어제 것을 지웠다.** 실패가 7일 이어지면 VM 사본이 전멸한다.
+#     백업이 실패한 날은 옛 백업이 유일한 생명줄이므로, 그때야말로 아무것도 지우면 안 된다.
+#     (2026-08-20 독립검증 지적)
+if fails:
+    log("❌ 백업 실패 — " + " / ".join(fails))
+    log("   ⚠ 옛 백업은 지우지 않았습니다(실패한 날의 옛 백업이 유일한 사본일 수 있습니다)")
+    notify_failure(fails)
+    sys.exit(1)
+
 # ── 오래된 백업 정리 ────────────────────────────────────────────
 ssh(f"cd ~/backups && ls -1d 20* 2>/dev/null | sort | head -n -{SELF_KEEP} | xargs -r rm -rf")
 rc, left, _ = ssh("ls -1d ~/backups/20* 2>/dev/null | wc -l")
@@ -229,7 +296,4 @@ for d in sorted(root.glob("20*")):
 kept = len(list(root.glob("20*")))
 log(f"  main 보관 {kept}일분(최근 {MAIN_KEEP}일 + 일요일분, {removed}개 정리)")
 
-if fails:
-    log("❌ 백업 실패 — " + " / ".join(fails))
-    sys.exit(1)
 log(f"✅ 백업 정상 — {OUT}")
