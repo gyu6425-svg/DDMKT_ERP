@@ -21,7 +21,7 @@ import { pickPlaceUrl } from '../../api/cafeKwScan';
 import { ImageDropZone } from './ImageDropZone';
 import { getRegionTokens, startsWithRegion } from '../../api/cafeKwScan';
 import { fetchPlaceReviews } from '../../api/cafeKwScan';
-import { requestCharge } from '../../api/cafeTokens';
+import { requestCharge, listTokens, balanceOf } from '../../api/cafeTokens';
 import { downloadCsv, todayTag } from '../../lib/exportCsv';
 import { supabase } from '../../lib/supabase';
 
@@ -864,12 +864,40 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
         }
     };
 
+    // ── 선불 토큰 게이트 ────────────────────────────────────────────────
+    //   대행사·하위 업체는 **토큰을 먼저 충전해야** 주문서를 넣을 수 있다(사장님 지시 2026-08-20).
+    //   잔액 0이면 접수 자체를 막고, 총 발행건수도 잔액을 넘을 수 없다.
+    //   ★ 직거래 고객에게는 적용하지 않는다 — 기존 계약 방식(후정산)으로 쓰던 업체가 갑자기 막히면 안 된다.
+    const [tokenBal, setTokenBal] = useState<number | null>(null);   // null = 아직 모름(게이트 미적용)
+    const [gated, setGated] = useState(false);                       // 이 업체에 토큰 게이트를 적용하는가
+    useEffect(() => {
+        if (!clientId) return;
+        let alive = true;
+        void (async () => {
+            const { data: c } = await supabase
+                .from('clients').select('is_agency,parent_client_id').eq('id', clientId).maybeSingle();
+            const isOrg = !!(c?.is_agency || c?.parent_client_id);
+            if (!alive) return;
+            setGated(isOrg);
+            if (!isOrg) return;
+            const { data } = await listTokens(clientId);
+            if (alive) setTokenBal(balanceOf(data, clientId));
+        })();
+        return () => { alive = false; };
+    }, [clientId]);
+    const bal = tokenBal ?? 0;
+    const noToken = gated && bal <= 0;
+    const overBal = gated && (form.total_count ?? 0) > bal;
+
     // 접수 시: 총 발행건수보다 선택 키워드가 적으면 '미입력 N건' 확인(직접 고르기 / 담당자에게 맡기기).
     const [remainAsk, setRemainAsk] = useState<number | null>(null);
     const submit = () => {
         if (!clientId) return setMsg('고객 계정이 연결되어 있지 않습니다. 담당자에게 문의하세요.');
         if (!form.company_name.trim()) return setMsg('업체명을 입력하세요.');
         if (form.daily_count != null && form.daily_count > 5) return setMsg('일 발행건수는 최대 5건입니다.');
+        // 선불 토큰 — 화면에서 이미 막고 있지만, 잔액은 다른 탭에서 바뀔 수 있으므로 제출 직전에 한 번 더 본다.
+        if (noToken) return setMsg('발행 토큰이 없습니다. \u2018충전 요청\u2019 탭에서 먼저 충전해 주세요.');
+        if (overBal) return setMsg(`총 발행건수가 보유 토큰(${bal}건)을 넘습니다. 건수를 줄이거나 먼저 충전해 주세요.`);
         const target = form.total_count ?? 0;
         const shortfall = target - kwPicked.length;
         if (target > 0 && shortfall > 0) { setRemainAsk(shortfall); return; } // 미입력 → 확인 창
@@ -877,6 +905,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     };
     const doSubmit = async (delegate: boolean) => {
         if (!clientId) return;
+        // '맡길게요' 버튼은 submit() 을 거치지 않고 여기로 바로 온다 — 토큰 검사를 다시 한다.
+        if (noToken) return setMsg('발행 토큰이 없습니다. ‘충전 요청’ 탭에서 먼저 충전해 주세요.');
+        if (overBal) return setMsg(`총 발행건수가 보유 토큰(${bal}건)을 넘습니다.`);
         setRemainAsk(null);
         setBusy(true); setMsg('');
         // 사진 업로드(압축)
@@ -1215,6 +1246,20 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                     </button>
                 </div>
                 <p className="mb-4 mt-0 text-[13px] text-[#64748b]">배포를 원하시는 내용과 사진을 접수해 주세요. 담당자 확인 후 세팅해 드립니다. (금액·정산은 별도 안내)</p>
+
+                {/* 선불 토큰 안내 — 잔액이 없으면 접수 버튼을 막고 어디로 가야 하는지 알려 준다. */}
+                {gated ? (
+                    noToken ? (
+                        <div className="mb-4 rounded-lg border border-[#fca5a5] bg-[#fef2f2] px-4 py-3 text-[13px] leading-6 text-[#b91c1c]">
+                            <b>발행 토큰이 없습니다.</b> 주문서를 넣으시려면 <b>‘충전 요청’ 탭</b>에서 먼저 충전해 주세요.
+                            <br />충전이 완료되면 보유 건수만큼 주문서를 작성하실 수 있습니다.
+                        </div>
+                    ) : (
+                        <div className="mb-4 rounded-lg border border-[#bfdbfe] bg-[#eff6ff] px-4 py-2.5 text-[13px] font-semibold text-[#1e40af]">
+                            보유 발행 토큰 <b>{bal}건</b> — 총 발행건수는 이 범위 안에서만 작성하실 수 있습니다.
+                        </div>
+                    )
+                ) : null}
 
                 {/* 발굴 적재함은 화면 맨 위 — ①연관어·②주소 어느 쪽으로 찾든 여기로 모이고,
                     여기서 지역 칩을 골라 지역까지 확장한다. 아래 결과 목록과 달리 조회를 새로 해도 안 지워진다. */}
@@ -1769,8 +1814,21 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 placeholder="최대 5건" />
                         </div>
                         <div>
-                            <label className={labelCls}>총 발행건수 <span className="font-normal text-[#94a3b8]">(제한 없음)</span></label>
-                            <input className={inputCls} type="number" min={0} value={form.total_count ?? ''} onChange={(e) => set('total_count', e.target.value === '' ? null : Math.max(0, Number(e.target.value)))} placeholder="0건" />
+                            <label className={labelCls}>총 발행건수{' '}
+                                <span className="font-normal text-[#94a3b8]">{gated ? `(보유 토큰 ${bal}건까지)` : '(제한 없음)'}</span>
+                            </label>
+                            {/* 게이트가 걸린 업체는 잔액을 넘는 값이 아예 입력되지 않게 잘라낸다.
+                                제출할 때 알려주면 폼을 다 채운 뒤에 되돌아가야 한다. */}
+                            <input className={inputCls} type="number" min={0} max={gated ? bal : undefined}
+                                value={form.total_count ?? ''}
+                                onChange={(e) => set('total_count', e.target.value === '' ? null
+                                    : Math.min(gated ? bal : Number.MAX_SAFE_INTEGER, Math.max(0, Number(e.target.value))))}
+                                placeholder="0건" />
+                            {gated && (form.total_count ?? 0) > 0 ? (
+                                <div className="mt-1 text-[11px] text-[#64748b]">
+                                    접수 후 잔여 <b>{Math.max(0, bal - (form.total_count ?? 0))}건</b>
+                                </div>
+                            ) : null}
                         </div>
                         <div>
                             <label className={labelCls}>상품종류</label>
@@ -1871,8 +1929,8 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                 ) : null}
 
                 <div className="mt-4 flex items-center gap-3">
-                    <button data-tour="cafe-deploy-submit" className="h-10 rounded-md bg-[#4338ca] px-6 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50" disabled={busy || !clientId} onClick={() => void submit()} type="button">
-                        {busy ? '접수 중…' : `접수하기${totalFiles ? ` (사진 ${totalFiles})` : ''}`}
+                    <button data-tour="cafe-deploy-submit" className="h-10 rounded-md bg-[#4338ca] px-6 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50" disabled={busy || !clientId || noToken || overBal} onClick={() => void submit()} type="button">
+                        {busy ? '접수 중…' : noToken ? '토큰 충전 후 접수 가능' : `접수하기${totalFiles ? ` (사진 ${totalFiles})` : ''}`}
                     </button>
                     {msg && <span className="text-[13px] text-[#475569]">{msg}</span>}
                 </div>
