@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import {
-    listTokens, grantTokens, balanceOf, listChargeRequests, setChargeRequestStatus,
+    listTokens, grantTokens, balanceOf, listChargeRequests,
     quoteChargeRequest, fulfillChargeRequest,
     won, vatOf, totalOf, intOnly, MAX_COUNT, MAX_UNIT_PRICE, TOKEN_PRICE_KRW,
     getDefaultUnitPrice, setDefaultUnitPrice,
@@ -158,11 +158,6 @@ export default function TokenChargePanel() {
                         </button>
                     </div>
                 </div>
-                <p className="m-0 mb-3 text-[12px] leading-5 text-[#64748b]">
-                    신청 → <b>금액 통보</b> → 대행사가 계좌이체 후 <b>입금 신고</b> → 통장 확인 후 <b>토큰 발행</b>.
-                    {' '}금액은 <b>공급가(부가세 미포함)</b> 이고, 실제 입금액은 여기에 VAT 10% 를 더한 값입니다.
-                </p>
-
                 {view.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-4 py-10 text-center text-sm text-[#94a3b8]">
                         {scope === 'open' ? '처리할 신청이 없습니다.' : '신청 내역이 없습니다.'}
@@ -209,8 +204,11 @@ export default function TokenChargePanel() {
                                         <div className="mt-1 text-[12px] text-[#166534]">발행 {q.granted_count ?? '-'}건 · {dt(q.handled_at)}</div>
                                     ) : null}
 
-                                    {/* 조작 */}
-                                    {q.status === 'done' || q.status === 'rejected' ? null : (
+                                    {/* 조작 — 단계마다 누를 것이 하나만 보이게 한다.
+                                        신청(pending) 이면 금액 통보, 입금 신고(paid) 면 토큰 발행.
+                                        통보를 마친 건에는 '재통보'를 두지 않는다(사장님 지시 2026-08-20) —
+                                        대행사가 그 금액을 보고 입금하는 중이라 금액이 바뀌면 입금액과 기록이 어긋난다. */}
+                                    {q.status === 'pending' ? (
                                         <div className="mt-2 flex flex-wrap items-end gap-2">
                                             <div>
                                                 <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">건수</div>
@@ -237,32 +235,31 @@ export default function TokenChargePanel() {
                                                 공급가 <b>₩{won(preview)}</b> · 입금 <b className="text-[#c2410c]">₩{won(totalOf(preview))}</b>
                                             </div>
                                             <button
-                                                className="h-8 rounded bg-[#1e40af] px-3 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
-                                                disabled={busy}
+                                                className="h-8 rounded bg-[#1e40af] px-4 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
+                                                disabled={busy || !Number(cnt) || !Number(price)}
                                                 onClick={() => quote(q)}
                                                 type="button"
                                             >
-                                                {q.status === 'pending' ? '금액 통보' : '금액 재통보'}
+                                                금액 통보
                                             </button>
+                                        </div>
+                                    ) : q.status === 'quoted' ? (
+                                        <div className="mt-2 text-[12px] text-[#64748b]">
+                                            금액을 통보했습니다 — 대행사의 입금 신고를 기다리는 중입니다.
+                                        </div>
+                                    ) : q.status === 'paid' ? (
+                                        <div className="mt-2">
                                             <button
-                                                className="h-8 rounded bg-[#059669] px-3 text-[12px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
-                                                disabled={busy || q.status !== 'paid'}
+                                                className="h-8 rounded bg-[#059669] px-4 text-[12px] font-bold text-white hover:bg-[#047857] disabled:opacity-50"
+                                                disabled={busy}
                                                 onClick={() => fulfill(q)}
-                                                title={q.status === 'paid' ? '통장 확인 후 토큰을 발행합니다' : '대행사의 입금 신고 후에 활성화됩니다'}
+                                                title="통장에서 입금을 확인하셨다면 누르세요"
                                                 type="button"
                                             >
                                                 입금 확인 · 토큰 발행
                                             </button>
-                                            <button
-                                                className="h-8 rounded border border-[#cbd5e1] px-2 text-[12px] font-semibold text-[#64748b] disabled:opacity-50"
-                                                disabled={busy}
-                                                onClick={() => void act(() => setChargeRequestStatus(q.id, 'rejected'), '반려했습니다')}
-                                                type="button"
-                                            >
-                                                반려
-                                            </button>
                                         </div>
-                                    )}
+                                    ) : null}
                                 </div>
                             );
                         })}
@@ -277,10 +274,6 @@ export default function TokenChargePanel() {
                     <div className="text-[15px] font-bold text-[#0f172a]">대행사 ↔ 하위 업체 거래</div>
                     <span className="rounded bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-bold text-[#64748b]">읽기 전용</span>
                 </div>
-                <p className="m-0 mb-3 text-[12px] leading-5 text-[#64748b]">
-                    대행사가 자기 하위 업체에 되파는 건입니다. <b>처리는 대행사가 하고 우리는 관여하지 않습니다.</b>
-                    {' '}금액이 우리 DB에 남아 정산·분쟁 때 근거가 됩니다.
-                </p>
                 {subReqs.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-4 py-8 text-center text-sm text-[#94a3b8]">
                         아직 거래가 없습니다.
@@ -320,8 +313,7 @@ export default function TokenChargePanel() {
 
             {/* ── 수동 충전(신청과 무관 — 서비스 지급·보정) ─────────── */}
             <div className="rounded-xl border border-[#e2e8f0] p-5">
-                <div className="mb-1 text-[15px] font-bold text-[#0f172a]">직접 충전</div>
-                <p className="m-0 mb-3 text-[12px] text-[#64748b]">신청 없이 지급할 때만 씁니다(서비스 지급·보정). 정상 구매는 위에서 처리하세요.</p>
+                <div className="mb-3 text-[15px] font-bold text-[#0f172a]">직접 충전 <span className="text-[12px] font-normal text-[#94a3b8]">(서비스 지급·보정)</span></div>
                 <div className="grid gap-3 md:grid-cols-2">
                     <div>
                         <div className="mb-1 text-[12px] font-semibold text-[#64748b]">업체 선택</div>
