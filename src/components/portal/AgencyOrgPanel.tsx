@@ -200,23 +200,28 @@ export default function AgencyOrgPanel() {
             {msg ? <p className="m-0 rounded-lg bg-[#f0fdf4] px-4 py-2 text-[13px] font-semibold text-[#15803d]">{msg}</p> : null}
             {err ? <p className="m-0 rounded-lg bg-[#fef2f2] px-4 py-2 text-[13px] font-semibold text-[#b91c1c]">{err}</p> : null}
 
-            {/* ── 가입 승인 대기 ─────────────────────────────────── */}
-            <div className="rounded-xl border border-[#e2e8f0]">
-                <div className="border-b border-[#e2e8f0] px-4 py-3">
-                    <div className="text-[14px] font-bold text-[#0f172a]">
-                        가입 승인 대기 <span className="text-[#c2410c]">{pending.length}</span>
+            {/* ── 가입 승인 대기 ───────────────────────────────────
+                충전 신청과 같은 강조 규칙 — 대기 건이 있을 때만 띄운다. */}
+            <div className={pending.length
+                ? 'rounded-xl border-2 border-[#fb923c] bg-[#fffbf7] shadow-[0_2px_12px_rgba(251,146,60,0.18)]'
+                : 'rounded-xl border border-[#e2e8f0]'}>
+                <div className={`px-4 py-3 ${pending.length ? 'border-b border-[#fed7aa]' : 'border-b border-[#e2e8f0]'}`}>
+                    <div className="flex flex-wrap items-center gap-2 text-[14px] font-bold text-[#0f172a]">
+                        {pending.length ? <span className="text-[16px] leading-none">🙋</span> : null}
+                        <span>가입 승인 대기</span>
+                        {pending.length ? (
+                            <span className="rounded-full bg-[#c2410c] px-2 py-0.5 text-[12px] font-bold text-white">
+                                {pending.length}건 대기
+                            </span>
+                        ) : null}
                     </div>
-                    <p className="m-0 mt-1 text-[12px] leading-5 text-[#64748b]">
-                        내 초대 코드로 가입한 업체입니다. 승인하면 <b>바로 이용할 수 있게 되고 아래 하위 업체 목록에 들어갑니다.</b>
-                        {' '}내 업체가 아니면 반려해 주세요(계정은 삭제되지 않고 든든한마케팅 확인 대기로 넘어갑니다).
-                    </p>
                 </div>
                 {pending.length === 0 ? (
                     <div className="px-4 py-8 text-center text-[13px] text-[#94a3b8]">대기 중인 가입 신청이 없습니다.</div>
                 ) : (
                     <div className="grid gap-2 p-3">
                         {pending.map((s) => (
-                            <div className="rounded-lg border border-[#fed7aa] bg-[#fffbf7] px-3 py-2.5" key={s.profile_id}>
+                            <div className="rounded-lg border border-[#fdba74] bg-white px-3 py-2.5 shadow-sm" key={s.profile_id}>
                                 <div className="flex flex-wrap items-center gap-2 text-[13px]">
                                     <b className="text-[#0f172a]">{s.company || s.name || '(업체명 없음)'}</b>
                                     <span className="text-[#64748b]">{s.email}</span>
