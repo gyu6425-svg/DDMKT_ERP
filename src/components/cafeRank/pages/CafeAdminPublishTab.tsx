@@ -24,6 +24,9 @@ export function CafeAdminPublishTab() {
         if (id) localStorage.setItem('cafeAdminPubSel', id); else localStorage.removeItem('cafeAdminPubSel');
     };
     const [loading, setLoading] = useState(true);
+    // 구분 필터 — 업체가 늘면 네 묶음이 세로로 길어져 원하는 곳을 찾기 어렵다.
+    //   기본은 전체 보기. 자체 발행은 대상에서 뺐다(우리 카페라 고객사 구분과 축이 다르다) — 항상 보인다.
+    const [group, setGroup] = useState<'all' | 'direct' | 'agency' | 'sub'>('all');
 
     const reload = () => {
         void getCafeAccounts().then(async ({ data }) => {
@@ -90,7 +93,17 @@ export function CafeAdminPublishTab() {
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
                 <div className="mb-2 flex items-center gap-2">
                     <div className="text-[14px] font-bold text-[#0f172a]">발행할 고객사 선택</div>
-                    <button type="button" onClick={reload} className="ml-auto rounded-md border border-[#cbd5e1] px-2.5 py-1 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9]">새로고침</button>
+                    <select
+                        className="ml-auto h-8 rounded-md border border-[#cbd5e1] bg-white px-2 text-xs font-semibold text-[#475569]"
+                        onChange={(e) => setGroup(e.target.value as typeof group)}
+                        value={group}
+                    >
+                        <option value="all">전체 보기</option>
+                        <option value="direct">업체 발행(직거래)</option>
+                        <option value="agency">대행사 업체</option>
+                        <option value="sub">하부 업체</option>
+                    </select>
+                    <button type="button" onClick={reload} className="rounded-md border border-[#cbd5e1] px-2.5 py-1 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9]">새로고침</button>
                 </div>
                 {(() => {
                     // ── 자체 카페는 따로 뺀다(SUB2 요청 2026-08-20) ─────────────────
@@ -160,7 +173,7 @@ export function CafeAdminPublishTab() {
                     return (
                         <div className="grid gap-3">
                             {/* ── ① 업체 발행 ── 대행사를 끼지 않은 직거래(설고점·더맨시스템·더티클리닉 …) */}
-                            {direct.length ? (
+                            {direct.length && (group === 'all' || group === 'direct') ? (
                                 <div>
                                     <div className="mb-1.5 text-[12px] font-bold text-[#334155]">
                                         🏢 업체 발행 <span className="font-normal text-[#94a3b8]">— 직거래 {direct.length}곳</span>
@@ -169,7 +182,7 @@ export function CafeAdminPublishTab() {
                                 </div>
                             ) : null}
                             {/* ── ② 대행사 업체 ── clients.is_agency */}
-                            {agency.length ? (
+                            {agency.length && (group === 'all' || group === 'agency') ? (
                                 <div className="border-t border-dashed border-[#cbd5e1] pt-3">
                                     <div className="mb-1.5 text-[12px] font-bold text-[#6d28d9]">
                                         🏬 대행사 업체 <span className="font-normal text-[#94a3b8]">— {agency.length}곳</span>
@@ -180,7 +193,7 @@ export function CafeAdminPublishTab() {
                             {/* ── ③ 하부 업체 ── 대행사에 속한 업체. 카드마다 소속 대행사를 우측 상단에 적는다.
                                    비어 있어도 대행사가 있으면 자리를 남긴다 — 섹션이 통째로 사라지면
                                    '안 만들어졌다'로 보이고, 정작 손봐야 할 곳(조직도 연결)이 안 보인다. */}
-                            {sub.length || agency.length ? (
+                            {(sub.length || agency.length) && (group === 'all' || group === 'sub') ? (
                                 <div className="border-t border-dashed border-[#cbd5e1] pt-3">
                                     <div className="mb-1.5 text-[12px] font-bold text-[#6d28d9]">
                                         🔗 하부 업체 <span className="font-normal text-[#94a3b8]">
