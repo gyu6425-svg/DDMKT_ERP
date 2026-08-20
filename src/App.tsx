@@ -57,6 +57,8 @@ const routes = [
     { path: '/blog-semi', element: <SkeletonRankPage label="준최적화 블로그 배포" sheetOnly /> },
     { path: '/blog-jeoinmang', element: <SkeletonRankPage label="저인망 블로그 배포" sheetOnly /> },
     { path: '/portal', element: <CustomerOverviewPage /> },
+    // 계약 관리 — 통합 대시보드에 있던 카테고리별 계약 카드를 여기로 내렸다(대행사 요청).
+    { path: '/portal/contracts', element: <CustomerOverviewPage contractsView /> },
     { path: '/portal/place', element: <CustomerCategoryPage /> },
     { path: '/portal/insta', element: <CustomerCategoryPage /> },
     { path: '/portal/cafe', element: <CustomerCategoryPage /> },

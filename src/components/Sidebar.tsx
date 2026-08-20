@@ -196,6 +196,14 @@ function Sidebar() {
                     <>
                         {/* 통합 대시보드 + 계약(승인)된 카테고리·하위유형만 */}
                         {renderNavItem({ path: previewAs ? `/portal?as=${previewAs}` : '/portal', label: '통합 대시보드' })}
+                        {/* 계약 관리 — 통합 대시보드에 있던 계약 카드. 대행사는 대시보드가
+                            조직 현황으로 바뀌므로 계약은 이 메뉴로 본다. */}
+                        {isAgencyClient
+                            ? renderNavItem({
+                                  path: previewAs ? `/portal/contracts?as=${previewAs}` : '/portal/contracts',
+                                  label: '계약 관리',
+                              })
+                            : null}
                         {/* 조직 관리 — 대행사 고객만. 자기 하위 업체·초대 코드를 읽기 전용으로 본다. */}
                         {isAgencyClient
                             ? renderNavItem({

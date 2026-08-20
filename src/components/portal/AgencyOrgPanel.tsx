@@ -6,7 +6,7 @@ import {
     listSubRequests, agencyQuoteRequest, agencyFulfillRequest, agencyRejectRequest,
     type MyOrg, type AgencyPendingSignup, type AgencyChild, type AgencyTransfer, type SubTokenRequest,
 } from '../../api/orgs';
-import { listTokens, balanceOf, listChargeRequests, won, vatOf, totalOf, intOnly, MAX_COUNT, MAX_UNIT_PRICE } from '../../api/cafeTokens';
+import { listTokens, balanceOf, won, vatOf, totalOf, intOnly, MAX_COUNT, MAX_UNIT_PRICE } from '../../api/cafeTokens';
 
 // 고객 포털 '조직 관리' — 대행사 콘솔.
 //   대행사가 자기 조직만 다룬다: 하위 가입 승인 · 하위 업체 현황 · 토큰 배분 · 초대 코드.
@@ -42,8 +42,6 @@ export default function AgencyOrgPanel() {
     const [kids, setKids] = useState<AgencyChild[]>([]);
     const [transfers, setTransfers] = useState<AgencyTransfer[]>([]);
     const [subReqs, setSubReqs] = useState<SubTokenRequest[]>([]);
-    // 매입 — 우리(든든한마케팅)에게 산 것. 대행사 입장에서는 지출이다.
-    const [buys, setBuys] = useState<{ count: number; amount: number }>({ count: 0, amount: 0 });
     const [quote, setQuote] = useState<Record<string, { count: string; price: string }>>({});
     // 입금 계좌 — 하위 업체에게 금액과 함께 전달된다. 마지막에 쓴 값을 다음 건에 채워 준다.
     const [acct, setAcct] = useState({ bank: '', account: '', holder: '' });
@@ -62,20 +60,13 @@ export default function AgencyOrgPanel() {
         void Promise.all([
             getMyOrg(clientId), agencyPendingSignups(), agencyChildren(),
             listTokens(clientId), agencyTransfers(clientId), listSubRequests({ agencyId: clientId }),
-            listChargeRequests(clientId),
-        ]).then(([o, p, c, t, tr, sr, buy]) => {
+        ]).then(([o, p, c, t, tr, sr]) => {
             setOrg(o.data);
             setPending(p.data);
             setKids(c.data);
             setBalance(balanceOf(t.data, clientId));
             setTransfers(tr.data);
             setSubReqs(sr.data);
-            // 발행 완료된 건만 매입으로 본다 — 통보만 받고 입금 전인 건은 아직 산 게 아니다.
-            const done = buy.data.filter((r) => r.status === 'done');
-            setBuys({
-                count: done.reduce((a, r) => a + (r.granted_count ?? r.quoted_count ?? 0), 0),
-                amount: done.reduce((a, r) => a + (r.amount ?? 0), 0),
-            });
             // 이전 통보에 쓴 계좌를 그대로 채워 둔다 — 매번 다시 적지 않게.
             const last = sr.data.find((r) => r.pay_account);
             if (last) setAcct({ bank: last.pay_bank || '', account: last.pay_account || '', holder: last.pay_holder || '' });
@@ -117,15 +108,6 @@ export default function AgencyOrgPanel() {
     const openReqs = subReqs.filter((r) => r.status !== 'done' && r.status !== 'rejected');
     const childName = (id: string) => kids.find((k) => k.client_id === id)?.company || '-';
 
-    // ── 정산 요약 (전부 공급가·부가세 별도) ───────────────────────────
-    //   매입 = 우리에게 산 것(지출) / 판매 = 하부에 판 것(수입)
-    //   차액은 **판 건수 기준**으로만 잡는다. 매입 총액에서 판매 총액을 그냥 빼면
-    //   아직 안 판 재고까지 손해로 잡혀 "팔수록 마이너스"라는 엉뚱한 숫자가 나온다.
-    const soldCount = transfers.reduce((a, t) => a + (t.count || 0), 0);
-    const soldAmount = transfers.reduce((a, t) => a + (t.amount || 0), 0);
-    const avgBuy = buys.count ? buys.amount / buys.count : 0;   // 평균 매입단가
-    const margin = Math.round(soldAmount - soldCount * avgBuy);
-    const unitMargin = soldCount ? Math.round(margin / soldCount) : 0;   // 건당 차액
 
     return (
         <section className="grid gap-5">
@@ -138,64 +120,13 @@ export default function AgencyOrgPanel() {
                 </button>
             </header>
 
-            {/* 요약 */}
-            <div className="grid grid-cols-4 gap-3 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1">
-                <div className="rounded-xl border border-[#e2e8f0] p-4">
-                    <div className="text-[12px] font-semibold text-[#64748b]">하위 업체</div>
-                    <div className="mt-1 text-[26px] font-bold text-[#0f172a]">{kids.length}<span className="ml-1 text-[15px] font-semibold text-[#94a3b8]">곳</span></div>
-                </div>
-                <div className="rounded-xl border border-[#e2e8f0] p-4">
-                    <div className="text-[12px] font-semibold text-[#64748b]">배분 가능 토큰</div>
-                    <div className="mt-1 text-[26px] font-bold text-[#1e40af]">{balance}<span className="ml-1 text-[15px] font-semibold text-[#94a3b8]">건</span></div>
-                </div>
-                <div className={`rounded-xl border p-4 ${pending.length ? 'border-[#fdba74] bg-[#fff7ed]' : 'border-[#e2e8f0]'}`}>
-                    <div className="text-[12px] font-semibold text-[#64748b]">가입 승인 대기</div>
-                    <div className={`mt-1 text-[26px] font-bold ${pending.length ? 'text-[#c2410c]' : 'text-[#0f172a]'}`}>
-                        {pending.length}<span className="ml-1 text-[15px] font-semibold text-[#94a3b8]">건</span>
-                    </div>
-                </div>
-                <div className={`rounded-xl border p-4 ${openReqs.length ? 'border-[#fdba74] bg-[#fff7ed]' : 'border-[#e2e8f0]'}`}>
-                    <div className="text-[12px] font-semibold text-[#64748b]">충전 신청 대기</div>
-                    <div className={`mt-1 text-[26px] font-bold ${openReqs.length ? 'text-[#c2410c]' : 'text-[#0f172a]'}`}>
-                        {openReqs.length}<span className="ml-1 text-[15px] font-semibold text-[#94a3b8]">건</span>
-                    </div>
-                </div>
-            </div>
-
-            {/* 정산 — 매입(지출) / 판매(수입) / 차액. 전부 공급가(부가세 별도). */}
-            <div className="rounded-xl border border-[#e2e8f0] p-4">
-                <div className="mb-3 text-[14px] font-bold text-[#0f172a]">정산 <span className="text-[12px] font-normal text-[#94a3b8]">공급가 · 부가세 별도</span></div>
-                <div className="grid grid-cols-3 gap-3 max-[700px]:grid-cols-1">
-                    <div className="rounded-xl border border-[#e2e8f0] p-4">
-                        <div className="text-[12px] font-semibold text-[#64748b]">매입 <span className="font-normal text-[#94a3b8]">든든한마케팅</span></div>
-                        <div className="mt-1 text-[22px] font-bold text-[#b91c1c]">-₩{won(buys.amount)}</div>
-                        <div className="mt-0.5 text-[11px] text-[#94a3b8]">
-                            {buys.count}건{avgBuy ? ` · 건당 ₩${won(Math.round(avgBuy))}` : ''}
-                        </div>
-                    </div>
-                    <div className="rounded-xl border border-[#e2e8f0] p-4">
-                        <div className="text-[12px] font-semibold text-[#64748b]">판매 <span className="font-normal text-[#94a3b8]">하위 업체</span></div>
-                        <div className="mt-1 text-[22px] font-bold text-[#1d4ed8]">+₩{won(soldAmount)}</div>
-                        <div className="mt-0.5 text-[11px] text-[#94a3b8]">
-                            {soldCount}건{soldCount ? ` · 건당 ₩${won(Math.round(soldAmount / soldCount))}` : ''}
-                        </div>
-                    </div>
-                    <div className={`rounded-xl border p-4 ${margin > 0 ? 'border-[#a7f3d0] bg-[#f0fdf4]' : 'border-[#e2e8f0]'}`}>
-                        <div className="text-[12px] font-semibold text-[#64748b]">차액 <span className="font-normal text-[#94a3b8]">판매분 기준</span></div>
-                        <div className={`mt-1 text-[22px] font-bold ${margin > 0 ? 'text-[#059669]' : margin < 0 ? 'text-[#b91c1c]' : 'text-[#0f172a]'}`}>
-                            {margin > 0 ? '+' : ''}₩{won(margin)}
-                        </div>
-                        {/* 건당 차액을 같이 보여준다 — 20,000에 사서 25,000에 팔면 건당 5,000.
-                            총액만 보면 몇 건을 팔아 얼마가 남는지가 안 잡힌다. */}
-                        <div className="mt-0.5 text-[11px] text-[#94a3b8]">
-                            {soldCount
-                                ? `건당 ${unitMargin > 0 ? '+' : ''}₩${won(unitMargin)} × ${soldCount}건`
-                                : '아직 판매 없음'}
-                            {buys.count > soldCount ? ` · 미판매 ${buys.count - soldCount}건` : ''}
-                        </div>
-                    </div>
-                </div>
-            </div>
+            {/* 요약·정산은 통합 대시보드로 옮겼다(사장님 확정 2026-08-20).
+                같은 숫자를 두 화면에서 각각 계산하면 언젠가 갈라진다 — 계산식은 한 곳에만 둔다.
+                여기는 '처리하는 곳'(승인·금액 통보·발행)이다. */}
+            <p className="m-0 -mt-1 text-[13px] text-[#64748b]">
+                하위 업체 가입 승인과 충전 신청을 처리합니다.
+                {' '}현황·정산은 <button className="font-semibold text-[#1e40af] underline" onClick={() => { window.history.pushState(null, '', '/portal'); window.dispatchEvent(new Event('app:navigate')); }} type="button">통합 대시보드</button>에서 보실 수 있습니다.
+            </p>
 
             {msg ? <p className="m-0 rounded-lg bg-[#f0fdf4] px-4 py-2 text-[13px] font-semibold text-[#15803d]">{msg}</p> : null}
             {err ? <p className="m-0 rounded-lg bg-[#fef2f2] px-4 py-2 text-[13px] font-semibold text-[#b91c1c]">{err}</p> : null}

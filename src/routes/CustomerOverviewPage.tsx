@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../hooks/useAuth';
+import AgencyDashboard from '../components/portal/AgencyDashboard';
 import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
 import { Kpi } from '../components/blogRank/lib/ui';
 import { lastM, fmtWon } from '../components/blogRank/lib/helpers';
@@ -272,19 +275,48 @@ function OverviewCards() {
     );
 }
 
-function CustomerOverviewPage() {
+// 대행사는 통합 대시보드에서 '조직 현황 + 정산' 을 본다(사장님 확정 2026-08-20).
+//   계약별 진행률은 아래 '계약 관리' 메뉴로 내렸다 — 대행사에게 먼저 보여야 할 것은
+//   하위 업체가 몇 곳이고 얼마 남겼는지이지, 카테고리별 계약 카드가 아니다.
+function CustomerOverviewPage({ contractsView = false }: { contractsView?: boolean }) {
     const as = useAsParam();
+    const { profile } = useAuth();
+    const clientId = as || profile?.client_id || '';
+    const [isAgency, setIsAgency] = useState<boolean | null>(null);
+    useEffect(() => {
+        if (!clientId) { setIsAgency(false); return; }
+        let alive = true;
+        void supabase.from('clients').select('is_agency').eq('id', clientId).maybeSingle()
+            .then(({ data }) => alive && setIsAgency(!!data?.is_agency));
+        return () => { alive = false; };
+    }, [clientId]);
+
+    const agencyHome = !contractsView && isAgency === true;
     return (
         <section className="grid gap-4">
             <div className="flex items-center gap-2">
-                <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">통합 대시보드</h2>
-                <span className="rounded-full bg-[#dbeafe] px-2.5 py-1 text-xs font-bold text-[#1e40af]">고객 뷰</span>
+                <h2 className="m-0 text-[22px] font-semibold text-[#0f172a]">
+                    {contractsView ? '계약 관리' : '통합 대시보드'}
+                </h2>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                    agencyHome ? 'bg-[#ede9fe] text-[#6d28d9]' : 'bg-[#dbeafe] text-[#1e40af]'
+                }`}>
+                    {agencyHome ? '대행사' : '고객 뷰'}
+                </span>
             </div>
-            <p className="m-0 text-sm text-[#64748b]">계약하신 카테고리 현황을 한눈에 봅니다.</p>
+            <p className="m-0 text-sm text-[#64748b]">
+                {agencyHome
+                    ? '하위 업체 현황과 정산을 한눈에 봅니다.'
+                    : '계약하신 카테고리 현황을 한눈에 봅니다.'}
+            </p>
 
-            <BlogRankProvider customerMode previewClientId={as || null}>
-                <OverviewCards />
-            </BlogRankProvider>
+            {agencyHome ? (
+                <AgencyDashboard />
+            ) : (
+                <BlogRankProvider customerMode previewClientId={as || null}>
+                    <OverviewCards />
+                </BlogRankProvider>
+            )}
         </section>
     );
 }
