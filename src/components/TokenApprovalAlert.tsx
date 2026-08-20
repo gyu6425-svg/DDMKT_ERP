@@ -22,18 +22,27 @@ type Alert = {
     tone: 'act' | 'pay';   // act = 내가 처리할 것(주황) / pay = 내가 입금할 것(파랑)
 };
 
+// ★ 내부에서 ?as=<업체> 로 고객 화면을 미리보는 중이면 그 스코프를 유지해야 한다.
+//   as 를 떨어뜨리면 이동한 화면이 '내 업체'(내부 직원은 없음) 기준으로 다시 그려져
+//   아무것도 안 나온다 — 눌러도 안 들어가는 것처럼 보인다(실측 2026-08-20).
 const nav = (path: string) => () => {
-    window.history.pushState(null, '', path);
+    const as = new URLSearchParams(window.location.search).get('as');
+    const url = as ? `${path}${path.includes('?') ? '&' : '?'}as=${encodeURIComponent(as)}` : path;
+    window.history.pushState(null, '', url);
     window.dispatchEvent(new Event('app:navigate'));
+    window.scrollTo({ top: 0, behavior: 'smooth' });   // 이미 그 화면이면 아무 일도 안 일어난 것처럼 보인다
 };
 
 export default function TokenApprovalAlert() {
     const { profile, role, isAdmin } = useAuth();
-    const clientId = profile?.client_id || '';
+    // ?as= 미리보기 중이면 그 업체 기준으로 본다 — 화면 내용과 알림이 어긋나면 둘 중 뭐가 맞는지 알 수 없다.
+    const asParam = new URLSearchParams(window.location.search).get('as') || '';
+    const clientId = asParam || profile?.client_id || '';
     const [items, setItems] = useState<Alert[]>([]);
 
     useEffect(() => {
-        const isCustomer = role === 'viewer';
+        //   미리보기 중이면 내부 직원도 그 고객의 알림을 그대로 본다.
+        const isCustomer = role === 'viewer' || !!asParam;
         if (!isAdmin && !isCustomer) return;
         let alive = true;
 
@@ -141,7 +150,7 @@ export default function TokenApprovalAlert() {
             window.removeEventListener('app:navigate', run);
             window.removeEventListener('focus', onFocus);
         };
-    }, [isAdmin, role, clientId]);
+    }, [isAdmin, role, clientId, asParam]);
 
     if (!items.length) return null;
 
