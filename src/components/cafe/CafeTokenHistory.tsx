@@ -122,14 +122,14 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                 {/* 항목을 한 줄에 늘어놓으면 무엇을 적어야 하는지 눈에 안 들어온다 — 라벨을 왼쪽에 세운다. */}
                 <div className="grid max-w-[560px] gap-2.5">
                     <label className="flex items-center gap-3">
-                        <span className="w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">결제 방식</span>
+                        <span className="w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">결제 방식</span>
                         <select className="h-9 flex-1 rounded border border-[#cbd5e1] bg-white px-2 text-sm"
                             onChange={(e) => setReqPay(e.target.value)} value={reqPay}>
                             {PAY_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
                         </select>
                     </label>
                     <label className="flex items-center gap-3">
-                        <span className="w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">건수</span>
+                        <span className="w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">건수</span>
                         <div className="flex flex-1 items-center gap-2">
                             <input className="h-9 w-32 rounded border border-[#cbd5e1] px-2 text-sm" min={1}
                                 onChange={(e) => setReqCount(intOnly(e.target.value, MAX_COUNT))}
@@ -138,12 +138,12 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                         </div>
                     </label>
                     <label className="flex items-start gap-3">
-                        <span className="mt-2 w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">메모</span>
+                        <span className="mt-2 w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">입금자명·은행</span>
                         <input className="h-9 flex-1 rounded border border-[#cbd5e1] px-2 text-sm"
                             onChange={(e) => setReqNote(e.target.value)}
-                            placeholder="입금자명·요청사항 등 (선택)" value={reqNote} />
+                            placeholder="예: 홍길동 / 국민은행" value={reqNote} />
                     </label>
-                    <div className="flex items-center gap-3 pl-[88px]">
+                    <div className="flex items-center gap-3 pl-[100px]">
                         <button className="h-9 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
                             disabled={reqBusy || !clientId} onClick={() => void submitReq()} type="button">
                             {reqBusy ? '요청 중…' : '충전 요청'}

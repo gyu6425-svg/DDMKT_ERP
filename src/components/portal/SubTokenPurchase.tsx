@@ -70,14 +70,14 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
             ) : (
                 <div className="mb-3 grid max-w-[560px] gap-2.5">
                     <label className="flex items-center gap-3">
-                        <span className="w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">결제 방식</span>
+                        <span className="w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">결제 방식</span>
                         <select className="h-9 flex-1 rounded border border-[#cbd5e1] bg-white px-2 text-sm"
                             onChange={(e) => setPay(e.target.value)} value={pay}>
                             {PAY_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
                         </select>
                     </label>
                     <label className="flex items-center gap-3">
-                        <span className="w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">건수</span>
+                        <span className="w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">건수</span>
                         <div className="flex flex-1 items-center gap-2">
                             <input className="h-9 w-32 rounded border border-[#cbd5e1] px-2 text-sm" min={1}
                                 onChange={(e) => setCount(intOnly(e.target.value, MAX_COUNT))} placeholder="예: 10" type="number" value={count} />
@@ -85,11 +85,11 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                         </div>
                     </label>
                     <label className="flex items-start gap-3">
-                        <span className="mt-2 w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">메모</span>
+                        <span className="mt-2 w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">입금자명·은행</span>
                         <input className="h-9 flex-1 rounded border border-[#cbd5e1] px-2 text-sm"
-                            onChange={(e) => setNote(e.target.value)} placeholder="요청 사항 (선택)" value={note} />
+                            onChange={(e) => setNote(e.target.value)} placeholder="예: 홍길동 / 국민은행" value={note} />
                     </label>
-                    <div className="pl-[88px]">
+                    <div className="pl-[100px]">
                         <button className="h-9 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
                             disabled={busy !== null} onClick={() => void submit()} type="button">
                             {busy === 'new' ? '신청 중…' : '충전 신청'}

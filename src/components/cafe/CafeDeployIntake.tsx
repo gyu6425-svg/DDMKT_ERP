@@ -7,8 +7,6 @@ import {
     uploadDeployPhoto,
     signedDeployUrls,
     PAYMENT_INFO,
-    deployAmountKRW,
-    cafeUnitPriceForClient,
     type CafeDeployRequest,
     type CafeDeployInput,
     type DeployPhotos,
@@ -122,8 +120,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const [creds, setCreds] = useState<Record<string, DeployCredential>>({}); // deploy_request_id → 계정
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState('');
-    const [unitPrice, setUnitPrice] = useState(PAYMENT_INFO.unitPrice); // 대행사=35,000 / 일반=15,000
-    useEffect(() => { if (clientId) void cafeUnitPriceForClient(clientId).then(setUnitPrice); }, [clientId]);
+    // 단가는 이 화면에서 쓰지 않는다 — 금액 안내는 담당자가 한다(단가가 건마다 다르다).
 
     const reload = () => {
         void listCafeDeployRequests(clientId ?? undefined).then(async ({ data }) => {
@@ -870,6 +867,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     //   ★ 직거래 고객에게는 적용하지 않는다 — 기존 계약 방식(후정산)으로 쓰던 업체가 갑자기 막히면 안 된다.
     const [tokenBal, setTokenBal] = useState<number | null>(null);   // null = 아직 모름(게이트 미적용)
     const [gated, setGated] = useState(false);                       // 이 업체에 토큰 게이트를 적용하는가
+    const [hasParent, setHasParent] = useState(false);               // 대행사 소속 = 결제도 대행사에게 한다
     useEffect(() => {
         if (!clientId) return;
         let alive = true;
@@ -879,6 +877,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             const isOrg = !!(c?.is_agency || c?.parent_client_id);
             if (!alive) return;
             setGated(isOrg);
+            setHasParent(!!c?.parent_client_id);
             if (!isOrg) return;
             const { data } = await listTokens(clientId);
             if (alive) setTokenBal(balanceOf(data, clientId));
@@ -1169,10 +1168,11 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     const notifyPaid = async (method: string) => {
         if (!clientId || !pendingPay.length) return;
         const totalCount = pendingPay.reduce((s, r) => s + (r.total_count ?? r.selected_keywords?.length ?? 0), 0);
-        const totalAmt = pendingPay.reduce((s, r) => s + deployAmountKRW(r, unitPrice), 0);
         const names = pendingPay.map((r) => r.company_name).join(', ');
         setPayBusy(true); setPayMsg('');
-        const note = `[${method}] 카페 배포 결제완료 · ${names}${totalAmt ? ` · ₩${totalAmt.toLocaleString('ko-KR')}` : ''} — 입금/결제 내역 확인 요청`;
+        // ★ 금액을 넣지 않는다. 화면에서 금액을 뺀 것과 같은 이유 —
+        //   단가가 건마다 달라 기본 단가로 계산한 값이 오해를 만들고, 이 문구는 고객 화면에도 그대로 보인다.
+        const note = `[${method}] 카페 배포 결제완료 · ${names} — 입금/결제 내역 확인 요청`;
         const { error } = await requestCharge(clientId, totalCount || null, note);
         setPayBusy(false);
         setPayMsg(error ? `요청 실패: ${error.message}` : '결제 완료 알림이 접수되었습니다. 담당자가 내역 확인 후 발행 토큰을 지급합니다.');
@@ -1180,8 +1180,10 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
 
     return (
         <div className="grid gap-5">
-            {/* 결제 안내 알림 — 접수가 '승인(결제대기)'되면 노출 */}
-            {pendingPay.length ? (
+            {/* 결제 안내 알림 — 접수가 '승인(결제대기)'되면 노출.
+                ★ 대행사 소속 업체에는 띄우지 않는다. 우리 계좌를 안내하고 우리 큐로 넣으면
+                  대행사에게 사야 할 업체가 우리에게 입금하게 된다('충전 요청' 탭이 대행사 앞으로 가 있다). */}
+            {pendingPay.length && !hasParent ? (
                 <div className="rounded-xl border-2 border-[#fb923c] bg-[#fff7ed] p-5">
                     <div className="mb-1 flex items-center gap-2">
                         <span className="text-lg">🔔</span>

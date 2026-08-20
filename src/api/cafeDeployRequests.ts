@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { getDefaultUnitPrice } from './cafeTokens';
 import { r2Upload, r2Url } from './imageStore';
 
 // 카페 배포 '접수' — 고객이 로그인 후 접수 폼 제출(사진 포함) → 내부 검토·세팅.
@@ -239,13 +240,13 @@ export async function getLatestDeployForStudio(clientId: string): Promise<Studio
 }
 
 // 카페 배포 단가 — 기본 15,000원(대행사 포함). 일반(기존) 업체는 더 비싸고 매번 달라 계약관리에서 수동 조정.
-export const CAFE_UNIT_PRICE_KRW = 15000;
-export const CAFE_UNIT_PRICE_AGENCY = 15000;
-
-// 자동 생성 시 기본 단가(15,000). 대행사/일반 구분 없이 동일 — 일반 업체 금액은 계약관리에서 수동으로 올린다.
-export async function cafeUnitPriceForClient(clientId: string): Promise<number> {
-    if (!clientId) return CAFE_UNIT_PRICE_KRW;
-    return CAFE_UNIT_PRICE_KRW;
+// 카페 배포 단가 — **상수가 아니라 설정값**을 쓴다(사장님 확인 2026-08-20: 단가는 매번 달라질 수 있다).
+//   예전에는 여기 15,000 이 박혀 있어서, 20,000 에 판 건도 계약에는 15,000 × 건수로 기록됐다.
+//   50건이면 매출 25만원이 장부에서 사라진다.
+export const CAFE_UNIT_PRICE_FALLBACK = 15000;
+export async function cafeUnitPriceForClient(_clientId: string): Promise<{ price: number; ok: boolean }> {
+    const { price, ok } = await getDefaultUnitPrice();
+    return { price, ok };
 }
 
 // 카페 등록(토큰 발행) 시 계약관리(client_contracts '카페 배포')에 자동 반영 — 기본 15,000(수동 조정 전 초기값).
@@ -266,7 +267,10 @@ export async function ensureCafeDeployContract(clientId: string, count: number) 
     if (rows.some((r) => (r.amount ?? 0) > 0 || (r.goal_count ?? 0) > 0)) {
         return { error: null, created: false };
     }
-    const unit = await cafeUnitPriceForClient(clientId);   // 기본 15,000(이후 계약관리에서 수동 조정)
+    // 단가는 설정값에서 온다. 읽지 못했으면 계약을 만들지 않는다 —
+    //   잘못된 단가로 매출을 기록하느니 비워두고 담당자가 채우는 편이 낫다.
+    const { price: unit, ok: priceOk } = await cafeUnitPriceForClient(clientId);
+    if (!priceOk) return { error: { message: '기본 단가를 읽지 못해 계약 금액을 채우지 못했습니다 — 계약관리에서 직접 입력하세요' }, created: false };
     const today = new Date().toISOString().slice(0, 10);
     const shell = rows[0];
     if (shell) {

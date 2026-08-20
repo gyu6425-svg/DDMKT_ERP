@@ -45,6 +45,7 @@ export default function TokenChargePanel() {
     // 기본 단가 — 통보 화면에 처음 채워지는 값. 매번 달라질 수 있어 설정으로 뺐다.
     const [unitPrice, setUnitPrice] = useState<number>(TOKEN_PRICE_KRW);
     const [priceEdit, setPriceEdit] = useState('');
+    const [priceOk, setPriceOk] = useState(true);   // 기본 단가를 실제로 읽었는가
 
     const load = () => {
         void Promise.all([
@@ -59,7 +60,10 @@ export default function TokenChargePanel() {
             setSubReqs(sr.data);
             if (tk.error) setMsg(tk.error.message);
         });
-        void getDefaultUnitPrice().then((v) => { setUnitPrice(v); setPriceEdit(String(v)); });
+        void getDefaultUnitPrice().then((r) => {
+            setUnitPrice(r.price); setPriceEdit(String(r.price)); setPriceOk(r.ok);
+            if (!r.ok) setMsg(`기본 단가를 읽지 못했습니다(${r.error}). 통보 전에 단가를 직접 확인하세요.`);
+        });
     };
     useEffect(load, []);
 
@@ -136,7 +140,9 @@ export default function TokenChargePanel() {
                     <div className="ml-auto flex items-center gap-2">
                         {/* 기본 단가 — 1건 = 1토큰. 여기서 바꾸면 이후 통보 화면의 초기값이 바뀐다.
                             이미 통보·발행된 건의 금액은 그대로다(행마다 저장돼 있다). */}
-                        <span className="text-[12px] font-semibold text-[#64748b]">기본 단가</span>
+                        <span className={`text-[12px] font-semibold ${priceOk ? 'text-[#64748b]' : 'text-[#b91c1c]'}`}>
+                            기본 단가{priceOk ? '' : ' ⚠'}
+                        </span>
                         <input className="h-7 w-24 rounded border border-[#cbd5e1] px-2 text-[12px]" min={1} step={1000} type="number"
                             onChange={(e) => setPriceEdit(intOnly(e.target.value, MAX_UNIT_PRICE))} value={priceEdit} />
                         <span className="text-[12px] text-[#94a3b8]">원/건</span>

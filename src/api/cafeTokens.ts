@@ -6,11 +6,20 @@ import { supabase } from '../lib/supabase';
 //   ★ 거래에 실제로 적용된 단가는 행마다 저장된다(unit_price). 설정을 바꿔도 과거 거래는 그대로다.
 export const TOKEN_PRICE_KRW = 15000;
 
-// 통보 화면에 처음 채워지는 기본 단가. 못 읽으면 상수로 떨어진다(화면이 비지 않게).
-export async function getDefaultUnitPrice(): Promise<number> {
-    const { data } = await supabase.from('app_settings').select('value').eq('key', 'token_unit_price').maybeSingle();
-    const v = (data as { value?: { default?: number } } | null)?.value?.default;
-    return typeof v === 'number' && v > 0 ? v : TOKEN_PRICE_KRW;
+// 통보 화면에 처음 채워지는 기본 단가.
+//   ★ 못 읽었을 때 조용히 15,000 으로 떨어지면 안 된다 — 담당자가 25,000 으로 바꿔 뒀는데
+//     조회가 실패하면 화면엔 정상값처럼 15,000 이 뜨고, 그대로 통보하면 건당 1만원씩 덜 받는다.
+//     읽기 성공 여부를 함께 돌려주고, 실패하면 화면이 경고를 띄운다.
+export async function getDefaultUnitPrice(): Promise<{ price: number; ok: boolean; error: string | null }> {
+    const { data, error } = await supabase
+        .from('app_settings').select('value').eq('key', 'token_unit_price').maybeSingle();
+    if (error) return { price: TOKEN_PRICE_KRW, ok: false, error: error.message };
+    const raw = (data as { value?: { default?: number | string } } | null)?.value?.default;
+    const v = typeof raw === 'string' ? Number(raw) : raw;   // 문자열로 들어가 있어도 살린다
+    if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) {
+        return { price: TOKEN_PRICE_KRW, ok: false, error: '기본 단가 설정을 읽지 못했습니다' };
+    }
+    return { price: v, ok: true, error: null };
 }
 
 // 기본 단가 변경(내부 직원만 — RLS 가 막는다).
@@ -20,8 +29,9 @@ export async function setDefaultUnitPrice(price: number) {
                 { onConflict: 'key' });
     return { error };
 }
-// 건수 → 금액(원) 문자열. 예: tokenWon(3) → "45,000"
-export const tokenWon = (count: number) => (Math.max(0, Math.round(count || 0)) * TOKEN_PRICE_KRW).toLocaleString('ko-KR');
+// (삭제) tokenWon — 상수 단가로 금액 문자열을 만들던 유틸. 호출처가 없었고,
+//   '건수 → 금액'이라는 가장 쓰기 쉬운 모양이라 남겨두면 설정값·행 저장 단가를 무시한 채
+//   잘못 쓰이기 쉬워 제거한다. 금액이 필요하면 won(count * 해당 거래의 unit_price) 를 쓴다.
 
 // 카페 발행 토큰(건수) 원장. 발행 1건 = 1토큰. 잔액 = delta 합계.
 export type TokenLedger = {
