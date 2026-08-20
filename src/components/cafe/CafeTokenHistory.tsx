@@ -30,7 +30,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
     const [reqPay, setReqPay] = useState<string>(PAY_METHODS[0]);
     const [reqMsg, setReqMsg] = useState('');
     const [reqBusy, setReqBusy] = useState(false);
-    const [txFilter, setTxFilter] = useState<'all' | 'charge' | 'use'>('all'); // 충전·사용 내역 토글
+    const [txFilter, setTxFilter] = useState<'all' | 'charge' | 'use' | 'give'>('all'); // 충전·사용 내역 토글
     const [isAgency, setIsAgency] = useState(false);   // 대행사만 금액·입금 신고 UI 를 본다
     // 소속 대행사 — 있으면 우리가 아니라 그 대행사에게 신청한다(두 곳에 신청하면 어디 입금할지 알 수 없다).
     const [parentAgency, setParentAgency] = useState<{ id: string | null; company: string | null }>({ id: null, company: null });
@@ -224,20 +224,35 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                     <div className="text-[15px] font-bold text-[#0f172a]">충전·사용 내역</div>
                     <div className="ml-auto inline-flex rounded-lg border border-[#e2e8f0] p-0.5">
-                        {([['all', '전체'], ['charge', '충전'], ['use', '사용(발행)']] as const).map(([k, label]) => (
+                        {/* 배분 탭은 하위에 내보낸 이력이 있을 때만 — 직거래 고객에게는 뜻 없는 칸이다. */}
+                        {([['all', '전체'], ['charge', '충전'], ['use', '사용(발행)'],
+                           ...(distributed ? [['give', '배분'] as const] : [])] as const).map(([k, label]) => (
                             <button key={k} type="button" onClick={() => setTxFilter(k)}
-                                className={`rounded-md px-3 py-1 text-xs font-bold ${txFilter === k ? (k === 'use' ? 'bg-[#e0e7ff] text-[#4338ca]' : k === 'charge' ? 'bg-[#dcfce7] text-[#166534]' : 'bg-[#1e40af] text-white') : 'text-[#64748b] hover:text-[#334155]'}`}>
+                                className={`rounded-md px-3 py-1 text-xs font-bold ${
+                                    txFilter === k
+                                        ? k === 'use' ? 'bg-[#e0e7ff] text-[#4338ca]'
+                                        : k === 'charge' ? 'bg-[#dcfce7] text-[#166534]'
+                                        : k === 'give' ? 'bg-[#ede9fe] text-[#6d28d9]'
+                                        : 'bg-[#1e40af] text-white'
+                                        : 'text-[#64748b] hover:text-[#334155]'}`}>
                                 {label}
                             </button>
                         ))}
                     </div>
                 </div>
                 {(() => {
-                    const txRows = rows.filter((r) => (txFilter === 'all' ? true : txFilter === 'charge' ? r.delta > 0 : r.delta < 0 && r.kind !== '배분'));
+                    const txRows = rows.filter((r) =>
+                        txFilter === 'all' ? true
+                        : txFilter === 'charge' ? r.delta > 0
+                        : txFilter === 'give' ? r.kind === '배분'
+                        : r.delta < 0 && r.kind !== '배분');
                     return loading ? (
                     <div className="py-8 text-center text-sm text-[#94a3b8]">불러오는 중…</div>
                 ) : txRows.length === 0 ? (
-                    <div className="py-8 text-center text-sm text-[#94a3b8]">{txFilter === 'charge' ? '충전 내역이 없습니다.' : txFilter === 'use' ? '사용(발행) 내역이 없습니다.' : '아직 충전 내역이 없습니다. 입금 후 담당자가 충전해 드립니다.'}</div>
+                    <div className="py-8 text-center text-sm text-[#94a3b8]">{txFilter === 'charge' ? '충전 내역이 없습니다.'
+                        : txFilter === 'use' ? '사용(발행) 내역이 없습니다.'
+                        : txFilter === 'give' ? '하위 업체에 배분한 내역이 없습니다.'
+                        : '아직 충전 내역이 없습니다. 입금 후 담당자가 충전해 드립니다.'}</div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full min-w-[520px] border-collapse text-[13px]">
