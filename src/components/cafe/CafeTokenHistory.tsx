@@ -170,7 +170,12 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                                         </div>
                                     ) : null}
 
-                                    {/* 입금 신고 — 금액을 통보받은 뒤에만. */}
+{q.status === 'quoted' && q.pay_account ? (
+                                        <div className="mt-1.5 rounded-lg border border-[#fed7aa] bg-[#fff7ed] px-3 py-2 text-[12px] leading-6 text-[#7c2d12]">
+                                            <b>입금 계좌</b> · {q.pay_bank} <b className="font-mono">{q.pay_account}</b> ({q.pay_holder})
+                                        </div>
+                                    ) : null}
+                                                                        {/* 입금 신고 — 금액을 통보받은 뒤에만. */}
                                     {isAgency && q.status === 'quoted' ? (
                                         <div className="mt-1.5 flex flex-wrap items-center gap-2">
                                             <input

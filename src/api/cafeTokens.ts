@@ -162,6 +162,10 @@ export type TokenRequest = {
     id: string; created_at: string; client_id: string;
     requested_count: number | null; note: string | null; status: string;
     pay_method?: string | null;
+    // 금액 통보 시점의 입금 계좌 스냅샷 — 계좌가 바뀌어도 과거 통보 건은 그때 값으로 남는다.
+    pay_bank?: string | null;
+    pay_account?: string | null;
+    pay_holder?: string | null;
     handled_at?: string | null;
     unit_price?: number | null;        // 통보 단가(원/건)
     amount?: number | null;            // 공급가 = 건수 x 단가 (부가세 미포함)
@@ -221,8 +225,12 @@ export async function setChargeRequestStatus(id: string, status: string) {
     return { error };
 }
 
-// 내부: 금액 통보 — 건수·단가를 확정해 대행사에게 알린다(status=quoted).
-export async function quoteChargeRequest(id: string, count: number, unitPrice: number) {
+// 내부: 금액 통보 — 건수·단가 확정 + **입금 계좌를 함께** 대행사에게 알린다(status=quoted).
+//   계좌를 같이 보내지 않으면 금액만 알고 어디로 넣을지 모르는 상태가 된다.
+export async function quoteChargeRequest(
+    id: string, count: number, unitPrice: number,
+    account: { bank: string; account: string; holder: string },
+) {
     const { error } = await supabase
         .from('cafe_token_requests')
         .update({
@@ -231,6 +239,9 @@ export async function quoteChargeRequest(id: string, count: number, unitPrice: n
             unit_price: unitPrice,
             amount: Math.round(count * unitPrice),   // 공급가(부가세 미포함)
             quoted_at: new Date().toISOString(),
+            pay_bank: account.bank,
+            pay_account: account.account,
+            pay_holder: account.holder,
         })
         .eq('id', id);
     return { error };

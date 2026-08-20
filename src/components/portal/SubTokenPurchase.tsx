@@ -120,6 +120,11 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                                     </div>
                                 ) : null}
 
+                                {q.status === 'quoted' && q.pay_account ? (
+                                    <div className="mt-1.5 rounded-lg border border-[#fed7aa] bg-[#fff7ed] px-3 py-2 text-[12px] leading-6 text-[#7c2d12]">
+                                        <b>입금 계좌</b> · {q.pay_bank} <b className="font-mono">{q.pay_account}</b> ({q.pay_holder})
+                                    </div>
+                                ) : null}
                                 {q.status === 'quoted' ? (
                                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
                                         <input className="h-8 w-36 rounded border border-[#cbd5e1] px-2 text-[12px]"

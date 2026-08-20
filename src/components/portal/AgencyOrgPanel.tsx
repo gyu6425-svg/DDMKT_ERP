@@ -43,6 +43,8 @@ export default function AgencyOrgPanel() {
     const [transfers, setTransfers] = useState<AgencyTransfer[]>([]);
     const [subReqs, setSubReqs] = useState<SubTokenRequest[]>([]);
     const [quote, setQuote] = useState<Record<string, { count: string; price: string }>>({});
+    // 입금 계좌 — 하위 업체에게 금액과 함께 전달된다. 마지막에 쓴 값을 다음 건에 채워 준다.
+    const [acct, setAcct] = useState({ bank: '', account: '', holder: '' });
     const [balance, setBalance] = useState(0);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -66,6 +68,9 @@ export default function AgencyOrgPanel() {
             setBalance(balanceOf(t.data, clientId));
             setTransfers(tr.data);
             setSubReqs(sr.data);
+            // 이전 통보에 쓴 계좌를 그대로 채워 둔다 — 매번 다시 적지 않게.
+            const last = sr.data.find((r) => r.pay_account);
+            if (last) setAcct({ bank: last.pay_bank || '', account: last.pay_account || '', holder: last.pay_holder || '' });
             setErr(o.error || p.error?.message || c.error?.message || '');
             setLoading(false);
         });
@@ -210,10 +215,20 @@ export default function AgencyOrgPanel() {
                         하위 충전 신청 <span className="text-[#c2410c]">{openReqs.length}</span>
                         <span className="ml-1 text-[12px] font-normal text-[#94a3b8]">/ 전체 {subReqs.length}</span>
                     </div>
-                    <p className="m-0 mt-1 text-[12px] leading-5 text-[#64748b]">
-                        신청 → <b>금액 통보</b> → 하위 업체가 계좌이체 후 <b>입금 신고</b> → 확인 후 <b>토큰 발행</b>.
-                        {' '}발행하면 내 잔여 토큰에서 그만큼 빠져 하위 업체로 넘어갑니다. 금액은 부가세 별도입니다.
-                    </p>
+                    {/* 입금 계좌 — 금액 통보 시 하위 업체에게 함께 전달된다. */}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="text-[12px] font-semibold text-[#475569]">입금 계좌</span>
+                        <input className="h-8 w-28 rounded border border-[#cbd5e1] px-2 text-[12px]"
+                            onChange={(e) => setAcct((a) => ({ ...a, bank: e.target.value }))}
+                            placeholder="은행" value={acct.bank} />
+                        <input className="h-8 w-48 rounded border border-[#cbd5e1] px-2 text-[12px]"
+                            onChange={(e) => setAcct((a) => ({ ...a, account: e.target.value }))}
+                            placeholder="계좌번호" value={acct.account} />
+                        <input className="h-8 w-28 rounded border border-[#cbd5e1] px-2 text-[12px]"
+                            onChange={(e) => setAcct((a) => ({ ...a, holder: e.target.value }))}
+                            placeholder="예금주" value={acct.holder} />
+                        <span className="text-[11px] text-[#94a3b8]">금액 통보 시 함께 전달됩니다</span>
+                    </div>
                 </div>
                 {subReqs.length === 0 ? (
                     <div className="px-4 py-8 text-center text-[13px] text-[#94a3b8]">받은 충전 신청이 없습니다.</div>
@@ -241,6 +256,11 @@ export default function AgencyOrgPanel() {
                                             공급가 <b>₩{won(r.amount)}</b>
                                             <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(r.amount))}</span>
                                             {' '}= <b className="text-[#c2410c]">₩{won(totalOf(r.amount))}</b>
+                                        </div>
+                                    ) : null}
+                                    {r.pay_account ? (
+                                        <div className="mt-1 text-[11px] text-[#64748b]">
+                                            전달한 계좌 · {r.pay_bank} {r.pay_account} ({r.pay_holder})
                                         </div>
                                     ) : null}
                                     {r.paid_declared_at ? (
@@ -271,9 +291,11 @@ export default function AgencyOrgPanel() {
                                                 </div>
                                             ) : null}
                                             <button className="h-8 rounded bg-[#1e40af] px-3 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
-                                                disabled={busy !== null || !Number(q.count) || !Number(q.price)}
-                                                onClick={() => void run(r.id, () => agencyQuoteRequest(r.id, Number(q.count), Number(q.price)),
-                                                    `${childName(r.child_client_id)} 에 ${q.count}건 · 공급가 \u20A9${won(supply)} 통보`)}
+                                                disabled={busy !== null || !Number(q.count) || !Number(q.price)
+                                                    || !acct.bank.trim() || !acct.account.trim() || !acct.holder.trim()}
+                                                onClick={() => void run(r.id, () => agencyQuoteRequest(r.id, Number(q.count), Number(q.price), acct),
+                                                    `${childName(r.child_client_id)} 에 ${q.count}건 · 공급가 \u20A9${won(supply)} 통보 (계좌 전달)`)}
+                                                title={acct.account.trim() ? '금액과 입금 계좌를 함께 보냅니다' : '아래 입금 계좌를 먼저 입력하세요'}
                                                 type="button">
                                                 {r.status === 'pending' ? '금액 통보' : '금액 재통보'}
                                             </button>

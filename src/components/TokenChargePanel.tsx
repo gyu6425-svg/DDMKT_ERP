@@ -8,6 +8,7 @@ import {
     type TokenLedger, type TokenRequest,
 } from '../api/cafeTokens';
 import { listSubRequests, type SubTokenRequest } from '../api/orgs';
+import { PAYMENT_INFO } from '../api/cafeDeployRequests';
 
 type ClientLite = { id: string; company: string | null; is_agency?: boolean | null };
 
@@ -95,7 +96,10 @@ export default function TokenChargePanel() {
         const p = Number(qPrice[q.id] ?? q.unit_price ?? defaultPrice(q.client_id));
         if (!n || n <= 0) return setMsg('통보할 건수를 입력하세요.');
         if (!p || p <= 0) return setMsg('단가를 입력하세요.');
-        void act(() => quoteChargeRequest(q.id, n, p), `${clientName(q.client_id)} ${n}건 · 공급가 ₩${won(n * p)} 통보`);
+        // 우리 계좌를 통보 시점 값 그대로 실어 보낸다(나중에 계좌가 바뀌어도 이 건은 그대로).
+        void act(() => quoteChargeRequest(q.id, n, p, {
+            bank: PAYMENT_INFO.bank, account: PAYMENT_INFO.account, holder: PAYMENT_INFO.holder,
+        }), `${clientName(q.client_id)} ${n}건 · 공급가 ₩${won(n * p)} 통보 (계좌 전달)`);
     };
 
     const fulfill = (q: TokenRequest) => {
@@ -232,6 +236,9 @@ export default function TokenChargePanel() {
                                             </div>
                                             <div className="pb-1 text-[12px] text-[#475569]">
                                                 공급가 <b>₩{won(preview)}</b> · 입금 <b className="text-[#c2410c]">₩{won(totalOf(preview))}</b>
+                                                <span className="ml-2 text-[11px] text-[#94a3b8]">
+                                                    {PAYMENT_INFO.bank} {PAYMENT_INFO.account} 전달
+                                                </span>
                                             </div>
                                             <button
                                                 className="h-8 rounded bg-[#1e40af] px-4 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"

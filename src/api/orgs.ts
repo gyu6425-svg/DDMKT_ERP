@@ -265,6 +265,9 @@ export type SubTokenRequest = {
     depositor: string | null;
     granted_count: number | null;
     handled_at: string | null;
+    pay_bank: string | null;
+    pay_account: string | null;
+    pay_holder: string | null;
 };
 
 // 조회는 RLS 가 알아서 좁힌다 — 하위는 자기 것, 대행사는 자기 하위 것, 내부는 전부.
@@ -293,9 +296,13 @@ export async function subDeclarePayment(requestId: string, depositor?: string) {
 }
 
 // 대행사
-export async function agencyQuoteRequest(requestId: string, count: number, unitPrice: number) {
+export async function agencyQuoteRequest(
+    requestId: string, count: number, unitPrice: number,
+    account: { bank: string; account: string; holder: string },
+) {
     const { error } = await supabase.rpc('agency_quote_request', {
         p_request_id: requestId, p_count: count, p_unit_price: unitPrice,
+        p_bank: account.bank, p_account: account.account, p_holder: account.holder,
     });
     return { error };
 }
