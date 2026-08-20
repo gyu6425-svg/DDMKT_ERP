@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { isUserPresent } from '../lib/useVisiblePolling';
 import { listChargeRequests } from '../api/cafeTokens';
 import { listSubRequests, agencyPendingSignups } from '../api/orgs';
+import { listCafeDeployRequests } from '../api/cafeDeployRequests';
 
 // 토큰 승인 알림 — 기자단 보고 알림(ReportPublishAlert)과 같은 톤·같은 폴링 방식.
 //   ★ 양쪽 모두에게 뜬다. 한쪽만 알면 상대가 기다리는 줄 모른 채 며칠이 지나간다.
@@ -40,6 +41,17 @@ export default function TokenApprovalAlert() {
             const out: Alert[] = [];
 
             if (isAdmin) {
+                // 주문서(카페 배포 접수) — 대행사 하위 업체 것도 우리가 처리한다(발행은 우리 몫).
+                //   이 알림이 없어서 하위 업체가 넣은 접수가 며칠 묻힐 뻔했다(2026-08-20).
+                const { data: deploys } = await listCafeDeployRequests(undefined, 100);
+                const newIntake = deploys.filter((r) => r.status === '접수').length;
+                if (newIntake) out.push({
+                    key: 'adm-intake', icon: '📝', tone: 'act',
+                    title: '주문서 접수',
+                    body: `확인해야 할 새 주문서 ${newIntake}건`,
+                    go: nav('/admin?tab=deploy'),
+                });
+
                 // 우리 큐 — 대행사가 넣은 충전 신청.
                 const { data } = await listChargeRequests();
                 const toQuote = data.filter((r) => r.status === 'pending').length;
