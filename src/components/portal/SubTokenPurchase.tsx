@@ -16,7 +16,6 @@ const STATUS: Record<string, { label: string; cls: string }> = {
     done:     { label: '충전완료',     cls: 'bg-[#dcfce7] text-[#166534]' },
     rejected: { label: '반려',         cls: 'bg-[#fee2e2] text-[#b91c1c]' },
 };
-const dt = (s: string | null) => (s ? new Date(s).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '');
 
 export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; agencyName: string }) {
     const [reqs, setReqs] = useState<SubTokenRequest[]>([]);
@@ -104,21 +103,20 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                         const n = q.quoted_count ?? q.requested_count;
                         return (
                             <div className="rounded border border-[#f1f5f9] px-2 py-1.5 text-[12px]" key={q.id}>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-[#64748b]">{dt(q.created_at)}</span>
+                                {/* 한 줄로 — 날짜·완료문구는 아래 '충전·사용 내역'에 이미 있다. */}
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                                     <span className="font-semibold">{n ? `${n}건` : '건수 미지정'}</span>
-                                    {q.pay_method ? <span className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[11px] font-semibold text-[#475569]">{q.pay_method}</span> : null}
-                                    <span className="text-[#94a3b8]">{q.note ?? ''}</span>
+                                    {q.pay_method ? <span className="text-[11px] text-[#64748b]">{q.pay_method}</span> : null}
+                                    {q.amount != null ? (
+                                        <span className="text-[#334155]">
+                                            공급가 <b>₩{won(q.amount)}</b>
+                                            <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(q.amount))}</span>
+                                            {' '}= <b className="text-[#c2410c]">₩{won(totalOf(q.amount))}</b>
+                                        </span>
+                                    ) : null}
+                                    {q.note ? <span className="text-[11px] text-[#94a3b8]">{q.note}</span> : null}
                                     <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold ${st.cls}`}>{st.label}</span>
                                 </div>
-
-                                {q.amount != null ? (
-                                    <div className="mt-1 text-[12px] text-[#334155]">
-                                        공급가 <b>₩{won(q.amount)}</b>
-                                        <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(q.amount))}</span>
-                                        {' '}= <b className="text-[#c2410c]">₩{won(totalOf(q.amount))}</b>
-                                    </div>
-                                ) : null}
 
                                 {q.status === 'quoted' && q.pay_account ? (
                                     <div className="mt-1.5 rounded-lg border border-[#fed7aa] bg-[#fff7ed] px-3 py-2 text-[12px] leading-6 text-[#7c2d12]">
@@ -140,9 +138,6 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                                     <div className="mt-1 text-[11px] text-[#c2410c]">
                                         입금 확인 중입니다{q.depositor ? ` (입금자 ${q.depositor})` : ''}.
                                     </div>
-                                ) : null}
-                                {q.status === 'done' ? (
-                                    <div className="mt-1 text-[11px] text-[#166534]">{q.granted_count}건 충전 완료 · {dt(q.handled_at)}</div>
                                 ) : null}
                             </div>
                         );
