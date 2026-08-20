@@ -26,7 +26,6 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
     const [reqs, setReqs] = useState<TokenRequest[]>([]);
     const [loading, setLoading] = useState(true);
     const [reqCount, setReqCount] = useState('');
-    const [reqNote, setReqNote] = useState('');
     const [reqPay, setReqPay] = useState<string>(PAY_METHODS[0]);
     const [reqMsg, setReqMsg] = useState('');
     const [reqBusy, setReqBusy] = useState(false);
@@ -71,13 +70,13 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
         if (isAgency && Number(reqCount) < AGENCY_MIN_COUNT)
             return setReqMsg(`대행사 최소 신청 수량은 ${AGENCY_MIN_COUNT}건입니다.`);
         setReqBusy(true); setReqMsg('');
-        const { error } = await requestCharge(clientId, reqCount ? Number(reqCount) : null, reqNote, reqPay);
+        const { error } = await requestCharge(clientId, reqCount ? Number(reqCount) : null, undefined, reqPay);
         setReqBusy(false);
         if (error) return setReqMsg('요청 실패: ' + error.message);
         setReqMsg(isAgency
             ? '신청이 접수되었습니다. 담당자가 금액을 통보해 드립니다.'
             : '충전 요청이 접수되었습니다. 입금 확인 후 충전해 드립니다.');
-        setReqCount(''); setReqNote(''); reloadReqs();
+        setReqCount(''); reloadReqs();
     };
 
     // 금액을 통보받아 내가 입금할 차례인 건 — 이게 있으면 카드를 띄운다.
@@ -144,12 +143,6 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                                 placeholder={isAgency ? `최소 ${AGENCY_MIN_COUNT}` : '예: 30'} type="number" value={reqCount} />
                             <span className="text-[13px] text-[#64748b]">건</span>
                         </div>
-                    </label>
-                    <label className="flex items-start gap-3">
-                        <span className="mt-2 w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">입금자명·은행</span>
-                        <input className="h-9 flex-1 rounded border border-[#cbd5e1] px-2 text-sm"
-                            onChange={(e) => setReqNote(e.target.value)}
-                            placeholder="예: 홍길동 / 국민은행" value={reqNote} />
                     </label>
                     <div className="flex items-center gap-3 pl-[100px]">
                         <button className="h-9 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"

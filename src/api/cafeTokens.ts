@@ -265,5 +265,42 @@ export async function fulfillChargeRequest(req: TokenRequest, count: number, not
         .from('cafe_token_requests')
         .update({ status: 'done', granted_count: count, handled_at: new Date().toISOString() })
         .eq('id', req.id);
-    return { error: upErr };
+    if (upErr) return { error: upErr };
+    // 판 금액을 매출로 남긴다. 토큰만 주고 끝나면 어느 매출 집계에도 안 잡힌다(검증 2026-08-20).
+    return { error: await recordTokenSale(req.client_id, count, req.amount ?? 0, req.unit_price ?? 0) };
+}
+
+// 토큰 판매 → 계약(매출) 반영. 금액은 **공급가**(부가세 미포함)로 넣는다 —
+//   client_contracts.amount 가 공급가 체계이고, 부가세는 화면에서 no_vat 로 계산한다.
+//   ★ 행을 새로 만들지 않고 그 업체의 '카페 배포' 계약에 누적한다. 구매할 때마다 행이 늘면
+//     진행률 동기화(cafe_contract_sync)가 같은 실적을 여러 행에 중복 반영한다.
+//   ★ 실패해도 토큰 발행은 되돌리지 않는다. 돈은 이미 받았고 토큰도 나갔다 —
+//     매출 기록은 사람이 계약관리에서 채울 수 있지만, 토큰을 도로 뺏을 수는 없다.
+async function recordTokenSale(clientId: string, count: number, amount: number, unitPrice: number) {
+    if (!clientId || count <= 0) return null;
+    const { data, error } = await supabase
+        .from('client_contracts')
+        .select('id,goal_count,remain_count,amount')
+        .eq('client_id', clientId).eq('category', '카페').eq('subtype', '카페 배포')
+        .order('created_at', { ascending: true });
+    if (error) return { message: `매출 반영 실패(계약 조회): ${error.message}` };
+
+    const today = new Date().toISOString().slice(0, 10);
+    const row = (data ?? [])[0] as { id: string; goal_count: number | null; remain_count: number | null; amount: number | null } | undefined;
+    if (row) {
+        const { error: e } = await supabase.from('client_contracts').update({
+            goal_count: (row.goal_count ?? 0) + count,
+            remain_count: (row.remain_count ?? 0) + count,
+            amount: (row.amount ?? 0) + amount,
+            unit_price: unitPrice || null,
+            sheet_approved: true,
+        }).eq('id', row.id);
+        return e ? { message: `매출 반영 실패: ${e.message}` } : null;
+    }
+    const { error: e2 } = await supabase.from('client_contracts').insert({
+        client_id: clientId, category: '카페', subtype: '카페 배포',
+        goal_count: count, remain_count: count, amount, unit_price: unitPrice || null,
+        contract_date: today, sheet_approved: true,
+    });
+    return e2 ? { message: `매출 반영 실패: ${e2.message}` } : null;
 }

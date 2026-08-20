@@ -191,36 +191,26 @@ export default function TokenChargePanel() {
                                         ? 'border border-[#e2e8f0] bg-white'
                                         : 'border border-[#fdba74] bg-white shadow-sm'
                                 }`} key={q.id}>
-                                    <div className="flex flex-wrap items-center gap-2">
+                                    {/* 한 줄로 눕힌다 — 상태 뱃지가 이미 '입금 신고'·'발행 완료'를 말하고 있어
+                                        같은 내용을 시각까지 붙여 또 적으면 줄만 길어진다. */}
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${c.cls}`}>{c.label}</span>
                                         <span className="font-bold text-[#0f172a]">{clientName(q.client_id)}</span>
                                         {clientOf(q.client_id)?.is_agency ? (
                                             <span className="rounded bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-bold text-[#6d28d9]">대행사</span>
                                         ) : null}
-                                        <span className="text-[#4338ca]">{q.requested_count ? `${q.requested_count}건 신청` : '건수 미지정'}</span>
-                                        {q.pay_method ? <span className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[11px] font-bold text-[#4338ca]">{q.pay_method}</span> : null}
-                                        {q.note ? <span className="text-[#64748b]">· {q.note}</span> : null}
+                                        <span className="text-[#4338ca]">{q.quoted_count ?? q.requested_count ?? '-'}건</span>
+                                        {q.pay_method ? <span className="text-[11px] text-[#64748b]">{q.pay_method}</span> : null}
+                                        {q.amount != null ? (
+                                            <span className="text-[#334155]">
+                                                공급가 <b>₩{won(q.amount)}</b>
+                                                <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(q.amount))}</span>
+                                                {' '}= <b className="text-[#c2410c]">₩{won(totalOf(q.amount))}</b>
+                                            </span>
+                                        ) : null}
+                                        {q.depositor ? <span className="text-[11px] text-[#94a3b8]">입금자 {q.depositor}</span> : null}
                                         <span className="ml-auto text-[11px] text-[#cbd5e1]">{dt(q.created_at)}</span>
                                     </div>
-
-                                    {/* 통보된 금액 */}
-                                    {q.amount != null ? (
-                                        <div className="mt-1.5 text-[12px] text-[#334155]">
-                                            공급가 <b>₩{won(q.amount)}</b>
-                                            <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(q.amount))}</span>
-                                            {' '}= <b className="text-[#c2410c]">₩{won(totalOf(q.amount))}</b>
-                                            <span className="ml-2 text-[11px] text-[#94a3b8]">{dt(q.quoted_at)}</span>
-                                        </div>
-                                    ) : null}
-                                    {q.paid_declared_at ? (
-                                        <div className="mt-1 text-[12px] font-semibold text-[#c2410c]">
-                                            입금 신고 {dt(q.paid_declared_at)}
-                                            {q.depositor ? <span className="ml-1 font-normal text-[#64748b]">· 입금자 {q.depositor}</span> : null}
-                                        </div>
-                                    ) : null}
-                                    {q.status === 'done' ? (
-                                        <div className="mt-1 text-[12px] text-[#166534]">발행 {q.granted_count ?? '-'}건 · {dt(q.handled_at)}</div>
-                                    ) : null}
 
                                     {/* 조작 — 단계마다 누를 것이 하나만 보이게 한다.
                                         신청(pending) 이면 금액 통보, 입금 신고(paid) 면 토큰 발행.

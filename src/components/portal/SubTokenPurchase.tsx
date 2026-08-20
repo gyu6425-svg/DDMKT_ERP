@@ -20,7 +20,6 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; agencyName: string }) {
     const [reqs, setReqs] = useState<SubTokenRequest[]>([]);
     const [count, setCount] = useState('');
-    const [note, setNote] = useState('');
     const [pay, setPay] = useState<string>(PAY_METHODS[0]);
     const [payer, setPayer] = useState<Record<string, string>>({});
     const [busy, setBusy] = useState<string | null>(null);
@@ -36,11 +35,11 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
         const n = Number(count);
         if (!n || n <= 0) return setErr('신청 건수를 입력하세요.');
         setBusy('new'); setErr(''); setMsg('');
-        const { error } = await subRequestTokens(n, note, pay);
+        const { error } = await subRequestTokens(n, undefined, pay);
         setBusy(null);
         if (error) return setErr(error.message);
         setMsg(`${agencyName} 에 ${n}건 신청했습니다. 금액을 통보받으면 여기에 표시됩니다.`);
-        setCount(''); setNote(''); load();
+        setCount(''); load();
     };
 
     const declare = async (q: SubTokenRequest) => {
@@ -91,11 +90,6 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                                 onChange={(e) => setCount(intOnly(e.target.value, MAX_COUNT))} placeholder="예: 10" type="number" value={count} />
                             <span className="text-[13px] text-[#64748b]">건</span>
                         </div>
-                    </label>
-                    <label className="flex items-start gap-3">
-                        <span className="mt-2 w-[88px] shrink-0 text-[13px] font-semibold text-[#475569]">입금자명·은행</span>
-                        <input className="h-9 flex-1 rounded border border-[#cbd5e1] px-2 text-sm"
-                            onChange={(e) => setNote(e.target.value)} placeholder="예: 홍길동 / 국민은행" value={note} />
                     </label>
                     <div className="pl-[100px]">
                         <button className="h-9 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
