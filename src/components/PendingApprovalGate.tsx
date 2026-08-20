@@ -4,7 +4,9 @@ import { useAuth } from '../hooks/useAuth';
 // 승인 대기 게이트 — 회원가입 후 프로필이 비활성(is_active=false)인 계정은
 //   관리자 승인 전까지 이 화면만 보인다(데이터 접근 차단, 로그아웃만 가능).
 export default function PendingApprovalGate() {
-    const { pending, user, signOut } = useAuth();
+    const { pending, user, signOut, profile } = useAuth();
+    // 초대 코드로 가입했는가 = 대행사가 승인하는 건. profiles.signup_invite_code 로 판정한다.
+    const byAgency = !!(profile as { signup_invite_code?: string | null } | null)?.signup_invite_code;
     if (AUTH_DISABLED || !user || !pending) return null;
 
     return (
@@ -15,10 +17,22 @@ export default function PendingApprovalGate() {
                 </div>
                 <h3 className="m-0 text-[22px] font-bold text-[#333333]">승인 대기 중입니다</h3>
                 <p className="mt-3 mb-0 text-[15px] leading-7 text-[#666666]">
-                    회원가입이 접수되었습니다. 관리자가 계정을 확인하고 <b>업체·담당 블로그를 연결</b>하면
-                    이용할 수 있습니다.
-                    <br />
-                    승인 완료 후 다시 로그인해 주세요.
+                    {/* 초대 코드로 들어온 가입은 **대행사**가 승인한다(agency_approve_signup).
+                        '관리자·담당 블로그'는 기자단용 문구라, 하부 업체 사장님이 우리에게 전화하게 만든다. */}
+                    {byAgency ? (
+                        <>
+                            회원가입이 접수되었습니다. <b>소속 대행사</b>가 승인하면 바로 이용하실 수 있습니다.
+                            <br />
+                            승인이 늦어지면 초대 코드를 주신 담당자에게 문의해 주세요.
+                        </>
+                    ) : (
+                        <>
+                            회원가입이 접수되었습니다. 관리자가 계정을 확인하고 <b>업체를 연결</b>하면
+                            이용할 수 있습니다.
+                            <br />
+                            승인 완료 후 다시 로그인해 주세요.
+                        </>
+                    )}
                 </p>
                 <button
                     className="mt-6 w-full rounded-xl bg-[#333333] px-4 py-3 text-[16px] font-bold text-white hover:bg-[#111111]"

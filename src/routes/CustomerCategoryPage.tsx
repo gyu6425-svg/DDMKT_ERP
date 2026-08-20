@@ -11,6 +11,7 @@ import { CafeDeployIntake } from '../components/cafe/CafeDeployIntake';
 import { CafeTokenHistory } from '../components/cafe/CafeTokenHistory';
 import { getCafeAccounts } from '../api/cafeAccounts';
 import { listChargeRequests } from '../api/cafeTokens';
+import { listSubRequests } from '../api/orgs';
 import { useAuth } from '../hooks/useAuth';
 
 export function useAsParam(): string {
@@ -109,15 +110,25 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
         return () => { alive = false; };
     }, [scopedClientId]);
 
-    // 충전요청(고객이 계좌이체/카드결제로 토큰 구매 = 충전 요청) 중 '아직 안 본' 건수 → 충전내역 탭 알림 뱃지.
-    //   탭을 열면(클릭) seen 시각을 저장해 뱃지를 지운다. 새 요청이 생기면 다시 뜬다.
+    // 충전 요청 탭 알림 뱃지 — '내가 할 일이 생겼다'만 센다.
+    //   ★ 두 큐를 다 본다. 대행사·직거래는 우리 큐(cafe_token_requests), 하부 업체는
+    //     대행사 큐(agency_token_requests) 를 쓴다. 우리 큐만 보면 하부 업체는 대행사가
+    //     금액을 통보해도 뱃지가 영영 안 붙는다(검증 2026-08-20).
+    //   ★ 세는 대상: 금액 통보(quoted, 내가 입금할 차례) + 아직 안 본 충전 완료(done).
+    //     예전에는 pending(내가 방금 낸 신청)을 셌는데, 그건 본인이 한 일이라 알릴 것이 아니다.
     useEffect(() => {
         let alive = true;
         if (!scopedClientId) { setChargeDue(0); return; }
-        void listChargeRequests(scopedClientId).then(({ data }) => {
+        void Promise.all([
+            listChargeRequests(scopedClientId),
+            listSubRequests({ childId: scopedClientId }),
+        ]).then(([ours, subs]) => {
             if (!alive) return;
             const seen = localStorage.getItem(`cafeChargeSeen:${scopedClientId}`) || '';
-            setChargeDue(data.filter((r) => r.status === 'pending' && (!seen || r.created_at > seen)).length);
+            const due = (rows: { status: string; created_at: string; handled_at?: string | null }[]) =>
+                rows.filter((r) => r.status === 'quoted'
+                    || (r.status === 'done' && (!seen || (r.handled_at || r.created_at) > seen))).length;
+            setChargeDue(due(ours.data) + due(subs.data));
         });
         return () => { alive = false; };
     }, [scopedClientId, view]);

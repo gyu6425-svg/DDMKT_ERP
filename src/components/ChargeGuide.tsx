@@ -151,6 +151,10 @@ export function ChargeGuide() {
     useEffect(() => {
         if (role !== 'viewer' || pending || needsOnboarding || profile?.must_change_password || !uid) return;
         if (kind === null) return;   // 판정 전엔 열지 않는다
+        // ★ 자동으로 여는 것은 대행사·하부 업체만. 직거래 고객은 카페를 안 쓰는 분도 있고
+        //   (블로그·플레이스 전용) 그런 분을 카페 탭으로 끌고 가면 뜻 없는 투어가 8단계 돈다.
+        //   직거래는 필요할 때 "📖 가이드 보기"로 연다.
+        if (kind === 'direct') return;
         let seen = false;
         try {
             // ★ 하부 업체는 토큰이 없으면 주문서를 아예 못 넣는다 → 충전 가이드가 **먼저** 와야 한다.

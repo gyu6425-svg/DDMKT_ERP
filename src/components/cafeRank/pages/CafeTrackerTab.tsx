@@ -550,7 +550,9 @@ export function CafeTrackerTab({
                         {loading ? (
                             <tr><td className="px-3 py-10 text-center text-sm text-[#94a3b8]" colSpan={colSpan}>불러오는 중…</td></tr>
                         ) : !rows.length ? (
-                            <tr><td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={colSpan}>{posts.length ? '검색·필터 결과가 없습니다' : "등록된 카페 글이 없습니다 · '시트 붙여넣기 등록'으로 추가하세요"}</td></tr>
+                            <tr><td className="px-3 py-12 text-center text-sm text-[#64748b]" colSpan={colSpan}>{posts.length ? '검색·필터 결과가 없습니다'
+                                : external ? '아직 발행된 글이 없습니다. 발행이 시작되면 여기에 순위가 쌓입니다.'
+                                : "등록된 카페 글이 없습니다 · '시트 붙여넣기 등록'으로 추가하세요"}</td></tr>
                         ) : (
                             pageRows.map((p) => {
                                 const last = p.measurements?.[p.measurements.length - 1];

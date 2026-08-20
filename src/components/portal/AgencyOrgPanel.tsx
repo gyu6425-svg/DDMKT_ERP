@@ -217,7 +217,7 @@ export default function AgencyOrgPanel() {
                     </div>
                     {/* 입금 계좌 — 금액 통보 시 하위 업체에게 함께 전달된다. */}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span className="text-[12px] font-semibold text-[#475569]">입금 계좌</span>
+                        <span className="text-[12px] font-semibold text-[#475569]">입금 계좌 <span className="font-normal text-[#94a3b8]">계좌이체용</span></span>
                         <input className="h-8 w-28 rounded border border-[#cbd5e1] px-2 text-[12px]"
                             onChange={(e) => setAcct((a) => ({ ...a, bank: e.target.value }))}
                             placeholder="은행" value={acct.bank} />
@@ -227,7 +227,7 @@ export default function AgencyOrgPanel() {
                         <input className="h-8 w-28 rounded border border-[#cbd5e1] px-2 text-[12px]"
                             onChange={(e) => setAcct((a) => ({ ...a, holder: e.target.value }))}
                             placeholder="예금주" value={acct.holder} />
-                        <span className="text-[11px] text-[#94a3b8]">금액 통보 시 함께 전달됩니다</span>
+                        <span className="text-[11px] text-[#94a3b8]">금액 통보 시 함께 전달됩니다 · 카드결제는 따로 안내해 주세요</span>
                     </div>
                 </div>
                 {subReqs.length === 0 ? (

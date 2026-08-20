@@ -114,9 +114,10 @@ export default function SubDashboard() {
                             <div className="mt-1 text-[13px] font-bold text-[#b45309]">충전 전</div>
                         ) : (
                             <>
-                                <div className="mt-0.5 text-2xl font-bold" style={{ color: progColor(prog) }}>{prog}%</div>
+                                {/* 방금 충전해 아직 한 건도 안 나간 상태를 빨간 0% 로 보여주면 문제가 난 것처럼 읽힌다. */}
+                                <div className="mt-0.5 text-2xl font-bold" style={{ color: used === 0 ? '#94a3b8' : progColor(prog) }}>{prog}%</div>
                                 <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[#e2e8f0]">
-                                    <div className="h-full rounded-full" style={{ background: progColor(prog), width: `${prog}%` }} />
+                                    <div className="h-full rounded-full" style={{ background: used === 0 ? '#cbd5e1' : progColor(prog), width: `${prog}%` }} />
                                 </div>
                             </>
                         )}

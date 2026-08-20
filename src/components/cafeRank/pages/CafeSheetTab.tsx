@@ -421,8 +421,11 @@ export function CafeSheetTab({
                     </tbody>
                 </table>
             </div>
+            {/* 읽기 전용(고객 뷰)에서는 '칸에 바로 입력하면 저장됩니다'가 거짓말이 된다 — 입력칸이 없다. */}
             <p className="m-0 text-[11px] text-[#94a3b8]">
-                ※ 계약금액·건수·계약일·담당은 칸에 바로 입력하면 저장됩니다. 진행률 = 발행완료 / 목표건수. 추적 글·인기글 진입은 순위 트래커 데이터 기준.
+                {readOnly
+                    ? '※ 진행률 = 발행완료 / 목표건수. 추적 글·인기글 진입은 순위 트래커 데이터 기준.'
+                    : '※ 계약금액·건수·계약일·담당은 칸에 바로 입력하면 저장됩니다. 진행률 = 발행완료 / 목표건수. 추적 글·인기글 진입은 순위 트래커 데이터 기준.'}
             </p>
             {setupAccount ? (
                 <DeployPublishSetupModal account={setupAccount} onClose={() => setSetupAccount(null)} onSaved={() => void reload()} />
