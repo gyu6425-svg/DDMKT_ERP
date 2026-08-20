@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import AgencyDashboard from '../components/portal/AgencyDashboard';
+import AgencyContracts from '../components/portal/AgencyContracts';
 import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
 import { Kpi } from '../components/blogRank/lib/ui';
 import { lastM, fmtWon } from '../components/blogRank/lib/helpers';
@@ -292,6 +293,9 @@ function CustomerOverviewPage({ contractsView = false }: { contractsView?: boole
     }, [clientId]);
 
     const agencyHome = !contractsView && isAgency === true;
+    // 대행사의 계약 관리는 '하부 업체와 맺은 계약' 목록이다.
+    //   기존 고객 대시보드(매출 공급가·관리 블로그·측정 글 …)는 우리 기준 숫자라 대행사에게는 뜻이 없다.
+    const agencyContracts = contractsView && isAgency === true;
     return (
         <section className="grid gap-4">
             <div className="flex items-center gap-2">
@@ -299,19 +303,23 @@ function CustomerOverviewPage({ contractsView = false }: { contractsView?: boole
                     {contractsView ? '계약 관리' : '통합 대시보드'}
                 </h2>
                 <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${
-                    agencyHome ? 'bg-[#ede9fe] text-[#6d28d9]' : 'bg-[#dbeafe] text-[#1e40af]'
+                    agencyHome || agencyContracts ? 'bg-[#ede9fe] text-[#6d28d9]' : 'bg-[#dbeafe] text-[#1e40af]'
                 }`}>
-                    {agencyHome ? '대행사' : '고객 뷰'}
+                    {agencyHome || agencyContracts ? '대행사' : '고객 뷰'}
                 </span>
             </div>
             <p className="m-0 text-sm text-[#64748b]">
                 {agencyHome
                     ? '하위 업체 현황과 정산을 한눈에 봅니다.'
-                    : '계약하신 카테고리 현황을 한눈에 봅니다.'}
+                    : agencyContracts
+                      ? '하부 업체와 맺은 계약입니다. 업체명으로 검색할 수 있습니다.'
+                      : '계약하신 카테고리 현황을 한눈에 봅니다.'}
             </p>
 
             {agencyHome ? (
                 <AgencyDashboard />
+            ) : agencyContracts ? (
+                <AgencyContracts />
             ) : (
                 <BlogRankProvider customerMode previewClientId={as || null}>
                     <OverviewCards />
