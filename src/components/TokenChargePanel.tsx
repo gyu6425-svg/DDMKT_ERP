@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabase';
 import {
     listTokens, grantTokens, balanceOf, listChargeRequests, setChargeRequestStatus,
     quoteChargeRequest, fulfillChargeRequest,
-    tokenWon, won, vatOf, totalOf, intOnly, MAX_COUNT, MAX_UNIT_PRICE, TOKEN_PRICE_KRW, AGENCY_TOKEN_PRICE_KRW,
+    won, vatOf, totalOf, intOnly, MAX_COUNT, MAX_UNIT_PRICE, TOKEN_PRICE_KRW,
+    getDefaultUnitPrice, setDefaultUnitPrice,
     type TokenLedger, type TokenRequest,
 } from '../api/cafeTokens';
 import { listSubRequests, type SubTokenRequest } from '../api/orgs';
@@ -41,6 +42,9 @@ export default function TokenChargePanel() {
     // 행별 입력값 — 금액 통보(건수·단가).
     const [qCount, setQCount] = useState<Record<string, string>>({});
     const [qPrice, setQPrice] = useState<Record<string, string>>({});
+    // 기본 단가 — 통보 화면에 처음 채워지는 값. 매번 달라질 수 있어 설정으로 뺐다.
+    const [unitPrice, setUnitPrice] = useState<number>(TOKEN_PRICE_KRW);
+    const [priceEdit, setPriceEdit] = useState('');
 
     const load = () => {
         void Promise.all([
@@ -55,13 +59,15 @@ export default function TokenChargePanel() {
             setSubReqs(sr.data);
             if (tk.error) setMsg(tk.error.message);
         });
+        void getDefaultUnitPrice().then((v) => { setUnitPrice(v); setPriceEdit(String(v)); });
     };
     useEffect(load, []);
 
     const clientOf = (id: string) => clients.find((c) => c.id === id);
     const clientName = (id: string) => clientOf(id)?.company || id.slice(0, 8);
-    // 대행사는 10,000 / 일반 15,000 을 기본값으로 채워준다. 실제 값은 통보할 때 행에 저장된다.
-    const defaultPrice = (id: string) => (clientOf(id)?.is_agency ? AGENCY_TOKEN_PRICE_KRW : TOKEN_PRICE_KRW);
+    // 통보 화면 기본값. 건별로 다르면 그 자리에서 고친다 — 저장은 행 단위라 과거 거래는 안 변한다.
+    //   (clientOf 는 대행사 표시 뱃지에 계속 쓰인다)
+    const defaultPrice = (_id: string) => unitPrice;
 
     const matches = useMemo(() => {
         const q = search.replace(/\s+/g, '').toLowerCase();
@@ -104,7 +110,7 @@ export default function TokenChargePanel() {
         const { error } = await grantTokens(pick, n, note);
         setBusy(false);
         if (error) return setMsg('충전 실패: ' + error.message);
-        setMsg(`${clientName(pick)} +${n}건 (₩${tokenWon(n)}) 충전 완료`);
+        setMsg(`${clientName(pick)} +${n}건 (₩${won(n * unitPrice)}) 충전 완료`);
         setCount(''); setNote('');
         load();
     };
@@ -127,9 +133,24 @@ export default function TokenChargePanel() {
                             </button>
                         ))}
                     </div>
-                    <button className="ml-auto rounded-md border border-[#cbd5e1] px-3 py-1 text-xs font-semibold text-[#475569]" onClick={load} type="button">
-                        새로고침
-                    </button>
+                    <div className="ml-auto flex items-center gap-2">
+                        {/* 기본 단가 — 1건 = 1토큰. 여기서 바꾸면 이후 통보 화면의 초기값이 바뀐다.
+                            이미 통보·발행된 건의 금액은 그대로다(행마다 저장돼 있다). */}
+                        <span className="text-[12px] font-semibold text-[#64748b]">기본 단가</span>
+                        <input className="h-7 w-24 rounded border border-[#cbd5e1] px-2 text-[12px]" min={1} step={1000} type="number"
+                            onChange={(e) => setPriceEdit(intOnly(e.target.value, MAX_UNIT_PRICE))} value={priceEdit} />
+                        <span className="text-[12px] text-[#94a3b8]">원/건</span>
+                        <button className="rounded-md border border-[#cbd5e1] px-2.5 py-1 text-xs font-semibold text-[#475569] hover:bg-[#f1f5f9] disabled:opacity-40"
+                            disabled={busy || !Number(priceEdit) || Number(priceEdit) === unitPrice}
+                            onClick={() => void act(() => setDefaultUnitPrice(Number(priceEdit)),
+                                `기본 단가를 ₩${won(Number(priceEdit))} 으로 바꿨습니다 (이미 통보된 건은 그대로)`)}
+                            type="button">
+                            저장
+                        </button>
+                        <button className="rounded-md border border-[#cbd5e1] px-3 py-1 text-xs font-semibold text-[#475569]" onClick={load} type="button">
+                            새로고침
+                        </button>
+                    </div>
                 </div>
                 <p className="m-0 mb-3 text-[12px] leading-5 text-[#64748b]">
                     신청 → <b>금액 통보</b> → 대행사가 계좌이체 후 <b>입금 신고</b> → 통장 확인 후 <b>토큰 발행</b>.
@@ -157,6 +178,7 @@ export default function TokenChargePanel() {
                                             <span className="rounded bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-bold text-[#6d28d9]">대행사</span>
                                         ) : null}
                                         <span className="text-[#4338ca]">{q.requested_count ? `${q.requested_count}건 신청` : '건수 미지정'}</span>
+                                        {q.pay_method ? <span className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[11px] font-bold text-[#4338ca]">{q.pay_method}</span> : null}
                                         {q.note ? <span className="text-[#64748b]">· {q.note}</span> : null}
                                         <span className="ml-auto text-[11px] text-[#cbd5e1]">{dt(q.created_at)}</span>
                                     </div>

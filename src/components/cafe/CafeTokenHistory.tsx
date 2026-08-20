@@ -7,7 +7,7 @@ import { SubTokenPurchase } from '../portal/SubTokenPurchase';
 //   (2026-08-19 확정). 그래서 금액 표시는 is_agency 일 때만 켠다.
 import {
     listTokens, balanceOf, requestCharge, listChargeRequests, declareTokenPayment,
-    won, vatOf, totalOf, AGENCY_MIN_COUNT,
+    won, vatOf, totalOf, AGENCY_MIN_COUNT, PAY_METHODS, intOnly, MAX_COUNT,
     type TokenLedger, type TokenRequest,
 } from '../../api/cafeTokens';
 
@@ -27,6 +27,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
     const [loading, setLoading] = useState(true);
     const [reqCount, setReqCount] = useState('');
     const [reqNote, setReqNote] = useState('');
+    const [reqPay, setReqPay] = useState<string>(PAY_METHODS[0]);
     const [reqMsg, setReqMsg] = useState('');
     const [reqBusy, setReqBusy] = useState(false);
     const [txFilter, setTxFilter] = useState<'all' | 'charge' | 'use'>('all'); // 충전·사용 내역 토글
@@ -70,7 +71,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
         if (isAgency && Number(reqCount) < AGENCY_MIN_COUNT)
             return setReqMsg(`대행사 최소 신청 수량은 ${AGENCY_MIN_COUNT}건입니다.`);
         setReqBusy(true); setReqMsg('');
-        const { error } = await requestCharge(clientId, reqCount ? Number(reqCount) : null, reqNote);
+        const { error } = await requestCharge(clientId, reqCount ? Number(reqCount) : null, reqNote, reqPay);
         setReqBusy(false);
         if (error) return setReqMsg('요청 실패: ' + error.message);
         setReqMsg(isAgency
@@ -118,17 +119,37 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                         ? <>필요 건수를 신청하시면 담당자가 <b>금액을 통보</b>해 드립니다. 입금 후 <b>계좌이체 완료</b>를 눌러 주시면 확인 후 토큰을 발행합니다. 최소 {AGENCY_MIN_COUNT}건 · 금액은 부가세 별도입니다.</>
                         : <>입금 후 충전을 요청하시면 담당자가 확인하고 충전해 드립니다. <b className="text-[#4338ca]">발행 1건 = 1토큰</b></>}
                 </p>
-                <div className="flex flex-wrap items-end gap-2">
-                    <div>
-                        <div className="mb-1 text-[12px] font-semibold text-[#64748b]">희망 건수</div>
-                        <input className="h-9 w-28 rounded border border-[#cbd5e1] px-2 text-sm" type="number" min={1} placeholder="예: 30" value={reqCount} onChange={(e) => setReqCount(e.target.value)} />
+                {/* 항목을 한 줄에 늘어놓으면 무엇을 적어야 하는지 눈에 안 들어온다 — 라벨을 왼쪽에 세운다. */}
+                <div className="grid max-w-[560px] gap-2.5">
+                    <label className="flex items-center gap-3">
+                        <span className="w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">결제 방식</span>
+                        <select className="h-9 flex-1 rounded border border-[#cbd5e1] bg-white px-2 text-sm"
+                            onChange={(e) => setReqPay(e.target.value)} value={reqPay}>
+                            {PAY_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                    </label>
+                    <label className="flex items-center gap-3">
+                        <span className="w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">건수</span>
+                        <div className="flex flex-1 items-center gap-2">
+                            <input className="h-9 w-32 rounded border border-[#cbd5e1] px-2 text-sm" min={1}
+                                onChange={(e) => setReqCount(intOnly(e.target.value, MAX_COUNT))}
+                                placeholder={isAgency ? `최소 ${AGENCY_MIN_COUNT}` : '예: 30'} type="number" value={reqCount} />
+                            <span className="text-[13px] text-[#64748b]">건</span>
+                        </div>
+                    </label>
+                    <label className="flex items-start gap-3">
+                        <span className="mt-2 w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">메모</span>
+                        <input className="h-9 flex-1 rounded border border-[#cbd5e1] px-2 text-sm"
+                            onChange={(e) => setReqNote(e.target.value)}
+                            placeholder="입금자명·요청사항 등 (선택)" value={reqNote} />
+                    </label>
+                    <div className="flex items-center gap-3 pl-[88px]">
+                        <button className="h-9 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
+                            disabled={reqBusy || !clientId} onClick={() => void submitReq()} type="button">
+                            {reqBusy ? '요청 중…' : '충전 요청'}
+                        </button>
+                        {reqMsg && <span className="text-[12px] text-[#475569]">{reqMsg}</span>}
                     </div>
-                    <div className="min-w-[160px] flex-1">
-                        <div className="mb-1 text-[12px] font-semibold text-[#64748b]">메모 (입금자명/일자)</div>
-                        <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm" placeholder="예: 홍길동 7/30 입금" value={reqNote} onChange={(e) => setReqNote(e.target.value)} />
-                    </div>
-                    <button className="h-9 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50" disabled={reqBusy || !clientId} onClick={() => void submitReq()} type="button">{reqBusy ? '요청 중…' : '충전 요청'}</button>
-                    {reqMsg && <span className="text-[12px] text-[#475569]">{reqMsg}</span>}
                 </div>
                 {reqs.length ? (
                     <div className="mt-3 grid gap-1.5">
@@ -140,6 +161,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                                     <div className="flex flex-wrap items-center gap-2">
                                         <span className="text-[#64748b]">{new Date(q.created_at).toLocaleDateString('ko-KR')}</span>
                                         <span className="font-semibold">{n ? `${n}건` : '건수 미지정'}</span>
+                                        {q.pay_method ? <span className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[11px] font-semibold text-[#475569]">{q.pay_method}</span> : null}
                                         <span className="text-[#94a3b8]">{q.note ?? ''}</span>
                                         <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold ${st.cls}`}>{st.label}</span>
                                     </div>

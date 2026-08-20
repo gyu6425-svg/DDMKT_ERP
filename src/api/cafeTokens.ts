@@ -1,7 +1,25 @@
 import { supabase } from '../lib/supabase';
 
-// 단가: 1토큰(=카페 1건 발행) = 15,000원. 충전은 이 단가로 입금.
+// 단가: 1건 = 1토큰 = 15,000원(기본값). **매번 달라질 수 있어 DB 설정에서 바꾼다**
+//   — app_settings.token_unit_price (docs/token-price-setting.sql).
+//   여기 상수는 설정을 아직 못 읽었을 때 쓰는 마지막 기본값일 뿐이다.
+//   ★ 거래에 실제로 적용된 단가는 행마다 저장된다(unit_price). 설정을 바꿔도 과거 거래는 그대로다.
 export const TOKEN_PRICE_KRW = 15000;
+
+// 통보 화면에 처음 채워지는 기본 단가. 못 읽으면 상수로 떨어진다(화면이 비지 않게).
+export async function getDefaultUnitPrice(): Promise<number> {
+    const { data } = await supabase.from('app_settings').select('value').eq('key', 'token_unit_price').maybeSingle();
+    const v = (data as { value?: { default?: number } } | null)?.value?.default;
+    return typeof v === 'number' && v > 0 ? v : TOKEN_PRICE_KRW;
+}
+
+// 기본 단가 변경(내부 직원만 — RLS 가 막는다).
+export async function setDefaultUnitPrice(price: number) {
+    const { error } = await supabase.from('app_settings')
+        .upsert({ key: 'token_unit_price', value: { default: price }, updated_at: new Date().toISOString() },
+                { onConflict: 'key' });
+    return { error };
+}
 // 건수 → 금액(원) 문자열. 예: tokenWon(3) → "45,000"
 export const tokenWon = (count: number) => (Math.max(0, Math.round(count || 0)) * TOKEN_PRICE_KRW).toLocaleString('ko-KR');
 
@@ -133,6 +151,7 @@ export type TokenRequestStatus = 'pending' | 'quoted' | 'paid' | 'done' | 'rejec
 export type TokenRequest = {
     id: string; created_at: string; client_id: string;
     requested_count: number | null; note: string | null; status: string;
+    pay_method?: string | null;
     handled_at?: string | null;
     unit_price?: number | null;        // 통보 단가(원/건)
     amount?: number | null;            // 공급가 = 건수 x 단가 (부가세 미포함)
@@ -143,10 +162,14 @@ export type TokenRequest = {
     granted_count?: number | null;
 };
 
-// 대행사 단가·최소 수량. 일반 고객은 TOKEN_PRICE_KRW(15,000).
-//   ★ 화면 기본값일 뿐이다 — 실제 금액은 통보할 때 행에 저장한다(단가가 바뀌어도 과거 근거가 남게).
-export const AGENCY_TOKEN_PRICE_KRW = 10000;
+// 대행사 최소 신청 수량. 단가는 업체 구분과 무관하게 app_settings 기본값에서 오고,
+//   건별로 다르면 통보 화면에서 고친다(사장님 확인 2026-08-20 — 단가는 매번 달라질 수 있다).
 export const AGENCY_MIN_COUNT = 30;
+
+// 결제 방식 — 담당자가 안내 방법(계좌/카드 링크)을 정하고, 나중에 수단별 집계도 낼 수 있게 컬럼으로 받는다.
+//   값을 CHECK 로 못박지 않은 이유: 수단이 하나 늘 때마다 배포가 필요해진다.
+export const PAY_METHODS = ['계좌이체', '카드결제', '기타'] as const;
+export type PayMethod = (typeof PAY_METHODS)[number];
 
 // 부가세 별도. 통보 금액(공급가)에 10% 를 더한 값이 실제 입금액이다.
 export const vatOf = (supply: number) => Math.round(supply * 0.1);
@@ -165,9 +188,10 @@ export const intOnly = (v: string, max: number) => {
 
 
 // 고객: 충전 요청.
-export async function requestCharge(clientId: string, count: number | null, note?: string) {
+export async function requestCharge(clientId: string, count: number | null, note?: string, payMethod?: string) {
     const { error } = await supabase.from('cafe_token_requests').insert({
         client_id: clientId, requested_count: count ?? null, note: note?.trim() || null, status: 'pending',
+        pay_method: payMethod?.trim() || null,
     });
     return { error };
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
     listSubRequests, subRequestTokens, subDeclarePayment, type SubTokenRequest,
 } from '../../api/orgs';
-import { won, vatOf, totalOf, intOnly, MAX_COUNT } from '../../api/cafeTokens';
+import { won, vatOf, totalOf, intOnly, MAX_COUNT, PAY_METHODS } from '../../api/cafeTokens';
 
 // 하위 업체 화면 — 소속 대행사에게 토큰을 산다. 우리↔대행사와 같은 4단계.
 //   신청 → 대행사가 금액 통보 → 계좌이체 후 '완료' 신고 → 대행사가 확인 후 발행.
@@ -22,6 +22,7 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
     const [reqs, setReqs] = useState<SubTokenRequest[]>([]);
     const [count, setCount] = useState('');
     const [note, setNote] = useState('');
+    const [pay, setPay] = useState<string>(PAY_METHODS[0]);
     const [payer, setPayer] = useState<Record<string, string>>({});
     const [busy, setBusy] = useState<string | null>(null);
     const [msg, setMsg] = useState('');
@@ -36,7 +37,7 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
         const n = Number(count);
         if (!n || n <= 0) return setErr('신청 건수를 입력하세요.');
         setBusy('new'); setErr(''); setMsg('');
-        const { error } = await subRequestTokens(n, note);
+        const { error } = await subRequestTokens(n, note, pay);
         setBusy(null);
         if (error) return setErr(error.message);
         setMsg(`${agencyName} 에 ${n}건 신청했습니다. 금액을 통보받으면 여기에 표시됩니다.`);
@@ -67,21 +68,33 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                     처리 중인 신청이 있어 새 신청은 완료 후에 가능합니다.
                 </div>
             ) : (
-                <div className="mb-3 flex flex-wrap items-end gap-2">
-                    <div>
-                        <div className="mb-1 text-[12px] font-semibold text-[#64748b]">희망 건수</div>
-                        <input className="h-9 w-28 rounded border border-[#cbd5e1] px-2 text-sm" min={1}
-                            onChange={(e) => setCount(intOnly(e.target.value, MAX_COUNT))} placeholder="예: 10" type="number" value={count} />
+                <div className="mb-3 grid max-w-[560px] gap-2.5">
+                    <label className="flex items-center gap-3">
+                        <span className="w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">결제 방식</span>
+                        <select className="h-9 flex-1 rounded border border-[#cbd5e1] bg-white px-2 text-sm"
+                            onChange={(e) => setPay(e.target.value)} value={pay}>
+                            {PAY_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                    </label>
+                    <label className="flex items-center gap-3">
+                        <span className="w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">건수</span>
+                        <div className="flex flex-1 items-center gap-2">
+                            <input className="h-9 w-32 rounded border border-[#cbd5e1] px-2 text-sm" min={1}
+                                onChange={(e) => setCount(intOnly(e.target.value, MAX_COUNT))} placeholder="예: 10" type="number" value={count} />
+                            <span className="text-[13px] text-[#64748b]">건</span>
+                        </div>
+                    </label>
+                    <label className="flex items-start gap-3">
+                        <span className="mt-2 w-[76px] shrink-0 text-[13px] font-semibold text-[#475569]">메모</span>
+                        <input className="h-9 flex-1 rounded border border-[#cbd5e1] px-2 text-sm"
+                            onChange={(e) => setNote(e.target.value)} placeholder="요청 사항 (선택)" value={note} />
+                    </label>
+                    <div className="pl-[88px]">
+                        <button className="h-9 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
+                            disabled={busy !== null} onClick={() => void submit()} type="button">
+                            {busy === 'new' ? '신청 중…' : '충전 신청'}
+                        </button>
                     </div>
-                    <div className="min-w-[160px] flex-1">
-                        <div className="mb-1 text-[12px] font-semibold text-[#64748b]">메모 (선택)</div>
-                        <input className="h-9 w-full rounded border border-[#cbd5e1] px-2 text-sm"
-                            onChange={(e) => setNote(e.target.value)} placeholder="요청 사항" value={note} />
-                    </div>
-                    <button className="h-9 rounded-md bg-[#4338ca] px-5 text-sm font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
-                        disabled={busy !== null} onClick={() => void submit()} type="button">
-                        {busy === 'new' ? '신청 중…' : '충전 신청'}
-                    </button>
                 </div>
             )}
 
@@ -98,6 +111,7 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
                                 <div className="flex flex-wrap items-center gap-2">
                                     <span className="text-[#64748b]">{dt(q.created_at)}</span>
                                     <span className="font-semibold">{n ? `${n}건` : '건수 미지정'}</span>
+                                    {q.pay_method ? <span className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[11px] font-semibold text-[#475569]">{q.pay_method}</span> : null}
                                     <span className="text-[#94a3b8]">{q.note ?? ''}</span>
                                     <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold ${st.cls}`}>{st.label}</span>
                                 </div>

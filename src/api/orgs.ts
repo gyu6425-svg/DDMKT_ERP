@@ -255,6 +255,7 @@ export type SubTokenRequest = {
     agency_client_id: string;
     requested_count: number | null;
     note: string | null;
+    pay_method: string | null;
     status: string;                    // pending | quoted | paid | done | rejected
     quoted_count: number | null;
     unit_price: number | null;
@@ -276,8 +277,12 @@ export async function listSubRequests(filter?: { agencyId?: string; childId?: st
 }
 
 // 하위 업체
-export async function subRequestTokens(count: number, note?: string) {
-    const { error } = await supabase.rpc('sub_request_tokens', { p_count: count, p_note: note?.trim() || null });
+export async function subRequestTokens(count: number, note?: string, payMethod?: string) {
+    const { error } = await supabase.rpc('sub_request_tokens', {
+        p_count: count,
+        p_note: note?.trim() || null,
+        p_pay_method: payMethod?.trim() || null,
+    });
     return { error };
 }
 export async function subDeclarePayment(requestId: string, depositor?: string) {

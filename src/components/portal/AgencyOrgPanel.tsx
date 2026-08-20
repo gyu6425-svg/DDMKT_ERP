@@ -231,6 +231,7 @@ export default function AgencyOrgPanel() {
                                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${st.cls}`}>{st.label}</span>
                                         <b className="text-[#0f172a]">{childName(r.child_client_id)}</b>
                                         <span className="text-[#4338ca]">{r.requested_count ? `${r.requested_count}건 신청` : '건수 미지정'}</span>
+                                        {r.pay_method ? <span className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[11px] font-bold text-[#4338ca]">{r.pay_method}</span> : null}
                                         {r.note ? <span className="text-[#64748b]">· {r.note}</span> : null}
                                         <span className="ml-auto text-[11px] text-[#cbd5e1]">{fmtDT(r.created_at)}</span>
                                     </div>
