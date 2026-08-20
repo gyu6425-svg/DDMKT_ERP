@@ -1,3 +1,4 @@
+import AgencyChildrenModal from '../components/AgencyChildrenModal';
 import { useEffect, useState } from 'react';
 import type { ErpClient } from '../api/erp';
 import {
@@ -2741,6 +2742,9 @@ export function ClientDetail({
     const [boostSheetText, setBoostSheetText] = useState(OUT_SHEET_HEADER + '\n');
     const [boostSaving, setBoostSaving] = useState(false);
     const [editContract, setEditContract] = useState<ClientContract | null>(null);
+    // 대행사의 '카페 배포' 카드는 계약 수정 대신 하부 업체별 내역을 연다(사장님 확정 2026-08-20).
+    //   대행사는 발행하지 않고 하위가 쓴다 — 그 계약에서 볼 것은 금액이 아니라 어느 하위가 얼마나 했는지다.
+    const [childBreakdown, setChildBreakdown] = useState<ClientContract | null>(null);
     const [renewIntent, setRenewIntent] = useState(false); // 카드 '재계약' 버튼으로 열었는지 → 모달 재계약 모드
     const [endOpen, setEndOpen] = useState(false); // 상단 계약 종료 모달(히스토리 입력)
     const [endNote, setEndNote] = useState('');
@@ -2764,7 +2768,10 @@ export function ClientDetail({
     }, [client.id]);
     // SPA 내비게이션(카페 대시보드 딥링크) — pushState + app:navigate 이벤트.
     const goCafe = (tab: 'tracker' | 'sheet') => {
-        let path = '/cafe-rank?tab=sheet';
+        // ⚠️ 시트는 예전에 필터를 아예 안 실어 보냈다(트래커만 company 를 넘김).
+        //   그래서 '관리시트로 이동'이 업체 목록 맨 위로만 떨어졌다 — 업체가 늘수록 매번 다시 찾아야 했다.
+        //   client_id 로 넘긴다: 카페를 2개 쓰는 업체(설고·더맨)도 둘 다 보인다. company_key 로는 하나만 걸린다.
+        let path = `/cafe-rank?tab=sheet&client=${encodeURIComponent(client.id)}`;
         if (tab === 'tracker') {
             path = cafeAcct
                 ? `/cafe-rank?tab=tracker&company=${encodeURIComponent(cafeAcct.company_key)}`
@@ -3696,7 +3703,11 @@ export function ClientDetail({
                                                           : 'border-[#e2e8f0] hover:border-[#1e40af]'
                                                 } bg-white`}
                                                 key={ct.id}
-                                                onClick={() => setEditContract(ct)}
+                                                onClick={() =>
+                                                    (client.is_agency && ct.category === '카페' && ct.subtype === '카페 배포'
+                                                        ? setChildBreakdown(ct)
+                                                        : setEditContract(ct))
+                                                }
                                                 role="button"
                                                 tabIndex={0}
                                             >
@@ -4052,6 +4063,19 @@ export function ClientDetail({
                         </div>
                     </div>
                 </div>
+            ) : null}
+            {childBreakdown ? (
+                <AgencyChildrenModal
+                    agencyId={client.id}
+                    agencyName={client.company || ''}
+                    contract={contracts.find((c) => c.id === childBreakdown.id) ?? childBreakdown}
+                    onClose={() => setChildBreakdown(null)}
+                    onEditContract={() => {
+                        const ct = childBreakdown;
+                        setChildBreakdown(null);
+                        setEditContract(ct);
+                    }}
+                />
             ) : null}
             {editContract ? (
                 <ContractEditModal

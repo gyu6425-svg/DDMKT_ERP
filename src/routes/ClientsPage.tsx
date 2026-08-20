@@ -444,6 +444,10 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
         const list = clients.filter((client) => {
+            // ★ 대행사 하위 업체는 우리 목록에 올리지 않는다(사장님 확정 2026-08-20).
+            //   그 업체의 계약·실적은 부모 대행사 계약 한 줄로 올라오고, 개별 관리는 대행사가 한다.
+            //   ⚠️ clients 배열 자체는 그대로 둔다 — 중복확인·조직트리·접수관리가 이 목록을 쓴다.
+            if (client.parent_client_id) return false;
             const matchesQuery =
                 !q ||
                 (client.manager || '').toLowerCase().includes(q) ||
@@ -1388,6 +1392,14 @@ function ClientsPage({ contractsOnly = false }: { contractsOnly?: boolean } = {}
                                                     {c.company || '--'}
                                                 </span>
                                             )}
+                                            {c.is_agency ? (
+                                                <span
+                                                    className="ml-1.5 rounded-full bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-bold text-[#6d28d9]"
+                                                    title="대행사 — 하위 업체가 발행하고 실적은 이 계약으로 합산됩니다"
+                                                >
+                                                    대행사
+                                                </span>
+                                            ) : null}
                                             {isNew ? (
                                                 <span className="ml-1.5 rounded-full bg-[#1e40af] px-1.5 py-0.5 text-[10px] font-bold text-white">
                                                     신규

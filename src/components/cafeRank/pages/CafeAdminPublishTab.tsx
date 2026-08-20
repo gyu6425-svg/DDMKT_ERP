@@ -135,7 +135,12 @@ export function CafeAdminPublishTab() {
                                         <span className="ml-auto shrink-0 rounded bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-bold text-[#6d28d9]" title={`소속 대행사: ${agencyLabel}`}>{agencyLabel}</span>
                                     ) : null}
                                 </div>
-                                {a.display_name && a.display_name !== bizName ? <div className="truncate text-[11px] text-[#94a3b8]" title={a.display_name}>{a.display_name}</div> : null}
+                                {/* 둘째 줄은 **소속 업체명**(clients.company). 예전엔 display_name 을 다시 찍어서
+                                    첫 줄과 똑같은 글자가 두 번 나왔다 — 정작 알아야 할 '어디 소속인가'가 없었다.
+                                    (방문요양…재활요양센터 = 더업스 계정. 이름만 보면 알 수 없다.) */}
+                                {bizName && bizName !== (showBiz ? bizName : (a.display_name || bizName))
+                                    ? <div className="truncate text-[11px] font-semibold text-[#64748b]" title={`소속 업체: ${bizName}`}>{bizName}</div>
+                                    : null}
                                 {/* 자체 카페는 토큰을 안 쓴다 — '잔여 0건'을 빨갛게 띄우면 매번 문제로 오해한다. */}
                                 {a.is_own ? (
                                     <div className="text-[12px] text-[#0d9488]">자체 콘텐츠{reserved ? <span className="text-[#b45309]"> · 발행중 {reserved}</span> : null}</div>

@@ -45,7 +45,31 @@ export function CafeSheetTab({
     const [busy, setBusy] = useState(false);
     const [reqs, setReqs] = useState<CafeRequest[]>([]);   // 고객 발행 신청(대기) — 내부만
     const [linkedReq, setLinkedReq] = useState<{ id: string; client_id: string; cafe_url: string | null } | null>(null); // 신청→등록 연결
-    const [q, setQ] = useState('');   // 업체명 검색(업체명·게시판명·업체키·카페주소)
+    const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get('q') || '');   // 업체명 검색(업체명·게시판명·업체키·카페주소)
+        // 계약관리 → '카페 관리시트' 로 넘어올 때 그 업체만 보이게(?client=). 화면 필터일 뿐 데이터는 그대로다.
+        //   SPA 라 컴포넌트가 안 죽고 URL 만 바뀔 수 있어 app:navigate·popstate 를 다시 읽는다.
+    const [urlClientId, setUrlClientId] = useState(() => new URLSearchParams(window.location.search).get('client') || '');
+    useEffect(() => {
+        const sync = () => {
+            const p = new URLSearchParams(window.location.search);
+            setUrlClientId(p.get('client') || '');
+            const nq = p.get('q');
+            if (nq !== null) setQ(nq);
+        };
+        window.addEventListener('app:navigate', sync);
+        window.addEventListener('popstate', sync);
+        return () => {
+            window.removeEventListener('app:navigate', sync);
+            window.removeEventListener('popstate', sync);
+        };
+    }, []);
+    // 필터 해제 — URL 에서도 지운다(안 지우면 새로고침 때 되살아난다).
+    const clearClientFilter = () => {
+        const u = new URL(window.location.href);
+        u.searchParams.delete('client');
+        window.history.replaceState(null, '', u.pathname + u.search);
+        setUrlClientId('');
+    };
 
     const reload = async () => {
         setLoading(true);
@@ -113,6 +137,7 @@ export function CafeSheetTab({
         () => accounts
             .filter((a) => !scopeCompanyKey || (Array.isArray(scopeCompanyKey) ? scopeCompanyKey.includes(a.company_key) : a.company_key === scopeCompanyKey))
             .filter((a) => !scopeClientId || a.client_id === scopeClientId)
+            .filter((a) => !urlClientId || a.client_id === urlClientId)
             .filter((a) => !(a.cafe_name === 'ddmkt2' && a.client_id && clientsWithOwnCafe.has(a.client_id)))
             .filter((a) => {
                 const s = q.trim().toLowerCase();
@@ -125,7 +150,7 @@ export function CafeSheetTab({
                     || cafeCompanyRank(a.company_key) - cafeCompanyRank(b.company_key)
                     || a.display_name.localeCompare(b.display_name),
             ),
-        [accounts, scopeCompanyKey, scopeClientId, clientsWithOwnCafe, q],
+        [accounts, scopeCompanyKey, scopeClientId, clientsWithOwnCafe, q, urlClientId],
     );
 
     // 숨긴 마이클(ddmkt2) 카페의 실적을 같은 업체(client)의 자체 카페 행에 합산 — 회사 총 실적 표시.
@@ -205,8 +230,16 @@ export function CafeSheetTab({
                     <h2 className="m-0 text-base font-bold text-[#0f172a]">카페 관리시트</h2>
                     <p className="m-0 mt-0.5 text-xs text-[#64748b]">카페별 업체(게시판)의 계약·발행 진행·순위를 한눈에. (브랜드블로그 관리시트와 동일 구조)</p>
                 </div>
+                {/* 계약관리에서 넘어온 업체 필터 — 걸려 있다는 걸 보여주고 바로 풀 수 있게.
+                    안 보여주면 '업체가 사라졌다'로 읽힌다. */}
+                {urlClientId ? (
+                    <span className="ml-auto flex h-9 items-center gap-1.5 rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-2.5 text-xs font-semibold text-[#1d4ed8]">
+                        {rows[0]?.display_name || '선택한 업체'} 만 보는 중
+                        <button className="rounded px-1 text-[#64748b] hover:bg-[#dbeafe]" onClick={clearClientFilter} title="전체 보기" type="button">✕</button>
+                    </span>
+                ) : null}
                 <input
-                    className="ml-auto h-9 w-[220px] rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                    className={`${urlClientId ? '' : 'ml-auto '}h-9 w-[220px] rounded-md border border-[#cbd5e1] bg-white px-3 text-sm`}
                     onChange={(e) => setQ(e.target.value)}
                     placeholder="업체명 검색..."
                     value={q}

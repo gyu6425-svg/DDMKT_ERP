@@ -267,6 +267,16 @@ export async function ensureCafeDeployContract(clientId: string, count: number) 
     if (rows.some((r) => (r.amount ?? 0) > 0 || (r.goal_count ?? 0) > 0)) {
         return { error: null, created: false };
     }
+    // ★ 대행사 하위 업체에는 우리 계약을 채우지 않는다(사장님 확정 2026-08-20).
+    //   하위의 거래 상대는 대행사다. 여기서 우리 단가를 채우면
+    //   ① 우리 월매출에 대행사 사업 매출이 섞이고
+    //   ② 하위 고객ERP에 우리 원가가 청구서처럼 뜨고
+    //   ③ 같은 실적이 부모 대행사 계약과 이 행에 이중 계상된다(goal_count 가 채워지는 순간).
+    const { data: who } = await supabase.from('clients').select('parent_client_id').eq('id', clientId).maybeSingle();
+    if ((who as { parent_client_id: string | null } | null)?.parent_client_id) {
+        return { error: null, created: false };
+    }
+
     // 단가는 설정값에서 온다. 읽지 못했으면 계약을 만들지 않는다 —
     //   잘못된 단가로 매출을 기록하느니 비워두고 담당자가 채우는 편이 낫다.
     const { price: unit, ok: priceOk } = await cafeUnitPriceForClient(clientId);

@@ -15,6 +15,9 @@ export type OutsourcePaidLog = {
 };
 
 export type ErpClient = {
+    // 대행사 계층 — 목록 노출·뱃지 판정의 근거. select('*') 로 이미 들어오는데 타입에만 없었다.
+    is_agency?: boolean | null;
+    parent_client_id?: string | null;
     id: string;
     created_at: string;
     manager: string | null;
