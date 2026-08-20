@@ -93,6 +93,13 @@ export async function upsertCafeAccount(input: Partial<CafeAccount> & { company_
     return { error };
 }
 
+// 이 고객에게 등록된 카페(club_id) 목록 — 스튜디오 저장 전 board_url 교차 검사용.
+export async function getClientClubIds(clientId: string) {
+    const { data } = await supabase.from('cafe_accounts')
+        .select('club_id,display_name').eq('client_id', clientId);
+    return (data ?? []).filter((a) => a.club_id) as { club_id: string; display_name: string }[];
+}
+
 export async function setCafeAccountActive(id: string, active: boolean) {
     const { error } = await supabase.from('cafe_accounts').update({ active }).eq('id', id);
     return { error };

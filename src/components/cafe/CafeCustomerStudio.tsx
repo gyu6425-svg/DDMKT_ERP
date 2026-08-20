@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isUserPresent } from '../../lib/useVisiblePolling';
 import { listTokens, balanceOf } from '../../api/cafeTokens';
-import { getCafeAccounts } from '../../api/cafeAccounts';
+import { getCafeAccounts, getClientClubIds } from '../../api/cafeAccounts';
 import { getStudioSettings, saveStudioSettings, clearStudioSettings, uploadStudioImage, signedStudioUrls, studioSavedPath, updateKeywordPool, markNaverLogin } from '../../api/cafeStudioSettings';
 import { getLatestDeployForStudio, getCafeDeployGoal } from '../../api/cafeDeployRequests';
 import { getCafeRankPostsForClient, latestCafeMeasure, cafeTiStatus, cafeRankWhere, cafeSearchUrl, cafeTodayKST, type CafeRankPost } from '../../api/cafeRank';
@@ -222,6 +222,22 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 persist(photos, 'photos'),
                 persist(banners, 'banners'),
             ]);
+            // ★ 발행 게시판 주소가 '이 업체 카페'인지 저장 전에 확인한다.
+            //   틀려도 에러가 안 난다 — 글이 남의 카페에 올라가야 안다. 그래서 저장 자체를 막는다.
+            //   (2026-08-20: 경기/인천 주소가 반대로 들어가 두 번 뒤집혔다. 두 번째는 DB를 고친 뒤
+            //    화면이 들고 있던 옛 값이 저장되며 되살아났다 — 저장이 폼 전체를 덮어쓰기 때문.)
+            const um = (boardUrl || '').match(/cafes\/(\d+)/) ?? (boardUrl || '').match(/clubid=(\d+)/);
+            const urlClub = um?.[1] ?? '';
+            if (urlClub) {
+                const known = await getClientClubIds(clientId);
+                const ids = known.map((k) => k.club_id);
+                if (ids.length && !ids.includes(urlClub)) {
+                    throw new Error(
+                        `발행 게시판 주소가 이 업체의 카페가 아닙니다 — 주소는 카페 ${urlClub}, 이 업체 카페는 ${ids.join(' / ')} 입니다. `
+                        + '이대로 저장하면 글이 다른 카페에 올라갑니다. 주소를 다시 확인하세요.',
+                    );
+                }
+            }
             const { error } = await saveStudioSettings({
                 client_id: clientId, brand: brand || null, business: business || null, homepage: linkUrl || null,
                 deploy_type: '키워드형', main_banner: mainPaths, photos: photoPaths, banners: bannerPaths,
@@ -231,7 +247,11 @@ export function CafeCustomerStudio({ clientId, onGoCharge }: { clientId: string 
                 keyword_pool: poolKw.length ? poolKw : null, product_kw: productKw || null,
             });
             if (error) throw new Error(error.message);
-            setSettingsSaved(true); setSettingsMsg(`저장됨 · 사진 ${mainPaths.length + photoPaths.length + bannerPaths.length}장 포함 · 다음부터 이 값으로 열립니다`);
+            setSettingsSaved(true);
+            // 게시판 지정(/menus/N)이 빠진 주소는 어느 게시판에 올라갈지 알 수 없다 — 막지는 않고 눈에 띄게 알린다.
+            const noMenu = urlClub && !/\/menus\/\d+/.test(boardUrl || '');
+            setSettingsMsg(`저장됨 · 사진 ${mainPaths.length + photoPaths.length + bannerPaths.length}장 포함 · 다음부터 이 값으로 열립니다`
+                + (noMenu ? ' ⚠ 게시판 주소에 /menus/번호 가 없습니다 — 글쓰기 화면 주소로 다시 넣으세요' : ''));
         } catch (e) { setSettingsMsg('저장 실패: ' + (e instanceof Error ? e.message : '')); }
         finally { setSavingSettings(false); }
     };
