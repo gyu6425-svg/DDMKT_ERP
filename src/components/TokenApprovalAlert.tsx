@@ -72,7 +72,7 @@ export default function TokenApprovalAlert() {
                         key: 'ag-pay', icon: '💰', tone: 'pay',
                         title: '금액 통보',
                         body: `입금하실 건 ${quoted}건 — 입금 후 ‘계좌이체 완료’를 눌러 주세요`,
-                        go: nav('/portal/cafe'),
+                        go: nav('/portal/cafe?tab=charge'),
                     });
 
                     const [{ data: subs }, { data: signups }] = await Promise.all([
@@ -108,7 +108,7 @@ export default function TokenApprovalAlert() {
                         key: 'sub-pay', icon: '💰', tone: 'pay',
                         title: '금액 통보',
                         body: `입금하실 건 ${quoted}건 — 입금 후 ‘계좌이체 완료’를 눌러 주세요`,
-                        go: nav('/portal/cafe'),
+                        go: nav('/portal/cafe?tab=charge'),
                     });
                 }
             }

@@ -67,13 +67,24 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const [sheetKeys, setSheetKeys] = useState<string[]>([]);     // 관리시트용 — 자체 카페만(마이클 ddmkt2 제외)
     const [chargeDue, setChargeDue] = useState(0); // 미확인 충전요청(고객이 입금/구매) 건수 — 충전내역 탭 알림 뱃지
     const [loading, setLoading] = useState(true);
-    // 사이드바 '카페 배포'(?sub=카페 배포) 로 들어오면 접수 탭으로 연다.
+    // 어느 탭으로 열지 URL 로 정한다.
+    //   ?tab=<키>        알림 배너·바로가기가 특정 탭을 지목할 때 (없으면 탭이 안 열려 헛클릭이 된다)
+    //   ?sub=카페 배포    사이드바 상품 링크 → 주문서 작성
+    const TABS = ['tracker', 'sheet', 'intake', 'publish', 'charge'] as const;
+    const viewFromUrl = (): (typeof TABS)[number] | null => {
+        const q = new URLSearchParams(window.location.search);
+        const t = q.get('tab') as (typeof TABS)[number] | null;
+        if (t && TABS.includes(t)) return t;
+        if (q.get('sub') === '카페 배포') return 'intake';
+        return null;
+    };
     const [view, setView] = useState<'tracker' | 'sheet' | 'intake' | 'publish' | 'charge'>(
-        () => (new URLSearchParams(window.location.search).get('sub') === '카페 배포' ? 'intake' : 'sheet'),
+        () => viewFromUrl() ?? 'sheet',
     );
     useEffect(() => {
         const sync = () => {
-            if (new URLSearchParams(window.location.search).get('sub') === '카페 배포') setView('intake');
+            const t = viewFromUrl();
+            if (t) setView(t);
         };
         window.addEventListener('app:navigate', sync);
         window.addEventListener('popstate', sync);
