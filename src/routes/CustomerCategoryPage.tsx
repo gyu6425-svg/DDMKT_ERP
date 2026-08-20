@@ -118,11 +118,13 @@ function CafeCustomerView({ previewClientId }: { previewClientId: string | null 
     const noCafe = (
         <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-6 py-16 text-center">
             <div className="text-base font-semibold text-[#475569]">등록된 카페 배포가 없습니다</div>
-            <p className="mx-auto mt-2 max-w-md text-sm text-[#94a3b8]">아직 연결된 카페가 없습니다. "카페 배포" 탭에서 접수를 남겨 주세요.</p>
+            <p className="mx-auto mt-2 max-w-md text-sm text-[#94a3b8]">아직 연결된 카페가 없습니다. "주문서 작성" 탭에서 접수를 남겨 주세요.</p>
         </div>
     );
     // 고객ERP 탭 — 자동화 발행은 관리자 도구라 고객 탭에서 제외.
-    const tabs: [string, string][] = [['sheet', '카페 관리 시트'], ['tracker', '순위 트래커'], ['intake', '카페 배포'], ['charge', '충전내역']];
+    //   탭 이름은 고객이 '무엇을 하는 곳인지' 로 읽히게 둔다(사장님 지시 2026-08-20).
+    //   '카페 배포'는 사이드바 상품명과 겹쳐 어느 쪽을 눌러야 접수가 되는지 헷갈렸다.
+    const tabs: [string, string][] = [['sheet', '카페 관리 시트'], ['tracker', '순위 트래커'], ['intake', '주문서 작성'], ['charge', '충전 요청']];
     return (
         <>
             <div className="flex gap-1 border-b border-[#e2e8f0]">
