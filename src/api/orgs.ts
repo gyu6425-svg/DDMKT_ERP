@@ -160,3 +160,85 @@ export async function getMyOrg(clientId: string): Promise<{ data: MyOrg; error: 
         error: meRes.error?.message ?? kidRes.error?.message ?? null,
     };
 }
+
+// ── 대행사 콘솔 (docs/agency-console.sql) ────────────────────────────────
+//   전부 SECURITY DEFINER 함수로만 동작한다. 대행사에게 profiles·clients·cafe_tokens 의
+//   쓰기 정책을 열면 남의 업체를 만들거나 자기 토큰을 늘리는 길이 함께 열리기 때문이다.
+//   함수가 "호출자가 대행사인가 → 대상이 내 하위인가"를 매번 다시 확인한다.
+
+export type AgencyPendingSignup = {
+    profile_id: string;
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+    company: string | null;      // 가입 시 적은 업체명
+    biz_no: string | null;
+    invite_code: string | null;
+    created_at: string;
+};
+
+export type AgencyChild = {
+    client_id: string;
+    company: string | null;
+    status: string | null;
+    created_at: string | null;
+    balance: number;   // 잔여 토큰
+    granted: number;   // 받은 총합
+    used: number;      // 발행에 쓴 합
+};
+
+export type AgencyTransfer = {
+    id: string;
+    created_at: string;
+    agency_client_id: string;
+    child_client_id: string;
+    count: number;
+    unit_price: number;
+    amount: number;
+    note: string | null;
+};
+
+export async function agencyPendingSignups() {
+    const { data, error } = await supabase.rpc('agency_pending_signups');
+    return { data: (data ?? []) as AgencyPendingSignup[], error };
+}
+
+export async function agencyChildren() {
+    const { data, error } = await supabase.rpc('agency_children_overview');
+    return { data: (data ?? []) as AgencyChild[], error };
+}
+
+// 승인 — 업체 생성·소속 연결·계정 활성화가 한 트랜잭션이다(중간 실패 시 전부 되돌아간다).
+export async function agencyApproveSignup(profileId: string, company?: string) {
+    const { error } = await supabase.rpc('agency_approve_signup', {
+        p_profile_id: profileId,
+        p_company: company?.trim() || null,
+    });
+    return { error };
+}
+
+// 반려 = 소속 표시만 뗀다. 계정 삭제 권한은 대행사에게 주지 않는다(되돌릴 수 없다).
+export async function agencyReleaseSignup(profileId: string) {
+    const { error } = await supabase.rpc('agency_release_signup', { p_profile_id: profileId });
+    return { error };
+}
+
+export async function agencyTransferTokens(childId: string, count: number, unitPrice: number, note?: string) {
+    const { error } = await supabase.rpc('agency_transfer_tokens', {
+        p_child_client_id: childId,
+        p_count: count,
+        p_unit_price: unitPrice,
+        p_note: note?.trim() || null,
+    });
+    return { error };
+}
+
+export async function agencyTransfers(agencyClientId: string) {
+    const { data, error } = await supabase
+        .from('agency_token_transfers')
+        .select('*')
+        .eq('agency_client_id', agencyClientId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+    return { data: (data ?? []) as AgencyTransfer[], error };
+}
