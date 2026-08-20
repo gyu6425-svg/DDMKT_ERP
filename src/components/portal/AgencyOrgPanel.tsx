@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import {
     getMyOrg, agencyPendingSignups, agencyChildren, agencyApproveSignup, agencyReleaseSignup,
-    agencyTransferTokens, agencyTransfers,
+    agencyTransfers,
     listSubRequests, agencyQuoteRequest, agencyFulfillRequest, agencyRejectRequest,
     type MyOrg, type AgencyPendingSignup, type AgencyChild, type AgencyTransfer, type SubTokenRequest,
 } from '../../api/orgs';
@@ -53,7 +53,6 @@ export default function AgencyOrgPanel() {
     const [copied, setCopied] = useState('');
     // 행별 입력값
     const [nameEdit, setNameEdit] = useState<Record<string, string>>({});
-    const [give, setGive] = useState<Record<string, { count: string; price: string }>>({});
 
     const load = useCallback(() => {
         if (!clientId) { setLoading(false); return; }
@@ -332,9 +331,6 @@ export default function AgencyOrgPanel() {
             <div className="rounded-xl border border-[#e2e8f0]">
                 <div className="border-b border-[#e2e8f0] px-4 py-3">
                     <div className="text-[14px] font-bold text-[#0f172a]">하위 업체 <span className="text-[#94a3b8]">{kids.length}</span></div>
-                    <p className="m-0 mt-1 text-[12px] leading-5 text-[#64748b]">
-                        보유 토큰에서 하위 업체로 배분합니다. <b>판매 단가는 필수</b>이고, 금액은 부가세 별도로 기록됩니다.
-                    </p>
                 </div>
                 {kids.length === 0 ? (
                     <div className="px-4 py-10 text-center text-[13px] leading-6 text-[#94a3b8]">
@@ -346,10 +342,7 @@ export default function AgencyOrgPanel() {
                     </div>
                 ) : (
                     <div className="grid gap-2 p-3">
-                        {kids.map((k) => {
-                            const g = give[k.client_id] ?? { count: '', price: '' };
-                            const supply = (Number(g.count) || 0) * (Number(g.price) || 0);
-                            return (
+                        {kids.map((k) => (
                                 <div className="rounded-lg border border-[#e2e8f0] px-3 py-2.5" key={k.client_id}>
                                     <div className="flex flex-wrap items-center gap-2 text-[13px]">
                                         <b className="text-[#0f172a]">{k.company}</b>
@@ -360,49 +353,8 @@ export default function AgencyOrgPanel() {
                                         </span>
                                         <span className="text-[11px] text-[#94a3b8]">받음 {k.granted} · 사용 {k.used}</span>
                                     </div>
-                                    <div className="mt-2 flex flex-wrap items-end gap-2">
-                                        <div>
-                                            <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">배분 건수</div>
-                                            <input
-                                                className="h-8 w-20 rounded border border-[#cbd5e1] px-2 text-[13px]"
-                                                min={1}
-                                                onChange={(e) => setGive((m) => ({ ...m, [k.client_id]: { ...g, count: intOnly(e.target.value, MAX_COUNT) } }))}
-                                                type="number"
-                                                value={g.count}
-                                            />
-                                        </div>
-                                        <div>
-                                            <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">판매 단가</div>
-                                            <input
-                                                className="h-8 w-24 rounded border border-[#cbd5e1] px-2 text-[13px]"
-                                                min={0}
-                                                onChange={(e) => setGive((m) => ({ ...m, [k.client_id]: { ...g, price: intOnly(e.target.value, MAX_UNIT_PRICE) } }))}
-                                                step={1000}
-                                                type="number"
-                                                value={g.price}
-                                            />
-                                        </div>
-                                        {supply > 0 ? (
-                                            <div className="pb-1 text-[12px] text-[#475569]">
-                                                공급가 <b>₩{won(supply)}</b>
-                                                <span className="text-[#94a3b8]"> + VAT ₩{won(vatOf(supply))}</span>
-                                                {' '}= <b className="text-[#c2410c]">₩{won(totalOf(supply))}</b>
-                                            </div>
-                                        ) : null}
-                                        <button
-                                            className="h-8 rounded bg-[#4338ca] px-4 text-[12px] font-bold text-white hover:bg-[#3730a3] disabled:opacity-50"
-                                            disabled={busy !== null || !Number(g.count) || !Number(g.price)}
-                                            onClick={() => void run(k.client_id,
-                                                () => agencyTransferTokens(k.client_id, Number(g.count), Number(g.price)),
-                                                `${k.company} 에 ${g.count}건 배분 완료`)}
-                                            type="button"
-                                        >
-                                            {busy === k.client_id ? '배분 중…' : '토큰 배분'}
-                                        </button>
-                                    </div>
                                 </div>
-                            );
-                        })}
+                        ))}
                     </div>
                 )}
             </div>

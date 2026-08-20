@@ -6,6 +6,7 @@ import ForcePasswordChangeGate from './ForcePasswordChangeGate'
 import { CustomerGuide } from './CustomerGuide'
 import ReportPublishAlert from './ReportPublishAlert'
 import SignupRequestAlert from './SignupRequestAlert'
+import TokenApprovalAlert from './TokenApprovalAlert'
 import ReportToast from './ReportToast'
 
 type LayoutProps = {
@@ -36,6 +37,7 @@ function Layout({ children }: LayoutProps) {
         <Header />
         {!isLeakErp ? <ReportPublishAlert /> : null}
         <SignupRequestAlert />
+        <TokenApprovalAlert />
         {children}
       </main>
       <DevRoleSwitcher />
