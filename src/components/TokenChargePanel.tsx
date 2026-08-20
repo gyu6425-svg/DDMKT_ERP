@@ -187,10 +187,9 @@ export default function TokenChargePanel() {
                                     {/* 통보된 금액 */}
                                     {q.amount != null ? (
                                         <div className="mt-1.5 text-[12px] text-[#334155]">
-                                            통보 <b>{q.quoted_count}건</b> × ₩{won(q.unit_price ?? 0)} =
-                                            {' '}공급가 <b>₩{won(q.amount)}</b>
-                                            <span className="text-[#94a3b8]"> + VAT ₩{won(vatOf(q.amount))}</span>
-                                            {' '}→ 입금액 <b className="text-[#c2410c]">₩{won(totalOf(q.amount))}</b>
+                                            공급가 <b>₩{won(q.amount)}</b>
+                                            <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(q.amount))}</span>
+                                            {' '}= <b className="text-[#c2410c]">₩{won(totalOf(q.amount))}</b>
                                             <span className="ml-2 text-[11px] text-[#94a3b8]">{dt(q.quoted_at)}</span>
                                         </div>
                                     ) : null}

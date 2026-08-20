@@ -57,11 +57,7 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
 
     return (
         <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
-            <div className="mb-1 text-[15px] font-bold text-[#0f172a]">충전 신청</div>
-            <p className="m-0 mb-3 text-[12px] leading-5 text-[#64748b]">
-                <b className="text-[#4338ca]">{agencyName}</b> 에 신청합니다. 금액을 통보받으신 뒤 입금하고
-                {' '}<b>계좌이체 완료</b>를 눌러 주시면 확인 후 충전됩니다. 금액은 부가세 별도입니다.
-            </p>
+            <div className="mb-3 text-[15px] font-bold text-[#0f172a]">충전 신청 <span className="text-[12px] font-normal text-[#94a3b8]">→ {agencyName}</span></div>
 
             {openOne ? (
                 <div className="mb-3 rounded-lg border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-3 py-2 text-[12px] text-[#64748b]">
@@ -118,9 +114,9 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
 
                                 {q.amount != null ? (
                                     <div className="mt-1 text-[12px] text-[#334155]">
-                                        {q.quoted_count}건 × ₩{won(q.unit_price ?? 0)} = 공급가 <b>₩{won(q.amount)}</b>
+                                        공급가 <b>₩{won(q.amount)}</b>
                                         <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(q.amount))}</span>
-                                        {' '}→ <b className="text-[#c2410c]">입금액 ₩{won(totalOf(q.amount))}</b>
+                                        {' '}= <b className="text-[#c2410c]">₩{won(totalOf(q.amount))}</b>
                                     </div>
                                 ) : null}
 

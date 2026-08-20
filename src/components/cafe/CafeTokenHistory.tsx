@@ -113,12 +113,7 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                 <SubTokenPurchase agencyName={parentAgency.company || '소속 대행사'} clientId={clientId} />
             ) : (
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
-                <div className="mb-1 text-[15px] font-bold text-[#0f172a]">충전 요청</div>
-                <p className="mb-3 mt-0 text-[12px] text-[#64748b]">
-                    {isAgency
-                        ? <>필요 건수를 신청하시면 담당자가 <b>금액을 통보</b>해 드립니다. 입금 후 <b>계좌이체 완료</b>를 눌러 주시면 확인 후 토큰을 발행합니다. 최소 {AGENCY_MIN_COUNT}건 · 금액은 부가세 별도입니다.</>
-                        : <>입금 후 충전을 요청하시면 담당자가 확인하고 충전해 드립니다. <b className="text-[#4338ca]">발행 1건 = 1토큰</b></>}
-                </p>
+                <div className="mb-3 text-[15px] font-bold text-[#0f172a]">충전 요청</div>
                 {/* 항목을 한 줄에 늘어놓으면 무엇을 적어야 하는지 눈에 안 들어온다 — 라벨을 왼쪽에 세운다. */}
                 <div className="grid max-w-[560px] gap-2.5">
                     <label className="flex items-center gap-3">
@@ -169,9 +164,9 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                                     {/* 통보 금액 — 대행사만. 일반 고객 화면에는 금액을 띄우지 않는다. */}
                                     {isAgency && q.amount != null ? (
                                         <div className="mt-1 text-[12px] text-[#334155]">
-                                            {q.quoted_count}건 × ₩{won(q.unit_price ?? 0)} = 공급가 <b>₩{won(q.amount)}</b>
+                                            공급가 <b>₩{won(q.amount)}</b>
                                             <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(q.amount))}</span>
-                                            {' '}→ <b className="text-[#c2410c]">입금액 ₩{won(totalOf(q.amount))}</b>
+                                            {' '}= <b className="text-[#c2410c]">₩{won(totalOf(q.amount))}</b>
                                         </div>
                                     ) : null}
 

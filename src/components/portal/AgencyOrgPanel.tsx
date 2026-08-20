@@ -238,9 +238,9 @@ export default function AgencyOrgPanel() {
 
                                     {r.amount != null ? (
                                         <div className="mt-1.5 text-[12px] text-[#334155]">
-                                            통보 <b>{r.quoted_count}건</b> × ₩{won(r.unit_price ?? 0)} = 공급가 <b>₩{won(r.amount)}</b>
-                                            <span className="text-[#94a3b8]"> + VAT ₩{won(vatOf(r.amount))}</span>
-                                            {' '}→ 입금액 <b className="text-[#c2410c]">₩{won(totalOf(r.amount))}</b>
+                                            공급가 <b>₩{won(r.amount)}</b>
+                                            <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(r.amount))}</span>
+                                            {' '}= <b className="text-[#c2410c]">₩{won(totalOf(r.amount))}</b>
                                         </div>
                                     ) : null}
                                     {r.paid_declared_at ? (
