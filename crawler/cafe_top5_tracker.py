@@ -29,6 +29,15 @@ def _auto_by_account():
     return auto
 
 
+def _attrib_map():
+    """client_id → 실적 귀속 대상(하위 업체는 부모 대행사). cafe_contract_sync 와 같은 규칙."""
+    try:
+        rows = c.sb_get("clients", {"select": "id,parent_client_id"})
+    except Exception:
+        return {}
+    return {r["id"]: (r.get("parent_client_id") or r["id"]) for r in rows}
+
+
 def sync_contracts():
     """카페 업체 실적(done_count 베이스라인 + 자동달성)을 계약관리 '카페' 계약의 진행(remain_count)에 반영.
     계약 카드는 완료=목표-잔여 로 계산하므로, 잔여=목표-실적 으로 맞추면 카드 카운트가 카페 대시보드와 일치."""
@@ -37,16 +46,25 @@ def sync_contracts():
     # ⚠️ 업체(client)별로 '합산' 해야 함 — 계정별로 remain 을 쓰면 같은 계약을 여러 번 덮어써
     #   마지막 계정(마이클 ddmkt2)의 실적만 남아 대시보드/고객ERP가 틀린 값을 보인다.
     #   자체 카페 + 마이클 공유카페의 실적을 client 단위로 합쳐 한 번만 반영한다(관리시트와 동일).
+    #   ★ 대행사 계층: 하위 업체의 실적은 부모 대행사 계약으로 올린다(사장님 확정 2026-08-20).
+    #     대행사는 발행하지 않고 하위가 쓴다. 단 대행사가 자기 카페로도 발행하는 경우가 있어
+    #     (더업스) 부모 자기 계정 + 하위 계정을 **합산** 해야 한다.
+    #     ⚠️ 이 파일과 cafe_contract_sync.py 는 같은 remain_count 에 쓴다. 한쪽만 고치면
+    #       30분 주기(cafe_periodic)의 이 함수가 밤사이 옳게 쓴 값을 도로 덮어쓴다.
+    attrib = _attrib_map()
     by_client = {}
     for a in accounts:
         cid = a.get("client_id")
         if not cid:
             continue
+        cid = attrib.get(cid, cid)          # 하위 → 부모로 귀속
         realized = (a.get("done_count") or 0) + auto.get(a["id"], 0)
         d = by_client.setdefault(cid, {"realized": 0, "name": a.get("display_name")})
         d["realized"] += realized
     n = 0
     for cid, d in by_client.items():
+        if attrib.get(cid, cid) != cid:     # 하위 업체 계약 행에는 쓰지 않는다(이중 계상 방지)
+            continue
         realized = d["realized"]
         try:
             cons = c.sb_get("client_contracts", {"client_id": f"eq.{cid}", "category": "eq.카페", "select": "id,goal_count,remain_count"})

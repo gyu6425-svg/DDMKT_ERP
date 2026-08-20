@@ -73,6 +73,21 @@ def _norm(s):
     return (s or "").strip().replace(" ", "")
 
 
+def _attrib_map():
+    """client_id → 실적을 귀속시킬 client_id. 하위 업체는 부모 대행사로 올린다.
+
+    대행사는 발행하지 않고 하위 업체가 쓴다(사장님 확정 2026-08-20).
+    그래서 하위 업체의 달성 글이 **부모 대행사의 계약** 진행률로 차올라야 한다.
+    ★ 조회 시점의 해석일 뿐이고 cafe_accounts.client_id 를 옮기지 않는다 —
+      옮기면 토큰 차감 주체까지 부모로 바뀌어 하위 잔액이 안 줄어든다.
+    """
+    try:
+        rows = _get("clients?select=id,parent_client_id")
+    except Exception:
+        return {}
+    return {r["id"]: (r.get("parent_client_id") or r["id"]) for r in rows}
+
+
 def _manual_keywords():
     """일반 배포(직접형 접수) 키워드 — client_id → {정규화 키워드}.
        달성 기준은 인기탭 배포와 같다(5위 24시간). 이 목록은 '어느 쪽 배포로 달성했는지'를
@@ -106,17 +121,30 @@ def sync(verbose=True):
                  "top5_achieved_at,top5_seeded,excluded")
     manual_kw = _manual_keywords()
     contracts = _get(f"client_contracts?subtype=eq.{quote(_SUBTYPE)}&select=id,client_id,goal_count,remain_count")
+    attrib = _attrib_map()
     changed = 0
     for ct in contracts:
         cid = ct.get("client_id")
         goal = ct.get("goal_count") or 0
         if not cid or not goal:
             continue
-        accs = [a for a in accounts if a.get("client_id") == cid]
+        # ★ 하위 업체의 계약 행에는 쓰지 않는다 — 실적은 부모 대행사 계약으로 올라간다.
+        #   여기서 안 거르면 같은 달성이 부모·자식 두 행에 각각 잡힌다(이중 계상).
+        if attrib.get(cid, cid) != cid:
+            continue
+        # 귀속: 이 계약에 묶이는 계정 = 자기 계정 + (대행사면) 하위 업체들의 계정.
+        #   대행사도 자기 카페로 직접 발행하는 경우가 있다(더업스) — 자기 것을 빼면 실적이 증발한다.
+        accs = [a for a in accounts if attrib.get(a.get("client_id"), a.get("client_id")) == cid]
         acc_ids = {a["id"] for a in accs}
-        boards = {a.get("board_short") for a in accs}
+        # ⚠️ 빈 board_short 를 넣으면 board 가 빈 글이 그 계정들 전부의 실적으로 잡힌다.
+        #   같은 목적의 cafe_token_sync 는 이미 거르고 있었다 — 규칙을 맞춘다.
+        boards = {a.get("board_short") for a in accs if a.get("board_short")}
         base = sum(a.get("done_count") or 0 for a in accs)
-        mine = manual_kw.get(cid, set())
+        # 일반배포 판정 키워드도 하위 것까지 합친다(합계는 같고 로그의 인기탭/일반 분류만 정확해진다).
+        mine = set()
+        for c2, kws in manual_kw.items():
+            if attrib.get(c2, c2) == cid:
+                mine |= kws
         achieved = normal = 0
         for p in posts:
             if not (p.get("cafe_account_id") in acc_ids or p.get("board") in boards):
