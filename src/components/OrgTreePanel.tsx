@@ -120,7 +120,44 @@ export default function OrgTreePanel() {
                         <span className="text-[11px] text-[#94a3b8]">하위 {kids.length}</span>
                     ) : null}
 
-                    <div className="ml-auto flex items-center gap-1">
+                    {/* 초대 코드 — 대행사 이름 오른쪽에 같은 줄로 붙인다.
+                        예전엔 행 아래에 따로 한 줄을 차지해서, 대행사가 여러 개면 목록이 두 배로 길어지고
+                        어느 코드가 어느 대행사 것인지 눈으로 다시 짚어야 했다. 같은 줄이면 그 일이 없다. */}
+                    {r.is_agency && invitesOf(r.id).length ? (
+                        <span className="flex flex-wrap items-center gap-1.5">
+                            {invitesOf(r.id).map((i) => (
+                                <span
+                                    className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[11px] ${
+                                        i.active ? 'border-[#a7f3d0] bg-[#ecfdf5] text-[#065f46]' : 'border-[#e2e8f0] bg-[#f8fafc] text-[#94a3b8] line-through'
+                                    }`}
+                                    key={i.code}
+                                >
+                                    <button
+                                        className="font-mono hover:underline"
+                                        onClick={() => void navigator.clipboard?.writeText(i.code)}
+                                        title="클릭하면 복사 — 대행사에 이 코드를 전달하면 하위 업체가 가입 화면 '초대 코드'에 넣는다"
+                                        type="button"
+                                    >
+                                        {i.code}
+                                    </button>
+                                    {/* 사용 횟수는 '승인'에서 오른다(신청이 아니라) — 거절된 신청이 한도를 갉아먹지 않게. */}
+                                    <span className="opacity-60">{i.used_count}{i.max_uses ? `/${i.max_uses}` : ''}회</span>
+                                    {i.active ? (
+                                        <button
+                                            className="font-sans text-[10px] font-bold text-[#94a3b8] hover:text-[#dc2626]"
+                                            onClick={() => void act(`iv:${i.code}`, () => setInviteActive(i.code, false), '코드를 폐기했습니다')}
+                                            title="폐기 — 이미 이 코드로 들어온 업체는 그대로 유지됩니다"
+                                            type="button"
+                                        >
+                                            폐기
+                                        </button>
+                                    ) : null}
+                                </span>
+                            ))}
+                        </span>
+                    ) : null}
+
+                    <div className="ml-auto flex shrink-0 items-center gap-1">
                         {r.is_agency ? (
                             <>
                                 <button
@@ -191,41 +228,6 @@ export default function OrgTreePanel() {
                             >
                                 {a.company}
                             </button>
-                        ))}
-                    </div>
-                ) : null}
-
-                {/* 초대 코드 목록 */}
-                {r.is_agency && invitesOf(r.id).length ? (
-                    <div className="ml-8 mb-1 flex flex-wrap items-center gap-1.5">
-                        {invitesOf(r.id).map((i) => (
-                            <span
-                                className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[11px] ${
-                                    i.active ? 'border-[#a7f3d0] bg-[#ecfdf5] text-[#065f46]' : 'border-[#e2e8f0] bg-[#f8fafc] text-[#94a3b8] line-through'
-                                }`}
-                                key={i.code}
-                            >
-                                <button
-                                    className="font-mono hover:underline"
-                                    onClick={() => void navigator.clipboard?.writeText(i.code)}
-                                    title="클릭하면 복사 — 대행사에 이 코드를 전달하면 하위 업체가 가입 화면 '초대 코드'에 넣는다"
-                                    type="button"
-                                >
-                                    {i.code}
-                                </button>
-                                {/* 사용 횟수는 '승인'에서 오른다(신청이 아니라) — 거절된 신청이 한도를 갉아먹지 않게. */}
-                                <span className="opacity-60">{i.used_count}{i.max_uses ? `/${i.max_uses}` : ''}회</span>
-                                {i.active ? (
-                                    <button
-                                        className="font-sans text-[10px] font-bold text-[#94a3b8] hover:text-[#dc2626]"
-                                        onClick={() => void act(`iv:${i.code}`, () => setInviteActive(i.code, false), '코드를 폐기했습니다')}
-                                        title="폐기 — 이미 이 코드로 들어온 업체는 그대로 유지됩니다"
-                                        type="button"
-                                    >
-                                        폐기
-                                    </button>
-                                ) : null}
-                            </span>
                         ))}
                     </div>
                 ) : null}
