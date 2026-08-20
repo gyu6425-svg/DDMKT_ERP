@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import AgencyDashboard from '../components/portal/AgencyDashboard';
 import AgencyContracts from '../components/portal/AgencyContracts';
+import SubDashboard from '../components/portal/SubDashboard';
 import { BlogRankProvider, useBlogRank } from '../components/blogRank/lib/BlogRankContext';
 import { Kpi } from '../components/blogRank/lib/ui';
 import { lastM, fmtWon } from '../components/blogRank/lib/helpers';
@@ -284,11 +285,16 @@ function CustomerOverviewPage({ contractsView = false }: { contractsView?: boole
     const { profile } = useAuth();
     const clientId = as || profile?.client_id || '';
     const [isAgency, setIsAgency] = useState<boolean | null>(null);
+    const [isSub, setIsSub] = useState(false);   // 대행사 소속 하부 업체
     useEffect(() => {
         if (!clientId) { setIsAgency(false); return; }
         let alive = true;
-        void supabase.from('clients').select('is_agency').eq('id', clientId).maybeSingle()
-            .then(({ data }) => alive && setIsAgency(!!data?.is_agency));
+        void supabase.from('clients').select('is_agency,parent_client_id').eq('id', clientId).maybeSingle()
+            .then(({ data }) => {
+                if (!alive) return;
+                setIsAgency(!!data?.is_agency);
+                setIsSub(!!data?.parent_client_id);
+            });
         return () => { alive = false; };
     }, [clientId]);
 
@@ -313,13 +319,17 @@ function CustomerOverviewPage({ contractsView = false }: { contractsView?: boole
                     ? '하위 업체 현황과 정산을 한눈에 봅니다.'
                     : agencyContracts
                       ? '하부 업체와 맺은 계약입니다. 업체명으로 검색할 수 있습니다.'
-                      : '계약하신 카테고리 현황을 한눈에 봅니다.'}
+                      : isSub && !contractsView
+                        ? '카페 배포 진행 상황과 발행 히스토리를 봅니다.'
+                        : '계약하신 카테고리 현황을 한눈에 봅니다.'}
             </p>
 
             {agencyHome ? (
                 <AgencyDashboard />
             ) : agencyContracts ? (
                 <AgencyContracts />
+            ) : isSub && !contractsView ? (
+                <SubDashboard />
             ) : (
                 <BlogRankProvider customerMode previewClientId={as || null}>
                     <OverviewCards />
