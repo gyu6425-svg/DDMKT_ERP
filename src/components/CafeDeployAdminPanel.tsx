@@ -42,7 +42,7 @@ export default function CafeDeployAdminPanel() {
     //     그래서 그런 행에서는 승인·토큰 발행·상태 변경·clubid·삭제를 전부 감춘다 —
     //     우리가 처리하면 대행사가 이미 정산한 건을 두 번 처리하게 된다.
     const [orgById, setOrgById] = useState<Record<string, OrgNode>>({});
-    const [scope, setScope] = useState<'우리 처리' | '대행사 관리' | '전체'>('우리 처리');
+    const [scope, setScope] = useState<'전체' | '직거래' | '대행사 소속'>('전체');
     const saveClubid = async (id: string) => {
         const v = clubidEdit[id] ?? '';
         await updateDeployClubid(id, v);
@@ -132,13 +132,18 @@ export default function CafeDeployAdminPanel() {
         const pid = orgById[r.client_id]?.parent_client_id;
         return pid ? orgById[pid] ?? null : null;
     };
-    const isAgencyManaged = (r: CafeDeployRequest) => !!agencyOf(r);
+    // ★ 하위 업체의 '주문서(접수)'는 **우리가 처리한다.** 발행은 우리 자동화가 돌리기 때문이다.
+    //   대행사가 관리하는 것은 '돈'(토큰 구매·금액 통보·배분)이고, 그건 agency_token_requests 라는
+    //   별도 큐에 있다. 예전에 이 둘을 같은 것으로 보고 접수까지 잠갔더니, 하위 업체가 넣은 주문서가
+    //   '대행사 관리' 로 분류돼 기본 화면에서 사라졌다(실측 2026-08-20).
+    //   여기서는 '대행사 소속' 표시만 하고 처리는 평소대로 한다. 단 토큰 발행만 막는다 — ↓ isSub
+    const isSub = (r: CafeDeployRequest) => !!agencyOf(r);
 
     const byStatus = filter === '전체' ? rows : rows.filter((r) => r.status === filter);
     const shown = scope === '전체'
         ? byStatus
-        : byStatus.filter((r) => (scope === '대행사 관리' ? isAgencyManaged(r) : !isAgencyManaged(r)));
-    const nMine = rows.filter((r) => !isAgencyManaged(r)).length;
+        : byStatus.filter((r) => (scope === '대행사 소속' ? isSub(r) : !isSub(r)));
+    const nMine = rows.filter((r) => !isSub(r)).length;
     const nAgency = rows.length - nMine;
 
     return (
@@ -152,9 +157,9 @@ export default function CafeDeployAdminPanel() {
                     ))}
                 </div>
                 <div className="ml-2 flex gap-1 border-l border-[#e2e8f0] pl-3">
-                    {([['우리 처리', nMine], ['대행사 관리', nAgency], ['전체', rows.length]] as const).map(([k, n]) => (
+                    {([['전체', rows.length], ['직거래', nMine], ['대행사 소속', nAgency]] as const).map(([k, n]) => (
                         <button key={k} type="button" onClick={() => setScope(k)}
-                            title={k === '대행사 관리' ? '대행사가 자기 하위 업체에게 직접 받는 접수 — 우리는 열람만 합니다' : undefined}
+                            title={k === '대행사 소속' ? '대행사 하위 업체가 넣은 주문서 — 발행은 우리가 하고, 토큰은 대행사가 줍니다' : undefined}
                             className={`rounded-full px-3 py-1 text-xs font-semibold ${scope === k ? 'bg-[#0f172a] text-white' : 'bg-[#f1f5f9] text-[#64748b]'}`}>
                             {k} {n}
                         </button>
@@ -271,17 +276,14 @@ export default function CafeDeployAdminPanel() {
                                         <td className="whitespace-nowrap px-2 py-2.5">{r.two_factor ? <span className="font-bold text-[#b45309]">사용</span> : <span className="text-[#94a3b8]">-</span>}</td>
                                         <td className="whitespace-nowrap px-2 py-2.5">
                                             <div className="flex items-center gap-1.5">
-                                                {/* 대행사가 관리하는 하위 업체 접수 — 우리는 열람만. 처리 버튼을 아예 안 그린다. */}
-                                                {isAgencyManaged(r) ? (
-                                                    <>
-                                                        <span className={`rounded-full px-2 py-1 text-xs font-bold ${ST_STYLE[r.status] ?? 'bg-[#f1f5f9] text-[#64748b]'}`}>{r.status}</span>
-                                                        <span className="rounded-full bg-[#f1f5f9] px-2 py-1 text-[11px] font-bold text-[#64748b]"
-                                                            title="이 접수는 대행사가 직접 관리합니다 — 승인·금액·토큰 배분 전부 대행사 몫입니다">
-                                                            🔒 대행사 관리
-                                                        </span>
-                                                    </>
-                                                ) : (
                                                 <>
+                                                {/* 대행사 소속 표시 — 토큰은 대행사가 주므로 우리 발행 버튼은 안 그린다. */}
+                                                {isSub(r) ? (
+                                                    <span className="rounded-full bg-[#ede9fe] px-2 py-1 text-[11px] font-bold text-[#6d28d9]"
+                                                        title={`${agencyOf(r)?.company ?? '대행사'} 소속 — 토큰은 대행사가 배분합니다`}>
+                                                        대행사 소속
+                                                    </span>
+                                                ) : null}
                                                 <select className={`rounded-full px-2 py-1 text-xs font-bold ${ST_STYLE[r.status] ?? 'bg-[#f1f5f9] text-[#64748b]'}`} value={r.status} onChange={(e) => void changeStatus(r.id, e.target.value)}>
                                                     {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                                                 </select>
@@ -290,7 +292,7 @@ export default function CafeDeployAdminPanel() {
                                                         className="rounded-md bg-[#ea580c] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#c2410c]"
                                                         title="승인 → 고객ERP에 입금/결제 안내가 노출됩니다">승인</button>
                                                 ) : null}
-                                                {r.status === '결제대기' ? (
+                                                {r.status === '결제대기' && !isSub(r) ? (
                                                     issueOpen === r.id ? (
                                                         <span className="flex items-center gap-1">
                                                             <input type="number" min={1} value={issueCount} onChange={(e) => setIssueCount(e.target.value)}
@@ -336,7 +338,6 @@ export default function CafeDeployAdminPanel() {
                                                     <button type="button" onClick={() => setDelId(r.id)} className="rounded-md border border-[#fecaca] px-2 py-1 text-[11px] font-semibold text-[#dc2626] hover:bg-[#fef2f2]" title="이 접수내역 삭제(사진·계정 정리)">삭제</button>
                                                 )}
                                                 </>
-                                                )}
                                             </div>
                                         </td>
                                     </tr>
