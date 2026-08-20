@@ -241,37 +241,28 @@ export default function AgencyOrgPanel() {
                             const supply = (Number(q.count) || 0) * (Number(q.price) || 0);
                             const closed = r.status === 'done' || r.status === 'rejected';
                             return (
-                                <div className="rounded-lg border border-[#e2e8f0] px-3 py-2.5 text-[13px]" key={r.id}>
-                                    <div className="flex flex-wrap items-center gap-2">
+                                <div className="rounded-lg border border-[#e2e8f0] px-3 py-2 text-[13px]" key={r.id}>
+                                    {/* 한 줄로 눕힌다 — 항목마다 줄을 나누면 건수가 늘수록 세로로 길어져 한눈에 안 들어온다.
+                                        좁은 화면에서는 flex-wrap 이 알아서 접는다. */}
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${st.cls}`}>{st.label}</span>
                                         <b className="text-[#0f172a]">{childName(r.child_client_id)}</b>
-                                        <span className="text-[#4338ca]">{r.requested_count ? `${r.requested_count}건 신청` : '건수 미지정'}</span>
-                                        {r.pay_method ? <span className="rounded bg-[#eef2ff] px-1.5 py-0.5 text-[11px] font-bold text-[#4338ca]">{r.pay_method}</span> : null}
-                                        {r.note ? <span className="text-[#64748b]">· {r.note}</span> : null}
+                                        <span className="text-[#4338ca]">{n ? `${n}건` : '건수 미지정'}</span>
+                                        {r.pay_method ? <span className="text-[11px] text-[#64748b]">{r.pay_method}</span> : null}
+                                        {r.amount != null ? (
+                                            <span className="text-[#334155]">
+                                                공급가 <b>₩{won(r.amount)}</b>
+                                                <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(r.amount))}</span>
+                                                {' '}= <b className="text-[#c2410c]">₩{won(totalOf(r.amount))}</b>
+                                            </span>
+                                        ) : null}
+                                        {r.pay_account ? (
+                                            <span className="text-[11px] text-[#94a3b8]">{r.pay_bank} {r.pay_account} ({r.pay_holder})</span>
+                                        ) : null}
+                                        {r.depositor ? <span className="text-[11px] text-[#94a3b8]">입금자 {r.depositor}</span> : null}
+                                        {r.note ? <span className="text-[11px] text-[#94a3b8]">{r.note}</span> : null}
                                         <span className="ml-auto text-[11px] text-[#cbd5e1]">{fmtDT(r.created_at)}</span>
                                     </div>
-
-                                    {r.amount != null ? (
-                                        <div className="mt-1.5 text-[12px] text-[#334155]">
-                                            공급가 <b>₩{won(r.amount)}</b>
-                                            <span className="text-[#94a3b8]"> + 부가세 ₩{won(vatOf(r.amount))}</span>
-                                            {' '}= <b className="text-[#c2410c]">₩{won(totalOf(r.amount))}</b>
-                                        </div>
-                                    ) : null}
-                                    {r.pay_account ? (
-                                        <div className="mt-1 text-[11px] text-[#64748b]">
-                                            전달한 계좌 · {r.pay_bank} {r.pay_account} ({r.pay_holder})
-                                        </div>
-                                    ) : null}
-                                    {r.paid_declared_at ? (
-                                        <div className="mt-1 text-[12px] font-semibold text-[#c2410c]">
-                                            입금 신고 {fmtDT(r.paid_declared_at)}
-                                            {r.depositor ? <span className="ml-1 font-normal text-[#64748b]">· 입금자 {r.depositor}</span> : null}
-                                        </div>
-                                    ) : null}
-                                    {r.status === 'done' ? (
-                                        <div className="mt-1 text-[12px] text-[#166534]">발행 {r.granted_count}건 · {fmtDT(r.handled_at)}</div>
-                                    ) : null}
 
                                     {closed ? null : (
                                         <div className="mt-2 flex flex-wrap items-end gap-2">
