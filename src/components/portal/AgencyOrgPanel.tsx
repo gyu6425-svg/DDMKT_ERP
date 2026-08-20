@@ -6,7 +6,7 @@ import {
     listSubRequests, agencyQuoteRequest, agencyFulfillRequest, agencyRejectRequest,
     type MyOrg, type AgencyPendingSignup, type AgencyChild, type AgencyTransfer, type SubTokenRequest,
 } from '../../api/orgs';
-import { listTokens, balanceOf, won, vatOf, totalOf, intOnly, MAX_COUNT, MAX_UNIT_PRICE } from '../../api/cafeTokens';
+import { listTokens, balanceOf, won, vatOf, totalOf, intOnly, MAX_UNIT_PRICE } from '../../api/cafeTokens';
 
 // 고객 포털 '조직 관리' — 대행사 콘솔.
 //   대행사가 자기 조직만 다룬다: 하위 가입 승인 · 하위 업체 현황 · 토큰 배분 · 초대 코드.
@@ -238,7 +238,7 @@ export default function AgencyOrgPanel() {
                             const st = REQ_STATUS[r.status] ?? { label: r.status, cls: 'bg-[#f1f5f9] text-[#64748b]' };
                             const n = r.quoted_count ?? r.requested_count ?? 0;
                             const q = quote[r.id] ?? { count: String(n || ''), price: String(r.unit_price ?? '') };
-                            const supply = (Number(q.count) || 0) * (Number(q.price) || 0);
+                            const supply = n * (Number(q.price) || 0);   // 건수는 신청값 고정
                             const closed = r.status === 'done' || r.status === 'rejected';
                             return (
                                 <div className={`rounded-lg px-3 py-2 text-[13px] ${
@@ -268,10 +268,14 @@ export default function AgencyOrgPanel() {
 
                                     {closed ? null : (
                                         <div className="mt-2 flex flex-wrap items-end gap-2">
+                                            {/* 건수는 하부 업체가 신청한 값으로 고정한다 — 대행사가 임의로 바꾸면
+                                                신청한 건수와 통보받은 건수가 어긋나 어디에 맞춰 입금할지 알 수 없다.
+                                                건수를 바꿔야 하면 반려하고 다시 신청받는다. */}
                                             <div>
-                                                <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">건수</div>
-                                                <input className="h-8 w-20 rounded border border-[#cbd5e1] px-2 text-[13px]" min={1} type="number"
-                                                    onChange={(e) => setQuote((m) => ({ ...m, [r.id]: { ...q, count: intOnly(e.target.value, MAX_COUNT) } }))} value={q.count} />
+                                                <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">건수 <span className="font-normal text-[#94a3b8]">신청</span></div>
+                                                <div className="flex h-8 w-20 items-center justify-center rounded border border-[#e2e8f0] bg-[#f8fafc] text-[13px] font-bold text-[#334155]">
+                                                    {n}건
+                                                </div>
                                             </div>
                                             <div>
                                                 <div className="mb-0.5 text-[11px] font-semibold text-[#64748b]">판매 단가</div>
@@ -284,7 +288,7 @@ export default function AgencyOrgPanel() {
                                                 </div>
                                             ) : null}
                                             <button className="h-8 rounded bg-[#1e40af] px-3 text-[12px] font-bold text-white hover:bg-[#1e3a8a] disabled:opacity-50"
-                                                disabled={busy !== null || !Number(q.count) || !Number(q.price)
+                                                disabled={busy !== null || !n || !Number(q.price)
                                                     || !acct.bank.trim() || !acct.account.trim() || !acct.holder.trim()}
                                                 onClick={() => void run(r.id, () => agencyQuoteRequest(r.id, Number(q.count), Number(q.price), acct),
                                                     `${childName(r.child_client_id)} 에 ${q.count}건 · 공급가 \u20A9${won(supply)} 통보 (계좌 전달)`)}
