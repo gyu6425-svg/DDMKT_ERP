@@ -77,6 +77,19 @@ export default function CafeDeployAdminPanel() {
         const { error } = await setCafeDeployStatus(id, status);
         if (error) return setMsg('상태 변경 실패: ' + error.message);
         setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
+
+        // ★ '세팅중' = 이제 우리가 발행을 준비한다는 뜻 → 발행 화면에 이 업체가 떠야 한다.
+        //   예전에는 publish_enabled 를 **토큰 발행할 때만** 켰다. 그런데 대행사 하위 업체는
+        //   토큰을 대행사에게 받으므로 우리가 토큰을 발행하지 않는다 → 영영 안 켜졌고,
+        //   자동화 발행 화면의 '하부 업체' 칸이 계속 비어 있었다(실측 2026-08-20).
+        //   직거래 업체는 토큰 발행 때 이미 켜져 있어 이 호출이 무해하다(멱등).
+        if (status === '세팅중') {
+            const r = rows.find((x) => x.id === id);
+            if (r?.client_id) {
+                const { error: e } = await enablePublishByClient(r.client_id, r.company_name || undefined);
+                if (e) setMsg(`발행 승인 실패: ${e.message} — 카페 관리시트에서 직접 켜 주세요.`);
+            }
+        }
     };
 
     // 토큰 발행 — 결제 확인 후 발행건수(=토큰수)만큼 고객에게 지급 + 상태 세팅중 + 대기 충전요청 정리.
