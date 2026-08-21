@@ -15,6 +15,7 @@ import { enablePublishByClient, getCafeAccounts, updateCafeAccount, type CafeAcc
 import { seedAchievedPostsForClient } from '../api/cafeRank';
 import { syncTokensToContract } from '../api/cafeTokens';
 import { getStudioSettings, saveStudioSettings } from '../api/cafeStudioSettings';
+import { upsertDeployFromContract } from '../api/cafeDeployRequests';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import {
     PRODUCT_CATEGORIES,
@@ -543,12 +544,25 @@ function ContractAddModal({
             const tk = await syncTokensToContract(clientId, qty, `계약 등록 ${date || todayStr()} · ${companyName} · 계약 ${qty}건에 맞춤`);
             // ⑤ 이전 계약 달성분은 기준선으로 이월 → 새 계약 진행률 0부터(5위 24시간 +1 이 이 계약분만 센다).
             const seeded = await seedAchievedPostsForClient(clientId);
+            // ⑥ 관리자 '카페 접수' 목록에 올린다 — 여기서만 '발행하러 가기'로 넘어갈 수 있다.
+            //    고객 접수가 아니므로 접수·결제대기를 건너뛰고 바로 세팅중.
+            const dep = await upsertDeployFromContract(clientId, {
+                company_name: companyName,
+                total_count: n,
+                board_name: cafeBoardName.trim() || null,
+                board_url: url || null,
+                club_id: club || null,
+                contract_date: date || null,
+            });
             const { data: ss } = await getStudioSettings(clientId);
             const poolN = (ss?.keyword_pool ?? []).length;
             cafeMsg = en.error || tk.error
                 ? ` · ⚠ 자동화 발행 연결 실패(${en.error?.message || tk.error?.message}) — 카페 자동화 발행 탭에서 '발행 세팅' 확인 필요`
                 : ` · 자동화 발행 연결(토큰 ${tk.before} → ${qty}건 · 목표 ${qty}건`
                   + `${seeded.count ? ` · 이전 달성 ${seeded.count}건 기준선 이월` : ''})`
+                  + (dep.error
+                      ? ` · ⚠ 카페 접수 목록 등록 실패(${dep.error.message})`
+                      : ` · 카페 접수 목록에 ${dep.created ? '추가' : '갱신'}(세팅중) — '발행하러 가기' 가능`)
                   + (url ? '' : ' · ⚠ 게시판 주소 없음 — 발행 글이 추적되지 않습니다')
                   + (poolN ? ` · 키워드 풀 ${poolN}개` : ' · ⚠ 키워드 풀 0개 — 자동화 발행 탭에서 키워드를 채워야 발행이 시작됩니다');
         }

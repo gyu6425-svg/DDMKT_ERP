@@ -342,6 +342,45 @@ export async function deleteCafeDeployRequest(row: CafeDeployRequest) {
 }
 
 // 접수 목록 — clientId 주면 그 업체로 필터(내부 미리보기용). 고객 본인은 RLS 로 자동 스코프.
+// 계약 관리에서 카페 배포를 등록했을 때 — 관리자 '카페 접수' 목록에도 올린다.
+//   고객이 스스로 넣은 접수가 아니라 우리가 잡은 계약이라, 접수·결제대기 단계를 건너뛰고
+//   바로 '세팅중'으로 만든다(계약 등록 시점에 발행 승인·토큰이 이미 들어간다).
+//   그래야 그 행에 '발행하러 가기' 버튼이 뜬다 — 이 버튼은 세팅중에서만 보인다.
+//
+//   ★ 업체당 한 행만 유지한다(있으면 갱신). 계약을 여러 번 등록할 때마다 행을 새로 만들면
+//     카페 대시보드가 total_count 를 겹쳐 세서 목표 건수가 부풀려진다
+//     (listActiveDeployTargets 는 세팅중·완료 행을 전부 합산한다).
+export async function upsertDeployFromContract(clientId: string, input: {
+    company_name: string;
+    total_count: number | null;
+    board_name?: string | null;
+    board_url?: string | null;
+    club_id?: string | null;
+    contract_date?: string | null;
+}) {
+    const board = input.board_name?.trim() || null;
+    const patch = {
+        company_name: input.company_name.trim() || '고객사',
+        total_count: input.total_count,
+        cafe_name: board,
+        board_name: board,
+        url: input.board_url?.trim() || null,
+        cafe_clubid: (input.club_id || '').replace(/[^0-9]/g, '') || null,
+        mission_start: input.contract_date || null,
+        status: '세팅중',
+        note: '[계약 등록] 계약 관리에서 등록 — 고객 접수 아님',
+    };
+    const { data: prev } = await supabase.from('cafe_deploy_requests')
+        .select('id').eq('client_id', clientId).order('created_at', { ascending: false }).limit(1);
+    const existing = (prev ?? [])[0] as { id: string } | undefined;
+    if (existing) {
+        const { error } = await supabase.from('cafe_deploy_requests').update(patch).eq('id', existing.id);
+        return { error, created: false };
+    }
+    const { error } = await supabase.from('cafe_deploy_requests').insert({ client_id: clientId, ...patch });
+    return { error, created: true };
+}
+
 export async function listCafeDeployRequests(clientId?: string, limit = 20) {
     let q = supabase.from('cafe_deploy_requests').select('*')
         .order('created_at', { ascending: false }).limit(limit);

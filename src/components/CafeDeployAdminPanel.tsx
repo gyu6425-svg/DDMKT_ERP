@@ -204,6 +204,16 @@ export default function CafeDeployAdminPanel() {
                                         <td className="whitespace-nowrap px-2 py-2.5">{r.created_at.slice(0, 10)}</td>
                                         <td className="whitespace-nowrap px-2 py-2.5 font-semibold">
                                             {r.company_name}
+                                            {/* 계약 관리에서 잡은 건 — 고객이 스스로 넣은 접수가 아니라 사진·계정·키워드가 비어 있다.
+                                                표시가 없으면 "고객이 접수했는데 왜 다 비었지"로 읽힌다. */}
+                                            {(r.note || '').startsWith('[계약 등록]') ? (
+                                                <div className="mt-0.5">
+                                                    <span className="rounded-full bg-[#e0f2fe] px-1.5 py-0.5 text-[10px] font-bold text-[#0369a1]"
+                                                        title="계약 관리에서 등록한 건 — 고객 접수가 아니라 사진·계정·키워드는 비어 있습니다">
+                                                        계약 등록
+                                                    </span>
+                                                </div>
+                                            ) : null}
                                             {agencyOf(r) ? (
                                                 <div className="mt-0.5">
                                                     <span className="rounded-full bg-[#ede9fe] px-1.5 py-0.5 text-[10px] font-bold text-[#6d28d9]">
