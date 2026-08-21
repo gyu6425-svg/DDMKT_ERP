@@ -56,7 +56,9 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
     const payDue = reqs.filter((r) => r.status === 'quoted').length;
 
     return (
-        <div className={payDue
+        // charge-panel = 가이드가 항상 잡을 수 있는 앵커. 폼은 처리 중인 신청이 있으면 사라지고
+        //   계좌·입금신고는 금액 통보 전엔 없다 — 그때 짚을 곳이 없으면 검은 화면에 글자만 남는다.
+        <div data-tour="charge-panel" className={payDue
             ? 'rounded-xl border-2 border-[#3b82f6] bg-[#f5f9ff] p-5 shadow-[0_2px_12px_rgba(59,130,246,0.18)]'
             : 'rounded-xl border border-[#e2e8f0] bg-white p-5'}>
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -109,6 +111,12 @@ export function SubTokenPurchase({ clientId, agencyName }: { clientId: string; a
             {msg ? <p className="m-0 mb-2 text-[12px] font-semibold text-[#15803d]">{msg}</p> : null}
             {err ? <p className="m-0 mb-2 text-[12px] font-semibold text-[#b91c1c]">{err}</p> : null}
 
+            {/* 신청 내역이 없어도 상자는 남긴다 — 어디에 쌓이는지 가이드가 짚을 자리가 필요하다. */}
+            {!reqs.length ? (
+                <div className="rounded-lg border border-dashed border-[#e2e8f0] px-3 py-4 text-center text-[12px] text-[#94a3b8]" data-tour="charge-list">
+                    신청하시면 여기에 진행 상태가 표시됩니다 · 접수 → 금액 통보 → 입금 확인 중 → 충전완료
+                </div>
+            ) : null}
             {reqs.length ? (
                 <div className="grid gap-1.5" data-tour="charge-list">
                     {reqs.slice(0, 6).map((q) => {

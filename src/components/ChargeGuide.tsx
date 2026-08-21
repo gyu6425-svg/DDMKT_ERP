@@ -24,6 +24,14 @@ const chargePath = () => {
 const FORM_SEL = '[data-tour="charge-form"]';
 const S = (selector: string | undefined, title: string, body: string): GuideStep => ({ selector, title, body });
 
+// ★ 이 화면은 상황에 따라 항목이 통째로 사라진다 — 처리 중인 신청이 있으면 입력 폼이 없고,
+//   금액 통보 전에는 계좌 상자도 '계좌이체 완료' 버튼도 없다. 앵커를 하나만 적어 두면
+//   그 단계에서 짚을 것이 없어 화면이 검게 덮인 채 글자만 남는다(사장님 지적 2026-08-21).
+//   그래서 없어질 수 있는 앵커에는 '||' 로 폴백을 단다 — 최소한 충전 요청 상자에는 빨간 네모가 간다.
+const PANEL = '[data-tour="charge-panel"]';
+const LIST = '[data-tour="charge-list"]';
+const or = (...sels: string[]) => sels.join('||');
+
 type Kind = 'agency' | 'sub' | 'direct';
 
 function buildSteps(kind: Kind, agencyName: string): GuideStep[] {
@@ -31,7 +39,7 @@ function buildSteps(kind: Kind, agencyName: string): GuideStep[] {
     const showsMoney = kind !== 'direct';
 
     const steps: GuideStep[] = [
-        S(undefined, '충전 요청 가이드 👋',
+        S(PANEL, '충전 요청 가이드 👋',
             '카페에 글을 발행하려면 먼저 발행 건수(토큰)를 충전해야 합니다.\n'
             + `${seller} 에 신청하고 → 금액을 통보받고 → 입금하면 → 건수가 들어옵니다.\n\n`
             + '순서대로 짚어 드릴게요. 언제든 "건너뛰기"로 닫을 수 있습니다.'),
@@ -42,11 +50,11 @@ function buildSteps(kind: Kind, agencyName: string): GuideStep[] {
             + '· 총 사용(발행) — 실제 발행에 쓴 건수\n\n'
             + '발행 1건 = 1건 차감입니다.'),
 
-        S('[data-tour="charge-method"]', '① 결제 방식',
+        S(or('[data-tour="charge-method"]', PANEL), '① 결제 방식',
             '계좌이체 · 카드결제 · 기타 중에서 고르세요.\n'
             + `${seller} 담당자가 이 방식에 맞춰 안내드립니다.`),
 
-        S('[data-tour="charge-count"]', '② 건수',
+        S(or('[data-tour="charge-count"]', PANEL), '② 건수',
             kind === 'agency'
                 ? `필요한 발행 건수를 적으세요. 대행사는 최소 ${AGENCY_MIN_COUNT}건부터 신청할 수 있습니다.\n`
                   + '나중에 더 필요하면 추가로 신청하시면 되고, 건수는 누적됩니다.'
@@ -55,11 +63,11 @@ function buildSteps(kind: Kind, agencyName: string): GuideStep[] {
                     + '한 번에 처리 중인 신청은 하나뿐입니다 — 이번 건이 끝나야 다음 신청이 됩니다.'
                   : '필요한 발행 건수를 적으세요. 나중에 더 필요하면 추가로 신청하시면 됩니다.'),
 
-        S('[data-tour="charge-submit"]', '③ 충전 요청',
+        S(or('[data-tour="charge-submit"]', PANEL), '③ 충전 요청',
             `누르면 ${seller} 에 신청이 접수됩니다.\n`
             + '이 단계에서는 아직 입금하지 마세요 — 금액을 먼저 통보받습니다.'),
 
-        S('[data-tour="charge-list"]', '④ 금액 통보 받기',
+        S(or(LIST, PANEL), '④ 금액 통보 받기',
             '신청한 건이 아래 목록에 쌓입니다. 상태가 이렇게 바뀝니다:\n\n'
             + '접수 → 금액 통보 → 입금 확인 중 → 충전완료\n\n'
             + (showsMoney
@@ -70,22 +78,23 @@ function buildSteps(kind: Kind, agencyName: string): GuideStep[] {
 
     if (showsMoney) {
         steps.push(
-            S('[data-tour="charge-account"]', '⑤ 입금 계좌 확인',
+            S(or('[data-tour="charge-account"]', LIST, PANEL), '⑤ 입금 계좌 확인',
                 '금액과 함께 입금 계좌가 전달됩니다. 이 계좌로 입금해 주세요.\n\n'
                 + '주황색 상자에 은행 · 계좌번호 · 예금주가 적혀 있습니다.\n'
                 + '통보 전에는 이 상자가 보이지 않습니다.'),
-            S('[data-tour="charge-declare"]', '⑥ 계좌이체 완료',
+            S(or('[data-tour="charge-declare"]', LIST, PANEL), '⑥ 계좌이체 완료',
                 '입금하신 뒤 입금자명을 적고 "계좌이체 완료"를 눌러 주세요.\n'
                 + '입금자명이 통장에 찍힌 이름과 다르면 확인이 늦어집니다.\n\n'
                 + `${seller} 담당자가 통장을 확인하면 건수가 바로 들어옵니다.`),
         );
     } else {
-        steps.push(S(undefined, '⑤ 입금 안내는 담당자가 드립니다',
+        steps.push(S(PANEL, '⑤ 입금 안내는 담당자가 드립니다',
             '담당자가 입금 방법과 금액을 따로 안내드립니다.\n'
             + '입금이 확인되면 건수가 들어옵니다.'));
     }
 
-    steps.push(S(undefined, '충전이 끝나면 🎉',
+    // 마지막은 '잔여 발행' 카드를 짚는다 — 문구가 가리키는 바로 그 숫자다.
+    steps.push(S(or('[data-tour="charge-balance"]', PANEL), '충전이 끝나면 🎉',
         '건수가 들어오면 위 "잔여 발행"이 늘어납니다.\n'
         + '그 다음 "주문서 작성" 탭에서 발행할 내용을 접수하시면 됩니다.\n'
         + '주문서 작성은 그 탭의 "📖 가이드 보기"에서 따로 안내해 드립니다.\n\n'
@@ -105,8 +114,8 @@ function openWhenReady(open: () => void): () => void {
     }
     let n = 0;
     const t = window.setInterval(() => {
-        // 처리 중인 신청이 있으면 입력 폼이 감춰진다 — 그때는 목록만 보고 진행한다(무한 대기 금지).
-        if (formMounted() || document.querySelector('[data-tour="charge-list"]') || ++n > 40) {
+        // 처리 중인 신청이 있으면 입력 폼이 감춰진다 — 그때는 충전 요청 상자만 보고 진행한다(무한 대기 금지).
+        if (formMounted() || document.querySelector(PANEL) || ++n > 40) {
             window.clearInterval(t);
             open();
         }

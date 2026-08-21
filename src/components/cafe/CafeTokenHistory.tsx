@@ -114,7 +114,9 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
             {parentAgency.id && clientId ? (
                 <SubTokenPurchase agencyName={parentAgency.company || '소속 대행사'} clientId={clientId} />
             ) : (
-            <div className={payDue
+            // charge-panel = 가이드가 항상 잡을 수 있는 앵커. 폼·목록은 상황에 따라 사라지는데,
+            //   그때 가이드가 짚을 곳이 없으면 화면이 통째로 검게 덮인 글자만 남는다.
+            <div data-tour="charge-panel" className={payDue
                 ? 'rounded-xl border-2 border-[#3b82f6] bg-[#f5f9ff] p-5 shadow-[0_2px_12px_rgba(59,130,246,0.18)]'
                 : 'rounded-xl border border-[#e2e8f0] bg-white p-5'}>
                 <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -158,6 +160,12 @@ export function CafeTokenHistory({ clientId }: { clientId: string | null }) {
                         {reqMsg && <span className="text-[12px] text-[#475569]">{reqMsg}</span>}
                     </div>
                 </div>
+                {/* 신청 내역이 없어도 상자는 남긴다 — 어디에 쌓이는지 가이드가 짚을 자리가 필요하다. */}
+                {!reqs.length ? (
+                    <div className="mt-3 rounded-lg border border-dashed border-[#e2e8f0] px-3 py-4 text-center text-[12px] text-[#94a3b8]" data-tour="charge-list">
+                        신청하시면 여기에 진행 상태가 표시됩니다 · 접수 → 금액 통보 → 입금 확인 중 → 충전완료
+                    </div>
+                ) : null}
                 {reqs.length ? (
                     <div className="mt-3 grid gap-1.5" data-tour="charge-list">
                         {reqs.slice(0, 5).map((q) => {

@@ -4,10 +4,27 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 //   steps[i].selector 로 타겟을 찾아 스포트라이트(주변 4패널만 어둡게 → 타겟은 선명) + 빨간 박스.
 //   타겟을 못 찾으면 중앙 카드(폴백)로 그 단계 설명만 표시하고 계속 진행 가능(끊기지 않게).
 export type GuideStep = {
-    selector?: string;   // CSS 선택자(없으면 중앙 안내만)
+    // CSS 선택자(없으면 중앙 안내만).
+    //   '||' 로 여러 개를 이어 붙이면 **앞에서부터** 화면에 실제로 보이는 첫 요소를 잡는다.
+    //   왜 콤마(CSS 그룹 선택자)가 아니라 '||' 인가: querySelector 는 콤마를 써도 '문서 순서'로
+    //   먼저 나오는 것을 준다. 바깥 상자와 그 안의 항목을 함께 적으면 항상 바깥 상자가 잡혀
+    //   폴백이 본선을 이긴다. 우선순위를 우리가 정하려면 하나씩 순서대로 확인해야 한다.
+    selector?: string;
     title: string;
     body: string;
 };
+
+// 보이는(0×0 아니고 숨겨지지 않은) 첫 후보를 찾는다. 후보가 하나뿐이면 종전과 같다.
+export function resolveTarget(selector?: string): HTMLElement | null {
+    if (!selector) return null;
+    for (const sel of selector.split('||').map((s) => s.trim()).filter(Boolean)) {
+        for (const el of Array.from(document.querySelectorAll(sel)) as HTMLElement[]) {
+            const r = el.getBoundingClientRect();
+            if ((r.width > 0 || r.height > 0) && el.offsetParent !== null) return el;
+        }
+    }
+    return null;
+}
 
 const PAD = 8;          // 하이라이트 여백
 const CARD_W = 320;     // 안내 카드 폭
@@ -20,8 +37,7 @@ export function GuideOverlay({ steps, onFinish }: { steps: GuideStep[]; onFinish
     const [missing, setMissing] = useState(false);   // 타겟을 계속 못 찾는 중
     // 타겟으로 다시 스크롤 — 화면 밖으로 밀렸을 때 카드에서 눌러 되돌린다.
     const scrollToTarget = () => {
-        const sel = steps[Math.min(i, steps.length - 1)]?.selector;
-        if (sel) document.querySelector(sel)?.scrollIntoView({ block: 'center', behavior: 'auto' });
+        resolveTarget(steps[Math.min(i, steps.length - 1)]?.selector)?.scrollIntoView({ block: 'center', behavior: 'auto' });
     };
     const cardRef = useRef<HTMLDivElement | null>(null);
     const [cardH, setCardH] = useState(176);         // 실제 카드 높이(위쪽 배치 계산용)
@@ -40,8 +56,7 @@ export function GuideOverlay({ steps, onFinish }: { steps: GuideStep[]; onFinish
     useEffect(() => {
         setMissing(false);
         if (!step?.selector) return;
-        const el = document.querySelector(step.selector);
-        el?.scrollIntoView({ block: 'center', behavior: 'auto' });
+        resolveTarget(step.selector)?.scrollIntoView({ block: 'center', behavior: 'auto' });
     }, [i, step?.selector]);
 
     // 타겟 위치 추적 — 스크롤/리사이즈/레이아웃 변동에 대응(250ms 폴링).
@@ -50,11 +65,9 @@ export function GuideOverlay({ steps, onFinish }: { steps: GuideStep[]; onFinish
     useLayoutEffect(() => {
         const t0 = Date.now();
         const update = () => {
-            const el = step?.selector ? (document.querySelector(step.selector) as HTMLElement | null) : null;
-            const r = el?.getBoundingClientRect();
-            const visible = !!r && (r.width > 0 || r.height > 0) && el?.offsetParent !== null;
-            setRect(visible ? r! : null);
-            if (step?.selector) setMissing(!visible && Date.now() - t0 > MISS_MS);
+            const el = resolveTarget(step?.selector);   // 보이는 후보만 돌려준다(0×0·hidden 제외)
+            setRect(el ? el.getBoundingClientRect() : null);
+            if (step?.selector) setMissing(!el && Date.now() - t0 > MISS_MS);
         };
         update();
         const t = setInterval(update, 250);
