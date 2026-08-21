@@ -32,9 +32,13 @@ export function CafeSheetTab({
     scopeCompanyKey = null,
     scopeClientId = null,
     readOnly = false,
-}: { scopeCompanyKey?: string | string[] | null; scopeClientId?: string | null; readOnly?: boolean } = {}) {
+}: { scopeCompanyKey?: string | string[] | null; scopeClientId?: string | string[] | null; readOnly?: boolean } = {}) {
     // scopeCompanyKey: 고객 뷰 — 이 업체만. scopeClientId: 내부 관리 스코프(누수탐지) — 이 client 계정만·등록 시 client_id 자동.
     // readOnly: 입력·등록·토글 숨기고 텍스트로 표시.
+    // 스코프는 여러 client 를 받는다 — 누수탐지처럼 자체 카페를 여러 개 굴리는 곳이 있다.
+    //   등록 시 자동으로 붙일 client_id 는 그중 첫 번째(대표)로 둔다.
+    const scopeIds = Array.isArray(scopeClientId) ? scopeClientId : scopeClientId ? [scopeClientId] : [];
+    const scopePrimary = scopeIds[0] ?? null;
     const [accounts, setAccounts] = useState<CafeAccount[]>([]);
     const [setupAccount, setSetupAccount] = useState<CafeAccount | null>(null); // 발행 세팅 모달 대상
     const [posts, setPosts] = useState<CafeRankPost[]>([]);
@@ -136,7 +140,7 @@ export function CafeSheetTab({
     const rows = useMemo(
         () => accounts
             .filter((a) => !scopeCompanyKey || (Array.isArray(scopeCompanyKey) ? scopeCompanyKey.includes(a.company_key) : a.company_key === scopeCompanyKey))
-            .filter((a) => !scopeClientId || a.client_id === scopeClientId)
+            .filter((a) => !scopeIds.length || (a.client_id ? scopeIds.includes(a.client_id) : false))
             .filter((a) => !urlClientId || a.client_id === urlClientId)
             .filter((a) => !(a.cafe_name === 'ddmkt2' && a.client_id && clientsWithOwnCafe.has(a.client_id)))
             .filter((a) => {
@@ -150,7 +154,8 @@ export function CafeSheetTab({
                     || cafeCompanyRank(a.company_key) - cafeCompanyRank(b.company_key)
                     || a.display_name.localeCompare(b.display_name),
             ),
-        [accounts, scopeCompanyKey, scopeClientId, clientsWithOwnCafe, q, urlClientId],
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [accounts, scopeCompanyKey, scopeIds.join(','), clientsWithOwnCafe, q, urlClientId],
     );
 
     // 숨긴 마이클(ddmkt2) 카페의 실적을 같은 업체(client)의 자체 카페 행에 합산 — 회사 총 실적 표시.
@@ -201,7 +206,7 @@ export function CafeSheetTab({
             ...form,
             board_name: form.board_name || form.display_name,
             board_short: form.board_short || form.display_name,
-            client_id: linkedReq?.client_id || scopeClientId || undefined,
+            client_id: linkedReq?.client_id || scopePrimary || undefined,
             club_id: club || undefined,
         });
         setBusy(false);
@@ -258,7 +263,7 @@ export function CafeSheetTab({
                 <div className="grid gap-2 rounded-md border border-[#bfdbfe] bg-[#eff6ff] p-3 md:grid-cols-2">
                     {/* 무엇이 바뀔지 누르기 전에 보여준다 — '갱신인 줄 알았는데 새 행' 이 이 화면의 사고였다. */}
                     {(() => {
-                        const cid = linkedReq?.client_id || scopeClientId;
+                        const cid = linkedReq?.client_id || scopePrimary;
                         if (!cid) return null;
                         const mine = accounts.filter((a) => a.client_id === cid);
                         const hit = mine.find((a) => a.company_key === form.company_key.trim()) ?? (mine.length === 1 ? mine[0] : null);

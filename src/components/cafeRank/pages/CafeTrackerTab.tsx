@@ -100,7 +100,7 @@ export function CafeTrackerTab({
     readOnly = false,
     lockCompany = null,
     scopeClientId = null,
-}: { readOnly?: boolean; lockCompany?: string | string[] | null; scopeClientId?: string | null } = {}) {
+}: { readOnly?: boolean; lockCompany?: string | string[] | null; scopeClientId?: string | string[] | null } = {}) {
     // lockCompany: 고객 뷰 — 이 업체(company_key) 글만(자동 읽기전용).
     // scopeClientId: 내부 관리 스코프(누수탐지 등) — 이 client 의 카페 글만, 등록/붙여넣기는 그대로 가능.
     const external = readOnly || !!lockCompany;
@@ -137,7 +137,12 @@ export function CafeTrackerTab({
             setErr('');
             let list = data;
             if (lockCompany) list = list.filter((p) => { const ck = p.cafe_accounts?.company_key ?? ''; return Array.isArray(lockCompany) ? lockCompany.includes(ck) : ck === lockCompany; });
-            if (scopeClientId) list = list.filter((p) => p.cafe_accounts?.client_id === scopeClientId);
+            // 스코프가 여러 client 일 수 있다(자체 카페 4곳). 하나만 비교하면 나머지가 조용히 사라진다.
+            const scopeIds = Array.isArray(scopeClientId) ? scopeClientId : scopeClientId ? [scopeClientId] : [];
+            if (scopeIds.length) list = list.filter((p) => {
+                const cid = p.cafe_accounts?.client_id;
+                return cid ? scopeIds.includes(cid) : false;
+            });
             setPosts(list);
         }
         setLoading(false);
