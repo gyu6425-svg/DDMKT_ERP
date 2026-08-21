@@ -186,7 +186,9 @@ def upload_image(name: str) -> str:
 
 
 def resolve_images(body: list) -> list:
-    """본문의 그림 자리표시자를 실제 이미지 블록으로 바꾼다."""
+    """본문의 그림 자리표시자를 실제 이미지 블록으로 바꾼다.
+       ★ children 안까지 훑는다 — 펼침 제목(toggle_h2) 속 그림이 여기서 빠지면
+         노션이 알 수 없는 블록이라며 통째로 거절한다."""
     out = []
     for b in body:
         if isinstance(b, dict) and "_img" in b:
@@ -197,8 +199,12 @@ def resolve_images(body: list) -> list:
                 "caption": [{"type": "text", "text": {"content": cap}}] if cap else [],
             }})
             print(f"     그림 {b['_img']}", flush=True)
-        else:
-            out.append(b)
+            continue
+        if isinstance(b, dict):
+            inner = b.get(b.get("type", ""), {})
+            if isinstance(inner, dict) and isinstance(inner.get("children"), list):
+                inner["children"] = resolve_images(inner["children"])
+        out.append(b)
     return out
 
 
