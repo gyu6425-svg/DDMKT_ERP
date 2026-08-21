@@ -3,7 +3,7 @@
 
    구성:
      ERP 사용 방법 (부모, NOTION_PARENT_PAGE_ID)
-     ├ 카드 2장(2단 배치)  ← 이 스크립트가 매번 다시 그린다
+     ├ 표지·아이콘 / 시작하기 3카드 / 상세 2카드 / 바로가기 / 문의   ← 매번 다시 그린다
      ├ 💳 충전 요청 — 발행 건수 받기      (01-충전-요청.md)
      └ 📝 카페 배포 접수 — 주문서 작성    (02-카페-배포-접수.md)
 
@@ -24,7 +24,7 @@
 
    실행:
      python notion_publish.py --check     금액 검사만
-     python notion_publish.py             발행(하위 페이지 갱신 + 부모 카드 재구성)
+     python notion_publish.py             발행
 """
 import os
 import re
@@ -42,12 +42,26 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 DOCS = ROOT / "docs" / "notion"
 
-# (원본 파일, 노션 페이지 제목, 카드 아이콘, 카드 한 줄 설명)
+ERP_URL = "https://ddmkt-erp.pages.dev"
+BRAND = "Marketing Agency I 든든한마케팅"
+# 표지 이미지는 노션이 제공하는 기본 그라데이션을 쓴다 — 외부 호스팅이 필요 없고 링크가 안 죽는다.
+COVER = "https://www.notion.so/images/page-cover/gradients_8.png"
+
+# (원본 파일, 노션 제목, 아이콘, 카드 설명, 카드 색, 표지)
 PAGES = [
     ("01-충전-요청.md", "💳 충전 요청 — 발행 건수 받기", "💳",
-     "발행 건수를 받는 절차입니다. 신청 → 금액 통보 → 입금 → 건수 지급."),
+     "신청 → 금액 통보 → 입금 → 건수 지급.\n발행 건수를 받는 절차입니다.",
+     "blue_background", "https://www.notion.so/images/page-cover/gradients_3.png"),
     ("02-카페-배포-접수.md", "📝 카페 배포 접수 — 주문서 작성", "📝",
-     "무엇을 어떻게 발행할지 넣는 곳입니다. 준비물과 키워드 방식."),
+     "준비물 · 배포 종류 · 키워드 방식.\n무엇을 어떻게 발행할지 넣는 곳입니다.",
+     "green_background", "https://www.notion.so/images/page-cover/gradients_10.png"),
+]
+
+# 시작하기 3단계 — 표 대신 카드로 늘어놓는다.
+STEPS = [
+    ("1️⃣", "발행 건수를 충전합니다", "고객 ERP → 카페 → 충전 요청"),
+    ("2️⃣", "주문서를 넣습니다", "고객 ERP → 카페 → 주문서 작성"),
+    ("3️⃣", "담당자가 세팅하고 발행합니다", "진행 상황은 순위 트래커에서"),
 ]
 
 for envp in (HERE / ".env", ROOT / ".env"):
@@ -65,20 +79,41 @@ NOTION_VERSION = "2026-03-11"   # Views·마크다운 API가 이 버전부터
 MONEY = re.compile(r"[0-9][0-9,]{2,}\s*원|₩|\d+\s*만\s*원|부가세|VAT|공급가|단가|토큰\s*\d", re.I)
 
 
-def load_md(name: str) -> str:
-    p = DOCS / name
-    if not p.exists():
-        sys.exit(f"원천 파일이 없습니다: {p}")
-    # HTML 주석은 내부 메모다 — 공개 페이지로 내보내지 않는다.
-    body = re.sub(r"<!--.*?-->", "", p.read_text(encoding="utf-8"), flags=re.S)
-    return re.sub(r"\n{3,}", "\n\n", body).strip()
+# ── 블록 조립 helper ────────────────────────────────────────────────
+def t(s, **ann):
+    o = {"type": "text", "text": {"content": s}}
+    if ann:
+        o["annotations"] = ann
+    return o
 
 
-def money_check(name: str, text: str) -> list[str]:
-    return [f"{name}:{i}  {ln.strip()[:110]}"
-            for i, ln in enumerate(text.splitlines(), 1) if MONEY.search(ln)]
+def a(s, url):
+    return {"type": "text", "text": {"content": s, "link": {"url": url}}}
 
 
+def blk(kind, **body):
+    return {"object": "block", "type": kind, kind: body}
+
+
+def para(*rt):
+    return blk("paragraph", rich_text=list(rt))
+
+
+def callout(icon, color, rich, children=None):
+    b = {"icon": {"type": "emoji", "emoji": icon}, "color": color, "rich_text": rich}
+    if children:
+        b["children"] = children
+    return {"object": "block", "type": "callout", "callout": b}
+
+
+def cols(cards):
+    """2단·3단 배치. column 은 최소 2개여야 한다."""
+    return blk("column_list", children=[
+        {"object": "block", "type": "column", "column": {"children": [c]}} for c in cards
+    ])
+
+
+# ── API ────────────────────────────────────────────────────────────
 def hd() -> dict:
     tok = os.environ.get("NOTION_TOKEN", "")
     if not tok:
@@ -101,85 +136,111 @@ def req(method: str, path: str, **kw):
     sys.exit(f"{method} {path} — 재시도 한도 초과")
 
 
-def child_pages(parent: str) -> dict:
-    """부모 아래 하위 페이지 {제목: id}. 제목으로 찾아 재사용해야 돌릴 때마다 새로 생기지 않는다."""
-    out, cur = {}, None
+def load_md(name: str) -> str:
+    p = DOCS / name
+    if not p.exists():
+        sys.exit(f"원천 파일이 없습니다: {p}")
+    body = re.sub(r"<!--.*?-->", "", p.read_text(encoding="utf-8"), flags=re.S)  # 내부 메모 제거
+    return re.sub(r"\n{3,}", "\n\n", body).strip()
+
+
+def money_check(name: str, text: str) -> list[str]:
+    return [f"{name}:{i}  {ln.strip()[:110]}"
+            for i, ln in enumerate(text.splitlines(), 1) if MONEY.search(ln)]
+
+
+def children_of(pid: str) -> list[dict]:
+    out, cur = [], None
     while True:
-        q = f"?page_size=100" + (f"&start_cursor={cur}" if cur else "")
-        j = req("GET", f"/blocks/{parent}/children{q}")
-        for b in j.get("results", []):
-            if b.get("type") == "child_page":
-                out[b["child_page"]["title"]] = b["id"]
+        q = "?page_size=100" + (f"&start_cursor={cur}" if cur else "")
+        j = req("GET", f"/blocks/{pid}/children{q}")
+        out += j.get("results", [])
         if not j.get("has_more"):
             return out
         cur = j.get("next_cursor")
 
 
-def upsert_child(parent: str, title: str, md: str, existing: dict) -> str:
+def dress(pid: str, icon: str, cover: str) -> None:
+    """아이콘·표지. 있고 없고가 첫인상을 가른다."""
+    req("PATCH", f"/pages/{pid}", json={
+        "icon": {"type": "emoji", "emoji": icon},
+        "cover": {"type": "external", "external": {"url": cover}},
+    })
+
+
+def upsert_child(parent: str, title: str, md: str, icon: str, cover: str, existing: dict) -> str:
     pid = existing.get(title)
     if pid:
         # 본문 전체 교체 — 돌릴 때마다 블록이 쌓이지 않게 하는 가장 단순한 방법.
+        #   본문 형식은 {type, <type>:{new_str}} 이다. operation 으로 감싸면 400 이 난다.
+        #   allow_deleting_content 는 켜지 않는다. 하위 페이지가 딸려 지워지면 API 가 막아 준다.
         req("PATCH", f"/pages/{pid}/markdown",
-            json={"operation": {"type": "replace_content", "content": md}})
+            json={"type": "replace_content", "replace_content": {"new_str": md}})
         print(f"  · 갱신  {title}", flush=True)
-        return pid
-    j = req("POST", "/pages", json={
-        "parent": {"page_id": parent},
-        "properties": {"title": [{"text": {"content": title}}]},
-        "markdown": md,
-    })
-    print(f"  · 생성  {title}", flush=True)
-    return j["id"]
-
-
-def card(icon: str, pid: str, desc: str) -> dict:
-    """카드 한 장 = 콜아웃. 제목은 페이지 멘션이라 눌러서 바로 들어간다."""
-    return {"object": "block", "type": "callout", "callout": {
-        "icon": {"type": "emoji", "emoji": icon},
-        "color": "gray_background",
-        "rich_text": [{"type": "mention", "mention": {"page": {"id": pid}},
-                       "annotations": {"bold": True}}],
-        "children": [{"object": "block", "type": "paragraph", "paragraph": {
-            "rich_text": [{"type": "text", "text": {"content": desc},
-                           "annotations": {"color": "gray"}}]}}],
-    }}
+    else:
+        pid = req("POST", "/pages", json={
+            "parent": {"page_id": parent},
+            "properties": {"title": [{"text": {"content": title}}]},
+            "markdown": md,
+        })["id"]
+        print(f"  · 생성  {title}", flush=True)
+    dress(pid, icon, cover)
+    # 맨 끝에 돌아가는 길 — 하위 페이지만 공개했을 때 고객이 갈 곳이 없으면 그대로 이탈한다.
+    req("PATCH", f"/blocks/{pid}/children", json={"children": [
+        blk("divider"),
+        callout("🔗", "gray_background", [a("고객 ERP 로그인 →", ERP_URL)], [
+            para(t("계정이 없으시면 담당자에게 말씀해 주세요.", color="gray"))]),
+    ]})
+    return pid
 
 
 def rebuild_parent(parent: str, ids: list[str]) -> None:
-    """부모 본문을 카드 배치로 다시 그린다.
+    """부모 본문을 다시 그린다.
        ★ child_page 블록은 절대 건드리지 않는다 — 그건 하위 페이지 자체라 지우면 내용이 날아간다."""
-    cur = None
-    doomed = []
-    while True:
-        q = "?page_size=100" + (f"&start_cursor={cur}" if cur else "")
-        j = req("GET", f"/blocks/{parent}/children{q}")
-        doomed += [b["id"] for b in j.get("results", []) if b.get("type") != "child_page"]
-        if not j.get("has_more"):
-            break
-        cur = j.get("next_cursor")
+    doomed = [b["id"] for b in children_of(parent) if b.get("type") != "child_page"]
     for bid in doomed:
         req("DELETE", f"/blocks/{bid}")
     if doomed:
         print(f"  · 부모 본문 정리 {len(doomed)}블록(하위 페이지는 그대로)", flush=True)
 
+    dress(parent, "📘", COVER)
+
     blocks = [
-        {"object": "block", "type": "heading_1", "heading_1": {
-            "rich_text": [{"type": "text", "text": {"content": "ERP 사용 방법"}}]}},
-        {"object": "block", "type": "paragraph", "paragraph": {
-            "rich_text": [{"type": "text", "text": {
-                "content": "카페 배포는 선불입니다. 발행 건수를 충전한 뒤 주문서를 넣으시면 저희가 대신 발행합니다."}}]}},
-        # 2단 배치 — 한 줄로 늘어놓지 않고 카드 두 장을 나란히 둔다.
-        {"object": "block", "type": "column_list", "column_list": {"children": [
-            {"object": "block", "type": "column", "column": {
-                "children": [card(PAGES[i][2], ids[i], PAGES[i][3])]}}
-            for i in range(len(PAGES))
-        ]}},
-        {"object": "block", "type": "paragraph", "paragraph": {"rich_text": []}},
-        {"object": "block", "type": "callout", "callout": {
-            "icon": {"type": "emoji", "emoji": "💬"},
-            "color": "blue_background",
-            "rich_text": [{"type": "text", "text": {
-                "content": "궁금하신 것은 담당자에게 편하게 말씀해 주세요. 비용은 상품·수량·기간에 따라 달라져 담당자가 안내드립니다."}}]}},
+        para(t(BRAND, bold=True, color="gray")),
+        # ★ ERP 주소는 맨 위. 안내를 아무리 잘 써도 갈 곳을 못 찾으면 아무 일도 안 일어난다.
+        callout("🖥️", "blue_background",
+                [t("ERP 사이트 ", bold=True), a(ERP_URL, ERP_URL)],
+                [para(t("접수와 충전은 모두 여기서 합니다. 계정이 없으시면 담당자에게 말씀해 주세요.",
+                        color="gray"))]),
+        para(t("카페 배포는 "), t("선불", bold=True, color="red"),
+             t("입니다. 발행 건수를 충전한 뒤 주문서를 넣으시면 저희가 대신 발행합니다. "
+               "건수가 0이면 주문서 접수 버튼이 잠깁니다.")),
+        blk("divider"),
+
+        blk("heading_2", rich_text=[t("🌠 시작하기")]),
+        cols([callout(ic, "gray_background", [t(head, bold=True)],
+                      [para(t(sub, color="gray"))]) for ic, head, sub in STEPS]),
+        blk("divider"),
+
+        blk("heading_2", rich_text=[t("📖 자세한 안내")]),
+        para(t("아래 두 장을 눌러 보세요. 하는 시점이 달라 나눠 두었습니다.", color="gray")),
+        cols([callout(PAGES[i][2], PAGES[i][4],
+                      [{"type": "mention", "mention": {"page": {"id": ids[i]}},
+                        "annotations": {"bold": True}}],
+                      [para(t(PAGES[i][3], color="gray"))])
+              for i in range(len(PAGES))]),
+        blk("divider"),
+
+        blk("heading_2", rich_text=[t("🔗 바로가기")]),
+        callout("🔗", "gray_background", [a("고객 ERP 로그인 →", ERP_URL)], [
+            para(t("로그인하시면 화면 안에 단계별 안내(📖 가이드 보기)가 있어 "
+                   "처음이셔도 그대로 따라 하시면 됩니다. 계정이 없으시면 담당자에게 말씀해 주세요.",
+                   color="gray"))]),
+
+        blk("heading_2", rich_text=[t("💬 문의")]),
+        callout("💬", "yellow_background", [t("궁금하신 사항이 있으시다면 편하게 말씀해 주세요", bold=True)], [
+            para(t("카카오톡 채널 · 담당자 직통")),
+            para(t("비용은 상품·수량·기간에 따라 달라져 담당자가 안내드립니다.", color="gray"))]),
     ]
     req("PATCH", f"/blocks/{parent}/children", json={"children": blocks})
     print("  · 부모 카드 배치 완료", flush=True)
@@ -188,10 +249,10 @@ def rebuild_parent(parent: str, ids: list[str]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="금액 검사만")
-    a = ap.parse_args()
+    args = ap.parse_args()
 
     bodies, hits = {}, []
-    for fname, title, _, _ in PAGES:
+    for fname, title, *_ in PAGES:
         md = load_md(fname)
         bodies[title] = md
         hits += money_check(fname, md)
@@ -201,18 +262,20 @@ def main() -> None:
             print("  " + h, flush=True)
         sys.exit(1)
     print(f"금액 검사 통과 · {len(PAGES)}장", flush=True)
-    if a.check:
+    if args.check:
         return
 
     parent = os.environ.get("NOTION_PARENT_PAGE_ID", "")
     if not parent:
         sys.exit("NOTION_PARENT_PAGE_ID 가 없습니다.")
-    existing = child_pages(parent)
-    ids = [upsert_child(parent, title, bodies[title], existing) for _, title, _, _ in PAGES]
+    existing = {b["child_page"]["title"]: b["id"]
+                for b in children_of(parent) if b.get("type") == "child_page"}
+    ids = [upsert_child(parent, title, bodies[title], icon, cover, existing)
+           for _, title, icon, _, _, cover in PAGES]
     rebuild_parent(parent, ids)
 
     print("\n발행 완료. 하위 페이지마다 노션에서 '웹에 게시'를 켜 주세요(API 로는 못 켭니다).", flush=True)
-    for (_, title, _, _), pid in zip(PAGES, ids):
+    for (_, title, *_), pid in zip(PAGES, ids):
         print(f"  {title}\n    https://app.notion.com/p/{pid.replace('-', '')}", flush=True)
 
 
