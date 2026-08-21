@@ -14,7 +14,7 @@ import { ensureClientBlogAccount, getBlogAccounts, syncBlogAccountFromContract, 
 import { enablePublishByClient, getCafeAccounts, updateCafeAccount, type CafeAccount } from '../api/cafeAccounts';
 import { seedAchievedPostsForClient } from '../api/cafeRank';
 import { syncTokensToContract } from '../api/cafeTokens';
-import { getStudioSettings } from '../api/cafeStudioSettings';
+import { getStudioSettings, saveStudioSettings } from '../api/cafeStudioSettings';
 import { fmtWon } from '../components/blogRank/lib/helpers';
 import {
     PRODUCT_CATEGORIES,
@@ -362,6 +362,9 @@ function ContractAddModal({
     const [outCompany, setOutCompany] = useState(''); // 외주업체명
     const [blogName, setBlogName] = useState(''); // 브랜드 블로그 이름(관리시트 업체명)
     const [blogUrl, setBlogUrl] = useState(''); // 브랜드 블로그 발행 URL(크롤 대상 연동)
+    // 카페 배포 계약 — 게시판 주소가 자동화 발행·순위 추적의 유일한 연결고리다(아래 isCafeDeploy 주석 참고).
+    const [cafeBoardUrl, setCafeBoardUrl] = useState('');
+    const [cafeBoardName, setCafeBoardName] = useState('');
     const [serviceNote, setServiceNote] = useState(''); // 서비스 내용 메모(무슨 서비스인지)
     const [noVat, setNoVat] = useState(false); // 부가세 없음(현금) — 실매출 VAT 미포함
     const [cardSale, setCardSale] = useState(false); // 카드매출 — 공급가/부가세 분리, payment_method='card'
@@ -372,6 +375,10 @@ function ContractAddModal({
     const [saving, setSaving] = useState(false);
     const daily = isDailySub(subtype); // 리워드 등 = 일일수량 × 일수
     const isBrandBlog = cat.label === '블로그' && isBrandBlogSub(subtype); // 브랜드 블로그 = 블로그 이름 입력
+    // 카페 배포 계약 — 계약만 등록하면 발행 파이프라인이 안 열린다. 재계약(②-b)이 하던 배선을
+    //   신규 등록에서도 그대로 해 준다. 접수(주문서) 경로로 들어온 업체는 이미 열려 있고,
+    //   '계약 관리에서 따로 잡은' 업체만 여기서 열린다(사장님 지시 2026-08-21).
+    const isCafeDeploy = cat.label === '카페' && /배포/.test(subtype || '');
     const isService = cat.label === '서비스'; // 서비스 = 금액만 입력 → 매출에 −(마이너스)로 저장, 외주비 0
     const isShortform = subtype === SHORTFORM_SUB; // 숏폼 = 릴스/틱톡/쇼츠 선택
     const cnt = daily
@@ -492,8 +499,61 @@ function ContractAddModal({
                 blog_url: blogUrl.trim() || null, // 입력한 발행 URL → 즉시 크롤 대상으로 연동
             });
         }
+        // 카페 배포 계약 — 계약 등록만으로 자동화 발행까지 열어 준다(재계약 ②-b 와 같은 배선).
+        //   순서가 중요하다: 게시판 주소 → 카페 계정 → 계약 반영 → 토큰. 앞이 비면 뒤가 헛돈다.
+        //   컨테이너 2차(상위노출·종합광고 하위)는 제외 — 그건 묶음 안의 항목이지 독립 계약이 아니다.
+        let cafeMsg = '';
+        if (isCafeDeploy && !boostPrefix) {
+            const qty = n ?? 0;   // 건수 미입력(n=null)이면 토큰 0 — 계약만 잡히고 발행은 안 열린다
+            const url = cafeBoardUrl.trim();
+            const board = cafeBoardName.trim() || companyName || '고객카페';
+            // ① 게시판 주소 — 게시판 크롤(모델B)은 cafe_studio_settings.board_url **하나만** 본다.
+            //    cafe_accounts.club_id 가 아니다. 여기 없으면 글이 영영 안 잡힌다.
+            if (url) {
+                const { data: prev } = await getStudioSettings(clientId);
+                await saveStudioSettings({
+                    ...(prev ?? {
+                        client_id: clientId, brand: null, business: null, homepage: null,
+                        deploy_type: null, main_banner: null, photos: null, banners: null,
+                    }),
+                    client_id: clientId,
+                    brand: prev?.brand || companyName || null,
+                    board_url: url,
+                    board_name: board,
+                });
+            }
+            // ② 카페 계정 — 없으면 만들고 발행 승인(active + publish_enabled). 이게 꺼져 있으면
+            //    '발행할 고객사 선택' 목록에서 아예 빠진다.
+            const en = await enablePublishByClient(clientId, companyName);
+            // ③ 계약 내용을 계정에 반영 — 카페 관리시트는 client_contracts 가 아니라 여기를 읽는다.
+            //    club_id 를 함께 채워야 순위 측정이 남의 카페(기본값 ddmkt2)로 새지 않는다.
+            const club = url.match(/cafes\/(\d+)/)?.[1] ?? url.match(/(?:search\.)?clubid=(\d+)/)?.[1] ?? '';
+            const { data: allAccs } = await getCafeAccounts();
+            const mine = allAccs.filter((a) => a.client_id === clientId);
+            const withGoal = mine.filter((a) => a.goal_count != null);
+            const targets = withGoal.length ? withGoal : mine.slice(0, 1);
+            for (const a of targets) {
+                await updateCafeAccount(a.id, {
+                    goal_count: n, done_count: 0, amount: saleAmt || null, contract_date: date || null,
+                    ...(club ? { club_id: club } : {}),
+                    ...(cafeBoardName.trim() ? { board_name: board, board_short: board } : {}),
+                });
+            }
+            // ④ 토큰 = 계약 건수에 '맞추기'(더하기가 아니다) — 같은 계약을 두 번 등록해도 잔액이 계약과 같다.
+            const tk = await syncTokensToContract(clientId, qty, `계약 등록 ${date || todayStr()} · ${companyName} · 계약 ${qty}건에 맞춤`);
+            // ⑤ 이전 계약 달성분은 기준선으로 이월 → 새 계약 진행률 0부터(5위 24시간 +1 이 이 계약분만 센다).
+            const seeded = await seedAchievedPostsForClient(clientId);
+            const { data: ss } = await getStudioSettings(clientId);
+            const poolN = (ss?.keyword_pool ?? []).length;
+            cafeMsg = en.error || tk.error
+                ? ` · ⚠ 자동화 발행 연결 실패(${en.error?.message || tk.error?.message}) — 카페 자동화 발행 탭에서 '발행 세팅' 확인 필요`
+                : ` · 자동화 발행 연결(토큰 ${tk.before} → ${qty}건 · 목표 ${qty}건`
+                  + `${seeded.count ? ` · 이전 달성 ${seeded.count}건 기준선 이월` : ''})`
+                  + (url ? '' : ' · ⚠ 게시판 주소 없음 — 발행 글이 추적되지 않습니다')
+                  + (poolN ? ` · 키워드 풀 ${poolN}개` : ' · ⚠ 키워드 풀 0개 — 자동화 발행 탭에서 키워드를 채워야 발행이 시작됩니다');
+        }
         await onReload();
-        onToast('계약 추가 완료');
+        onToast(`계약 추가 완료${cafeMsg}`);
         onClose();
     };
 
@@ -761,6 +821,39 @@ function ContractAddModal({
                                 value={blogUrl}
                             />
                         </label>
+                    ) : null}
+                    {/* 카페 배포 — 게시판 주소 하나로 자동화 발행·게시판 크롤·순위 추적이 전부 연결된다.
+                        비워 두면 계약은 잡히지만 글이 안 잡혀 5위 24시간(+1)이 영영 0으로 남는다. */}
+                    {isCafeDeploy ? (
+                        <div className="grid gap-2 rounded-lg border border-[#c7d2fe] bg-[#eef2ff] p-3">
+                            <div className="text-[11px] font-bold text-[#4338ca]">
+                                자동화 발행 연결 — 계약과 동시에 발행·순위 추적이 열립니다
+                            </div>
+                            <label className="block text-xs font-semibold text-[#475569]">
+                                카페 게시판 주소
+                                <input
+                                    className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                                    onChange={(e) => setCafeBoardUrl(e.target.value)}
+                                    placeholder="https://cafe.naver.com/f-e/cafes/12345678/menus/1"
+                                    type="text"
+                                    value={cafeBoardUrl}
+                                />
+                            </label>
+                            <label className="block text-xs font-semibold text-[#475569]">
+                                게시판 이름
+                                <input
+                                    className="mt-1 h-10 w-full rounded-md border border-[#cbd5e1] bg-white px-3 text-sm"
+                                    onChange={(e) => setCafeBoardName(e.target.value)}
+                                    placeholder="예: 누수탐지 시공 후기 · 비우면 업체명"
+                                    type="text"
+                                    value={cafeBoardName}
+                                />
+                            </label>
+                            <p className="m-0 text-[11px] leading-4 text-[#64748b]">
+                                주소를 비우면 계약만 잡히고 <b>발행 글이 추적되지 않습니다</b>(5위 24시간 달성이 0으로 남음).
+                                나중에 카페 자동화 발행 탭에서 채워도 됩니다.
+                            </p>
+                        </div>
                     ) : null}
                     {isEtc ? (
                         <div className="grid grid-cols-2 gap-2">

@@ -257,10 +257,18 @@ def main():
     #     excluded=false 로 다시 들어왔다(2026-08-18 더반클린 정리하며 발견). 여기서 끊는다.
     #     계정 자체가 없는 대상(company_key 미등록)은 예전처럼 그대로 크롤한다 — 계정 미등록과 정리는 다르다.
     retired = set()
+    retired_clients = set()   # 조회 실패 시에도 아래 모델B 루프가 NameError 로 죽지 않게(전체 크롤 계속)
     try:
         allacc = _SBS.get(f"{URL}/rest/v1/cafe_accounts", headers=DB,
-                              params={"select": "company_key,active"}, timeout=20, verify=False).json()
+                              params={"select": "company_key,client_id,active"}, timeout=20, verify=False).json()
         retired = {a["company_key"] for a in allacc if a.get("active") is False and a.get("company_key")}
+        # ★ 모델B(고객 자기 카페)도 똑같이 끊는다. 예전엔 고정 TARGETS 에만 걸려 있어서,
+        #   계약 달성으로 계정을 내려도(active=false) 고객 카페 글은 계속 새로 등록됐다.
+        #   그러면 정리한 업체가 매일 측정 대상으로 되살아나 09:00 컷오프를 갉아먹는다.
+        #   판정은 client 단위 — 그 고객의 계정이 하나라도 살아 있으면 계속 크롤한다.
+        _live_clients = {a.get("client_id") for a in allacc if a.get("active") and a.get("client_id")}
+        retired_clients = {a.get("client_id") for a in allacc
+                           if a.get("active") is False and a.get("client_id")} - _live_clients
     except Exception as exc:
         print(f"  ! 정리 업체 조회 실패(전체 크롤 계속): {exc}", flush=True)
     # 모델B: dep_<client_id> cafe_account 를 client_id 로 매핑(포스트 링크용).
@@ -303,6 +311,9 @@ def main():
 
     # ── 모델B(고객 자기 카페) — board_url 파싱해 크롤·등록. client_id 로 스코프(고객 순위트래커에 노출). ──
     for club, mid, cid, board in model_b_targets():
+        if cid in retired_clients:
+            print(f"■ [모델B] {board}(club {club}/menu {mid}): 계약 종료로 정리된 업체 — 크롤 건너뜀", flush=True)
+            continue
         arts = fetch_articles(club, mid)
         # ★ cafe_name = vanity(clubid 아님). 네이버 검색 카드가 vanity로 노출돼 순위 매칭에 vanity 필요.
         van = cafe_vanity(club, arts[0]["aid"]) if arts else club
