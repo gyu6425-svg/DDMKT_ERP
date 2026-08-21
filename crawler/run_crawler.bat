@@ -2,13 +2,13 @@
 REM DDMKT blog rank crawler - daily auto-run wrapper (Windows Task Scheduler)
 REM   %~dp0 = this bat folder (crawler); fix working dir. logs appended to crawler\crawler_full.log
 REM   ASCII-only on purpose: Korean text in a .bat breaks under Task Scheduler codepage (exit 255).
-REM   anti-block: wide delay + time-spread (--spread). start 00:00, blog chunks end by 06:10.
-REM   2026-08-21: shifted the whole run 1h earlier (was 01:00 / deadline 07:30). The blog
+REM   anti-block: wide delay + time-spread (--spread). start 00:10, blog chunks end by 06:20.
+REM   2026-08-21: shifted the whole run ~1h earlier (was 01:00 / deadline 07:30). The blog
 REM   WORK WINDOW is unchanged at 6h10m, so request density - and block risk - is the same.
 REM   Shrinking the window instead would have bought the same time but packed the requests.
 REM   Launch python in its OWN new console (start /min) so sibling tasks (Today/Place) launching
 REM   later cannot deliver a CTRL+C to this long-running crawl (fixes 0xC000013A kills at ~09:20).
-REM   deadline 06:30 (was 07:30, 08:00, 08:30): the cafe rank crawl runs AFTER the blog and must
+REM   deadline 06:40 (was 07:30, 08:00, 08:30): the cafe rank crawl runs AFTER the blog and must
 REM   finish before its own 09:00 hard stop. Measured from crawl_status.recent_runs (real clock,
 REM   not the log markers): cafe stage = 17.2 min fixed + 12.0 s per post, i.e. ~15.5 s/post
 REM   overall. Post count grows ~18/day. 2026-08-14: 309 posts, blog ended 07:28, cafe 08:47 -
@@ -19,8 +19,9 @@ REM   24.7 min, so IP rests shrink ~7.5%). It does NOT normally drop posts, BUT 
 REM   hard cut in run_spread(): chunks that have not STARTED by (deadline - 20min) are skipped
 REM   whole (~85 posts each) with a "deadline exceeded" line. Headroom: worst observed chunk
 REM   work total 268 min vs the 370 min budget, so a cut is unlikely at the current load.
-REM   2026-08-21 DONE: moved the Full task to 00:00 (this was the planned fix). Measured that
-REM   day: 442 posts, blog 06:58, cafe 08:47 - only 13 min of slack left. Now ~07:56, 64 min.
+REM   2026-08-21 DONE: moved the Full task to 00:10 (this was the planned fix). Measured that
+REM   day: 442 posts, blog 06:58, cafe 08:47 - only 13 min of slack left. Now ~08:06, 54 min.
+REM   Not midnight sharp on purpose: 00:00 sits on the date rollover (TODAY, log names).
 REM   Ceiling is now ~760 posts (+18/day => ~5 months). After that, skip stable cafe posts
 REM   the way the blog does - do not shrink the blog window, that raises block risk.
 REM   finish >30min before Today(09:05)/Place(09:20) so the three
@@ -37,4 +38,4 @@ REM   Blog ends ~07:30, cafe gets ~90min before its 09:00 stop, Today starts 09:
 REM   cmd /v:on + !date! !time! : the stage markers must expand WHEN they run. With %time% the
 REM   whole line is parsed once at launch, so all three markers printed 01:00 and the morning
 REM   report could not tell how long the blog vs the cafe stage actually took.
-start "ddmkt-full" /min cmd /v:on /c "C:\Users\ddmkt\AppData\Local\Python\pythoncore-3.14-64\python.exe blog_rank_crawler.py --spread --chunk-size 5 --deadline 06:30 >> crawler_full.log 2>&1 & echo [CAFE-SYNC-START] !date! !time! >> crawler_full.log & C:\Users\ddmkt\AppData\Local\Python\pythoncore-3.14-64\python.exe cafe_rank_sync.py >> crawler_full.log 2>&1 & echo [CAFE-RANK-START] !date! !time! >> crawler_full.log & C:\Users\ddmkt\AppData\Local\Python\pythoncore-3.14-64\python.exe cafe_rank_crawler.py >> crawler_full.log 2>&1"
+start "ddmkt-full" /min cmd /v:on /c "C:\Users\ddmkt\AppData\Local\Python\pythoncore-3.14-64\python.exe blog_rank_crawler.py --spread --chunk-size 5 --deadline 06:40 >> crawler_full.log 2>&1 & echo [CAFE-SYNC-START] !date! !time! >> crawler_full.log & C:\Users\ddmkt\AppData\Local\Python\pythoncore-3.14-64\python.exe cafe_rank_sync.py >> crawler_full.log 2>&1 & echo [CAFE-RANK-START] !date! !time! >> crawler_full.log & C:\Users\ddmkt\AppData\Local\Python\pythoncore-3.14-64\python.exe cafe_rank_crawler.py >> crawler_full.log 2>&1"
