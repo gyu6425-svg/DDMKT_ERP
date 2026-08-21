@@ -7,6 +7,8 @@ import {
     deleteCafeDeployRequest,
     updateDeployClubid,
     ensureCafeDeployContract,
+    isContractPlaceholder,
+    isMergedFromContract,
     type CafeDeployRequest,
     type DeployCredential,
 } from '../api/cafeDeployRequests';
@@ -205,12 +207,20 @@ export default function CafeDeployAdminPanel() {
                                         <td className="whitespace-nowrap px-2 py-2.5 font-semibold">
                                             {r.company_name}
                                             {/* 계약 관리에서 잡은 건 — 고객이 스스로 넣은 접수가 아니라 사진·계정·키워드가 비어 있다.
-                                                표시가 없으면 "고객이 접수했는데 왜 다 비었지"로 읽힌다. */}
-                                            {(r.note || '').startsWith('[계약 등록]') ? (
+                                                표시가 없으면 "고객이 접수했는데 왜 다 비었지"로 읽힌다.
+                                                고객 접수가 나중에 도착하면 같은 행에 합쳐지고 칩이 초록으로 바뀐다. */}
+                                            {isContractPlaceholder(r.note) ? (
                                                 <div className="mt-0.5">
                                                     <span className="rounded-full bg-[#e0f2fe] px-1.5 py-0.5 text-[10px] font-bold text-[#0369a1]"
-                                                        title="계약 관리에서 등록한 건 — 고객 접수가 아니라 사진·계정·키워드는 비어 있습니다">
-                                                        계약 등록
+                                                        title="계약 관리에서 등록한 건 — 고객 접수 전이라 사진·계정·키워드는 비어 있습니다">
+                                                        계약 등록 · 고객 접수 대기
+                                                    </span>
+                                                </div>
+                                            ) : isMergedFromContract(r.note) ? (
+                                                <div className="mt-0.5">
+                                                    <span className="rounded-full bg-[#dcfce7] px-1.5 py-0.5 text-[10px] font-bold text-[#166534]"
+                                                        title="계약 관리에서 잡아 둔 건에 고객 ERP 접수(사진·계정·키워드)가 합쳐졌습니다">
+                                                        고객 접수 병합
                                                     </span>
                                                 </div>
                                             ) : null}
@@ -252,29 +262,32 @@ export default function CafeDeployAdminPanel() {
                                         <td className="max-w-[150px] truncate px-2 py-2.5" title={r.url ?? ''}>{r.url ? <a className="text-[#2563eb] underline" href={r.url} target="_blank" rel="noreferrer">{r.url}</a> : <span className="text-[#94a3b8]">-</span>}</td>
                                         <td className="whitespace-nowrap px-2 py-2.5">{r.mission_start ?? '-'}</td>
                                         <td className="whitespace-nowrap px-2 py-2.5 text-center tabular-nums">{r.daily_count ?? '-'}/{r.total_count ?? '-'}</td>
-                                        <td className="px-2 py-2.5">
+                                        <td className="whitespace-nowrap px-2 py-2.5 align-middle">
                                             {paths.length === 0 ? <span className="text-[#94a3b8]">-</span> : (() => {
-                                                // 렉 방지 — 기본은 처음 8장만 렌더(+지연 로딩). 나머지는 '+N'로 펼침.
+                                                // 렉 방지 + 행 높이 고정 — 기본은 3장만 렌더(지연 로딩). 나머지는 '+N장'.
+                                                //   ⚠️ 예전엔 8장에 flex-wrap 이라 사진 많은 행(78장)이 아래로 늘어나
+                                                //     표 전체가 밀렸다. 이제 줄바꿈하지 않고, 펼쳐도 가로 스크롤로 본다.
                                                 const open = photoOpen[r.id];
-                                                const LIMIT = 8;
+                                                const LIMIT = 3;
                                                 const shown = open ? paths : paths.slice(0, LIMIT);
                                                 const rest = paths.length - shown.length;
                                                 return (
-                                                    <div className="flex max-w-[340px] flex-wrap items-center gap-1">
+                                                    <div className="flex max-w-[220px] flex-nowrap items-center gap-1 overflow-x-auto">
                                                         {shown.map((p) => (
                                                             <a key={p} href={urls[p] || '#'} target="_blank" rel="noreferrer" download title={p.split('/').pop() ?? ''}>
-                                                                {urls[p] ? <img src={urls[p]} alt="" loading="lazy" decoding="async" className="h-9 w-9 rounded border border-[#e2e8f0] object-cover hover:opacity-80" /> : <span className="flex h-9 w-9 items-center justify-center rounded border border-[#e2e8f0] text-[9px] text-[#94a3b8]">…</span>}
+                                                                {urls[p] ? <img src={urls[p]} alt="" loading="lazy" decoding="async" className="h-9 w-9 shrink-0 rounded border border-[#e2e8f0] object-cover hover:opacity-80" /> : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-[#e2e8f0] text-[9px] text-[#94a3b8]">…</span>}
                                                             </a>
                                                         ))}
                                                         {rest > 0 ? (
                                                             <button type="button" onClick={() => setPhotoOpen((s) => ({ ...s, [r.id]: true }))}
-                                                                className="flex h-9 items-center justify-center rounded border border-[#cbd5e1] bg-[#f8fafc] px-2 text-[11px] font-bold text-[#475569] hover:bg-[#eef2f7]">+{rest}장</button>
+                                                                title={`전체 ${paths.length}장 보기`}
+                                                                className="flex h-9 shrink-0 items-center justify-center rounded border border-[#cbd5e1] bg-[#f8fafc] px-2 text-[11px] font-bold text-[#475569] hover:bg-[#eef2f7]">+{rest}장</button>
                                                         ) : null}
                                                         {open && paths.length > LIMIT ? (
                                                             <button type="button" onClick={() => setPhotoOpen((s) => ({ ...s, [r.id]: false }))}
-                                                                className="flex h-9 items-center justify-center rounded border border-[#cbd5e1] bg-[#f8fafc] px-2 text-[11px] font-semibold text-[#64748b] hover:bg-[#eef2f7]">접기</button>
+                                                                className="flex h-9 shrink-0 items-center justify-center rounded border border-[#cbd5e1] bg-[#f8fafc] px-2 text-[11px] font-semibold text-[#64748b] hover:bg-[#eef2f7]">접기</button>
                                                         ) : null}
-                                                        <span className="ml-0.5 text-[10px] text-[#94a3b8]">총 {paths.length}장</span>
+                                                        <span className="ml-0.5 shrink-0 text-[10px] text-[#94a3b8]">총 {paths.length}장</span>
                                                     </div>
                                                 );
                                             })()}

@@ -166,10 +166,47 @@ export async function submitCafeDeployRequest(clientId: string, input: CafeDeplo
         selected_keywords: input.selected_keywords?.length ? input.selected_keywords : null,
         product_keywords: input.product_keywords?.length ? input.product_keywords : null,
     };
-    let { data, error } = await supabase.from('cafe_deploy_requests').insert(withKw).select('id').single();
-    // selected_keywords/product_keywords 컬럼 미적용(SQL 미실행) 시 접수가 통째로 깨지지 않도록 그 필드만 빼고 재시도.
-    if (error && /selected_keywords|product_keywords|42703|column/i.test(error.message)) {
-        ({ data, error } = await supabase.from('cafe_deploy_requests').insert(base).select('id').single());
+
+    // ── 계약 관리에서 미리 잡아 둔 자리가 있으면 새로 만들지 않고 **그 행에 합친다**. ──
+    //   임시 경로(계약 등록)로 만든 행은 껍데기다 — 사진·네이버 계정·키워드가 없다.
+    //   진짜 내용은 고객 ERP 접수에만 있다. 행을 따로 만들면 같은 업체가 목록에 두 번 뜨고,
+    //   카페 대시보드가 두 행의 total_count 를 합산해 목표가 두 배로 부풀려진다.
+    const { data: prevRows } = await supabase.from('cafe_deploy_requests')
+        .select('id,status,note,cafe_clubid,total_count,daily_count,mission_start')
+        .eq('client_id', clientId).order('created_at', { ascending: false }).limit(10);
+    const ph = (prevRows ?? []).find((r) => isContractPlaceholder((r as { note: string | null }).note)) as
+        | { id: string; status: string; cafe_clubid: string | null; total_count: number | null; daily_count: number | null; mission_start: string | null }
+        | undefined;
+
+    let data: { id: string } | null = null;
+    let error: { message: string } | null = null;
+
+    if (ph) {
+        const cnote = input.note?.trim();
+        const merged = {
+            ...withKw,
+            // 고객이 안 채운 칸은 계약 등록 때 넣어 둔 값을 남긴다 — 병합이 정보를 지우면 안 된다.
+            total_count: input.total_count ?? ph.total_count,
+            daily_count: input.daily_count ?? ph.daily_count,
+            mission_start: input.mission_start || ph.mission_start,
+            cafe_clubid: ph.cafe_clubid,   // 고객 접수 폼에는 clubid 칸이 없다
+            // 이미 발행이 끝난 건은 되돌리지 않는다. 그 외에는 '접수'로 돌려 정상 검토 흐름을 탄다
+            //   — 사진·계정이 지금 막 도착했으니 담당자가 다시 봐야 하고, 접수 알림도 그때 뜬다.
+            status: ph.status === '완료' ? '완료' : '접수',
+            note: `${MERGED_NOTE} ${todayISO()}]${cnote ? ` ${cnote}` : ''}`,
+        };
+        ({ error } = await supabase.from('cafe_deploy_requests').update(merged).eq('id', ph.id));
+        if (error && /selected_keywords|product_keywords|42703|column/i.test(error.message)) {
+            const { selected_keywords: _sk, product_keywords: _pk, ...rest } = merged;
+            ({ error } = await supabase.from('cafe_deploy_requests').update(rest).eq('id', ph.id));
+        }
+        data = { id: ph.id };
+    } else {
+        ({ data, error } = await supabase.from('cafe_deploy_requests').insert(withKw).select('id').single());
+        // selected_keywords/product_keywords 컬럼 미적용(SQL 미실행) 시 접수가 통째로 깨지지 않도록 그 필드만 빼고 재시도.
+        if (error && /selected_keywords|product_keywords|42703|column/i.test(error.message)) {
+            ({ data, error } = await supabase.from('cafe_deploy_requests').insert(base).select('id').single());
+        }
     }
     if (error) return { error };
     // 네이버 계정(민감) — 입력됐을 때만 별도 테이블에.
@@ -342,6 +379,15 @@ export async function deleteCafeDeployRequest(row: CafeDeployRequest) {
 }
 
 // 접수 목록 — clientId 주면 그 업체로 필터(내부 미리보기용). 고객 본인은 RLS 로 자동 스코프.
+// 계약 관리에서 잡은 '자리만 있는' 접수 행을 알아보는 표식.
+//   ★ 원래 구조는 고객 ERP 접수가 정문이다. 계약 관리 등록은 그 전까지 쓰는 임시 경로라
+//     (사장님 확정 2026-08-21), 나중에 고객이 접수하면 이 행에 합쳐진다 — 아래 submit 참고.
+export const PLACEHOLDER_NOTE = '[계약 등록] 계약 관리에서 등록 — 고객 접수 아님';
+export const MERGED_NOTE = '[계약 등록 → 고객 접수 병합';
+export const isContractPlaceholder = (note?: string | null) => (note || '').startsWith('[계약 등록]');
+export const isMergedFromContract = (note?: string | null) => (note || '').startsWith(MERGED_NOTE);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
 // 계약 관리에서 카페 배포를 등록했을 때 — 관리자 '카페 접수' 목록에도 올린다.
 //   고객이 스스로 넣은 접수가 아니라 우리가 잡은 계약이라, 접수·결제대기 단계를 건너뛰고
 //   바로 '세팅중'으로 만든다(계약 등록 시점에 발행 승인·토큰이 이미 들어간다).
@@ -368,11 +414,23 @@ export async function upsertDeployFromContract(clientId: string, input: {
         cafe_clubid: (input.club_id || '').replace(/[^0-9]/g, '') || null,
         mission_start: input.contract_date || null,
         status: '세팅중',
-        note: '[계약 등록] 계약 관리에서 등록 — 고객 접수 아님',
+        note: PLACEHOLDER_NOTE,
     };
+    // ★ 고객이 이미 접수한 행은 건드리지 않는다 — 사진·계정·키워드가 들어 있는 진짜 내용이라
+    //   계약 등록이 그 위를 덮으면 통째로 날아간다. 그때는 계약 정보만 채워 넣는다.
     const { data: prev } = await supabase.from('cafe_deploy_requests')
-        .select('id').eq('client_id', clientId).order('created_at', { ascending: false }).limit(1);
-    const existing = (prev ?? [])[0] as { id: string } | undefined;
+        .select('id,note').eq('client_id', clientId).order('created_at', { ascending: false }).limit(10);
+    const rows = (prev ?? []) as { id: string; note: string | null }[];
+    const real = rows.find((r) => !isContractPlaceholder(r.note));
+    if (real) {
+        const { error } = await supabase.from('cafe_deploy_requests').update({
+            total_count: patch.total_count,
+            mission_start: patch.mission_start,
+            ...(patch.cafe_clubid ? { cafe_clubid: patch.cafe_clubid } : {}),
+        }).eq('id', real.id);
+        return { error, created: false };
+    }
+    const existing = rows[0];
     if (existing) {
         const { error } = await supabase.from('cafe_deploy_requests').update(patch).eq('id', existing.id);
         return { error, created: false };

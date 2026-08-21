@@ -7,6 +7,7 @@ import {
     uploadDeployPhoto,
     signedDeployUrls,
     PAYMENT_INFO,
+    isContractPlaceholder,
     type CafeDeployRequest,
     type CafeDeployInput,
     type DeployPhotos,
@@ -889,7 +890,12 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
     // ★ 토큰은 '발행이 실제로 잡힐 때' 차감된다(크롤러의 발행반영). 접수 시점엔 아무것도 안 빠진다.
     //   그래서 잔액만 보고 막으면 10건짜리 주문서를 몇 번이고 다시 넣을 수 있다(검증 2026-08-20:
     //   잔액 10 · 10건 접수 완료 상태에서 또 10건 접수 가능). 처리 중인 접수의 건수를 미리 뺀다.
-    const reserved = rows
+    //   ★ 단, 계약 관리에서 미리 잡아 둔 자리는 빼야 한다. 그건 주문이 아니라 계약 그 자체라,
+    //     예약으로 세면 계약 건수만큼 잔액이 통째로 묶여 고객이 접수를 아예 못 넣는다
+    //     (그 접수가 와야 사진·계정·키워드가 채워지는데 — 병합 경로가 막힌다).
+    // 고객에게 보이는 접수 = 고객이 실제로 넣은 것만(계약 관리에서 잡아 둔 자리 제외).
+    const myRows = rows.filter((r) => !isContractPlaceholder(r.note));
+    const reserved = myRows
         .filter((r) => r.status !== '완료')
         .reduce((a, r) => a + (r.total_count ?? r.selected_keywords?.length ?? 0), 0);
     const bal = Math.max(0, (tokenBal ?? 0) - reserved);
@@ -1965,7 +1971,9 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
             {/* 내 접수 목록 */}
             <div className="rounded-xl border border-[#e2e8f0] bg-white p-5">
                 <div className="mb-3 text-[15px] font-bold text-[#0f172a]">내 접수 목록</div>
-                {rows.length === 0 ? (
+                {/* 계약 관리에서 미리 잡아 둔 자리는 고객에게 안 보인다 — 고객이 넣은 접수가 아니다.
+                    보이면 '세팅중'으로 읽혀 "우리는 접수 안 해도 되겠네"가 되고, 그러면 사진·계정이 영영 안 온다. */}
+                {myRows.length === 0 ? (
                     <div className="py-10 text-center text-sm text-[#94a3b8]">접수 내역이 없습니다.</div>
                 ) : (
                     <div className="overflow-x-auto">
@@ -1978,7 +1986,7 @@ export function CafeDeployIntake({ clientId }: { clientId: string | null }) {
                                 </tr>
                             </thead>
                             <tbody>
-                                {rows.map((r) => {
+                                {myRows.map((r) => {
                                     const paths = r.photos ? [...r.photos.main, ...r.photos.real, ...r.photos.banner] : [];
                                     return (
                                         <tr key={r.id} className="border-b border-[#f1f5f9] align-top text-[#334155]">
