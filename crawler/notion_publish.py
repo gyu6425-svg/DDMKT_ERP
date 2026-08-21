@@ -333,8 +333,9 @@ def main() -> None:
     rebuild_parent(parent, ids)
 
     print("\n발행 완료. 하위 페이지마다 노션에서 '웹에 게시'를 켜 주세요(API 로는 못 켭니다).", flush=True)
-    for (_, title, *_), pid in zip(PAGES, ids):
-        print(f"  {title}\n    https://app.notion.com/p/{pid.replace('-', '')}", flush=True)
+    # ids 는 {키: 페이지id} 딕셔너리다. zip 으로 돌면 키('01')가 나와 주소가 깨진다.
+    for key, title, *_ in PAGES:
+        print(f"  {title}\n    https://app.notion.com/p/{ids[key].replace('-', '')}", flush=True)
 
 
 if __name__ == "__main__":
