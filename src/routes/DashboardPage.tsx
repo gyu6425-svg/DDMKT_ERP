@@ -130,20 +130,8 @@ function DashboardPage() {
 
             {/* 잔여 소진 임박 — 재계약을 챙겨야 할 업체. 숫자만 두면 누구인지 몰라 못 움직인다. */}
             <div className="grid gap-3 lg:grid-cols-2">
-                <LowStock
-                    label="카페 계약 소진 임박"
-                    limit={CAFE_LOW}
-                    rows={lowStock.cafe}
-                    tone="#7c3aed"
-                    onGo={() => go('/contracts')}
-                />
-                <LowStock
-                    label="브랜드 블로그 소진 임박"
-                    limit={BLOG_LOW}
-                    rows={lowStock.blog}
-                    tone="#0891b2"
-                    onGo={() => go('/contracts')}
-                />
+                <LowStock label="카페 계약 소진 임박" limit={CAFE_LOW} rows={lowStock.cafe} tone="#7c3aed" />
+                <LowStock label="브랜드 블로그 소진 임박" limit={BLOG_LOW} rows={lowStock.blog} tone="#0891b2" />
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
@@ -191,21 +179,48 @@ function DashboardPage() {
     );
 }
 
-// 잔여 소진 임박 카드 — 큰 숫자(몇 곳) + 누구인지. 잔여 0은 이미 멈춘 것이라 빨강으로 따로 센다.
+type LowRow = { id: string; client_id: string; name: string; remain: number; goal: number };
+
+const PREVIEW = 4;   // 카드에 바로 보여 주는 줄 수 — 나머지는 '자세히 보기'
+
+// 한 줄 — 업체명 + 잔여/목표. 누르면 그 고객사 상세로.
+function LowRowItem({ r }: { r: LowRow }) {
+    const done = r.remain === 0;
+    return (
+        <Button
+            className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-[#f8fafc]"
+            // 고객사 상세는 별도 라우트가 아니라 /clients?id= 로 연다(ClientsPage 안의 패널).
+            onClick={() => go(`/clients?id=${encodeURIComponent(r.client_id)}`)}
+            type="button"
+        >
+            <span className="truncate font-medium text-[#334155]">{r.name}</span>
+            <span className="flex shrink-0 items-center gap-1.5">
+                {done ? (
+                    <span className="rounded-full bg-[#fef2f2] px-1.5 py-0.5 text-[10px] font-bold text-[#b91c1c]">소진</span>
+                ) : null}
+                <span className={`text-xs font-bold ${done ? 'text-[#b91c1c]' : 'text-[#d97706]'}`}>{r.remain}건</span>
+                <span className="text-[11px] text-[#94a3b8]">/ {r.goal}</span>
+            </span>
+        </Button>
+    );
+}
+
+// 잔여 소진 임박 카드 — 큰 숫자(몇 곳) + 앞 4곳. 잔여 0은 이미 멈춘 것이라 빨강으로 따로 센다.
 function LowStock({
     label,
     limit,
     rows,
     tone,
-    onGo,
 }: {
     label: string;
     limit: number;
-    rows: { id: string; client_id: string; name: string; remain: number; goal: number }[];
+    rows: LowRow[];
     tone: string;
-    onGo: () => void;
 }) {
+    const [open, setOpen] = useState(false);
     const out = rows.filter((r) => r.remain === 0).length;
+    const rest = rows.length - PREVIEW;
+
     return (
         <div className="rounded-[8px] border border-[#e2e8f0] bg-white p-4">
             <div className="flex items-start justify-between">
@@ -219,38 +234,50 @@ function LowStock({
                         잔여 {limit}건 미만{out ? <span className="font-bold text-[#dc2626]"> · 소진 {out}곳</span> : null}
                     </p>
                 </div>
-                {rows.length ? (
-                    <Button className="text-xs font-semibold text-[#1e40af]" onClick={onGo} type="button">
-                        계약 관리 →
+                {rest > 0 ? (
+                    <Button className="text-xs font-semibold text-[#1e40af]" onClick={() => setOpen(true)} type="button">
+                        자세히 보기 →
                     </Button>
                 ) : null}
             </div>
+
             {rows.length ? (
-                <div className="mt-2.5 flex flex-wrap gap-1">
-                    {rows.slice(0, 12).map((r) => (
-                        <button
-                            className="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
-                            key={r.id}
-                            // 고객사 상세는 별도 라우트가 아니라 /clients?id= 로 연다(ClientsPage 안의 패널).
-                            onClick={() => go(`/clients?id=${encodeURIComponent(r.client_id)}`)}
-                            style={
-                                r.remain === 0
-                                    ? { background: '#fef2f2', borderColor: '#fecaca', color: '#b91c1c' }
-                                    : { background: '#f8fafc', borderColor: '#e2e8f0', color: '#475569' }
-                            }
-                            title={`${r.name} · 잔여 ${r.remain} / 목표 ${r.goal}건`}
+                <div className="mt-2 grid gap-0.5">
+                    {rows.slice(0, PREVIEW).map((r) => <LowRowItem key={r.id} r={r} />)}
+                    {rest > 0 ? (
+                        <Button
+                            className="mt-0.5 rounded-md border border-dashed border-[#cbd5e1] px-2 py-1.5 text-[11px] font-semibold text-[#64748b] hover:bg-[#f8fafc]"
+                            onClick={() => setOpen(true)}
                             type="button"
                         >
-                            {r.name} <span className="font-bold">{r.remain}</span>
-                        </button>
-                    ))}
-                    {rows.length > 12 ? (
-                        <span className="px-1 text-[11px] font-semibold text-[#94a3b8]">+{rows.length - 12}</span>
+                            나머지 {rest}곳 더 보기
+                        </Button>
                     ) : null}
                 </div>
             ) : (
                 <p className="m-0 mt-2.5 text-[11px] text-[#94a3b8]">임박한 계약이 없습니다</p>
             )}
+
+            {open ? (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpen(false)}>
+                    <div className="max-h-[92vh] w-[min(560px,96vw)] overflow-y-auto rounded-2xl bg-white p-6" onClick={(e) => e.stopPropagation()}>
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                            <h3 className="m-0 text-lg font-bold text-[#0f172a]">{label}</h3>
+                            <Button className="text-sm font-bold text-[#94a3b8] hover:text-[#475569]" onClick={() => setOpen(false)} type="button">
+                                닫기
+                            </Button>
+                        </div>
+                        <p className="m-0 mb-4 text-sm text-[#64748b]">
+                            잔여 {limit}건 미만 {rows.length}곳
+                            {out ? <span className="font-bold text-[#dc2626]"> · 이미 소진 {out}곳</span> : null}
+                            {' '}· 업체를 누르면 계약 상세로 이동합니다.
+                        </p>
+                        <div className="grid gap-0.5">
+                            {rows.map((r) => <LowRowItem key={r.id} r={r} />)}
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }
