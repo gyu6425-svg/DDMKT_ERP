@@ -1,0 +1,3 @@
+﻿Add-Type -AssemblyName System.Windows.Forms
+$m = "재부팅 준비 시간입니다 (17:45)`n`n⚠ 바로 재부팅하지 마세요. SUB2 발행이 걸칩니다.`n  발행 중 강제 종료되면 카페엔 글이 올라가고 DB엔 미기록으로 남습니다`n  (8/19 배곧 바닥보수와 같은 사고).`n`n[순서]`n  1. SUB2 에 지금 정지 신호 -> '새 발행 사이클 차단하고 정지 요청'`n  2. SUB2 의 '정지 완료' 회신을 기다린다`n  3. npm run dev 콘솔 종료 (Ctrl+C -> Y 까지)`n     열려 있는 cmd / PowerShell 창 전부 닫기`n     ※ 지난 두 번의 재부팅이 이것 때문에 막혔습니다`n  4. 시작 > 전원 > '다시 시작'`n     ('종료 후 켜기'는 빠른 시작 때문에 진짜 재부팅이 아닙니다)`n`n[재부팅 후]`n  1. BitLocker 켜기 (지금 '키 보호기 없음' 상태)`n  2. 크롤 예약작업 4개가 Disabled 로 꺼짐 -> Enable 필요`n  3. 데몬·SUB2 리스너는 시작프로그램으로 자동 복구, dev 서버는 수동`n`nClaude 에게 '재부팅했어' 라고 알려주시면 이어서 처리합니다."
+[System.Windows.Forms.MessageBox]::Show($m, "DDMKT - 재부팅 준비 (SUB2 정지 먼저)", "OK", "Warning") | Out-Null
