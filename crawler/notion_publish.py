@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""공개 고객 안내 페이지 발행 — docs/notion/프로그램-스펙.md → 노션 페이지.
+"""공개 고객 안내 페이지 발행 — docs/notion/카페배포-고객안내.md → 노션 페이지.
 
    ★ 이것은 '동기화'가 아니라 '발행'이다. 주기 실행하지 않는다.
      ERP → 노션으로 자동으로 흘려보낼 값이 실제로는 하나도 없다(검증 2026-08-21):
@@ -35,7 +35,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
-SPEC = ROOT / "docs" / "notion" / "프로그램-스펙.md"
+SPEC = ROOT / "docs" / "notion" / "카페배포-고객안내.md"
 
 for envp in (HERE / ".env", ROOT / ".env"):
     if envp.exists():
@@ -103,7 +103,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="금액 검사만")
     ap.add_argument("--dry-run", action="store_true", help="보낼 내용만 출력")
-    ap.add_argument("--title", default="든든한마케팅 · 고객 안내")
+    ap.add_argument("--title", default="카페 배포 · 든든한마케팅")
     a = ap.parse_args()
 
     md = load_spec()
