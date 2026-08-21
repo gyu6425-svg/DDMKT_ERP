@@ -58,7 +58,11 @@ PAGES = [
     ("02", "📝 카페 배포 접수 — 주문서 작성", "📝",
      "준비물 · 배포 종류 · 키워드 방식.\n무엇을 어떻게 발행할지 넣는 곳입니다.",
      "green_background", "https://www.notion.so/images/page-cover/gradients_10.png"),
+    # 03 은 부모 카드에 안 올린다 — 접수 페이지 안에서 카드로 들어간다(3단계 흐름을 흐리지 않게).
+    ("03", "🔎 키워드 잡는 방식 — 자세히", "🔎", None,
+     None, "https://www.notion.so/images/page-cover/gradients_2.png"),
 ]
+PARENT_CARDS = ("01", "02")   # 부모 '자세한 안내'에 카드로 올릴 것
 
 # 시작하기 3단계 — 표 대신 카드로 늘어놓는다.
 STEPS = [
@@ -132,6 +136,9 @@ def req(method: str, path: str, **kw):
         if r.status_code == 429:
             time.sleep(float(r.headers.get("Retry-After", "2")))
             continue
+        # 이미 지워진 블록을 또 지우는 것은 실패가 아니다 — 중간에 끊겨 다시 돌릴 때 늘 만난다.
+        if method == "DELETE" and r.status_code == 400 and "archived" in r.text:
+            return {}
         if r.status_code >= 300:
             sys.exit(f"{method} {path} 실패 {r.status_code}: {r.text[:400]}")
         time.sleep(0.35)
@@ -159,6 +166,42 @@ def money_check(name: str, lines: list[str]) -> list[str]:
     return [f"{name}  {ln.strip()[:110]}" for ln in lines if MONEY.search(ln)]
 
 
+IMG_DIR = ROOT / "docs" / "notion" / "img"
+
+
+def upload_image(name: str) -> str:
+    """파일 업로드 3단계: 자리 만들기 → 보내기 → 블록에 붙이기.
+       ★ 올린 뒤 1시간 안에 블록에 안 붙이면 자동 폐기된다 — 그래서 발행 직전에만 올린다.
+       ★ 무료 플랜은 파일당 5MiB. 화면 캡처는 수십 KB 라 여유가 있다."""
+    f = IMG_DIR / name
+    if not f.exists():
+        sys.exit(f"그림이 없습니다: {f}")
+    up = req("POST", "/file_uploads", json={"filename": name, "content_type": "image/png"})["id"]
+    r = requests.post(f"{API}/file_uploads/{up}/send",
+                      headers={k: v for k, v in hd().items() if k != "Content-Type"},
+                      files={"file": (name, f.read_bytes(), "image/png")}, timeout=180)
+    if r.status_code >= 300:
+        sys.exit(f"그림 업로드 실패 {name}: {r.status_code} {r.text[:300]}")
+    return up
+
+
+def resolve_images(body: list) -> list:
+    """본문의 그림 자리표시자를 실제 이미지 블록으로 바꾼다."""
+    out = []
+    for b in body:
+        if isinstance(b, dict) and "_img" in b:
+            up = upload_image(b["_img"])
+            cap = b.get("_caption") or ""
+            out.append({"object": "block", "type": "image", "image": {
+                "type": "file_upload", "file_upload": {"id": up},
+                "caption": [{"type": "text", "text": {"content": cap}}] if cap else [],
+            }})
+            print(f"     그림 {b['_img']}", flush=True)
+        else:
+            out.append(b)
+    return out
+
+
 def children_of(pid: str) -> list[dict]:
     out, cur = [], None
     while True:
@@ -178,24 +221,30 @@ def dress(pid: str, icon: str, cover: str) -> None:
     })
 
 
-def upsert_child(parent: str, title: str, body: list, icon: str, cover: str, existing: dict) -> str:
+def ensure_page(parent: str, title: str, existing: dict) -> str:
+    """페이지 껍데기만 먼저 만든다. 카드가 서로를 페이지 멘션으로 가리키려면
+       본문을 짜기 전에 모든 id 가 나와 있어야 한다."""
     pid = existing.get(title)
     if pid:
-        # 본문을 통째로 지우고 다시 넣는다 — 돌릴 때마다 블록이 쌓이지 않게 하는 가장 단순한 방법.
-        for b in children_of(pid):
-            req("DELETE", f"/blocks/{b['id']}")
-        print(f"  · 갱신  {title}", flush=True)
-    else:
-        pid = req("POST", "/pages", json={
-            "parent": {"page_id": parent},
-            "properties": {"title": [{"text": {"content": title}}]},
-        })["id"]
-        print(f"  · 생성  {title}", flush=True)
+        return pid
+    pid = req("POST", "/pages", json={
+        "parent": {"page_id": parent},
+        "properties": {"title": [{"text": {"content": title}}]},
+    })["id"]
+    print(f"  · 생성  {title}", flush=True)
+    return pid
+
+
+def fill_page(pid: str, title: str, body: list, icon: str, cover: str) -> None:
+    # 본문을 통째로 지우고 다시 넣는다 — 돌릴 때마다 블록이 쌓이지 않게 하는 가장 단순한 방법.
+    for b in children_of(pid):
+        req("DELETE", f"/blocks/{b['id']}")
     dress(pid, icon, cover)
+    body = resolve_images(body)
     # 요청당 자식 100개 상한 — 나눠 보낸다.
     for i in range(0, len(body), 50):
         req("PATCH", f"/blocks/{pid}/children", json={"children": body[i:i + 50]})
-    return pid
+    print(f"  · 본문  {title} ({len(body)}블록)", flush=True)
 
 
 def rebuild_parent(parent: str, ids: list[str]) -> None:
@@ -228,11 +277,11 @@ def rebuild_parent(parent: str, ids: list[str]) -> None:
 
         blk("heading_2", rich_text=[t("📖 자세한 안내")]),
         para(t("아래 두 장을 눌러 보세요. 하는 시점이 달라 나눠 두었습니다.", color="gray")),
-        cols([callout(PAGES[i][2], PAGES[i][4],
-                      [{"type": "mention", "mention": {"page": {"id": ids[i]}},
+        cols([callout(icon, color,
+                      [{"type": "mention", "mention": {"page": {"id": ids[key]}},
                         "annotations": {"bold": True}}],
-                      [para(t(PAGES[i][3], color="gray"))])
-              for i in range(len(PAGES))]),
+                      [para(t(desc, color="gray"))])
+              for key, _t, icon, desc, color, _c in PAGES if key in PARENT_CARDS]),
         blk("divider"),
 
         blk("heading_2", rich_text=[t("🔗 바로가기")]),
@@ -255,22 +304,32 @@ def main() -> None:
     ap.add_argument("--check", action="store_true", help="금액 검사만")
     args = ap.parse_args()
 
+    parent = os.environ.get("NOTION_PARENT_PAGE_ID", "")
+    if not parent:
+        sys.exit("NOTION_PARENT_PAGE_ID 가 없습니다.")
+
+    # 1패스 — 페이지 껍데기부터. 서로를 카드로 가리키려면 id 가 먼저 있어야 한다.
+    existing = {b["child_page"]["title"]: b["id"]
+                for b in children_of(parent) if b.get("type") == "child_page"}
+    ids = {key: ensure_page(parent, title, existing) for key, title, *_ in PAGES}
+
+    # 2패스 — 본문. 금액 검사를 통과해야 한 줄이라도 올라간다.
     bodies, hits = {}, []
     for key, title, *_ in PAGES:
-        body = PAGE_BODIES[key]()
-        bodies[title] = body
+        body = PAGE_BODIES[key](ids)
+        bodies[key] = body
         hits += money_check(title, walk_text(body))
+    if hits:
+        print("금액으로 읽힐 수 있는 표현이 있습니다 — 발행하지 않습니다.", flush=True)
+        for h in hits:
+            print("  " + h, flush=True)
+        sys.exit(1)
     print(f"금액 검사 통과 · {len(PAGES)}장", flush=True)
     if args.check:
         return
 
-    parent = os.environ.get("NOTION_PARENT_PAGE_ID", "")
-    if not parent:
-        sys.exit("NOTION_PARENT_PAGE_ID 가 없습니다.")
-    existing = {b["child_page"]["title"]: b["id"]
-                for b in children_of(parent) if b.get("type") == "child_page"}
-    ids = [upsert_child(parent, title, bodies[title], icon, cover, existing)
-           for _, title, icon, _, _, cover in PAGES]
+    for key, title, icon, _d, _c, cover in PAGES:
+        fill_page(ids[key], title, bodies[key], icon, cover)
     rebuild_parent(parent, ids)
 
     print("\n발행 완료. 하위 페이지마다 노션에서 '웹에 게시'를 켜 주세요(API 로는 못 켭니다).", flush=True)
