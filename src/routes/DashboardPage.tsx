@@ -130,8 +130,8 @@ function DashboardPage() {
 
             {/* 잔여 소진 임박 — 재계약을 챙겨야 할 업체. 숫자만 두면 누구인지 몰라 못 움직인다. */}
             <div className="grid gap-3 lg:grid-cols-2">
-                <LowStock label="카페 계약 소진 임박" limit={CAFE_LOW} rows={lowStock.cafe} tone="#7c3aed" />
-                <LowStock label="브랜드 블로그 소진 임박" limit={BLOG_LOW} rows={lowStock.blog} tone="#0891b2" />
+                <LowStock label="카페 계약 소진 임박" limit={CAFE_LOW} rows={lowStock.cafe} />
+                <LowStock label="브랜드 블로그 소진 임박" limit={BLOG_LOW} rows={lowStock.blog} />
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
@@ -195,10 +195,9 @@ function LowRowItem({ r }: { r: LowRow }) {
         >
             <span className="truncate font-medium text-[#334155]">{r.name}</span>
             <span className="flex shrink-0 items-center gap-1.5">
-                {done ? (
-                    <span className="rounded-full bg-[#fef2f2] px-1.5 py-0.5 text-[10px] font-bold text-[#b91c1c]">소진</span>
-                ) : null}
-                <span className={`text-xs font-bold ${done ? 'text-[#b91c1c]' : 'text-[#d97706]'}`}>{r.remain}건</span>
+                {/* 채운 배지는 줄마다 색 덩어리가 생겨 목록이 시끄럽다 — 글자만 남긴다. */}
+                {done ? <span className="text-[10px] font-bold text-[#b91c1c]">소진</span> : null}
+                <span className={`text-xs font-bold ${done ? 'text-[#b91c1c]' : 'text-[#475569]'}`}>{r.remain}건</span>
                 <span className="text-[11px] text-[#94a3b8]">/ {r.goal}</span>
             </span>
         </Button>
@@ -210,23 +209,22 @@ function LowStock({
     label,
     limit,
     rows,
-    tone,
 }: {
     label: string;
     limit: number;
     rows: LowRow[];
-    tone: string;
 }) {
     const [open, setOpen] = useState(false);
     const out = rows.filter((r) => r.remain === 0).length;
     const rest = rows.length - PREVIEW;
 
     return (
-        <div className="rounded-[8px] border border-[#e2e8f0] bg-white p-4">
+        // 다른 KPI 카드와 같은 톤으로 두되 테두리만 주황 — 색을 더 쓰면 대시보드에서 혼자 튄다(사장님 지시 2026-08-21).
+        <div className="rounded-[8px] border border-[#fdba74] bg-white p-4">
             <div className="flex items-start justify-between">
                 <div>
                     <p className="m-0 text-xs text-[#64748b]">{label}</p>
-                    <p className="m-0 mt-1 text-2xl font-bold" style={{ color: rows.length ? tone : '#94a3b8' }}>
+                    <p className="m-0 mt-1 text-2xl font-bold" style={{ color: rows.length ? '#0f172a' : '#94a3b8' }}>
                         {rows.length}
                         <span className="ml-1 text-[15px] font-semibold text-[#94a3b8]">곳</span>
                     </p>
