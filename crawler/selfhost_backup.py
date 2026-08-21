@@ -57,6 +57,28 @@ def log(msg):
         f.write(line + "\n")
 
 
+def _install_excepthook():
+    """예상 못 한 예외로 죽을 때도 사람에게 알린다.
+
+    ★ 왜: 이 스크립트는 모듈 레벨 실행이라 try/except 로 전체를 감쌀 곳이 없다.
+      ssh() 의 subprocess timeout 이 터지면 TimeoutExpired 가 어디에도 안 잡혀
+      traceback 만 남기고 죽는다 — 03:30 무인 실행에서는 아무도 모른다(독립검증 지적).
+      알림 자체가 다시 죽지 않도록 훅 안에서도 전부 감싼다."""
+    import traceback
+
+    def hook(exc_type, exc, tb):
+        try:
+            head = "".join(traceback.format_exception_only(exc_type, exc)).strip()
+            log(f"❌ 예기치 않은 종료: {head}")
+            notify_failure([f"예기치 않은 종료: {head}",
+                            "백업이 완료되지 않았습니다. 옛 백업은 그대로 있습니다."])
+        except Exception:
+            pass
+        sys.__excepthook__(exc_type, exc, tb)
+
+    sys.excepthook = hook
+
+
 def notify_failure(reasons):
     """백업 실패를 사람에게 밀어 보낸다.
 
@@ -68,24 +90,15 @@ def notify_failure(reasons):
             f"\n\n로그: {LOGP}\n"
             "옛 백업은 지우지 않았습니다(실패한 날의 옛 백업이 유일한 사본일 수 있어서).\n"
             "복구 절차: docs/백업-복구절차.md\n")
+    # ⚠️ 예전엔 여기서 VM 에 ssh 해 SMTP_PASS 를 읽었다. 그런데 백업이 실패하는 가장 흔한 이유가
+    #   바로 'VM 이 죽었다' 라, 알려야 할 때 알릴 수단이 같이 죽는 구조였다(독립검증 지적).
+    #   notify_mail 은 비밀번호를 로컬에 캐시하고 예외도 안 던진다.
     try:
-        import smtplib
-        from email.message import EmailMessage
-        p = subprocess.run(["ssh", "-n", "-i", KEY, "-o", "BatchMode=yes", VM,
-                            "grep -E '^SMTP_PASS=' ~/ddmkt-db/.env"],
-                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
-        pw = (p.stdout.split("=", 1)[1].strip() if "=" in p.stdout else "")
-        if pw:
-            m = EmailMessage()
-            m["Subject"] = "⛔ [DDMKT] 백업 실패"
-            m["From"] = "든든한마케팅 <rlawhddls@ddmkt.com>"
-            m["To"] = "dog6425@ddmkt.com"
-            m.set_content(body)
-            s = smtplib.SMTP("smtp.worksmobile.com", 587, timeout=30)
-            s.ehlo(); s.starttls(); s.ehlo(); s.login("rlawhddls@ddmkt.com", pw)
-            s.send_message(m); s.quit()
+        import notify_mail
+        if notify_mail.send("⛔ [DDMKT] 백업 실패", body):
             log("  실패 알림 메일 발송")
             return
+        log("  실패 알림 메일 실패 — 윈도우 알림으로 대체")
     except Exception as exc:
         log(f"  실패 알림 메일 실패({type(exc).__name__}) — 윈도우 알림으로 대체")
     try:
@@ -93,6 +106,10 @@ def notify_failure(reasons):
         ctypes.windll.user32.MessageBoxW(0, body, "⛔ DDMKT 백업 실패", 0x10 | 0x1000)
     except Exception:
         pass
+
+
+# 훅 설치 — notify_failure 가 정의된 뒤여야 한다(훅이 그걸 부른다).
+_install_excepthook()
 
 
 def ssh(cmd, timeout=900):
@@ -179,7 +196,10 @@ if rc == 8 or "ROUNDTRIP_MISMATCH" in (out or ""):
     notify_failure(["암호화 왕복 불일치(잠근 파일이 원본과 다름)"])
     sys.exit(1)
 if rc != 0:
+    # ★ 여기가 가장 흔한 실패다(VM 다운·docker 이상·pg_dump 오류). 예전엔 로그만 남기고 끝나
+    #   03:30 무인 실행에서 아무도 몰랐다. 반드시 밀어 보낸다.
     log(f"❌ 덤프 실패: {err[:300]}")
+    notify_failure([f"덤프 실패(rc={rc}) — VM/도커/pg_dump 확인", (err or "")[:200]])
     sys.exit(1)
 for line in out.splitlines():
     log(f"  생성  {line}")
@@ -198,7 +218,9 @@ p = subprocess.run(["scp", "-i", KEY, "-o", "BatchMode=yes", "-q",
                     f"{VM}:~/backups/{DAY}/*", str(OUT)],
                    stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1800)
 if p.returncode != 0:
+    # 덤프는 됐는데 이 PC 로 못 가져온 경우 — VM 에는 사본이 남지만 로컬엔 없다. 알려야 한다.
     log(f"❌ 전송 실패: {p.stderr[:300]}")
+    notify_failure([f"scp 전송 실패(rc={p.returncode}) — 네트워크/VM 확인", (p.stderr or "")[:200]])
     sys.exit(1)
 
 # ── 검증 ① sha256 대조 ─────────────────────────────────────────

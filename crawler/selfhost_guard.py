@@ -78,6 +78,39 @@ def log(msg):
         pass
 
 
+# 메일 알림 — 사람이 자리에 없을 때 유일하게 닿는 길.
+#   notify_mail 은 SMTP 비밀번호를 로컬에 캐시하므로 VM 이 죽어도 보낼 수 있다.
+#   (예전엔 보낼 때마다 VM 에 ssh 해서 비밀번호를 읽었다 — VM 이 죽으면 그 사실을 알릴 수 없었다.)
+try:
+    import notify_mail
+except Exception:
+    notify_mail = None
+
+_last_mail = {"state": None, "at": 0.0}
+MAIL_REPEAT_SEC = 3 * 3600      # 이상이 계속되면 3시간마다 다시 보낸다
+
+
+def notify_all(state, title, body):
+    """토스트(로컬) + 메일(원격). 메일은 상태가 바뀌었거나 3시간이 지났을 때만 — 도배 방지.
+       ★ 메일 때문에 감시 루프가 죽으면 안 된다. notify_mail.send 는 예외를 안 던지지만
+         import 실패까지 감안해 여기서도 통째로 감싼다."""
+    notify(title, body)
+    if notify_mail is None:
+        return
+    now = time.time()
+    if state == _last_mail["state"] and now - _last_mail["at"] < MAIL_REPEAT_SEC:
+        return
+    _last_mail["state"], _last_mail["at"] = state, now
+    try:
+        threading.Thread(
+            target=notify_mail.send,
+            args=(f"{title} — 자체호스팅 가드",
+                  f"{body}\n\n감시: selfhost_guard\n시각: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n"),
+            daemon=True).start()
+    except Exception as e:
+        log(f"메일 알림 실패(계속 감시): {type(e).__name__}")
+
+
 def notify(title, body):
     """윈도우 알림 — DB·터널이 죽어도 뜬다(전부 로컬).
 
@@ -278,15 +311,19 @@ def main():
         if state != prev:
             log(f"상태 변화: {prev or '(최초)'} → {state} · {detail}")
             if state == "down":
-                notify("⛔ 자체호스팅 이상", f"{detail}\nERP·크롤·발행이 멈출 수 있습니다. VM 확인 필요.")
+                notify_all(state, "⛔ 자체호스팅 이상", f"{detail}\nERP·크롤·발행이 멈출 수 있습니다. VM 확인 필요.")
             elif state == "warn":
-                notify("⚠️ 자체호스팅 경고", detail)
+                notify_all(state, "⚠️ 자체호스팅 경고", detail)
             elif prev:
-                notify("✅ 자체호스팅 정상 복구", detail)
+                notify_all(state, "✅ 자체호스팅 정상 복구", detail)
             save_state(state)
             prev = state
         else:
             log(f"{state} · {detail}")
+            # 상태 변화가 없어도 이상이 계속되면 주기적으로 다시 알린다 —
+            # 변화 시 1회만 보내면 그 1통을 놓쳤을 때 3일 내내 아무 소식이 없다.
+            if state in ("down", "warn"):
+                notify_all(state, "⛔ 자체호스팅 이상 지속" if state == "down" else "⚠️ 자체호스팅 경고 지속", detail)
         if ONCE:
             return
         time.sleep(INTERVAL)

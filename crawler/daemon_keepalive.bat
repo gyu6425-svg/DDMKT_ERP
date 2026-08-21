@@ -41,4 +41,13 @@ if %errorlevel%==0 (
   start "" /min cmd /c "C:\Users\ddmkt\DDMKT_ERP\crawler\selfhost_guard.bat"
 )
 
+REM ---- re-enable crawl scheduled tasks (they flip to Disabled after a reboot) ----
+REM   post_reboot.bat does this too, but it lives in the Startup FOLDER which on this PC
+REM   takes ~13 min after logon (18 startup entries, ~30s apart) and needs a logon at all.
+REM   This task runs every 5 min regardless, so a reboot costs at most 5 minutes.
+REM   Need measured for the unattended weekend 2026-08-22..24: a Windows Update reboot
+REM   would otherwise silently drop all three nights of crawling.
+REM   PowerShell, not `find`: with Git Bash ahead on PATH the unix find is picked up and
+REM   the check fails silently (same trap as the process detection above).
+powershell -NoProfile -NonInteractive -Command "Get-ScheduledTask | Where-Object { ($_.TaskName -like 'DDMKT-Crawl*' -or $_.TaskName -eq 'DDMKT-CrawlReport' -or $_.TaskName -eq 'DDMKT-SelfhostBackup') -and $_.State -eq 'Disabled' } | ForEach-Object { Enable-ScheduledTask -TaskName $_.TaskName | Out-Null; '[keepalive] re-enabled ' + $_.TaskName }" >> daemon_keepalive.log 2>&1
 exit /b 0

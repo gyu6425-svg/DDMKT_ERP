@@ -72,3 +72,6 @@ _backup/
 crawler/*.state
 crawler/*.bak_*
 crawler/_serp_*.html
+
+# SMTP 앱 비밀번호 로컬 캐시 — 절대 저장소에 올리지 않는다(notify_mail.py)
+crawler/.smtp_pass

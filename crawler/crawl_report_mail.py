@@ -67,40 +67,17 @@ def log(msg):
         pass
 
 
-def smtp_pass():
-    """앱 비밀번호는 VM 의 .env 에서 그때그때 읽는다 — 이 PC 에 사본을 남기지 않는다."""
-    key = os.path.expanduser("~/.ssh/ddmkt_vm")
-    p = subprocess.run(["ssh", "-n", "-i", key, "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
-                        "ddmkt@192.168.0.179", "grep -E '^SMTP_PASS=' ~/ddmkt-db/.env"],
-                       stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
-    m = re.search(r"^SMTP_PASS=(.+)$", p.stdout.strip(), re.M)
-    return m.group(1).strip() if m else None
+# ⚠️ 예전엔 여기서 보낼 때마다 VM 에 ssh 해서 SMTP_PASS 를 읽었다. 두 가지가 문제였다.
+#   ① VM 이 죽으면 'VM 이 죽었다'는 메일을 보낼 수 없다(알림이 감시 대상에 의존).
+#   ② ssh 가 느려 타임아웃이 나면 예외가 main() 을 뚫고 나가 감시자가 통째로 죽는다.
+#   notify_mail 은 비밀번호를 로컬에 캐시하고 어떤 경우에도 예외를 던지지 않는다.
+import notify_mail
 
 
 def send(subject, body):
-    pw = smtp_pass()
-    if not pw:
-        log("메일 실패 — VM 에서 SMTP_PASS 를 못 읽음")
-        return False
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = f"든든한마케팅 <{FROM}>"
-    msg["To"] = TO
-    msg["Date"] = formatdate(localtime=True)
-    msg.set_content(body)
-    for attempt in (1, 2, 3):          # 메일 한 통 때문에 보고가 통째로 사라지지 않게
-        try:
-            s = smtplib.SMTP("smtp.worksmobile.com", 587, timeout=30)
-            s.ehlo(); s.starttls(); s.ehlo()
-            s.login(FROM, pw)
-            s.send_message(msg)
-            s.quit()
-            log(f"메일 발송 ✅ {subject}")
-            return True
-        except Exception as e:
-            log(f"메일 실패({attempt}/3) {type(e).__name__}: {str(e)[:80]}")
-            time.sleep(20)
-    return False
+    ok = notify_mail.send(subject, body)
+    log(("메일 발송 ✅ " if ok else "메일 실패 ❌ ") + subject)
+    return ok
 
 
 def status():
@@ -137,7 +114,18 @@ def main():
         return 0
 
     log("=== 새벽 크롤 보고 감시 시작 ===")
-    st0 = status()
+    # ★ 여기서 죽으면 밤새 한 통도 안 온다 — '침묵 보고'조차 못 한다.
+    #   00:15 에 터널이 잠깐 죽어 있는 것만으로 그렇게 됐다(독립검증 지적).
+    #   기준선을 못 잡아도 감시는 시작한다. 기준선이 비면 첫 완료를 '증가'로 보게 되는데,
+    #   그건 메일 한 통 더 오는 정도라 침묵보다 낫다.
+    try:
+        st0 = status()
+    except Exception as e:
+        log(f"시작 상태 조회 실패(감시는 계속): {type(e).__name__}")
+        send("⚠ [DDMKT] 크롤 감시 시작 시 DB 조회 실패",
+             f"00:15 감시 시작 시점에 상태를 못 읽었습니다({type(e).__name__}).\n"
+             "터널/VM 을 확인하세요. 감시는 계속합니다.\n")
+        st0 = {}
     base_blog = len(runs_of(st0, "전체크롤"))
     base_cafe = len(runs_of(st0, "카페순위"))
     sent_start = sent_mid = sent_end = sent_stall = False
