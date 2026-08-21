@@ -1,7 +1,14 @@
-﻿import { useMemo } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { useErpData } from '../context/ErpDataContext';
 import { calcContract, formatAmount, STATUS_BADGE } from '../lib/erpUtils';
+import { getClientContracts, type ClientContract } from '../api/clientContracts';
+import { isBrandBlogSub } from '../lib/products';
 import Button from '../components/Button';
+
+// 잔여 소진 임박 기준 — 카페는 10건, 브랜드 블로그는 5건 미만(사장님 지시 2026-08-21).
+//   기준이 다른 이유: 카페는 하루 여러 건이 나가고 블로그는 주 단위라, 같은 숫자면 경보 시점이 어긋난다.
+const CAFE_LOW = 10;
+const BLOG_LOW = 5;
 
 function go(path: string) {
     window.history.pushState({}, '', path);
@@ -59,27 +66,47 @@ function DashboardPage() {
         [clients, today],
     );
 
-    // 영업자별 실적
-    const byManager = useMemo(() => {
-        const map = new Map<string, { count: number; net: number; incentive: number; unpaid: number }>();
-        clients.forEach((client) => {
-            const key = client.manager || '미지정';
-            const entry = map.get(key) ?? { count: 0, incentive: 0, net: 0, unpaid: 0 };
-            entry.count += 1;
-            const cd = contractData[client.id];
-            if (cd) {
-                const rate = salespeople.find((s) => s.name === key)?.commission_rate ?? null;
-                const fin = calcContract(cd, rate);
-                entry.net += fin.net;
-                entry.incentive += fin.incentive;
-                entry.unpaid += fin.unpaid;
-            }
-            map.set(key, entry);
-        });
-        return [...map.entries()]
-            .map(([name, value]) => ({ name, ...value }))
-            .sort((a, b) => b.net - a.net);
-    }, [clients, contractData, salespeople]);
+    // 잔여 소진 임박 — 카페 배포 / 브랜드 블로그.
+    //   계약 진행률은 client_contracts.remain_count 하나가 출처다(카페는 크롤러가, 블로그는
+    //   블로그 대시보드가 이 값을 깎는다). 관리시트의 실시간 계산과 몇 시간 어긋날 수 있다.
+    const [contracts, setContracts] = useState<ClientContract[]>([]);
+    useEffect(() => {
+        let alive = true;
+        void getClientContracts().then(({ data }) => { if (alive) setContracts(data); });
+        return () => { alive = false; };
+    }, []);
+
+    const lowStock = useMemo(() => {
+        // 내가 볼 수 있는 고객만. 대행사 하부 업체는 우리 계약이 아니라 제외(계약 관리와 같은 규칙).
+        const nameOf = new Map<string, string>();
+        for (const c of clients) {
+            if ((c as { parent_client_id?: string | null }).parent_client_id) continue;
+            nameOf.set(c.id, c.company || '업체');
+        }
+        const pick = (match: (ct: ClientContract) => boolean, limit: number) =>
+            contracts
+                .filter((ct) => nameOf.has(ct.client_id) && match(ct))
+                // 만료 처리한 계약은 이미 끝난 건이라 뺀다 — 안 빼면 소진된 옛 계약이 영원히 쌓인다.
+                .filter((ct) => !(ct.note || '').includes('[만료]'))
+                .filter((ct) => (ct.goal_count ?? 0) > 0 && (ct.remain_count ?? 0) < limit)
+                .map((ct) => ({
+                    id: ct.id,
+                    client_id: ct.client_id,
+                    name: ct.blog_name || nameOf.get(ct.client_id) || '업체',
+                    remain: Math.max(0, ct.remain_count ?? 0),
+                    goal: ct.goal_count ?? 0,
+                }))
+                // ★ 잔여 0(이미 소진)을 앞에 두면 칩이 0으로만 채워져, 정작 '아직 막을 수 있는'
+                //   1~n건 남은 업체가 안 보인다. 소진 건수는 위 빨간 숫자로 따로 세니
+                //   칩은 잔여가 남은 곳부터 보여 준다.
+                .sort((a, b) => (a.remain === 0 ? 1 : 0) - (b.remain === 0 ? 1 : 0) || a.remain - b.remain);
+
+        const base = (s: string) => s.replace(/^상위노출 보장형 · /, '');
+        return {
+            cafe: pick((ct) => ct.category === '카페' && /배포/.test(ct.subtype || ''), CAFE_LOW),
+            blog: pick((ct) => ct.category === '블로그' && isBrandBlogSub(base(ct.subtype || '')), BLOG_LOW),
+        };
+    }, [clients, contracts]);
 
     return (
         <section className="grid gap-4">
@@ -99,6 +126,24 @@ function DashboardPage() {
                 <Kpi label="총 매출" value={formatAmount(stats.revenue)} sub={`계약 ${stats.contractCount}건`} />
                 <Kpi label="순수익" value={formatAmount(stats.net)} accent="#059669" sub={`인센 ${formatAmount(stats.incentive)}`} />
                 <Kpi label="미수금" value={formatAmount(stats.unpaid)} accent="#dc2626" sub="수금 필요" />
+            </div>
+
+            {/* 잔여 소진 임박 — 재계약을 챙겨야 할 업체. 숫자만 두면 누구인지 몰라 못 움직인다. */}
+            <div className="grid gap-3 lg:grid-cols-2">
+                <LowStock
+                    label="카페 계약 소진 임박"
+                    limit={CAFE_LOW}
+                    rows={lowStock.cafe}
+                    tone="#7c3aed"
+                    onGo={() => go('/contracts')}
+                />
+                <LowStock
+                    label="브랜드 블로그 소진 임박"
+                    limit={BLOG_LOW}
+                    rows={lowStock.blog}
+                    tone="#0891b2"
+                    onGo={() => go('/contracts')}
+                />
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
@@ -142,48 +187,71 @@ function DashboardPage() {
                 </Panel>
             </div>
 
-            {/* 영업자별 실적 */}
-            <Panel title="👤 영업자별 실적" count={byManager.length}>
-                <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-left text-sm">
-                        <thead>
-                            <tr className="border-b border-[#e2e8f0] text-[11px] text-[#64748b]">
-                                <th className="px-2 py-1.5 font-semibold">영업자</th>
-                                <th className="px-2 py-1.5 text-right font-semibold">고객수</th>
-                                <th className="px-2 py-1.5 text-right font-semibold">순수익</th>
-                                <th className="px-2 py-1.5 text-right font-semibold">인센티브</th>
-                                <th className="px-2 py-1.5 text-right font-semibold">미수금</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {byManager.length ? (
-                                byManager.map((row) => (
-                                    <tr key={row.name} className="border-b border-[#f1f5f9]">
-                                        <td className="px-2 py-1.5 font-medium">{row.name}</td>
-                                        <td className="px-2 py-1.5 text-right">{row.count}</td>
-                                        <td className="px-2 py-1.5 text-right font-semibold text-[#059669]">
-                                            {formatAmount(row.net)}
-                                        </td>
-                                        <td className="px-2 py-1.5 text-right text-[#7c3aed]">
-                                            {formatAmount(row.incentive)}
-                                        </td>
-                                        <td className="px-2 py-1.5 text-right text-[#dc2626]">
-                                            {formatAmount(row.unpaid)}
-                                        </td>
-                                    </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td className="px-2 py-6 text-center text-[#94a3b8]" colSpan={5}>
-                                        데이터가 없습니다
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </Panel>
         </section>
+    );
+}
+
+// 잔여 소진 임박 카드 — 큰 숫자(몇 곳) + 누구인지. 잔여 0은 이미 멈춘 것이라 빨강으로 따로 센다.
+function LowStock({
+    label,
+    limit,
+    rows,
+    tone,
+    onGo,
+}: {
+    label: string;
+    limit: number;
+    rows: { id: string; client_id: string; name: string; remain: number; goal: number }[];
+    tone: string;
+    onGo: () => void;
+}) {
+    const out = rows.filter((r) => r.remain === 0).length;
+    return (
+        <div className="rounded-[8px] border border-[#e2e8f0] bg-white p-4">
+            <div className="flex items-start justify-between">
+                <div>
+                    <p className="m-0 text-xs text-[#64748b]">{label}</p>
+                    <p className="m-0 mt-1 text-2xl font-bold" style={{ color: rows.length ? tone : '#94a3b8' }}>
+                        {rows.length}
+                        <span className="ml-1 text-[15px] font-semibold text-[#94a3b8]">곳</span>
+                    </p>
+                    <p className="m-0 mt-0.5 text-[11px] text-[#94a3b8]">
+                        잔여 {limit}건 미만{out ? <span className="font-bold text-[#dc2626]"> · 소진 {out}곳</span> : null}
+                    </p>
+                </div>
+                {rows.length ? (
+                    <Button className="text-xs font-semibold text-[#1e40af]" onClick={onGo} type="button">
+                        계약 관리 →
+                    </Button>
+                ) : null}
+            </div>
+            {rows.length ? (
+                <div className="mt-2.5 flex flex-wrap gap-1">
+                    {rows.slice(0, 12).map((r) => (
+                        <button
+                            className="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+                            key={r.id}
+                            // 고객사 상세는 별도 라우트가 아니라 /clients?id= 로 연다(ClientsPage 안의 패널).
+                            onClick={() => go(`/clients?id=${encodeURIComponent(r.client_id)}`)}
+                            style={
+                                r.remain === 0
+                                    ? { background: '#fef2f2', borderColor: '#fecaca', color: '#b91c1c' }
+                                    : { background: '#f8fafc', borderColor: '#e2e8f0', color: '#475569' }
+                            }
+                            title={`${r.name} · 잔여 ${r.remain} / 목표 ${r.goal}건`}
+                            type="button"
+                        >
+                            {r.name} <span className="font-bold">{r.remain}</span>
+                        </button>
+                    ))}
+                    {rows.length > 12 ? (
+                        <span className="px-1 text-[11px] font-semibold text-[#94a3b8]">+{rows.length - 12}</span>
+                    ) : null}
+                </div>
+            ) : (
+                <p className="m-0 mt-2.5 text-[11px] text-[#94a3b8]">임박한 계약이 없습니다</p>
+            )}
+        </div>
     );
 }
 
