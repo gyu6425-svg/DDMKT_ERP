@@ -184,11 +184,13 @@ type LowRow = { id: string; client_id: string; name: string; remain: number; goa
 const PREVIEW = 4;   // 카드에 바로 보여 주는 줄 수 — 나머지는 '자세히 보기'
 
 // 한 줄 — 업체명 + 잔여/목표. 누르면 그 고객사 상세로.
+//   ★ 공용 <Button> 을 쓰면 안 된다. className 으로 variant 를 추론하는데 여기 클래스는
+//     어디에도 안 걸려 'primary'(주황 채움)로 떨어진다 → 줄이 통째로 주황 막대가 된다(실측 2026-08-21).
 function LowRowItem({ r }: { r: LowRow }) {
     const done = r.remain === 0;
     return (
-        <Button
-            className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-[#f8fafc]"
+        <button
+            className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-sm hover:bg-[#f8fafc]"
             // 고객사 상세는 별도 라우트가 아니라 /clients?id= 로 연다(ClientsPage 안의 패널).
             onClick={() => go(`/clients?id=${encodeURIComponent(r.client_id)}`)}
             type="button"
@@ -200,7 +202,7 @@ function LowRowItem({ r }: { r: LowRow }) {
                 <span className={`text-xs font-bold ${done ? 'text-[#b91c1c]' : 'text-[#475569]'}`}>{r.remain}건</span>
                 <span className="text-[11px] text-[#94a3b8]">/ {r.goal}</span>
             </span>
-        </Button>
+        </button>
     );
 }
 
@@ -233,9 +235,10 @@ function LowStock({
                     </p>
                 </div>
                 {rest > 0 ? (
-                    <Button className="text-xs font-semibold text-[#1e40af]" onClick={() => setOpen(true)} type="button">
+                    <button className="cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-[#1e40af] hover:underline"
+                        onClick={() => setOpen(true)} type="button">
                         자세히 보기 →
-                    </Button>
+                    </button>
                 ) : null}
             </div>
 
@@ -243,13 +246,13 @@ function LowStock({
                 <div className="mt-2 grid gap-0.5">
                     {rows.slice(0, PREVIEW).map((r) => <LowRowItem key={r.id} r={r} />)}
                     {rest > 0 ? (
-                        <Button
-                            className="mt-0.5 rounded-md border border-dashed border-[#cbd5e1] px-2 py-1.5 text-[11px] font-semibold text-[#64748b] hover:bg-[#f8fafc]"
+                        <button
+                            className="mt-0.5 w-full cursor-pointer rounded-md border border-dashed border-[#cbd5e1] bg-transparent px-2 py-1.5 text-[11px] font-semibold text-[#64748b] hover:bg-[#f8fafc]"
                             onClick={() => setOpen(true)}
                             type="button"
                         >
                             나머지 {rest}곳 더 보기
-                        </Button>
+                        </button>
                     ) : null}
                 </div>
             ) : (
@@ -261,9 +264,10 @@ function LowStock({
                     <div className="max-h-[92vh] w-[min(560px,96vw)] overflow-y-auto rounded-2xl bg-white p-6" onClick={(e) => e.stopPropagation()}>
                         <div className="mb-1 flex items-center justify-between gap-2">
                             <h3 className="m-0 text-lg font-bold text-[#0f172a]">{label}</h3>
-                            <Button className="text-sm font-bold text-[#94a3b8] hover:text-[#475569]" onClick={() => setOpen(false)} type="button">
+                            <button className="cursor-pointer border-0 bg-transparent p-0 text-sm font-bold text-[#94a3b8] hover:text-[#475569]"
+                                onClick={() => setOpen(false)} type="button">
                                 닫기
-                            </Button>
+                            </button>
                         </div>
                         <p className="m-0 mb-4 text-sm text-[#64748b]">
                             잔여 {limit}건 미만 {rows.length}곳
