@@ -155,21 +155,36 @@ def to_date(w):
 
 
 _vanity_cache = {}
+# club_id → vanity. cafe_accounts 에서 채운다(main 에서 1회). 가장 믿을 수 있는 출처다.
+VANITY_BY_CLUB = {}
+
+
 def cafe_vanity(club, sample_aid):
-    """clubid → 카페 vanity(cafeUrl). 네이버 검색 결과가 vanity로 노출돼, model-B 글도 vanity로 저장해야 순위 매칭됨.
-       실패 시 clubid 폴백(최소 등록은 되게). article API 응답의 최상단 '\"url\":\"<slug>\"'."""
+    """clubid → 카페 vanity(cafeUrl). 네이버 검색 결과가 vanity 로 노출돼 순위 매칭에 vanity 가 필요하다.
+
+       ⚠️ 예전엔 실패하면 clubid 를 그대로 돌려줬다(`van or club`). 그러면 cafe_name 에 숫자가 박히고
+          UI 링크가 cafe.naver.com/31777405/2 가 되어 **전부 404** 다. 게다가 나중에 vanity 로 다시
+          저장되면 같은 글이 두 행이 된다(2026-08-21 SUB2 실측: 404 6건 · 중복 5건).
+          그래서 폴백을 없앴다. 못 알아내면 None 을 돌려주고 호출부가 등록을 건너뛴다.
+          틀린 값은 눈에 안 띄고, 빈 값은 로그에 보인다."""
     if club in _vanity_cache:
         return _vanity_cache[club]
-    van = None
-    try:
-        r = requests.get(f"https://apis.naver.com/cafe-web/cafe-articleapi/v2.1/cafes/{club}/articles/{sample_aid}",
-                         headers=WEB, timeout=15, verify=False)
-        m = re.search(r'"url"\s*:\s*"([a-zA-Z0-9_-]{2,30})"', r.text)
-        van = m.group(1) if m else None
-    except Exception:
+    # 1순위 — cafe_accounts 에 등록된 vanity. 사람이 확인한 값이라 네이버 응답보다 믿을 만하다.
+    van = VANITY_BY_CLUB.get(str(club))
+    if not van:
+        try:
+            r = requests.get(f"https://apis.naver.com/cafe-web/cafe-articleapi/v2.1/cafes/{club}/articles/{sample_aid}",
+                             headers=WEB, timeout=15, verify=False)
+            m = re.search(r'"url"\s*:\s*"([a-zA-Z0-9_-]{2,30})"', r.text)
+            van = m.group(1) if m else None
+        except Exception:
+            van = None
+    # 숫자만인 값은 vanity 가 아니다 — 옛 폴백의 잔재가 들어오는 것도 막는다.
+    if van and str(van).isdigit():
         van = None
-    _vanity_cache[club] = van or club
-    return _vanity_cache[club]
+    if van:
+        _vanity_cache[club] = van
+    return van
 
 
 _menu_cache = {}
@@ -258,9 +273,11 @@ def main():
     #     계정 자체가 없는 대상(company_key 미등록)은 예전처럼 그대로 크롤한다 — 계정 미등록과 정리는 다르다.
     retired = set()
     retired_clients = set()   # 조회 실패 시에도 아래 모델B 루프가 NameError 로 죽지 않게(전체 크롤 계속)
+    allacc = []               # 같은 이유 — vanity 매핑 블록이 이 이름을 쓴다.
     try:
+        # club_id·cafe_name 도 받는다 — cafe_name 에 숫자 clubid 가 박히는 것을 막는 1순위 출처.
         allacc = _SBS.get(f"{URL}/rest/v1/cafe_accounts", headers=DB,
-                              params={"select": "company_key,client_id,active"}, timeout=20, verify=False).json()
+                              params={"select": "company_key,client_id,active,club_id,cafe_name"}, timeout=20, verify=False).json()
         retired = {a["company_key"] for a in allacc if a.get("active") is False and a.get("company_key")}
         # ★ 모델B(고객 자기 카페)도 똑같이 끊는다. 예전엔 고정 TARGETS 에만 걸려 있어서,
         #   계약 달성으로 계정을 내려도(active=false) 고객 카페 글은 계속 새로 등록됐다.
@@ -273,6 +290,15 @@ def main():
         print(f"  ! 정리 업체 조회 실패(전체 크롤 계속): {exc}", flush=True)
     # 모델B: dep_<client_id> cafe_account 를 client_id 로 매핑(포스트 링크용).
     acc_by_client = {a["client_id"]: a["id"] for a in (accounts if isinstance(accounts, list) else []) if a.get("client_id")}
+    # club_id → vanity 매핑 — cafe_name 에 숫자가 박히는 것을 막는 1순위 출처.
+    try:
+        for a in (allacc if isinstance(allacc, list) else []):
+            cl, cn = str(a.get("club_id") or "").strip(), (a.get("cafe_name") or "").strip()
+            if cl and cn and not cn.isdigit():
+                VANITY_BY_CLUB[cl] = cn
+        print(f"  · club_id→vanity 매핑 {len(VANITY_BY_CLUB)}건 적재", flush=True)
+    except Exception as exc:
+        print(f"  ! vanity 매핑 적재 실패(크롤은 계속): {exc}", flush=True)
 
     existing = _SBS.get(f"{URL}/rest/v1/cafe_rank_posts", headers=DB,
                             params={"select": "cafe_name,article_id"}, timeout=30, verify=False).json()
@@ -315,8 +341,13 @@ def main():
             print(f"■ [모델B] {board}(club {club}/menu {mid}): 계약 종료로 정리된 업체 — 크롤 건너뜀", flush=True)
             continue
         arts = fetch_articles(club, mid)
-        # ★ cafe_name = vanity(clubid 아님). 네이버 검색 카드가 vanity로 노출돼 순위 매칭에 vanity 필요.
-        van = cafe_vanity(club, arts[0]["aid"]) if arts else club
+        # ★ cafe_name = vanity(clubid 아님). 네이버 검색 카드가 vanity 로 노출돼 순위 매칭에 vanity 필요.
+        #   못 알아내면 등록하지 않는다 — 숫자로 넣으면 링크가 404 가 되고 중복 행이 생긴다.
+        van = cafe_vanity(club, arts[0]["aid"]) if arts else VANITY_BY_CLUB.get(str(club))
+        if not van:
+            print(f"■ [모델B] {board}(club {club}/menu {mid}): vanity 를 못 알아내 등록 건너뜀 "
+                  f"— cafe_accounts 에 이 카페(club_id={club})의 cafe_name 을 넣어주세요", flush=True)
+            continue
         # dedup 은 저장키(vanity, aid) 기준 — 기존 글도 vanity로 저장돼 있어야 중복 안 남.
         new = [a for a in arts if (van, a["aid"]) not in have]
         print(f"■ [모델B] {board}(club {club}→{van}/menu {mid}): 목록 {len(arts)}글 · 신규 {len(new)}", flush=True)
