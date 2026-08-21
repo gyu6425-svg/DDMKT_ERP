@@ -269,7 +269,7 @@ def rebuild_parent(parent: str, ids: list[str]) -> None:
         # ★ ERP 주소는 맨 위. 안내를 아무리 잘 써도 갈 곳을 못 찾으면 아무 일도 안 일어난다.
         callout("🖥️", "blue_background",
                 [t("ERP 사이트 ", bold=True), a(ERP_URL, ERP_URL)],
-                [para(t("접수와 충전은 모두 여기서 합니다. 계정이 없으시면 담당자에게 말씀해 주세요.",
+                [para(t("접수와 충전은 모두 여기서 합니다. 이용 계정이 없으시면 담당자에게 말씀해 주세요.",
                         color="gray"))]),
         para(t("카페 배포는 "), t("선불", bold=True, color="red"),
              t("입니다. 발행 건수를 충전한 뒤 주문서를 넣으시면 저희가 대신 발행합니다. "
@@ -291,9 +291,10 @@ def rebuild_parent(parent: str, ids: list[str]) -> None:
         blk("divider"),
 
         blk("heading_2", rich_text=[t("🔗 바로가기")]),
-        callout("🔗", "gray_background", [a("고객 ERP 로그인 →", ERP_URL)], [
-            para(t("로그인하시면 화면 안에 단계별 안내(📖 가이드 보기)가 있어 "
-                   "처음이셔도 그대로 따라 하시면 됩니다. 계정이 없으시면 담당자에게 말씀해 주세요.",
+        # ★ '로그인' 이라는 낱말을 외부 링크 글자에 쓰지 않는다 — 노션 자동 검사기가 피싱으로 본다.
+        callout("🔗", "gray_background", [a("든든한마케팅 ERP 바로가기 →", ERP_URL)], [
+            para(t("ERP 에 들어가시면 화면 안에 단계별 안내(📖 가이드 보기)가 있어 "
+                   "처음이셔도 그대로 따라 하시면 됩니다. 이용 계정이 없으시면 담당자에게 말씀해 주세요.",
                    color="gray"))]),
 
         blk("heading_2", rich_text=[t("💬 문의")]),
