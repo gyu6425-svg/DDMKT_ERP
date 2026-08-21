@@ -35,6 +35,8 @@ import argparse
 import requests
 import truststore
 
+from notion_content import PAGE_BODIES
+
 truststore.inject_into_ssl()
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -47,12 +49,13 @@ BRAND = "Marketing Agency I 든든한마케팅"
 # 표지 이미지는 노션이 제공하는 기본 그라데이션을 쓴다 — 외부 호스팅이 필요 없고 링크가 안 죽는다.
 COVER = "https://www.notion.so/images/page-cover/gradients_8.png"
 
-# (원본 파일, 노션 제목, 아이콘, 카드 설명, 카드 색, 표지)
+# (본문 키, 노션 제목, 아이콘, 카드 설명, 카드 색, 표지)
+#   본문은 notion_content.PAGE_BODIES 의 블록 구조다 — 마크다운으로는 카드·컬러·2단 배치를 못 만든다.
 PAGES = [
-    ("01-충전-요청.md", "💳 충전 요청 — 발행 건수 받기", "💳",
+    ("01", "💳 충전 요청 — 발행 건수 받기", "💳",
      "신청 → 금액 통보 → 입금 → 건수 지급.\n발행 건수를 받는 절차입니다.",
      "blue_background", "https://www.notion.so/images/page-cover/gradients_3.png"),
-    ("02-카페-배포-접수.md", "📝 카페 배포 접수 — 주문서 작성", "📝",
+    ("02", "📝 카페 배포 접수 — 주문서 작성", "📝",
      "준비물 · 배포 종류 · 키워드 방식.\n무엇을 어떻게 발행할지 넣는 곳입니다.",
      "green_background", "https://www.notion.so/images/page-cover/gradients_10.png"),
 ]
@@ -136,17 +139,24 @@ def req(method: str, path: str, **kw):
     sys.exit(f"{method} {path} — 재시도 한도 초과")
 
 
-def load_md(name: str) -> str:
-    p = DOCS / name
-    if not p.exists():
-        sys.exit(f"원천 파일이 없습니다: {p}")
-    body = re.sub(r"<!--.*?-->", "", p.read_text(encoding="utf-8"), flags=re.S)  # 내부 메모 제거
-    return re.sub(r"\n{3,}", "\n\n", body).strip()
+def walk_text(blocks) -> list[str]:
+    """블록 트리 안의 모든 글자 — 금액 검사용. 하나라도 빠지면 검사 구멍이 된다."""
+    out = []
+    def rec(node):
+        if isinstance(node, dict):
+            if node.get("type") == "text":
+                out.append(node.get("text", {}).get("content", ""))
+            for v in node.values():
+                rec(v)
+        elif isinstance(node, list):
+            for v in node:
+                rec(v)
+    rec(blocks)
+    return out
 
 
-def money_check(name: str, text: str) -> list[str]:
-    return [f"{name}:{i}  {ln.strip()[:110]}"
-            for i, ln in enumerate(text.splitlines(), 1) if MONEY.search(ln)]
+def money_check(name: str, lines: list[str]) -> list[str]:
+    return [f"{name}  {ln.strip()[:110]}" for ln in lines if MONEY.search(ln)]
 
 
 def children_of(pid: str) -> list[dict]:
@@ -168,29 +178,23 @@ def dress(pid: str, icon: str, cover: str) -> None:
     })
 
 
-def upsert_child(parent: str, title: str, md: str, icon: str, cover: str, existing: dict) -> str:
+def upsert_child(parent: str, title: str, body: list, icon: str, cover: str, existing: dict) -> str:
     pid = existing.get(title)
     if pid:
-        # 본문 전체 교체 — 돌릴 때마다 블록이 쌓이지 않게 하는 가장 단순한 방법.
-        #   본문 형식은 {type, <type>:{new_str}} 이다. operation 으로 감싸면 400 이 난다.
-        #   allow_deleting_content 는 켜지 않는다. 하위 페이지가 딸려 지워지면 API 가 막아 준다.
-        req("PATCH", f"/pages/{pid}/markdown",
-            json={"type": "replace_content", "replace_content": {"new_str": md}})
+        # 본문을 통째로 지우고 다시 넣는다 — 돌릴 때마다 블록이 쌓이지 않게 하는 가장 단순한 방법.
+        for b in children_of(pid):
+            req("DELETE", f"/blocks/{b['id']}")
         print(f"  · 갱신  {title}", flush=True)
     else:
         pid = req("POST", "/pages", json={
             "parent": {"page_id": parent},
             "properties": {"title": [{"text": {"content": title}}]},
-            "markdown": md,
         })["id"]
         print(f"  · 생성  {title}", flush=True)
     dress(pid, icon, cover)
-    # 맨 끝에 돌아가는 길 — 하위 페이지만 공개했을 때 고객이 갈 곳이 없으면 그대로 이탈한다.
-    req("PATCH", f"/blocks/{pid}/children", json={"children": [
-        blk("divider"),
-        callout("🔗", "gray_background", [a("고객 ERP 로그인 →", ERP_URL)], [
-            para(t("계정이 없으시면 담당자에게 말씀해 주세요.", color="gray"))]),
-    ]})
+    # 요청당 자식 100개 상한 — 나눠 보낸다.
+    for i in range(0, len(body), 50):
+        req("PATCH", f"/blocks/{pid}/children", json={"children": body[i:i + 50]})
     return pid
 
 
@@ -252,15 +256,10 @@ def main() -> None:
     args = ap.parse_args()
 
     bodies, hits = {}, []
-    for fname, title, *_ in PAGES:
-        md = load_md(fname)
-        bodies[title] = md
-        hits += money_check(fname, md)
-    if hits:
-        print("금액으로 읽힐 수 있는 표현이 있습니다 — 발행하지 않습니다.", flush=True)
-        for h in hits:
-            print("  " + h, flush=True)
-        sys.exit(1)
+    for key, title, *_ in PAGES:
+        body = PAGE_BODIES[key]()
+        bodies[title] = body
+        hits += money_check(title, walk_text(body))
     print(f"금액 검사 통과 · {len(PAGES)}장", flush=True)
     if args.check:
         return
