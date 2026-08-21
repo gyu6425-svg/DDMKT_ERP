@@ -15,10 +15,14 @@ TARGET = [(d0 - datetime.timedelta(days=k)).isoformat() for k in range(NDAYS)]
 RANK = {d: i for i, d in enumerate(TARGET)}   # 작을수록 먼저(26=0,25=1,24=2)
 
 # ── 새벽 Full 크롤 구간에는 당일크롤을 절대 돌리지 않는다(같은 IP 동시요청 → 네이버 차단 방지) ──
-#   ⚠ 주말 당일크롤(DDMKT-Crawl-Today-WE)은 00:00부터 90분마다라 01:30·03:00·04:30·06:00·07:30 이
-#     Full(01:00~08:30) 한복판에 걸린다. 평일(WD)은 09:05 시작이라 안 겹쳐 그동안 드러나지 않았음.
+#   ⚠ 주말 당일크롤(DDMKT-Crawl-Today-WE)은 00:00부터 90분마다라 00:00·01:30·03:00·04:30·06:00·07:30 이
+#     Full(00:10~08:06) 한복판에 걸린다. 평일(WD)은 09:05 시작 + 14h55m 반복이라 23:35 에 끝나 안 닿는다.
+#   ⚠⚠ 2026-08-21: Full 을 01:00 → 00:10 으로 당기면서 이 창의 시작도 00:50 → 00:00 으로 내렸다.
+#     안 내리면 WE 의 00:00 실행이 게이트를 그냥 통과하고, 그게 10분 뒤 시작하는 Full 과 겹친다
+#     (당일크롤 1회가 10분 넘게 걸린다 — 같은 IP 동시요청은 정확히 이 게이트가 막으려던 것이다).
+#     Full 쪽에는 반대 방향 검사가 없어서, 여기서 안 막으면 아무도 안 막는다.
 #   시간대로 확실히 차단(DB 조회 실패해도 무조건 동작) + running 플래그로 2차 확인.
-FULL_START, FULL_END = datetime.time(0, 50), datetime.time(8, 40)
+FULL_START, FULL_END = datetime.time(0, 0), datetime.time(8, 40)
 _now = datetime.datetime.now()
 if FULL_START <= _now.time() <= FULL_END:
     print(f"⏭ 새벽 Full 크롤 구간({FULL_START:%H:%M}~{FULL_END:%H:%M}) — 당일크롤 건너뜀(겹침 방지) {_now:%H:%M}", flush=True)
